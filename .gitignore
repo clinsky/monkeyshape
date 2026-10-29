@@ -1,5 +1,7 @@
 .private/
 .handoffs
+.agents/worktrees/
+.agents/handoffs
 node_modules/
 out/
 

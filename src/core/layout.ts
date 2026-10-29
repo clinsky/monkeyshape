@@ -1,12 +1,21 @@
 /**
  * Where a track lives. Every track-aware command and skill derives these names from here, so
- * the CLI, the skills and the template can't disagree. Paths are absolute and POSIX; `repo`
- * is the main checkout's root.
+ * the CLI, the skills and the template can't disagree. Paths are absolute and POSIX.
  *
- *   <parent>/<repo>                      main checkout
- *   <parent>/<repo>@<track>              the track's worktree, on branch `track/<track>`
- *   <parent>/<repo>-state/handoffs/      one `<track>.md` per track, outside git
- *   <worktree>/.handoffs                 symlink to the handoffs directory (gitignored)
+ * `common` is git's common directory (`git rev-parse --path-format=absolute
+ * --git-common-dir`), the one fact that is the same from the main checkout and from every
+ * worktree; `repo`, the main checkout's root, is derived from it, never from the working
+ * directory. Everything a human sees stays under the repo's `.agents/`:
+ *
+ *   <repo>/.agents/skills/                     committed: the shared skills
+ *   <repo>/.agents/worktrees/<name>@<track>    gitignored: the track's worktree, on `track/<track>`
+ *   <common>/monkeyshape/handoffs/<track>.md   the handoffs themselves, inside git's directory
+ *   <repo>/.agents/handoffs                    gitignored symlink to that store
+ *   <checkout>/.handoffs                       gitignored symlink to that store, in every checkout
+ *
+ * The store lives under `.git` because handoffs are live state: `git clean -fdx` deletes
+ * ignored files, which would include a handoffs directory in the working tree, but it never
+ * touches `.git`. It can delete the symlinks, which the track commands recreate.
  *
  * Beads for a track carry the label `track:<track>`.
  */
@@ -16,36 +25,39 @@ export const TRACK_NAME = /^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$/;
 
 export const HANDOFFS_LINK = ".handoffs";
 
-const split = (path: string): { parent: string; name: string } => {
-  const trimmed = path.replace(/\/+$/, "");
-  const index = trimmed.lastIndexOf("/");
-  return { parent: trimmed.slice(0, index), name: trimmed.slice(index + 1) };
-};
+const trim = (path: string): string => path.replace(/\/+$/, "");
+
+const repoName = (repo: string): string => trim(repo).slice(trim(repo).lastIndexOf("/") + 1);
 
 export const trackBranch = (track: string): string => `track/${track}`;
 
 export const trackLabel = (track: string): string => `track:${track}`;
 
-export const worktreePath = (repo: string, track: string): string => {
-  const { parent, name } = split(repo);
-  return `${parent}/${name}@${track}`;
+export const worktreesDir = (repo: string): string => `${trim(repo)}/.agents/worktrees`;
+
+export const worktreePath = (repo: string, track: string): string =>
+  `${worktreesDir(repo)}/${repoName(repo)}@${track}`;
+
+/** The main checkout: the directory holding git's common directory. */
+export const mainCheckout = (common: string): string => {
+  const path = trim(common);
+  return path.slice(0, path.lastIndexOf("/"));
 };
 
-export const stateDir = (repo: string): string => {
-  const { parent, name } = split(repo);
-  return `${parent}/${name}-state`;
-};
+/** Where the handoffs are stored: inside git's directory, out of reach of `git clean`. */
+export const handoffsStore = (common: string): string => `${trim(common)}/monkeyshape/handoffs`;
 
-export const handoffsDir = (repo: string): string => `${stateDir(repo)}/handoffs`;
+/** The user-facing link to the store, in the main checkout. */
+export const handoffsLink = (repo: string): string => `${trim(repo)}/.agents/handoffs`;
 
-export const handoffPath = (repo: string, track: string): string =>
-  `${handoffsDir(repo)}/${track}.md`;
+export const handoffPath = (common: string, track: string): string =>
+  `${handoffsStore(common)}/${track}.md`;
 
-/** The track a worktree belongs to, from its directory name, or undefined for the main checkout. */
+/** The track a worktree belongs to, from its path, or undefined for the main checkout. */
 export const trackOf = (repo: string, worktree: string): string | undefined => {
-  const main = split(repo);
-  const here = split(worktree);
-  if (here.parent !== main.parent || !here.name.startsWith(`${main.name}@`)) return undefined;
-  const track = here.name.slice(main.name.length + 1);
+  const prefix = `${worktreesDir(repo)}/${repoName(repo)}@`;
+  const path = trim(worktree);
+  if (!path.startsWith(prefix)) return undefined;
+  const track = path.slice(prefix.length);
   return TRACK_NAME.test(track) ? track : undefined;
 };

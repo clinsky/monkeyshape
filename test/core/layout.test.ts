@@ -1,7 +1,9 @@
 import { describe, expect, test } from "bun:test";
 import {
   handoffPath,
-  stateDir,
+  handoffsLink,
+  handoffsStore,
+  mainCheckout,
   TRACK_NAME,
   trackBranch,
   trackLabel,
@@ -10,23 +12,37 @@ import {
 } from "../../src/core/layout.ts";
 
 const repo = "/home/me/dev/monkey-emu";
+const common = `${repo}/.git`;
 
 describe("track layout", () => {
-  test("names a track's worktree, branch, label, state and handoff", () => {
-    expect(worktreePath(repo, "docs")).toBe("/home/me/dev/monkey-emu@docs");
+  test("everything lives under the repo's .agents/", () => {
+    expect(worktreePath(repo, "docs")).toBe(
+      "/home/me/dev/monkey-emu/.agents/worktrees/monkey-emu@docs",
+    );
     expect(trackBranch("docs")).toBe("track/docs");
     expect(trackLabel("docs")).toBe("track:docs");
-    expect(stateDir(repo)).toBe("/home/me/dev/monkey-emu-state");
-    expect(handoffPath(repo, "docs")).toBe("/home/me/dev/monkey-emu-state/handoffs/docs.md");
-    expect(worktreePath(`${repo}/`, "docs")).toBe("/home/me/dev/monkey-emu@docs");
+    expect(handoffsLink(repo)).toBe("/home/me/dev/monkey-emu/.agents/handoffs");
+    expect(worktreePath(`${repo}/`, "docs")).toBe(worktreePath(repo, "docs"));
+  });
+
+  test("handoffs are stored under git's common directory, out of reach of git clean", () => {
+    expect(mainCheckout(common)).toBe(repo);
+    expect(mainCheckout(`${common}/`)).toBe(repo);
+    expect(handoffsStore(common)).toBe("/home/me/dev/monkey-emu/.git/monkeyshape/handoffs");
+    expect(handoffPath(common, "docs")).toBe(
+      "/home/me/dev/monkey-emu/.git/monkeyshape/handoffs/docs.md",
+    );
   });
 
   test("a worktree knows its track; the main checkout and strangers don't have one", () => {
-    expect(trackOf(repo, "/home/me/dev/monkey-emu@cross-module")).toBe("cross-module");
+    const worktrees = `${repo}/.agents/worktrees`;
+    expect(trackOf(repo, `${worktrees}/monkey-emu@cross-module`)).toBe("cross-module");
+    expect(trackOf(repo, `${worktrees}/monkey-emu@docs/`)).toBe("docs");
     expect(trackOf(repo, repo)).toBeUndefined();
-    expect(trackOf(repo, "/home/me/dev/other@docs")).toBeUndefined();
-    expect(trackOf(repo, "/elsewhere/monkey-emu@docs")).toBeUndefined();
-    expect(trackOf(repo, "/home/me/dev/monkey-emu@Bad_Name")).toBeUndefined();
+    expect(trackOf(repo, `${worktrees}/other@docs`)).toBeUndefined();
+    expect(trackOf(repo, "/home/me/dev/monkey-emu@docs")).toBeUndefined();
+    expect(trackOf(repo, `${worktrees}/monkey-emu@Bad_Name`)).toBeUndefined();
+    expect(trackOf(repo, `${worktrees}/monkey-emu@docs/src`)).toBeUndefined();
   });
 
   test("track names are lowercase words joined by hyphens", () => {

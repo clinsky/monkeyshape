@@ -15,6 +15,9 @@ hand-made files:
 3. `/milestone` turns priorities into a plan, groomed beads and named tracks.
 4. `mshape track new` makes each track's worktree and handoff; `/track` works it;
    `/handoff` hands it on; `mshape track rm` cleans it up.
+5. A new user knows what to do after `init`, without reading the roadmap: `init` prints the
+   next step, the README gives the loop in brief, and `docs/workflow.md` gives the
+   conventions in full. The installed skills are checked by `mshape check`, not trusted.
 
 **Acceptance on real data:** the next real repo is born this way. Every place the process
 breaks or needs a hand-made file is filed as a bead labelled `process` here.
@@ -40,10 +43,20 @@ remaining rules, the agentic layer, `validate` and adoption become deferred epic
 Agree these before diverging; change them only by telling the other tracks (handoff
 Messages) and the maintainer.
 
-- **Layout:** `src/core/layout.ts` is the only source of track paths and names: worktree
-  `<parent>/<repo>@<track>`, branch `track/<track>`, label `track:<track>`, handoffs in
-  `<parent>/<repo>-state/handoffs/<track>.md`, symlink `.handoffs` in every checkout.
-  Already merged with this plan, with tests.
+- **Layout:** `src/core/layout.ts` is the only source of track paths and names. Everything
+  lives under the repo's `.agents/`, so nothing clutters the directory around it: worktree
+  `<repo>/.agents/worktrees/<repo>@<track>` (gitignored), branch `track/<track>`, label
+  `track:<track>`. Amended 2026-10-29 from sibling directories, before any track started, at
+  the maintainer's request.
+  - **The main checkout comes from git, never from the directory:** every command resolves
+    `git rev-parse --path-format=absolute --git-common-dir` and derives the main checkout
+    from it (`mainCheckout`). Nested worktrees are inside the repo, so walking up the
+    directory tree would find the wrong root.
+  - **Handoffs live inside git's directory:** `<common>/monkeyshape/handoffs/<track>.md`,
+    with `<repo>/.agents/handoffs` and every checkout's `.handoffs` as gitignored symlinks
+    to it. `git clean -fdx` deletes ignored files, which removes the links but never
+    anything under `.git` (reproduced with real worktrees). `init`, `track new` and
+    `track list` recreate a missing link; nothing writes handoffs anywhere else.
 - **Shared paths** (`tracks.sharedPaths` in `shape.config.ts`, already in the schema with
   tests): gitignored data every worktree shares with the main checkout, such as a large
   dataset.
@@ -106,9 +119,9 @@ Messages) and the maintainer.
 
 | Track | Charter | Beads | Acceptance |
 |---|---|---|---|
-| `init` | `mshape init`: template, toolchain, beads, state directory, skills install; the CLI end-to-end test | `iqf.1`, `iqf.2`, `iqf.3`, `iqf.13`; `iqf.14` with the maintainer | A temp repo from `init` passes its gate; the CLI end-to-end test runs in the gate |
+| `init` | `mshape init`: template, toolchain, beads, state directory, skills install and its check; the CLI end-to-end test | `iqf.1`, `iqf.2`, `iqf.3`, `iqf.17`, `iqf.13`; `iqf.14` with the maintainer | A temp repo from `init` passes its gate; the CLI end-to-end test runs in the gate |
 | `tracks` | `mshape track new / list / current / rm`, including shared paths, verified `current` and the `rm` safety rules above; the handoff format and stub | `iqf.4`, `iqf.5`, `iqf.6`, `iqf.7` | Each command tested against real git worktrees, including every `rm` refusal and a failure partway through; the handoff format is parsed in a test |
-| `skills` | The five skills: `roadmap`, `milestone` (with grooming and gardening), `track`, `handoff`, `review-pr` | `iqf.8` to `iqf.12` | Each skill uses only the CLI surface above; the refs check passes on them; the maintainer runs `/milestone` on this repo for milestone 2 |
+| `skills` | The five skills: `roadmap`, `milestone` (with grooming and gardening), `track`, `handoff`, `review-pr`; and the conventions for adopters: `docs/workflow.md` and the README quick start | `iqf.8` to `iqf.12`, `iqf.15`, `iqf.16` | Each skill uses only the CLI surface above; the refs check passes on them; the maintainer runs `/milestone` on this repo for milestone 2 |
 
 `iqf.13` (the CLI end-to-end test) waits on `init` and `tracks`, and can land early.
 `iqf.14`, the **milestone acceptance**, waits on `iqf.13` and all five skills, and closes only
