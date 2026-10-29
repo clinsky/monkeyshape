@@ -1,0 +1,45 @@
+{
+  "name": "monkeyshape",
+  "version": "0.1.0",
+  "description": "Checks, configs and conventions for humans and coding agents building together on Bun, TypeScript, Effect and beads.",
+  "license": "MIT",
+  "type": "module",
+  "packageManager": "bun@1.4.2",
+  "engines": {
+    "bun": ">=1.4.2"
+  },
+  "bin": {
+    "mshape": "./src/cli/main.ts"
+  },
+  "exports": {
+    ".": "./src/api/monkeyshape.ts",
+    "./tsconfig.base.json": "./config/tsconfig.base.json",
+    "./biome": "./config/biome.base.json"
+  },
+  "files": [
+    "src",
+    "config",
+    "!src/**/*.test.ts",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "typecheck": "tsc -p .",
+    "lint": "biome ci --error-on-warnings .",
+    "fix": "biome check --write .",
+    "shape": "bun src/cli/main.ts check",
+    "check": "bun run typecheck && bun run lint && bun run shape && bun test"
+  },
+  "dependencies": {
+    "oxc-parser": "0.156.0"
+  },
+  "peerDependencies": {
+    "effect": "4.0.0"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "2.5.15",
+    "@types/bun": "1.4.2",
+    "effect": "4.0.0",
+    "typescript": "7.0.2"
+  }
+}
