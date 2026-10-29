@@ -1,4 +1,5 @@
 .private/
+.handoffs
 node_modules/
 out/
 
