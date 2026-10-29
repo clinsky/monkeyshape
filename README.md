@@ -67,7 +67,7 @@ Then make it your gate: `tsc && biome ci --error-on-warnings && mshape check && 
 
 | Check | Removes |
 |---|---|
-| `arch` | Layering drift, host access from pure code, unvetted packages, import cycles |
+| `arch` | Layering drift, host access from pure code (common paths, statically; not a sandbox), unvetted packages, import cycles |
 | `rules` | Silent decoding, hidden clocks/env/timers, thrown errors, nested runtimes, spread errors |
 | `refs` | Docs and comments that point at paths, scripts or decisions that don't exist |
 | `budgets` | Bloated `AGENTS.md`, decision logs and memories; oversized files |

@@ -4,8 +4,10 @@
  * modules in its `mayImport`; host APIs only with `hostAccess`; third-party packages only
  * from the allowlists. Adding an edge is a deliberate edit to `shape.config.ts`.
  *
- * Host access needs no import in Bun: `Bun.file`, `process`, `fetch` are globals. Those
- * are checked too, so a module without hostAccess can't reach the host by the side door.
+ * Host access needs no import in Bun: `Bun.file`, `process`, `fetch` are globals. Direct
+ * uses of those are checked too, respecting lexical shadowing. This is static analysis of
+ * the common paths, not a sandbox: `globalThis.fetch`, `const { file } = Bun`, aliasing a
+ * global to another name or `eval` still get through. It catches the habit, not an attacker.
  */
 
 import { Visitor } from "oxc-parser";
