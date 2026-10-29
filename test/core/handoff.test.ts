@@ -1,7 +1,8 @@
 import { describe, expect, test } from "bun:test";
 import { HANDOFF_SECTIONS, parseHandoff, stubHandoff } from "../../src/core/handoff.ts";
 
-const stub = stubHandoff("docs", "2026-10-29", "/home/me/dev/emu/.agents/worktrees/emu@docs");
+const made = stubHandoff("docs", "2026-10-29", "/home/me/dev/emu/.agents/worktrees/emu@docs");
+const stub = "text" in made ? made.text : "";
 
 const active = `# Track: docs
 Status: active
@@ -86,12 +87,50 @@ describe("handoff format", () => {
       "sections must be exactly",
     );
     expect(problems(active.replace("## State (2026-10-30)", "## State (today)"))).toEqual([
-      "the State heading's date must be `YYYY-MM-DD`, found `today`",
+      "the State heading's date must be a real day as `YYYY-MM-DD`, found `today`",
+    ]);
+    expect(problems(active.replace("## State (2026-10-30)", "## State (2026-02-29)"))).toEqual([
+      "the State heading's date must be a real day as `YYYY-MM-DD`, found `2026-02-29`",
+    ]);
+    expect(problems(active.replace("(2026-10-30)", "(2028-02-29)"))).toEqual([]);
+    expect(problems(active.replace("## State (2026-10-30)", "## State"))).toEqual([
+      "the State heading needs a date: `## State (YYYY-MM-DD)`",
     ]);
     const swapped = active
       .replace("## Traps", "## TMP")
       .replace("## Messages", "## Traps")
       .replace("## TMP", "## Messages");
     expect(problems(swapped)[0]).toStartWith("sections must be exactly");
+  });
+
+  test("a `##` line inside a fenced block in a body is not a heading", () => {
+    for (const fence of ["```", "~~~~"]) {
+      const quoting = active.replace(
+        "None yet.",
+        `An example:\n\n${fence}md\n## Notes\n${fence}\n`,
+      );
+      expect(problems(quoting)).toEqual([]);
+    }
+  });
+
+  test("duplicate Status or Queue lines are reported as duplicates", () => {
+    const twice = stub.replace("Status: stub", "Status: stub\nStatus: active");
+    expect(problems(twice)).toContain("`Status:` appears 2 times; keep one");
+    const queues = active.replace("Queue:", "Queue: bd ready --label track:docs\nQueue:");
+    expect(problems(queues)).toEqual(["`Queue:` appears 2 times; keep one"]);
+  });
+
+  test("a leading BOM and trailing spaces on the title are tolerated", () => {
+    expect(problems(`\uFEFF${active.replace("# Track: docs", "# Track: docs  ")}`)).toEqual([]);
+  });
+
+  test("the stub refuses a bad name or date where it is made", () => {
+    const bad = (track: string, date: string) => {
+      const result = stubHandoff(track, date, "/w");
+      return "problems" in result ? result.problems : [];
+    };
+    expect(bad("Docs", "2026-10-29")[0]).toContain("track name `Docs`");
+    expect(bad("docs", "2026-13-45")[0]).toContain("found `2026-13-45`");
+    expect(bad("docs", "2026-10-29")).toEqual([]);
   });
 });

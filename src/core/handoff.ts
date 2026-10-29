@@ -14,9 +14,9 @@
  *
  * A stub has no charter: the next `/track` session interviews the human for one, writes it,
  * and sets `Status: active`. Sections are in this order, each exactly once; their bodies are
- * free Markdown.
+ * free Markdown, with `###` for headings inside a section (`## ` in a fenced block is fine).
  */
-import { TRACK_NAME, trackLabel } from "./layout.ts";
+import { MAIN_BRANCH, TRACK_NAME, trackBranch, trackLabel } from "./layout.ts";
 
 export type HandoffStatus = "stub" | "active";
 
@@ -39,56 +39,92 @@ export interface Handoff {
   readonly sections: Readonly<Record<HandoffSection, string>>;
 }
 
-const DATE = /^\d{4}-\d{2}-\d{2}$/;
+export type Problems = { readonly problems: ReadonlyArray<string> };
+
+/** `YYYY-MM-DD` naming a real day: `2026-02-29` and `2026-13-45` don't. */
+const isDate = (date: string): boolean => {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(date);
+  if (match === null) return false;
+  const [year, month, day] = [Number(match[1]), Number(match[2]), Number(match[3])];
+  const leap = (year % 4 === 0 && year % 100 !== 0) || year % 400 === 0;
+  const days = [31, leap ? 29 : 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31][month - 1];
+  return days !== undefined && day >= 1 && day <= days;
+};
+
+const heading = (section: HandoffSection, date: string): string =>
+  section === "State" ? `## State (${date})` : `## ${section}`;
 
 export const handoffQueue = (track: string): string => `bd ready --label ${trackLabel(track)}`;
 
-/** The handoff `track new` writes. `date` is today, `YYYY-MM-DD`; `worktree` is shown as given. */
-export const stubHandoff = (track: string, date: string, worktree: string): string =>
-  `# Track: ${track}
-Status: stub
-Queue: ${handoffQueue(track)}
+/**
+ * The handoff `track new` writes: `date` is today, `YYYY-MM-DD`; `worktree` is shown as given.
+ * Checked against the format here, so a bad name or date fails where it is passed in, not
+ * later in `track list` or `/track`.
+ */
+export const stubHandoff = (
+  track: string,
+  date: string,
+  worktree: string,
+): { readonly text: string } | Problems => {
+  const bodies: Record<HandoffSection, string> = {
+    Charter: "",
+    State: `No charter yet: the next \`/track\` session interviews the human for one, writes it above and
+sets \`Status: active\`. Worktree \`${worktree}\` on \`${trackBranch(track)}\`, branched from \`${MAIN_BRANCH}\`.`,
+    "Lessons not yet promoted": "None yet.",
+    Traps: "None yet.",
+    Messages: "None yet.",
+  };
+  const text = [
+    `# Track: ${track}\nStatus: stub\nQueue: ${handoffQueue(track)}`,
+    ...HANDOFF_SECTIONS.map((section) =>
+      bodies[section] === ""
+        ? heading(section, date)
+        : `${heading(section, date)}\n\n${bodies[section]}`,
+    ),
+  ].join("\n\n");
+  const parsed = parseHandoff(`${text}\n`);
+  return "problems" in parsed ? parsed : { text: `${text}\n` };
+};
 
-## Charter
-
-## State (${date})
-
-No charter yet: the next \`/track\` session interviews the human for one, writes it above and
-sets \`Status: active\`. Worktree \`${worktree}\` on \`track/${track}\`, branched from \`main\`.
-
-## Lessons not yet promoted
-
-None yet.
-
-## Traps
-
-None yet.
-
-## Messages
-
-None yet.
-`;
+/** `## ` lines outside fenced code blocks: a body may quote Markdown. */
+const headingsOf = (lines: ReadonlyArray<string>) => {
+  const found: Array<{ readonly name: string; readonly line: number }> = [];
+  let fence: string | undefined;
+  lines.forEach((line, index) => {
+    const marker = /^\s*(`{3,}|~{3,})/.exec(line)?.[1];
+    if (marker !== undefined) {
+      if (fence === undefined) fence = marker;
+      else if (marker.startsWith(fence)) fence = undefined;
+    } else if (fence === undefined && line.startsWith("## "))
+      found.push({ name: line.slice(3).trim(), line: index });
+  });
+  return found;
+};
 
 /** The handoff, or every way the text departs from the format. */
-export const parseHandoff = (
-  text: string,
-): Handoff | { readonly problems: ReadonlyArray<string> } => {
+export const parseHandoff = (text: string): Handoff | Problems => {
   const problems: Array<string> = [];
-  const lines = text.replace(/\r\n/g, "\n").split("\n");
-  const firstSection = lines.findIndex((line) => line.startsWith("## "));
-  const header = (firstSection === -1 ? lines : lines.slice(0, firstSection)).filter(
-    (line) => line.trim() !== "",
-  );
+  const lines = text
+    .replace(/^\uFEFF/, "")
+    .replace(/\r\n/g, "\n")
+    .split("\n");
+  const headings = headingsOf(lines);
+  const header = lines
+    .slice(0, headings[0]?.line ?? lines.length)
+    .map((line) => line.trim())
+    .filter((line) => line !== "");
 
   const title = /^# Track: (\S+)$/.exec(header[0] ?? "");
   const track = title?.[1] ?? "";
-  if (title === null) problems.push("the first line must be `# Track: <name>`");
+  if (title === null)
+    problems.push(`the first line must be \`# Track: <name>\`, found \`${header[0] ?? ""}\``);
   else if (!TRACK_NAME.test(track))
     problems.push(`track name \`${track}\` is not lowercase words joined by hyphens`);
 
   const field = (name: string): string | undefined => {
-    const line = header.find((candidate) => candidate.startsWith(`${name}:`));
-    return line?.slice(name.length + 1).trim();
+    const found = header.filter((line) => line.startsWith(`${name}:`));
+    if (found.length > 1) problems.push(`\`${name}:\` appears ${found.length} times; keep one`);
+    return found[0]?.slice(name.length + 1).trim();
   };
   const status = field("Status");
   if (status !== "stub" && status !== "active")
@@ -104,29 +140,29 @@ export const parseHandoff = (
       `only \`Status:\` and \`Queue:\` go between the title and \`## Charter\`; found \`${extra[0]}\``,
     );
 
-  const headings: Array<{ readonly name: string; readonly line: number }> = [];
-  lines.forEach((line, index) => {
-    if (line.startsWith("## ")) headings.push({ name: line.slice(3).trim(), line: index });
-  });
-  let stateDate = "";
-  const sections: Partial<Record<HandoffSection, string>> = {};
+  let stateDate: string | undefined;
   const names = headings.map(({ name }) => {
-    const state = /^State \((.*)\)$/.exec(name);
+    const state = /^State(?:\s*\((.*)\))?$/.exec(name);
     if (state === null) return name;
-    stateDate = state[1] ?? "";
+    stateDate = state[1];
     return "State";
   });
+  const sections: Partial<Record<HandoffSection, string>> = {};
   if (names.join("\n") !== HANDOFF_SECTIONS.join("\n"))
     problems.push(
-      `sections must be exactly ${HANDOFF_SECTIONS.map((s) => `\`## ${s === "State" ? "State (<date>)" : s}\``).join(", ")}, in that order; found ${names.map((s) => `\`## ${s}\``).join(", ") || "none"}`,
+      `sections must be exactly ${HANDOFF_SECTIONS.map((s) => `\`${heading(s, "YYYY-MM-DD")}\``).join(", ")}, in that order (use \`###\` for headings inside a section); found ${names.map((s) => `\`## ${s}\``).join(", ") || "none"}`,
     );
   else {
-    if (!DATE.test(stateDate))
-      problems.push(`the State heading's date must be \`YYYY-MM-DD\`, found \`${stateDate}\``);
-    headings.forEach((heading, index) => {
+    if (stateDate === undefined)
+      problems.push("the State heading needs a date: `## State (YYYY-MM-DD)`");
+    else if (!isDate(stateDate))
+      problems.push(
+        `the State heading's date must be a real day as \`YYYY-MM-DD\`, found \`${stateDate}\``,
+      );
+    headings.forEach((found, index) => {
       const end = headings[index + 1]?.line ?? lines.length;
       sections[HANDOFF_SECTIONS[index] as HandoffSection] = lines
-        .slice(heading.line + 1, end)
+        .slice(found.line + 1, end)
         .join("\n")
         .trim();
     });
@@ -142,7 +178,7 @@ export const parseHandoff = (
     track,
     status: status as HandoffStatus,
     queue: queue ?? "",
-    stateDate,
+    stateDate: stateDate ?? "",
     sections: sections as Record<HandoffSection, string>,
   };
 };
