@@ -73,3 +73,6 @@
 
 sync:
     remote: "git+https://github.com/clinsky/monkeyshape.git"
+prime:
+    max-memories: 12
+    max-memory-chars: 6144
