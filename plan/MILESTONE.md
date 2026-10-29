@@ -40,10 +40,15 @@ remaining rules, the agentic layer, `validate` and adoption become deferred epic
 Agree these before diverging; change them only by telling the other tracks (handoff
 Messages) and the maintainer.
 
-- **Layout:** `src/core/layout.ts` is the only source of track paths and names: worktree
-  `<parent>/<repo>@<track>`, branch `track/<track>`, label `track:<track>`, handoffs in
-  `<parent>/<repo>-state/handoffs/<track>.md`, symlink `.handoffs` in every checkout.
-  Already merged with this plan, with tests.
+- **Layout:** `src/core/layout.ts` is the only source of track paths and names. Everything
+  lives under the repo's `.agents/`, so nothing clutters the directory around it: worktree
+  `<repo>/.agents/worktrees/<repo>@<track>` (gitignored), branch `track/<track>`, label
+  `track:<track>`, handoffs in `<repo>/.agents/handoffs/<track>.md` (gitignored), symlink
+  `.handoffs` in every checkout. Amended 2026-10-29 from sibling directories, before any
+  track started, at the maintainer's request.
+  - Trap: `git clean -fdx` in the main checkout deletes `.agents/handoffs` (ignored files).
+    Worktrees survive it, since each holds its own `.git`. `track rm` and the skills never
+    run it.
 - **Shared paths** (`tracks.sharedPaths` in `shape.config.ts`, already in the schema with
   tests): gitignored data every worktree shares with the main checkout, such as a large
   dataset.

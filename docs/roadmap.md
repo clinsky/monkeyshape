@@ -14,7 +14,7 @@ milestone boundary, and never cited by code.
 | `mshape baseline` (ratchets), `garden`, `rules`, `--config` | **Shipped** (v0.1) |
 | Base `tsconfig` and `biome` configs; the `decodeStrict` helper | **Shipped** (v0.1) |
 | `mshape init`: a new repo with the template, beads, skills and a state directory | **Milestone 1** (in progress): `monkeyshape-iqf` |
-| `mshape track new / list / current / rm`: named tracks as sibling worktrees with handoffs | **Milestone 1** (in progress): `monkeyshape-iqf` |
+| `mshape track new / list / current / rm`: named tracks as worktrees under `.agents/`, with handoffs | **Milestone 1** (in progress): `monkeyshape-iqf` |
 | Skills: `roadmap`, `milestone`, `track`, `handoff`, `review-pr` | **Milestone 1** (in progress): `monkeyshape-iqf` |
 | The remaining starter rules in section 4.2 | Later: `monkeyshape-hh2` |
 | The agentic layer: `decodeModelOutput`, model names in config, spend ledger | Later: `monkeyshape-v56` |
@@ -272,9 +272,10 @@ own. Skills specific to one repo live in that repo.
 
 ### 3.6 Handoffs: shared, live, readable by the human
 
-- **Location:** `<parent>/<repo>-state/handoffs/<track>.md`, outside git. `mshape track new
-  <track>` creates the sibling worktree `<parent>/<repo>@<track>` on branch `track/<track>`
-  and symlinks `.handoffs/` and the gitignored paths in `tracks.sharedPaths` (such as a
+- **Location:** `<repo>/.agents/handoffs/<track>.md`, gitignored. `mshape track new <track>`
+  creates the worktree `<repo>/.agents/worktrees/<repo>@<track>` (gitignored, so it doesn't
+  clutter the directory around the repo, and git, biome and `bun test` skip it) on branch
+  `track/<track>` and symlinks `.handoffs/` and the gitignored paths in `tracks.sharedPaths` (such as a
   dataset) into it. Every worktree and the human see one live copy. Handoffs are
   never committed, so they can't fork. They are ephemeral by design; PR bodies are the durable
   record.
