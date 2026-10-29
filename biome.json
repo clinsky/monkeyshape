@@ -1,0 +1,8 @@
+{
+  "$schema": "https://biomejs.dev/schemas/2.5.15/schema.json",
+  "root": true,
+  "extends": ["./config/biome.base.json"],
+  "files": {
+    "includes": ["src/**", "test/**", "config/**", "*.json", "*.ts"]
+  }
+}
