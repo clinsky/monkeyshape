@@ -113,6 +113,23 @@ describe("handoff format", () => {
     }
   });
 
+  test("an unclosed fence is named with its line, not only as missing sections", () => {
+    const unclosed = active.replace("- Examples rot", "```md\n- Examples rot");
+    const line = unclosed.split("\n").indexOf("```md") + 1;
+    expect(problems(unclosed)[0]).toBe(
+      `a code fence opened on line ${line} is never closed, which hides every heading after it: close it with a matching fence`,
+    );
+  });
+
+  test("fences follow CommonMark: no info string on a closer, at most three spaces of indent", () => {
+    // ```ts inside an open fence doesn't close it, so the later ``` does and `## Notes` stays hidden.
+    const nested = active.replace("None yet.", "```md\n```ts\n## Notes\n```\n");
+    expect(problems(nested)).toEqual([]);
+    // Indented four spaces it is indented code, not a fence: nothing is left open.
+    const indented = active.replace("None yet.", "    ```\ncode");
+    expect(problems(indented)).toEqual([]);
+  });
+
   test("duplicate Status or Queue lines are reported as duplicates", () => {
     const twice = stub.replace("Status: stub", "Status: stub\nStatus: active");
     expect(problems(twice)).toContain("`Status:` appears 2 times; keep one");

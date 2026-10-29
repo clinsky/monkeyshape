@@ -86,19 +86,30 @@ sets \`Status: active\`. Worktree \`${worktree}\` on \`${trackBranch(track)}\`, 
   return "problems" in parsed ? parsed : { text: `${text}\n` };
 };
 
-/** `## ` lines outside fenced code blocks: a body may quote Markdown. */
+/**
+ * `## ` lines outside fenced code blocks, since a body may quote Markdown, and the line of a
+ * fence still open at the end. Fences as CommonMark has them: at most three spaces of indent;
+ * closed by the same character, at least as long, with nothing after it.
+ */
 const headingsOf = (lines: ReadonlyArray<string>) => {
-  const found: Array<{ readonly name: string; readonly line: number }> = [];
-  let fence: string | undefined;
+  const headings: Array<{ readonly name: string; readonly line: number }> = [];
+  let open: { readonly marker: string; readonly line: number } | undefined;
   lines.forEach((line, index) => {
-    const marker = /^\s*(`{3,}|~{3,})/.exec(line)?.[1];
-    if (marker !== undefined) {
-      if (fence === undefined) fence = marker;
-      else if (marker.startsWith(fence)) fence = undefined;
-    } else if (fence === undefined && line.startsWith("## "))
-      found.push({ name: line.slice(3).trim(), line: index });
+    const fence = /^ {0,3}(`{3,}|~{3,})(.*)$/.exec(line);
+    const marker = fence?.[1];
+    if (marker !== undefined && open === undefined) open = { marker, line: index };
+    else if (
+      marker !== undefined &&
+      open !== undefined &&
+      marker[0] === open.marker[0] &&
+      marker.length >= open.marker.length &&
+      (fence?.[2] ?? "").trim() === ""
+    )
+      open = undefined;
+    else if (open === undefined && line.startsWith("## "))
+      headings.push({ name: line.slice(3).trim(), line: index });
   });
-  return found;
+  return { headings, unclosedFence: open?.line };
 };
 
 /** The handoff, or every way the text departs from the format. */
@@ -108,7 +119,11 @@ export const parseHandoff = (text: string): Handoff | Problems => {
     .replace(/^\uFEFF/, "")
     .replace(/\r\n/g, "\n")
     .split("\n");
-  const headings = headingsOf(lines);
+  const { headings, unclosedFence } = headingsOf(lines);
+  if (unclosedFence !== undefined)
+    problems.push(
+      `a code fence opened on line ${unclosedFence + 1} is never closed, which hides every heading after it: close it with a matching fence`,
+    );
   const header = lines
     .slice(0, headings[0]?.line ?? lines.length)
     .map((line) => line.trim())
