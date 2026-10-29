@@ -13,10 +13,14 @@ milestone boundary, and never cited by code.
 | `mshape check`: arch, refs, budgets, coverage, and five core rules | **Shipped** (v0.1) |
 | `mshape baseline` (ratchets), `garden`, `rules`, `--config` | **Shipped** (v0.1) |
 | Base `tsconfig` and `biome` configs; the `decodeStrict` helper | **Shipped** (v0.1) |
-| `mshape init`, `mshape worktree`, and the template: AGENTS.md, DECISIONS.md, `docs/roadmap.md`, PR template, CI, hooks, beads setup | Next (v0.2) |
-| Skills: `review-pr`, `groom`, `garden`, `handoff` | Later (v0.3) |
-| The remaining starter rules in section 4.2, and the agentic layer | Later (v0.3) |
-| Selectable policy bundles (correctness checks always on; workflow opinions opt-out as a bundle) | Idea: when an outside adopter needs it |
+| `mshape init`: a new repo with the template, beads, skills and a state directory | **Milestone 1** (in progress): `monkeyshape-iqf` |
+| `mshape track new / list / current / rm`: named tracks as sibling worktrees with handoffs | **Milestone 1** (in progress): `monkeyshape-iqf` |
+| Skills: `roadmap`, `milestone`, `track`, `handoff`, `review-pr` | **Milestone 1** (in progress): `monkeyshape-iqf` |
+| The remaining starter rules in section 4.2 | Later: `monkeyshape-hh2` |
+| The agentic layer: `decodeModelOutput`, model names in config, spend ledger | Later: `monkeyshape-v56` |
+| `mshape validate`: the real-data loop with committed baselines (section 6.4) | Later: `monkeyshape-97o` |
+| Adopting monkeyshape in an existing repo, with a migration guide | Later: `monkeyshape-36f` |
+| Selectable policy bundles (correctness checks always on; workflow opinions opt-out as a bundle) | Idea: when an outside adopter needs it (`monkeyshape-8h4`) |
 
 A PR that ships a piece updates its row.
 
@@ -115,7 +119,8 @@ Every rule must trace back to one of these principles. A rule that can't is dele
 ### 2.1 The three horizons
 
 - **Direction (long-term).** Where the repo is heading over months, written at kickoff in a
-  human–agent conversation as `docs/roadmap.md`. It is the one long-form vision document a
+  human–agent conversation as `docs/roadmap.md`. The brainstorm and the detail of far-off
+  work live here, not in beads. It is the one long-form vision document a
   repo keeps, and these rules stop it becoming gospel:
   - It **opens with a status table** (shipped / next / later / idea), so a reader learns what
     exists without reading the design, and nobody builds to a plan as if it were a spec.
@@ -123,7 +128,8 @@ Every rule must trace back to one of these principles. A rule that can't is dele
     no frozen copy and no revision log: git has the history.
   - It is **never cited by code or normative docs**. The refs check rejects `§N` citations
     and links to its sections; naming the file is fine.
-  - Each goal becomes **one deferred beads epic** with a goal and a few lines on why. It
+  - Each goal becomes **one deferred beads epic** with a goal, a few lines on why, and the
+    roadmap section it comes from; the roadmap's status table names the epic. It
     never appears in `bd ready`, and it has **no child stories** until a milestone pulls it
     in. Long-lived open epics are fine. The failure mode is breaking far-future goals into
     dozens of stories on day 1, all at high priority, which then crowd out the real queue and
@@ -163,6 +169,25 @@ Without a home they leak into decision records, oversized tickets and AGENTS.md.
 - **never loaded automatically.**
 
 A lesson that should apply going forward is promoted to a check, a test or a decision.
+
+### 2.4 The working loop
+
+Skills carry judgement; the `mshape` CLI carries everything deterministic. A skill never
+creates a worktree or a file layout by hand: it calls the CLI, which is tested. Each skill is
+started by name in a fresh chat, so the human's message can be just the skill plus intent.
+
+| Step | Started by | What happens |
+|---|---|---|
+| Init | human: `mshape init <name>` | A new repo: template files, toolchain, `bd init`, skills in `.agents/skills/`, the state directory. Its gate passes empty. |
+| Long term | chat: `/roadmap` + a brain-dump | Interview until the requirements are clear; write `docs/roadmap.md`; one deferred epic per goal; a PR. |
+| Mid term | chat: `/milestone` + priorities | Retrospective on the last milestone; propose a goal with acceptance on real data; once agreed, write `plan/MILESTONE.md`; groom beads (stories, dependencies, closures) and the roadmap; propose named tracks; `mshape track new` for each; prune finished tracks. |
+| Short term | chat in a track worktree: `/track` | `mshape track current` names the track; read its handoff and `bd ready --label track:<name>`; work; open PRs. A **stub** handoff (an ad-hoc track) means: interview the human about the work, then write the handoff and its beads. |
+| Hand off | human, near 75% of context: `/handoff` | Rewrite the track's handoff so a fresh chat can continue; the human opens one and runs `/track`. |
+| Review | `/review-pr <n>`, in a separate chat | Review against real data; blockers need a failing input; the human merges. |
+| Ad hoc | human: `mshape track new <name>` / `mshape track rm <name>` | A named track with a stub handoff, for work that didn't come from a milestone; removed when done. |
+
+When the process itself gets in the way, file a bead labelled `process` saying what broke;
+`/milestone` reviews them at the boundary, and fixes land in monkeyshape.
 
 ## 3. Documents
 
@@ -220,9 +245,13 @@ fails on any of these:
 
 ### 3.4 Skills
 
-Skills are procedural and self-contained. Each states when it expires or should be reviewed,
-and each is covered by the refs check. A skill never restates AGENTS.md or DECISIONS.md.
-Shared skills come from the package; skills specific to one repo live in that repo.
+Skills are procedural and self-contained, and live in `.agents/skills/<name>/SKILL.md` so any
+agent can use them; a committed relative symlink `.claude/skills` → `../.agents/skills` makes
+Claude Code, which reads only `.claude/skills`, see the same files. Each states when it expires or should be reviewed, and each is covered
+by the refs check. A skill never restates AGENTS.md or DECISIONS.md, and never does by hand
+what the CLI does. The shared five (`roadmap`, `milestone`, `track`, `handoff`, `review-pr`)
+come from the package; grooming and gardening are steps of `milestone`, not skills of their
+own. Skills specific to one repo live in that repo.
 
 ### 3.5 `plan/MILESTONE.md`: the mid-term plan
 
@@ -243,9 +272,10 @@ Shared skills come from the package; skills specific to one repo live in that re
 
 ### 3.6 Handoffs: shared, live, readable by the human
 
-- **Location:** `~/<workspace>/<repo>-state/handoffs/`, outside git. `mshape worktree new
-  <track>` creates the worktree and symlinks `.handoffs/` (and any data directories listed in
-  `shape.config.ts`) into it. Every worktree and the human see one live copy. Handoffs are
+- **Location:** `<parent>/<repo>-state/handoffs/<track>.md`, outside git. `mshape track new
+  <track>` creates the sibling worktree `<parent>/<repo>@<track>` on branch `track/<track>`
+  and symlinks `.handoffs/` and the gitignored paths in `tracks.sharedPaths` (such as a
+  dataset) into it. Every worktree and the human see one live copy. Handoffs are
   never committed, so they can't fork. They are ephemeral by design; PR bodies are the durable
   record.
 - **Shape**, about 120 lines as a soft cap:
