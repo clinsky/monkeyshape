@@ -57,6 +57,39 @@ export const notices = (config: ResolvedConfig, snapshot: Snapshot): ReadonlyArr
   return out;
 };
 
+const prerequisite = (rule: string, message: string): Violation => ({
+  check: "prerequisites",
+  rule: `prerequisites/${rule}`,
+  file: ".beads",
+  message,
+});
+
+/**
+ * Integrations that must work for a result to mean anything: bd failing outright, or bd
+ * unavailable when `beads: "required"`. These are facts about the environment, not the code,
+ * so no baseline can accept them and no `--only` selection skips them.
+ */
+export const prerequisites = (
+  config: ResolvedConfig,
+  snapshot: Snapshot,
+): ReadonlyArray<Violation> => {
+  const beads = snapshot.integrations.beads;
+  if (beads.state === "failed")
+    return [
+      prerequisite("beads-failed", `bd failed, so beads checks did not run: ${beads.reason}`),
+    ];
+  if (config.beads === "required" && beads.state !== "ok")
+    return [
+      prerequisite(
+        "beads-required",
+        beads.state === "absent"
+          ? "shape.config.ts requires beads, but the repo has no .beads/config.yaml"
+          : `shape.config.ts requires beads, but ${beads.reason}`,
+      ),
+    ];
+  return [];
+};
+
 export const runChecks = (
   config: ResolvedConfig,
   snapshot: Snapshot,

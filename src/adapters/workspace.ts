@@ -1,5 +1,6 @@
 /** Loads the repo into a `Snapshot`: git's file list, the texts checks read, and what bd, tsc and biome report. */
 import { realpath, stat } from "node:fs/promises";
+import { posix } from "node:path";
 import { Effect } from "effect";
 import { parseJsonc } from "../core/coverage.ts";
 import { type Integration, isTsSource, type Snapshot } from "../core/model.ts";
@@ -126,7 +127,41 @@ const localBin = (root: string, name: string) =>
     found ? [process.execPath, `${root}/node_modules/.bin/${name}`] : undefined,
   );
 
-/** The union of every configured tsconfig's program, as tsc itself resolves it. */
+/**
+ * The tsconfigs a project's references point at. A reference names a tsconfig file or a
+ * directory holding `tsconfig.json`; references are not inherited through `extends`, so the
+ * file's own JSON is the whole answer. Unreadable files yield none; tsc reports them itself.
+ */
+const referencesOf = (root: string, tsconfig: string) =>
+  Effect.gen(function* () {
+    const text = yield* readText(root, tsconfig).pipe(Effect.orElseSucceed(() => "{}"));
+    const parsed = parseJsonc(text);
+    const references =
+      typeof parsed === "object" && parsed !== null && "references" in parsed
+        ? parsed.references
+        : undefined;
+    if (!Array.isArray(references)) return [];
+    const out: Array<string> = [];
+    for (const reference of references) {
+      if (typeof reference !== "object" || reference === null || !("path" in reference)) continue;
+      if (typeof reference.path !== "string") continue;
+      const target = posix.normalize(posix.join(posix.dirname(tsconfig), reference.path));
+      const isDirectory = yield* Effect.promise(() =>
+        stat(`${root}/${target}`).then(
+          (info) => info.isDirectory(),
+          () => false,
+        ),
+      );
+      out.push(isDirectory ? posix.join(target, "tsconfig.json") : target);
+    }
+    return out;
+  });
+
+/**
+ * The union of every configured tsconfig's program and, transitively, of every project it
+ * references, as tsc itself resolves each one. `tsc -p` checks one project and `--build`
+ * won't list files, so the reference graph is walked here, each project once.
+ */
 const typechecked = (root: string, realRoot: string, tsconfigs: ReadonlyArray<string>) =>
   Effect.gen(function* () {
     const tsc = yield* localBin(root, "tsc");
@@ -136,7 +171,11 @@ const typechecked = (root: string, realRoot: string, tsconfigs: ReadonlyArray<st
         value: undefined,
       } satisfies Loaded<ReadonlySet<string>>;
     const files = new Set<string>();
-    for (const tsconfig of tsconfigs) {
+    const seen = new Set<string>();
+    const queue = tsconfigs.map((tsconfig) => posix.normalize(tsconfig));
+    for (let tsconfig = queue.shift(); tsconfig !== undefined; tsconfig = queue.shift()) {
+      if (seen.has(tsconfig)) continue;
+      seen.add(tsconfig);
       const result = yield* runTool(root, [...tsc, "-p", tsconfig, "--listFilesOnly"]);
       if (result.code !== 0)
         return failed<ReadonlySet<string>>(
@@ -144,6 +183,7 @@ const typechecked = (root: string, realRoot: string, tsconfigs: ReadonlyArray<st
         );
       for (const line of result.stdout.split("\n"))
         if (line.startsWith(`${realRoot}/`)) files.add(line.slice(realRoot.length + 1));
+      queue.push(...(yield* referencesOf(root, tsconfig)));
     }
     return { integration: { state: "ok" }, value: files } satisfies Loaded<ReadonlySet<string>>;
   });

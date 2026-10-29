@@ -5,11 +5,11 @@ import pkg from "../../package.json" with { type: "json" };
 import { BASELINE_FILE, readBaseline, writeBaseline } from "../adapters/baseline.ts";
 import { loadConfig } from "../adapters/config.ts";
 import { loadSnapshot } from "../adapters/workspace.ts";
-import { CHECKS, notices, runChecks, unevaluated } from "../core/check.ts";
+import { CHECKS, notices, prerequisites, runChecks, unevaluated } from "../core/check.ts";
 import { garden } from "../core/garden.ts";
 import type { CheckName } from "../core/model.ts";
 import { applyBaseline, count, tighten } from "../core/ratchet.ts";
-import { formatCheck, formatGarden } from "../core/report.ts";
+import { formatCheck, formatGarden, formatViolation } from "../core/report.ts";
 import { RULES } from "../core/rules/registry.ts";
 
 const USAGE = `mshape ${pkg.version}
@@ -68,7 +68,17 @@ const program = (root: string, args: ReadonlyArray<string>) =>
     if (command === "garden")
       return { output: formatGarden(garden(config, snapshot, baseline)), code: 0 };
 
+    const blocked = prerequisites(config, snapshot);
     if (command === "baseline") {
+      // A baseline written without a required integration would grandfather an incomplete count.
+      if (blocked.length > 0)
+        return {
+          output: [
+            ...blocked.map(formatViolation),
+            "mshape baseline: not written, because a prerequisite fails",
+          ].join("\n\n"),
+          code: 1,
+        };
       const violations = runChecks(config, snapshot);
       if (rest.includes("--init")) {
         yield* writeBaseline(root, count(violations));
@@ -86,11 +96,12 @@ const program = (root: string, args: ReadonlyArray<string>) =>
 
     const only = parseOnly(rest);
     if (typeof only === "string") return { output: only, code: 2 };
-    const result = applyBaseline(
+    const ratcheted = applyBaseline(
       runChecks(config, snapshot, only),
       baseline,
       unevaluated(snapshot, only, Object.keys(baseline)),
     );
+    const result = { ...ratcheted, failing: [...blocked, ...ratcheted.failing] };
     const said = notices(config, snapshot).map((notice) => `note: ${notice}`);
     return {
       output: [...said, formatCheck(result)].join("\n"),

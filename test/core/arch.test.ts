@@ -94,6 +94,17 @@ describe("arch", () => {
     expect(rules({ "src/core/b.ts": source })).toEqual([]);
   });
 
+  test("shadowing is lexical: a parameter in one function doesn't hide the global elsewhere", () => {
+    const source = [
+      "function format(process: string) {",
+      "  return process.toUpperCase();",
+      "}",
+      "export const cwd = process.cwd();",
+    ].join("\n");
+    const found = checkArch(layered, repo({ "src/core/b.ts": source }));
+    expect(found.map((v) => `${v.rule}:${v.line}`)).toEqual(["arch/host-access:4"]);
+  });
+
   test("Bun's pure utilities are not host access", () => {
     expect(
       rules({ "src/core/b.ts": 'new Bun.Glob("*.ts").match(p);\nBun.deepEquals(a, b);' }),

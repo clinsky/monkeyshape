@@ -3,7 +3,11 @@
 export type CheckName = "arch" | "refs" | "budgets" | "coverage" | "rules";
 
 export interface Violation {
-  readonly check: CheckName;
+  /**
+   * `prerequisites` are failures of the environment a check needs (a required integration
+   * that can't run). They are never baselined and never skipped by `--only`.
+   */
+  readonly check: CheckName | "prerequisites";
   /** Namespaced, e.g. `rules/no-throw`. Baselines and reports key on it. */
   readonly rule: string;
   /** Repo-relative path, `/`-separated. */

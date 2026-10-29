@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { notices, runChecks, unevaluated } from "../../src/core/check.ts";
+import { notices, prerequisites, runChecks, unevaluated } from "../../src/core/check.ts";
 import { applyBaseline, count } from "../../src/core/ratchet.ts";
 import type { ShapeConfig } from "../../src/schemas/config.ts";
 import { config, repo } from "../support.ts";
@@ -55,11 +55,17 @@ describe("integrations", () => {
     expect(notices(config(), snapshot)[0]).toContain("bd is not on PATH");
   });
 
-  test("bd failing is a violation, not a skip", () => {
+  test("bd failing is a prerequisite failure, not a skip", () => {
     const snapshot = repo({ "AGENTS.md": "" }, { beads: { state: "failed", reason: "exit 1" } });
-    expect(runChecks(config(), snapshot, ["budgets"]).map((v) => v.rule)).toEqual([
-      "budgets/beads-failed",
+    expect(prerequisites(config(), snapshot).map((v) => v.rule)).toEqual([
+      "prerequisites/beads-failed",
     ]);
+  });
+
+  test("prerequisite failures never reach the checks a baseline can count", () => {
+    const snapshot = repo({ "AGENTS.md": "" }, { beads: { state: "failed", reason: "exit 1" } });
+    const counted = runChecks(config(), snapshot).map((v) => v.rule);
+    expect(counted.filter((rule) => rule.startsWith("prerequisites/"))).toEqual([]);
   });
 
   test("beads: required fails closed when bd can't answer", () => {
@@ -68,17 +74,18 @@ describe("integrations", () => {
       { "AGENTS.md": "" },
       { beads: { state: "unavailable", reason: "bd is not on PATH" } },
     );
-    expect(runChecks(required, missing, ["budgets"]).map((v) => v.rule)).toEqual([
-      "budgets/beads-required",
+    expect(prerequisites(required, missing).map((v) => v.rule)).toEqual([
+      "prerequisites/beads-required",
     ]);
     expect(notices(required, missing)).toEqual([
       "coverage approximated tsc's file list from its config (not run in unit tests): inheritance and project references are not resolved",
       "coverage approximated biome's file list from its config (not run in unit tests): inheritance and project references are not resolved",
     ]);
     const absent = repo({ "AGENTS.md": "" });
-    expect(runChecks(required, absent, ["budgets"]).map((v) => v.rule)).toEqual([
-      "budgets/beads-required",
+    expect(prerequisites(required, absent).map((v) => v.rule)).toEqual([
+      "prerequisites/beads-required",
     ]);
+    expect(prerequisites(config(), absent)).toEqual([]);
   });
 
   test("tools that ran leave nothing to say", () => {

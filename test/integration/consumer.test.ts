@@ -193,8 +193,18 @@ describe("an adopter following the README", () => {
       ),
     );
     const required = await mshape(["check"], env);
-    expect(required.output).toContain("budgets/beads-required");
+    expect(required.output).toContain("prerequisites/beads-required");
     expect(required.code).toBe(1);
+
+    // Neither a baseline nor --only can make a required integration optional.
+    const init = await mshape(["baseline", "--init"], env);
+    expect(init.output).toContain("not written, because a prerequisite fails");
+    expect(init.code).toBe(1);
+    const tighten = await mshape(["baseline", "--tighten"], env);
+    expect(tighten.code).toBe(1);
+    const onlyRefs = await mshape(["check", "--only", "refs"], env);
+    expect(onlyRefs.output).toContain("prerequisites/beads-required");
+    expect(onlyRefs.code).toBe(1);
     await rm(path, { recursive: true, force: true });
   });
 });
