@@ -14,13 +14,13 @@ Plan in detail only what is near. Each horizon has one home and one way of stayi
 
 | Horizon | Home | Written by | Kept true by |
 |---|---|---|---|
-| Direction: months | `docs/roadmap.md`, plus one deferred beads epic per goal | `/roadmap` | Rewritten in place at each milestone boundary |
-| Milestone: several PRs from several agents | `plan/MILESTONE.md` | `/milestone` | Frozen for the milestone, replaced at the next |
+| Direction: months | docs/roadmap.md, plus one deferred beads epic per goal | `/roadmap` | Rewritten in place at each milestone boundary |
+| Milestone: several PRs from several agents | plan/MILESTONE.md | `/milestone` | Frozen for the milestone, replaced at the next |
 | Track state: today | the track's handoff, in `.handoffs` | `/track`, `/handoff` | Overwritten at every handoff |
 
 - **The roadmap** opens with a status table, so nobody reads the design as a spec. It is
-  never cited by code or by normative docs (AGENTS.md, DECISIONS.md, skills); the refs check
-  enforces that. Its goals are deferred epics with no children until a milestone pulls them
+  never cited by code or by normative docs (AGENTS.md, DECISIONS.md, skills): name the file,
+  but the refs check rejects links into its sections. Its goals are deferred epics with no children until a milestone pulls them
   in, so they never crowd `bd ready`.
 - **The milestone plan** says the goal and how you'll know it is met on real data, where
   things stand, the tracks with their beads and acceptance, the interfaces between tracks,
@@ -40,11 +40,11 @@ normative may cite.
 | Step | Started by | What happens |
 |---|---|---|
 | Init | you: `mshape init <name>` | A new repo whose gate passes empty: template, toolchain, beads, the five skills, the handoffs store. |
-| Long term | chat: `/roadmap` + a brain-dump | Interview until goals are clear; write `docs/roadmap.md`; one deferred epic per goal; open a PR. |
-| Mid term | chat: `/milestone` + priorities | Retrospective on the last milestone; agree a goal with acceptance on real data; write `plan/MILESTONE.md`; groom beads and the roadmap; garden; create the tracks with `mshape track new`; remove finished ones. |
+| Long term | chat: `/roadmap` + a brain-dump | Interview until goals are clear; write docs/roadmap.md; one deferred epic per goal; open a PR. |
+| Mid term | chat: `/milestone` + priorities | Retrospective on the last milestone; agree a goal with acceptance on real data; write plan/MILESTONE.md; groom beads and the roadmap; garden; create the tracks with `mshape track new`; remove finished ones. |
 | Short term | chat in a track's worktree: `/track` | Read the handoff and the track's queue; work; open PRs. |
 | Hand off | you, near 75% of a chat's context: `/handoff` | The handoff is rewritten so a fresh chat can continue; open one in the same worktree and run `/track`. |
-| Review | chat: `/review-pr <number>` | Review against real data in a scratch worktree; findings go on the PR; you merge. |
+| Review | chat: `/review-pr <number>` | Review against real data in a track of its own; findings go on the PR; you merge. |
 
 A first repo goes: `mshape init`, then `/roadmap`, then `/milestone`, then one chat per track
 running `/track`. The first milestone of a new repo is "a first result on a real target".
@@ -81,9 +81,8 @@ the other handoff.
 - The PR body says what changed and why, the evidence on real data, the gate output, the bug
   class a new check closes, what is not done, and the beads closed or filed.
 - `bun run check` is the gate, the same locally and in CI. It is green before every PR.
-- `/review-pr` runs in its own chat. A blocker needs a concrete failing input or a real-data
-  result; style never blocks, because the linter owns style. One round and a re-review,
-  then the human decides.
+- `/review-pr` runs in its own chat and posts its findings on the PR; the skill says what
+  blocks. After a re-review, what is still open is the human's call.
 
 ## Beads
 
@@ -97,11 +96,8 @@ the other handoff.
 
 ## The milestone boundary
 
-The only ceremony. `/milestone` runs it in order: retrospective (what shipped, what the
-process beads say, what handoffs learned), the next plan, grooming (stories created,
-superseded ones closed or deferred with a reason, P1 kept to the critical path), gardening
-(`mshape garden`: budgets, escape hatches, lessons promoted to checks, tests or decisions),
-then the tracks. Between boundaries, tracks just work their queues.
+The only ceremony, and `/milestone` runs all of it; the skill holds the steps. Between
+boundaries, tracks just work their queues.
 
 ## Who decides
 

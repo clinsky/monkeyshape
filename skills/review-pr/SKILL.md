@@ -27,10 +27,12 @@ N=<pr number>
 gh pr view $N --json title,body,headRefName,headRefOid,files,commits
 mshape track new pr-$N          # prints the worktree; links the shared data
 cd <that worktree>
-gh pr checkout $N --detach && bun install --frozen-lockfile
+git fetch origin pull/$N/head && git reset --hard FETCH_HEAD   # the PR head, on track/pr-N
+bun install --frozen-lockfile
 ```
 
-The track's handoff is where a re-review in a fresh chat finds your probes and findings:
+The worktree stays on its track branch, so `mshape track current` still names it and a
+fresh chat running `/track` there finds the handoff. That handoff is where a re-review in a fresh chat finds your probes and findings:
 write them there as you go. Keep the track until the PR is merged or closed.
 
 ## 2. Read the diff
@@ -85,8 +87,9 @@ link. **Stop and wait** for the author.
 When told the author responded, read every reply, the new commits and the fix diff
 (`gh pr view $N --comments`, `gh api repos/{owner}/{repo}/pulls/$N/comments`).
 
-1. "Fixed" is a claim: update the worktree to the new head and rerun the probes and the
-   real-data runs.
+1. "Fixed" is a claim: move the track to the new head (the same `git fetch` and
+   `git reset --hard FETCH_HEAD` as in step 1; untracked probes survive it) and rerun the
+   probes and the real-data runs.
 2. Look for what the fix opened: a new unchecked field, the mirror case of a new check.
 3. **Pushback is an argument, not a refusal.** If it holds, say so and drop the point; if it
    doesn't, answer with evidence.
@@ -95,7 +98,9 @@ When told the author responded, read every reply, the new commits and the fix di
 
 **When every blocker is resolved and verified, say "LGTM"** explicitly, on the PR and to
 the human, with any remaining nits beside it. Never while a blocker is open or unverified.
-Merging is the human's call. Once the PR is merged or closed: `mshape track rm pr-$N
---force` (the probes are untracked, and `--force` says what it discards).
+Merging is the human's call. Once the PR is merged or closed, run `mshape track rm pr-$N`.
+It refuses while probes are untracked, or when the PR was squashed or closed, since the
+branch then has commits `main` lacks. Tell the human what it reported, and run it with
+`--force` only once they say so.
 
 Review this skill when a blocker it should have caught reaches `main`.

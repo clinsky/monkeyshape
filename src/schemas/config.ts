@@ -159,7 +159,6 @@ export const DEFAULT_DOCS: ReadonlyArray<string> = [
   "CLAUDE.md",
   "README.md",
   "DECISIONS.md",
-  "docs/workflow.md",
   "skills/**/*.md",
   ".agents/skills/**/*.md",
   ".claude/skills/**/*.md",
