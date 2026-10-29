@@ -7,6 +7,7 @@ import pkg from "../../package.json" with { type: "json" };
 import { BASELINE_FILE, readBaseline, writeBaseline } from "../adapters/baseline.ts";
 import { loadConfig } from "../adapters/config.ts";
 import { initRepo } from "../adapters/init.ts";
+import { trackCurrent, trackList, trackNew, trackRm } from "../adapters/tracks.ts";
 import { loadSnapshot } from "../adapters/workspace.ts";
 import { CHECKS, notices, prerequisites, runChecks, unevaluated } from "../core/check.ts";
 import { garden } from "../core/garden.ts";
@@ -31,6 +32,16 @@ const USAGE = `mshape ${pkg.version}
       Print budgets and escape hatches for the milestone-boundary sweep.
   mshape rules
       List the custom rules and the bug class each one removes.
+  mshape track new <name>
+      Start a track: worktree .agents/worktrees/<repo>@<name> on track/<name> from main,
+      the shared handoffs and tracks.sharedPaths linked in, and a stub handoff.
+  mshape track list
+      Every track: handoff status, commits not in main, worktree. Restores missing handoff links.
+  mshape track current
+      The track of this directory, name only; exit 1, saying why, outside a track.
+  mshape track rm <name> [--force] [--keep-handoff]
+      Remove a finished track: worktree, branch, handoff. Refuses on uncommitted changes or
+      commits not in main; --force discards them. Never touches main or other tracks.
 
   --config <path>   Use this config instead of ./shape.config.ts (trying a repo before adopting).`;
 
@@ -90,11 +101,46 @@ const init = (root: string, args: ReadonlyArray<string>) =>
     };
   });
 
+/** Today in local time, `YYYY-MM-DD`: the date a new handoff's State carries. */
+const today = (): string => {
+  const now = new Date();
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
+};
+
+const track = (root: string, args: ReadonlyArray<string>) =>
+  Effect.gen(function* () {
+    const [sub, ...rest] = args;
+    const flags = rest.filter((arg) => arg.startsWith("--"));
+    const names = rest.filter((arg) => !arg.startsWith("--"));
+    const allowed = sub === "rm" ? ["--force", "--keep-handoff"] : [];
+    const takesName = sub === "new" || sub === "rm";
+    const usage = { output: USAGE, code: 2 };
+    if (flags.some((flag) => !allowed.includes(flag))) return usage;
+    if (names.length !== (takesName ? 1 : 0)) return usage;
+    const name = names[0] ?? "";
+    if (sub === "new") return { output: yield* trackNew(root, name, today()), code: 0 };
+    if (sub === "list") return { output: yield* trackList(root), code: 0 };
+    if (sub === "current") return { output: yield* trackCurrent(root), code: 0 };
+    if (sub === "rm")
+      return {
+        output: yield* trackRm(
+          root,
+          name,
+          { force: flags.includes("--force"), keepHandoff: flags.includes("--keep-handoff") },
+          (line) => Effect.sync(() => console.error(line)),
+        ),
+        code: 0,
+      };
+    return usage;
+  });
+
 const program = (root: string, args: ReadonlyArray<string>) =>
   Effect.gen(function* () {
     const [command, ...rest] = args;
     if (command === "--version") return { output: pkg.version, code: 0 };
     if (command === "init") return yield* init(root, rest);
+    if (command === "track") return yield* track(root, rest);
     if (command === "rules")
       return {
         output: RULES.map((r) => `${r.id.padEnd(22)}${r.layer.padEnd(9)}${r.bugClass}`).join("\n"),
@@ -168,6 +214,7 @@ const outcome = await Effect.runPromise(
     Effect.catchTags({
       ConfigError: (error) => Effect.succeed({ output: `mshape: ${error.message}`, code: 2 }),
       WorkspaceError: (error) => Effect.succeed({ output: `mshape: ${error.message}`, code: 2 }),
+      TrackError: (error) => Effect.succeed({ output: `mshape: ${error.message}`, code: 1 }),
     }),
   ),
 );
