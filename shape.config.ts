@@ -1,4 +1,5 @@
 import { defineConfig } from "./src/api/monkeyshape.ts";
+import { DEFAULT_DOCS } from "./src/schemas/config.ts";
 
 export default defineConfig({
   arch: {
@@ -27,4 +28,6 @@ export default defineConfig({
       },
     },
   },
+  // The adopters' guide ships in the package, not in their repos, so only this repo checks it.
+  refs: { docs: [...DEFAULT_DOCS, "docs/workflow.md"] },
 });
