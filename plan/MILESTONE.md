@@ -117,9 +117,14 @@ and `handoff` skills wait on the handoff format. Everything else can start now.
 
 ## Decision points
 
-- **Claude Code and `.agents/skills`** (`iqf.3`): if Claude Code doesn't read
-  `.agents/skills`, `init` adds a `.claude/skills` symlink. The `init` track decides and
-  records it in DECISIONS.md.
+- **Claude Code and `.agents/skills`** (`iqf.3`), **decided 2026-10-29:** Claude Code loads
+  project skills only from `.claude/skills/<name>/SKILL.md`; `.agents/skills/` is the
+  cross-agent convention that Codex and others read. Skills live in `.agents/skills/`, and
+  `init` commits a **relative** symlink `.claude/skills` → `../.agents/skills`. Relative,
+  because git stores the link text: it then resolves inside every clone and track worktree,
+  where an absolute link would point back at one machine's main checkout. The `init` track
+  confirms Claude Code follows the symlinked directory and records the decision in
+  DECISIONS.md with the test that enforces it.
 - **When `init` and `tracks` both work:** the maintainer tries them for real before the
   skills are polished; what breaks becomes `process` beads.
 

@@ -246,7 +246,8 @@ fails on any of these:
 ### 3.4 Skills
 
 Skills are procedural and self-contained, and live in `.agents/skills/<name>/SKILL.md` so any
-agent can use them. Each states when it expires or should be reviewed, and each is covered
+agent can use them; a committed relative symlink `.claude/skills` → `../.agents/skills` makes
+Claude Code, which reads only `.claude/skills`, see the same files. Each states when it expires or should be reviewed, and each is covered
 by the refs check. A skill never restates AGENTS.md or DECISIONS.md, and never does by hand
 what the CLI does. The shared five (`roadmap`, `milestone`, `track`, `handoff`, `review-pr`)
 come from the package; grooming and gardening are steps of `milestone`, not skills of their
