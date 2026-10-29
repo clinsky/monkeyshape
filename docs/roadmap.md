@@ -273,7 +273,8 @@ own. Skills specific to one repo live in that repo.
 
 - **Location:** `<parent>/<repo>-state/handoffs/<track>.md`, outside git. `mshape track new
   <track>` creates the sibling worktree `<parent>/<repo>@<track>` on branch `track/<track>`
-  and symlinks `.handoffs/` (and any data directories listed in `shape.config.ts`) into it. Every worktree and the human see one live copy. Handoffs are
+  and symlinks `.handoffs/` and the gitignored paths in `tracks.sharedPaths` (such as a
+  dataset) into it. Every worktree and the human see one live copy. Handoffs are
   never committed, so they can't fork. They are ephemeral by design; PR bodies are the durable
   record.
 - **Shape**, about 120 lines as a soft cap:

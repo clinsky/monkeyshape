@@ -44,11 +44,42 @@ Messages) and the maintainer.
   `<parent>/<repo>@<track>`, branch `track/<track>`, label `track:<track>`, handoffs in
   `<parent>/<repo>-state/handoffs/<track>.md`, symlink `.handoffs` in every checkout.
   Already merged with this plan, with tests.
+- **Shared paths** (`tracks.sharedPaths` in `shape.config.ts`, already in the schema with
+  tests): gitignored data every worktree shares with the main checkout, such as a large
+  dataset.
+  - Paths are repo-relative and inside the repo. The schema refuses absolute paths, `..`
+    segments and trailing slashes.
+  - `track new` creates the symlink `<worktree>/<path>` → `<main>/<path>` (the main
+    checkout's path, which may itself be a symlink). Missing parent directories in the
+    worktree are created.
+  - If `<main>/<path>` doesn't exist, `track new` skips it with a printed note. It never
+    creates shared data.
+  - If `<worktree>/<path>` already exists (the path is tracked, or was created by hand),
+    `track new` refuses and says so: a shared path must be gitignored, never tracked.
+  - `.handoffs` is always shared, without being listed.
 - **CLI surface** (implemented by `init` and `tracks`, called by `skills`):
   - `mshape init <name>`
   - `mshape skills sync` (refresh `.agents/skills` from the installed package)
-  - `mshape track new <name>`, `mshape track list`, `mshape track current` (name only on
-    stdout; exit 1 outside a track), `mshape track rm <name> [--force] [--keep-handoff]`
+  - `mshape track new <name>`, `mshape track list`
+  - `mshape track current`: the name only on stdout, exit 1 outside a track. A directory
+    named like a track is not enough: the directory must be a worktree git has registered
+    for this repository (`git worktree list`), on branch `track/<name>`. Otherwise it exits 1
+    and says which condition failed. `trackOf` in `src/core/layout.ts` is only the naming
+    convention.
+  - `mshape track rm <name> [--force] [--keep-handoff]`, defined below.
+- **`track rm` safety:**
+  - Without `--force`, it refuses if the worktree has uncommitted or untracked changes, or
+    if `track/<name>` has commits not in `main`. It says which, and touches nothing.
+  - `--force` overrides only those two refusals. It discards that worktree's uncommitted
+    changes and deletes its unmerged branch, and the command says so before doing it.
+  - **Never deleted, with or without `--force`:** the main checkout, other tracks'
+    worktrees, branches or handoffs, the state directory itself, and anything a shared path
+    points at. Removing the worktree removes the symlinks, never their targets.
+  - **Branch:** deleted when merged into `main`, or with `--force`; otherwise kept.
+  - **Handoff:** deleted by default; `--keep-handoff` keeps it.
+  - **Order:** check everything first; then remove the worktree, then the branch, then the
+    handoff; then `git worktree prune`. If a step fails, stop, report what was removed and
+    what remains, and exit non-zero. Running `rm` again finishes the job.
 - **Handoff format** (`monkeyshape-iqf.7`; owner `tracks`, consumer `skills`):
 
   ```md
@@ -72,12 +103,14 @@ Messages) and the maintainer.
 
 | Track | Charter | Beads | Acceptance |
 |---|---|---|---|
-| `init` | `mshape init`: template, toolchain, beads, state directory, skills install; the end-to-end test | `iqf.1`, `iqf.2`, `iqf.3`, `iqf.13` | A temp repo from `init` passes its gate; the end-to-end test runs in the gate |
-| `tracks` | `mshape track new / list / current / rm`; the handoff format and stub | `iqf.4`, `iqf.5`, `iqf.6`, `iqf.7` | Each command tested against real git worktrees; the handoff format is parsed in a test |
+| `init` | `mshape init`: template, toolchain, beads, state directory, skills install; the CLI end-to-end test | `iqf.1`, `iqf.2`, `iqf.3`, `iqf.13`; `iqf.14` with the maintainer | A temp repo from `init` passes its gate; the CLI end-to-end test runs in the gate |
+| `tracks` | `mshape track new / list / current / rm`, including shared paths, verified `current` and the `rm` safety rules above; the handoff format and stub | `iqf.4`, `iqf.5`, `iqf.6`, `iqf.7` | Each command tested against real git worktrees, including every `rm` refusal and a failure partway through; the handoff format is parsed in a test |
 | `skills` | The five skills: `roadmap`, `milestone` (with grooming and gardening), `track`, `handoff`, `review-pr` | `iqf.8` to `iqf.12` | Each skill uses only the CLI surface above; the refs check passes on them; the maintainer runs `/milestone` on this repo for milestone 2 |
 
-`iqf.13` (end-to-end) waits on `init` and `tracks`; the `track` and `handoff` skills wait on
-the handoff format. Everything else can start now.
+`iqf.13` (the CLI end-to-end test) waits on `init` and `tracks`, and can land early.
+`iqf.14`, the **milestone acceptance**, waits on `iqf.13` and all five skills, and closes only
+after the maintainer has started a repo with `init` and run the whole loop on it. The `track`
+and `handoff` skills wait on the handoff format. Everything else can start now.
 
 ## Decision points
 

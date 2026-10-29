@@ -36,6 +36,11 @@ export const RuleSetting = Schema.Struct({
   allow: Schema.optionalKey(Schema.Array(Allowance)),
 });
 
+/** Repo-relative and inside the repo: no leading `/`, no `..` segment, no trailing `/`. */
+export const SharedPath = Schema.String.check(
+  Schema.isPattern(/^(?!\/)(?!.*(?:^|\/)\.\.(?:\/|$))[^\0]*[^/]$/),
+);
+
 export const ForbiddenPattern = Schema.Struct({
   /** A regular expression source, matched against docs and code comments. */
   pattern: Schema.String,
@@ -61,6 +66,16 @@ export const ShapeConfig = Schema.Struct({
   rules: Schema.optionalKey(Schema.Record(Schema.String, RuleSetting)),
   /** `required` fails the check when bd can't answer, so a green CI run means beads was checked. */
   beads: Schema.optionalKey(Schema.Literals(["optional", "required"])),
+  tracks: Schema.optionalKey(
+    Schema.Struct({
+      /**
+       * Gitignored paths every track worktree shares with the main checkout, such as a large
+       * dataset: repo-relative, no `..`. `mshape track new` links `<worktree>/<path>` to
+       * `<main>/<path>`. The semantics are in plan/MILESTONE.md, "Interfaces the tracks share".
+       */
+      sharedPaths: Schema.optionalKey(Schema.Array(SharedPath)),
+    }),
+  ),
   refs: Schema.optionalKey(
     Schema.Struct({
       docs: Schema.optionalKey(Globs),
@@ -101,6 +116,7 @@ export interface ResolvedConfig {
   };
   readonly entry: ReadonlyArray<string>;
   readonly beads: "optional" | "required";
+  readonly tracks: { readonly sharedPaths: ReadonlyArray<string> };
   readonly arch:
     | {
         readonly root: string;
@@ -154,6 +170,7 @@ export const resolveConfig = (config: ShapeConfig): ResolvedConfig => ({
   },
   entry: config.entry ?? ["src/cli/**", "tools/**"],
   beads: config.beads ?? "optional",
+  tracks: { sharedPaths: config.tracks?.sharedPaths ?? [] },
   arch:
     config.arch === undefined
       ? undefined
