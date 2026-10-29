@@ -21,7 +21,8 @@ gate: if a check is too strict for this repo, fix the check, not the repo.
 - `src/core/check.ts`: runs every check over a `Snapshot`. Checks are pure; `src/adapters/` loads.
 - `src/core/rules/registry.ts`: the custom rules. `src/core/rules/engine.ts` owns scope,
   allowances and `shape-ignore` comments, so rules only report offsets.
-- `SPEC.md`: the working design. Temporary: it dissolves into this code and is then deleted.
+- `docs/roadmap.md`: direction, and a status table saying what ships. Direction, not rules:
+  rewrite it in place when a piece ships, and never cite its sections from code or here.
 
 ## Gotchas
 

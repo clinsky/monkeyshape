@@ -11,12 +11,16 @@ import pkg from "../../package.json" with { type: "json" };
 
 const ROOT = join(import.meta.dir, "..", "..");
 
+const readmeBlocks = async (): Promise<ReadonlyArray<string>> => {
+  const readme = await Bun.file(join(ROOT, "README.md")).text();
+  return [...readme.matchAll(/```\w*\n([\s\S]*?)```/g)].map((block) => block[1] ?? "");
+};
+
 /** `// <file>` or `<!-- <file> -->` on the first line of a README code block names the file. */
 const readmeFiles = async (): Promise<Record<string, string>> => {
-  const readme = await Bun.file(join(ROOT, "README.md")).text();
   const files: Record<string, string> = {};
-  for (const block of readme.matchAll(/```\w*\n([\s\S]*?)```/g)) {
-    const [first = "", ...rest] = (block[1] ?? "").split("\n");
+  for (const block of await readmeBlocks()) {
+    const [first = "", ...rest] = block.split("\n");
     const name = /^(?:\/\/|<!--)\s*([\w.-]+\.\w+)\s*(?:-->)?$/.exec(first.trim())?.[1];
     if (name !== undefined) files[name] = rest.join("\n");
   }
@@ -76,10 +80,9 @@ beforeAll(async () => {
   );
   for (const [path, text] of Object.entries(await readmeFiles())) await write(path, text);
   await write(".gitignore", "node_modules/\n");
-  await write("src/schemas/user.ts", "export interface User {\n  readonly id: string;\n}\n");
   await write(
     "src/core/greet.ts",
-    'import type { User } from "../schemas/user.ts";\n\nexport const greet = (user: User): string => user.id.toUpperCase();\n',
+    "export const greet = (name: string): string => name.toUpperCase();\n",
   );
   expect((await run(["git", "init", "-q"])).code).toBe(0);
   const install = await run([process.execPath, "install"]);
@@ -120,6 +123,24 @@ describe("an adopter following the README", () => {
     expect(result.output).toContain("mshape check passed");
     expect(result.output).not.toContain("note:");
     expect(result.code).toBe(0);
+  });
+
+  test("the README's example output is what the installed binary prints", async () => {
+    await write("src/core/cache.ts", "export const stamp = (): number => Date.now();\n");
+    await write(
+      "src/core/client.ts",
+      'import { readFile } from "node:fs/promises";\n\nexport const load = (path: string) => readFile(path, "utf8");\n',
+    );
+    let actual = { code: 0, output: "" };
+    try {
+      actual = await mshape(["check"]);
+    } finally {
+      await rm(join(repo, "src/core/cache.ts"));
+      await rm(join(repo, "src/core/client.ts"));
+    }
+    const example = (await readmeBlocks()).find((block) => block.startsWith("$ mshape check\n"));
+    expect(`$ mshape check\n${actual.output}`).toBe(example ?? "(no example block in README)");
+    expect(actual.code).toBe(1);
   });
 
   test("new violations fail; the ratchet grandfathers, then holds", async () => {

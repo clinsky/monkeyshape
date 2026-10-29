@@ -1,7 +1,24 @@
-# monkeyshape: spec (draft 2)
+# monkeyshape roadmap
 
-> This is a working draft. Once built, it becomes the package, the template and a short
-> AGENTS.md, and this file is deleted.
+Where monkeyshape is heading, and how far it has got. The status table is the answer to "does
+X exist yet?"; the design below it describes the whole system, shipped or not. This file is
+direction, not a rule source: what ships is defined by the code, `mshape rules` and the
+README. It follows its own convention (see "The three horizons"): rewritten in place at each
+milestone boundary, and never cited by code.
+
+## Status
+
+| Piece | Status |
+|---|---|
+| `mshape check`: arch, refs, budgets, coverage, and five core rules | **Shipped** (v0.1) |
+| `mshape baseline` (ratchets), `garden`, `rules`, `--config` | **Shipped** (v0.1) |
+| Base `tsconfig` and `biome` configs; the `decodeStrict` helper | **Shipped** (v0.1) |
+| `mshape init`, `mshape worktree`, and the template: AGENTS.md, DECISIONS.md, `docs/roadmap.md`, PR template, CI, hooks, beads setup | Next (v0.2) |
+| Skills: `review-pr`, `groom`, `garden`, `handoff` | Later (v0.3) |
+| The remaining starter rules in section 4.2, and the agentic layer | Later (v0.3) |
+| Selectable policy bundles (correctness checks always on; workflow opinions opt-out as a bundle) | Idea: when an outside adopter needs it |
+
+A PR that ships a piece updates its row.
 
 ## 0. Scope
 
@@ -87,7 +104,7 @@ Every rule must trace back to one of these principles. A rule that can't is dele
 | A live architectural decision | **`DECISIONS.md`** (§3.1) | No; linked from AGENTS.md | Schema check, overwrite rule |
 | Commands, gotchas, where to start | **AGENTS.md** (§3.2) | Yes | Budget and refs checks |
 | A human quickstart | **README.md**: 80 lines or fewer, no status | No | Refs check |
-| **Direction** (long-term) | **Deferred direction epics in beads** | No | Re-read at each milestone plan |
+| **Direction** (long-term) | **`docs/roadmap.md`**, plus a deferred direction epic per goal | No | Rewritten at each milestone boundary |
 | **Milestone** (mid-term) | **`plan/MILESTONE.md`** (§3.5) | No | Replaced at each milestone |
 | **Track state** (short-term) | **Handoffs** in a shared live directory (§3.6) | Read at session start | Overwritten at each handoff |
 | What a change did and what it showed | **PR body and commit messages** | No | Written once, at the time |
@@ -97,12 +114,20 @@ Every rule must trace back to one of these principles. A rule that can't is dele
 
 ### 2.1 The three horizons
 
-- **Direction (long-term).** Where the repo is heading over months. Each direction is a beads
-  epic with a goal and a few lines on why. It is **deferred**, so it never appears in
-  `bd ready`, and it has **no child stories** until a milestone pulls it in. Long-lived open
-  epics are fine. The failure mode is breaking far-future epics into dozens of stories on
-  day 1, all at high priority, which then crowd out the real queue and describe work that has
-  been overtaken by events.
+- **Direction (long-term).** Where the repo is heading over months, written at kickoff in a
+  human–agent conversation as `docs/roadmap.md`. It is the one long-form vision document a
+  repo keeps, and these rules stop it becoming gospel:
+  - It **opens with a status table** (shipped / next / later / idea), so a reader learns what
+    exists without reading the design, and nobody builds to a plan as if it were a spec.
+  - It is **rewritten in place** at each milestone boundary, with what was learned. There is
+    no frozen copy and no revision log: git has the history.
+  - It is **never cited by code or normative docs**. The refs check rejects `§N` citations
+    and links to its sections; naming the file is fine.
+  - Each goal becomes **one deferred beads epic** with a goal and a few lines on why. It
+    never appears in `bd ready`, and it has **no child stories** until a milestone pulls it
+    in. Long-lived open epics are fine. The failure mode is breaking far-future goals into
+    dozens of stories on day 1, all at high priority, which then crowd out the real queue and
+    describe work that has been overtaken by events.
 - **Milestone (mid-term).** The next significant delivery: roughly several PRs from each of
   several parallel agents. It is planned in a human–agent conversation and written to
   `plan/MILESTONE.md`. Beads are then **groomed** to match: the milestone's stories are
@@ -120,7 +145,7 @@ ceremony. Tracks work their queues, and PR bodies record what was learned.
 | Replaced | Replacement |
 |---|---|
 | Numbered ADR directories, append-only "Update" sections, superseded stubs | A capped `DECISIONS.md` that is overwritten in place, plus tests, checks and comments |
-| A "living" design brief | Design briefs go in `notes/` as history from day 1. Their goals become direction epics |
+| A design brief that is both "frozen" and cited as the charter | `docs/roadmap.md`: status first, rewritten at each boundary, never cited by code; its goals become deferred epics |
 | Git-tracked handoffs | A shared live directory. Git-tracked handoffs fork per worktree, so the copy on main goes stale |
 | Tool instructions duplicated across CLAUDE.md, AGENTS.md, skills and editor rules | One source each |
 | AGENTS.md restating decisions | Links to `DECISIONS.md` |
@@ -186,7 +211,8 @@ It scans AGENTS.md, README, DECISIONS.md, skills, the PR template and code comme
 fails on any of these:
 
 - a backticked path, a `bun run X` or a `D-slug` that doesn't exist;
-- a link from code or normative docs into `notes/`, `plan/` or a handoff;
+- a link from code or normative docs to a specific note or handoff, or to a section of
+  `plan/MILESTONE.md` or `docs/roadmap.md`;
 - `§N`-style citations;
 - a bead id cited from code, except in a `TODO(bd-xxx)`. Ids are checked against `bd list`,
   so lookalike names aren't flagged; without `bd` (CI) the rule doesn't run and its baseline
@@ -326,6 +352,7 @@ tools/            operator scripts: typechecked, linted and tested like src
 validate/         real-data loop: checks/<name>.ts, targets (id → location + content hash), baselines/
 bench/            agentic layer: eval cases with expected answers
 test/             unit/ golden/ integration/ invariants/ live/ (env-gated)
+docs/roadmap.md   direction: status table first, rewritten at milestone boundaries
 plan/MILESTONE.md
 notes/
 .handoffs →       shared state dir (symlink, gitignored)
@@ -450,28 +477,13 @@ boundary the `garden` and `groom` skills run, and their combined output is a sin
 The sweep also tries to turn each prose rule into a check, and turns review findings that
 keep recurring into checks, upstream when they are general.
 
-## 9. Building monkeyshape
+## 9. Adopting monkeyshape
 
-monkeyshape is built under its own rules from the first commit. It has its own AGENTS.md,
-DECISIONS.md and beads, and it passes its own gate.
-
-1. **v0.1, the gate (built):**
-   - `mshape check` with:
-     - arch: a config-driven module map, host access, package allowlists and cycles
-     - refs
-     - budgets
-     - coverage
-     - ratchets
-   - The base tsconfig and biome configs.
-   - The first five custom rules: decodeStrict, banned globals, the throw/Error allowlist,
-     where `Effect.run*` may appear, and spreading error values.
-   - Fixtures for every rule.
-2. **v0.2, the template:** `mshape init`, `mshape worktree`, the AGENTS.md, DECISIONS.md and
-   PR templates, CI, hooks, and the beads setup.
-3. **v0.3, the skills and the remaining rules:** `review-pr`, `groom`, `garden`, `handoff`,
-   and the rest of §4.2, including the agentic layer.
-4. **Adoption guide:**
-   - A new repo runs `mshape init`.
-   - An existing repo adopts at a sync point. Parallel work finishes its current PRs, and one
-     knowledge-migration PR reshapes the docs, decisions, memories, handoffs and beads.
-     Code-level rules land as ratchets, so in-flight work sees no churn.
+- **A new repo** runs `mshape init` (v0.2). Its first milestone is "first result on a real
+  target".
+- **An existing repo** adopts at a sync point. Parallel work finishes its current PRs, and
+  one knowledge-migration PR reshapes the docs, decisions, memories, handoffs and beads.
+  Code-level rules land as ratchets (`mshape baseline --init`), so in-flight work sees no
+  churn.
+- **Trying it first:** `mshape check --config <path>` runs against a repo without adding a
+  config to it.

@@ -75,6 +75,17 @@ describe("refs in docs", () => {
     expect(rules({ ...files, "README.md": "See `notes/2026-01-01-x.md`." })).toEqual([]);
   });
 
+  test("normative docs may name the roadmap but not cite its sections", () => {
+    const files = { "docs/roadmap.md": "# Roadmap\n" };
+    expect(rules({ ...files, "AGENTS.md": "Direction lives in `docs/roadmap.md`." })).toEqual([]);
+    expect(rules({ ...files, "AGENTS.md": "Per [the roadmap](docs/roadmap.md#status)." })).toEqual([
+      "refs/normative-link",
+    ]);
+    expect(rules({ ...files, "src/a.ts": "// see docs/roadmap.md#rules\n" })).toEqual([
+      "refs/normative-link",
+    ]);
+  });
+
   test("section citations are refused", () => {
     expect(rules({ "AGENTS.md": "As the design brief says in §4.2." })).toEqual([
       "refs/section-citation",

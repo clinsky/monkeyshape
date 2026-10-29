@@ -11,8 +11,12 @@ import { isTsSource, lineAt, pathIndex, type Snapshot, type Violation } from "./
 import { parse } from "./parse.ts";
 import { basename, dirname, join } from "./paths.ts";
 
-/** A specific note or handoff, or a section of the plan. Naming the directories is fine. */
-const NON_NORMATIVE = /(^|[\s(`'"/])(?:\.{1,2}\/)*(?:(?:notes|\.handoffs)\/[\w.-]+|plan\/[\w.-]+#)/;
+/**
+ * A specific note or handoff, or a section of the milestone plan or the roadmap. Naming the
+ * directories or the files is fine: "the roadmap is `docs/roadmap.md`" points, it doesn't cite.
+ */
+const NON_NORMATIVE =
+  /(^|[\s(`'"/])(?:\.{1,2}\/)*(?:(?:notes|\.handoffs)\/[\w.-]+|(?:plan\/[\w.-]+|docs\/roadmap\.md)#)/;
 const SECTION_CITATION = /§\s*\d/;
 const DECISION_REF = /\bD-[a-z0-9]+(?:-[a-z0-9]+)*\b/g;
 const KNOWN_EXTENSION =

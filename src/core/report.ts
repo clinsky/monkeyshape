@@ -3,27 +3,29 @@ import type { Metrics } from "./budgets.ts";
 import type { Violation } from "./model.ts";
 import type { RatchetResult } from "./ratchet.ts";
 
+/** Location and rule on one line (grep-able), the message indented below it (readable). */
 export const formatViolation = (v: Violation): string =>
-  `${v.file}${v.line === undefined ? "" : `:${v.line}`}  ${v.rule}  ${v.message}`;
+  `${v.file}${v.line === undefined ? "" : `:${v.line}`}  ${v.rule}\n  ${v.message}`;
+
+const plural = (n: number, word: string): string => `${n} ${word}${n === 1 ? "" : "s"}`;
 
 const byLocation = (a: Violation, b: Violation): number =>
   a.file.localeCompare(b.file) || (a.line ?? 0) - (b.line ?? 0) || a.rule.localeCompare(b.rule);
 
 export const formatCheck = (result: RatchetResult): string => {
-  const lines = [...result.failing].sort(byLocation).map(formatViolation);
+  const entries = [...result.failing].sort(byLocation).map(formatViolation);
   for (const l of result.loose)
-    lines.push(
-      `${l.file}  ${l.rule}  ratchet is loose: baseline allows ${l.allowed}, found ${l.found}. Run \`mshape baseline --tighten\`.`,
+    entries.push(
+      `${l.file}  ${l.rule}\n  ratchet is loose: baseline allows ${l.allowed}, found ${l.found}. Run \`mshape baseline --tighten\`.`,
     );
   const problems = result.failing.length + result.loose.length;
   const suffix =
     result.grandfathered > 0 ? `, ${result.grandfathered} grandfathered by the baseline` : "";
-  lines.push(
+  const summary =
     problems === 0
       ? `mshape check passed${suffix}`
-      : `\nmshape check failed: ${problems} problem(s)${suffix}`,
-  );
-  return lines.join("\n");
+      : `mshape check failed: ${plural(problems, "problem")}${suffix}`;
+  return [...entries, summary].join("\n\n");
 };
 
 export interface GardenReport {
