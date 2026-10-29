@@ -1,8 +1,29 @@
 {
   "name": "monkeyshape",
   "version": "0.1.0",
-  "description": "Checks, configs and conventions for humans and coding agents building together on Bun, TypeScript, Effect and beads.",
+  "description": "Opinionated checks, configs and conventions for humans and coding agents building together on Bun, TypeScript, Effect and beads.",
+  "keywords": [
+    "bun",
+    "typescript",
+    "effect",
+    "effect-ts",
+    "static-analysis",
+    "linter",
+    "quality-gate",
+    "coding-agents",
+    "ai-agents",
+    "developer-tools",
+    "beads"
+  ],
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/clinsky/monkeyshape.git"
+  },
+  "homepage": "https://github.com/clinsky/monkeyshape#readme",
+  "bugs": {
+    "url": "https://github.com/clinsky/monkeyshape/issues"
+  },
   "type": "module",
   "packageManager": "bun@1.4.2",
   "engines": {
