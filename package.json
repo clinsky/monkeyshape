@@ -42,6 +42,7 @@
     "config",
     "!src/**/*.test.ts",
     "README.md",
+    "docs/workflow.md",
     "LICENSE"
   ],
   "scripts": {
