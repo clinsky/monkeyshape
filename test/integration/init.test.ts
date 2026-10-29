@@ -93,6 +93,17 @@ describe("mshape init", () => {
     expect(await Bun.file(join(repo, "CLAUDE.md")).text()).toBe("@AGENTS.md\n");
   });
 
+  test("commits .claude/skills as a relative symlink to .agents/skills (D-skills-link)", async () => {
+    const repo = join(work, "demo");
+    const entry = (await run(repo, ["git", "ls-files", "--stage", ".claude/skills"])).output;
+    expect(entry).toStartWith("120000 ");
+    const blob = entry.split(/\s+/)[1] ?? "";
+    expect((await run(repo, ["git", "cat-file", "-p", blob])).output).toBe("../.agents/skills");
+    expect(await realpath(join(repo, ".claude", "skills"))).toBe(
+      await realpath(join(repo, ".agents", "skills")),
+    );
+  });
+
   test("the handoffs store is under .git, behind relative, ignored links", async () => {
     const repo = join(work, "demo");
     const store = join(await realpath(repo), ".git", "monkeyshape", "handoffs");

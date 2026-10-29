@@ -7,6 +7,7 @@ import { scaffold, type Toolchain } from "../core/scaffold.ts";
 import { resolveConfig } from "../schemas/config.ts";
 import { WorkspaceError } from "../schemas/errors.ts";
 import { runTool } from "./process.ts";
+import { installSkills, readTree } from "./skills.ts";
 
 export interface InitResult {
   /** What was done, one line each. */
@@ -27,17 +28,6 @@ const run = (cwd: string, command: ReadonlyArray<string>) =>
 
 /** The last lines of a tool's output: enough to say why it failed. */
 const tail = (output: string): string => output.split("\n").slice(-3).join("\n  ");
-
-const readTemplate = (dir: string) =>
-  Effect.tryPromise({
-    try: async () => {
-      const files = new Map<string, string>();
-      for await (const path of new Bun.Glob("**").scan({ cwd: dir, dot: true }))
-        files.set(path, await Bun.file(`${dir}/${path}`).text());
-      return files;
-    },
-    catch: (cause) => fail(dir, `cannot read the template: ${String(cause)}`),
-  });
 
 const isEmptyOrMissing = (dir: string) =>
   Effect.promise(() =>
@@ -96,11 +86,15 @@ const beads = (target: string, name: string) =>
     return undefined;
   });
 
-export const initRepo = (target: string, name: string, templateDir: string, toolchain: Toolchain) =>
+/** `packageRoot` is the installed monkeyshape: its `template/` and `skills/` are copied. */
+export const initRepo = (target: string, name: string, packageRoot: string, toolchain: Toolchain) =>
   Effect.gen(function* () {
     if (!(yield* isEmptyOrMissing(target)))
       return yield* Effect.fail(fail(target, "exists and is not empty; init only creates repos"));
-    const files = scaffold(name, yield* readTemplate(templateDir), toolchain);
+    const template = yield* readTree(`${packageRoot}/template`);
+    if (template.size === 0)
+      return yield* Effect.fail(fail(packageRoot, "has no template/; reinstall monkeyshape"));
+    const files = scaffold(name, template, toolchain);
     yield* Effect.tryPromise({
       try: async () => {
         for (const [path, text] of files) {
@@ -112,6 +106,8 @@ export const initRepo = (target: string, name: string, templateDir: string, tool
     });
     const done = [`wrote ${files.size} files`];
     const notes: Array<string> = [];
+    const skills = yield* installSkills(`${packageRoot}/skills`, target);
+    done.push(`${skills.sync.added.length} shared skills`);
 
     const git = yield* run(target, ["git", "init", "--quiet", "--initial-branch=main"]);
     if (git.code !== 0) return yield* Effect.fail(fail(target, `git init failed: ${git.output}`));
