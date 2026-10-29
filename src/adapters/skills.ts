@@ -1,12 +1,12 @@
 /** Installs the package's shared skills into a repo, and links them where Claude Code looks. */
-import { lstat, mkdir, rm, symlink } from "node:fs/promises";
+import { lstat, mkdir, readlink, rm, symlink } from "node:fs/promises";
 import { dirname } from "node:path";
 import { Effect } from "effect";
+import type { SkillFiles, SkillsLink, SkillsSnapshot } from "../core/model.ts";
 import {
   CLAUDE_SKILLS_LINK,
   CLAUDE_SKILLS_TARGET,
   SKILLS_DIR,
-  type SkillFiles,
   type SkillSync,
   syncSkills,
 } from "../core/skills.ts";
@@ -65,4 +65,28 @@ export const installSkills = (shippedDir: string, repo: string) =>
         new WorkspaceError({ operation: "install skills", path: repo, reason: String(cause) }),
     });
     return { sync, linked } satisfies SkillsInstall;
+  });
+
+const linkAt = (path: string): Promise<SkillsLink> =>
+  lstat(path).then(
+    async (info): Promise<SkillsLink> =>
+      info.isSymbolicLink()
+        ? { kind: "link", target: await readlink(path) }
+        : info.isDirectory()
+          ? { kind: "directory" }
+          : { kind: "other" },
+    (): SkillsLink => ({ kind: "missing" }),
+  );
+
+/** What `mshape check` needs to verify the install, read from disk as agents will see it. */
+export const loadSkills = (shippedDir: string, repo: string) =>
+  Effect.gen(function* () {
+    const link = yield* Effect.promise(() => linkAt(`${repo}/${CLAUDE_SKILLS_LINK}`));
+    return {
+      link,
+      installed: yield* readTree(`${repo}/${SKILLS_DIR}`),
+      claudeDirectory:
+        link.kind === "directory" ? yield* readTree(`${repo}/${CLAUDE_SKILLS_LINK}`) : new Map(),
+      shipped: yield* readTree(shippedDir),
+    } satisfies SkillsSnapshot;
   });

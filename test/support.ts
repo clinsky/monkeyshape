@@ -1,5 +1,5 @@
 /** In-memory repos for tests: checks are pure, so no temp directories are needed. */
-import type { Integration, Snapshot } from "../src/core/model.ts";
+import type { Integration, SkillsSnapshot, Snapshot } from "../src/core/model.ts";
 import { lineAt } from "../src/core/model.ts";
 import { parse } from "../src/core/parse.ts";
 import { type Rule, runRule } from "../src/core/rules/engine.ts";
@@ -18,6 +18,7 @@ export const repo = (
     readonly beads?: Integration;
     readonly typechecked?: ReadonlyArray<string>;
     readonly linted?: ReadonlyArray<string>;
+    readonly skills?: SkillsSnapshot;
   } = {},
 ): Snapshot => {
   const beadsOk = options.memories !== undefined || options.beadIds !== undefined;
@@ -37,6 +38,12 @@ export const repo = (
       beads: options.beads ?? (beadsOk ? { state: "ok" } : { state: "absent" }),
       tsc: tool(options.typechecked),
       biome: tool(options.linted),
+    },
+    skills: options.skills ?? {
+      link: { kind: "missing" },
+      installed: new Map(),
+      claudeDirectory: new Map(),
+      shipped: new Map(),
     },
   };
 };

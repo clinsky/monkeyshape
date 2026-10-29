@@ -104,6 +104,25 @@ describe("mshape init", () => {
     );
   });
 
+  test("mshape check reads the link from disk: an absolute one fails the skills check", async () => {
+    const repo = join(work, "demo");
+    const link = join(repo, ".claude", "skills");
+    const mshape = [process.execPath, join(repo, "node_modules", ".bin", "mshape")];
+    await rm(link);
+    await symlink(join(await realpath(repo), ".agents", "skills"), link);
+    let result = { code: 0, output: "" };
+    try {
+      result = await run(repo, [...mshape, "check", "--only", "skills"]);
+    } finally {
+      await rm(link);
+      await symlink("../.agents/skills", link);
+    }
+    expect(result.output).toContain("skills/link");
+    expect(result.output).toContain("absolute path");
+    expect(result.code).toBe(1);
+    expect((await run(repo, [...mshape, "check", "--only", "skills"])).code).toBe(0);
+  });
+
   test("the handoffs store is under .git, behind relative, ignored links", async () => {
     const repo = join(work, "demo");
     const store = join(await realpath(repo), ".git", "monkeyshape", "handoffs");

@@ -26,7 +26,7 @@ const USAGE = `mshape ${pkg.version}
   mshape skills sync
       Refresh the shared skills in .agents/skills from the installed package, after a bump.
       Skills the package doesn't ship are the repo's own and are left alone.
-  mshape check [--only arch,refs,budgets,coverage,rules]
+  mshape check [--only arch,refs,budgets,coverage,rules,skills]
       Run the checks; violations above .shape/baseline.json fail.
   mshape baseline --tighten
       Lower baseline counts to what is found now. Never raises one.
@@ -128,7 +128,7 @@ const program = (root: string, args: ReadonlyArray<string>) =>
           ? configPath
           : `${root}/${configPath}`,
     );
-    const snapshot = yield* loadSnapshot(root, config);
+    const snapshot = yield* loadSnapshot(root, config, `${PACKAGE_ROOT}/skills`);
     const baseline = yield* readBaseline(root);
 
     if (command === "garden")

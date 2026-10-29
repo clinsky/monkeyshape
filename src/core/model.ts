@@ -1,6 +1,6 @@
 /** The data every check reads and the findings it returns. Pure: no I/O lives here. */
 
-export type CheckName = "arch" | "refs" | "budgets" | "coverage" | "rules";
+export type CheckName = "arch" | "refs" | "budgets" | "coverage" | "rules" | "skills";
 
 export interface Violation {
   /**
@@ -32,6 +32,28 @@ export interface Snapshot {
   /** Files biome processes, as biome itself reports them, when biome ran. */
   readonly linted: ReadonlySet<string> | undefined;
   readonly integrations: Integrations;
+  readonly skills: SkillsSnapshot;
+}
+
+/** Files keyed by path relative to a skills directory: `<skill>/SKILL.md`. */
+export type SkillFiles = ReadonlyMap<string, string>;
+
+/** What sits at `.claude/skills`: `target` is the link's own text, unresolved. */
+export type SkillsLink =
+  | { readonly kind: "missing" }
+  | { readonly kind: "link"; readonly target: string }
+  | { readonly kind: "directory" }
+  | { readonly kind: "other" };
+
+/** The installed skills, read from disk, and the ones the running monkeyshape ships. */
+export interface SkillsSnapshot {
+  readonly link: SkillsLink;
+  /** Files under `.agents/skills`. */
+  readonly installed: SkillFiles;
+  /** Files under `.claude/skills` when it is a real directory; empty otherwise. */
+  readonly claudeDirectory: SkillFiles;
+  /** Files under the package's `skills/`. */
+  readonly shipped: SkillFiles;
 }
 
 /**
