@@ -1,13 +1,21 @@
 /**
  * Where a track lives. Every track-aware command and skill derives these names from here, so
- * the CLI, the skills and the template can't disagree. Paths are absolute and POSIX; `repo`
- * is the main checkout's root. Everything stays under the repo's `.agents/`, so nothing
- * clutters the directory around it:
+ * the CLI, the skills and the template can't disagree. Paths are absolute and POSIX.
+ *
+ * `common` is git's common directory (`git rev-parse --path-format=absolute
+ * --git-common-dir`), the one fact that is the same from the main checkout and from every
+ * worktree; `repo`, the main checkout's root, is derived from it, never from the working
+ * directory. Everything a human sees stays under the repo's `.agents/`:
  *
  *   <repo>/.agents/skills/                     committed: the shared skills
  *   <repo>/.agents/worktrees/<name>@<track>    gitignored: the track's worktree, on `track/<track>`
- *   <repo>/.agents/handoffs/<track>.md         gitignored: one handoff per track
- *   <checkout>/.handoffs                       gitignored symlink to the handoffs, in every checkout
+ *   <common>/monkeyshape/handoffs/<track>.md   the handoffs themselves, inside git's directory
+ *   <repo>/.agents/handoffs                    gitignored symlink to that store
+ *   <checkout>/.handoffs                       gitignored symlink to that store, in every checkout
+ *
+ * The store lives under `.git` because handoffs are live state: `git clean -fdx` deletes
+ * ignored files, which would include a handoffs directory in the working tree, but it never
+ * touches `.git`. It can delete the symlinks, which the track commands recreate.
  *
  * Beads for a track carry the label `track:<track>`.
  */
@@ -30,10 +38,20 @@ export const worktreesDir = (repo: string): string => `${trim(repo)}/.agents/wor
 export const worktreePath = (repo: string, track: string): string =>
   `${worktreesDir(repo)}/${repoName(repo)}@${track}`;
 
-export const handoffsDir = (repo: string): string => `${trim(repo)}/.agents/handoffs`;
+/** The main checkout: the directory holding git's common directory. */
+export const mainCheckout = (common: string): string => {
+  const path = trim(common);
+  return path.slice(0, path.lastIndexOf("/"));
+};
 
-export const handoffPath = (repo: string, track: string): string =>
-  `${handoffsDir(repo)}/${track}.md`;
+/** Where the handoffs are stored: inside git's directory, out of reach of `git clean`. */
+export const handoffsStore = (common: string): string => `${trim(common)}/monkeyshape/handoffs`;
+
+/** The user-facing link to the store, in the main checkout. */
+export const handoffsLink = (repo: string): string => `${trim(repo)}/.agents/handoffs`;
+
+export const handoffPath = (common: string, track: string): string =>
+  `${handoffsStore(common)}/${track}.md`;
 
 /** The track a worktree belongs to, from its path, or undefined for the main checkout. */
 export const trackOf = (repo: string, worktree: string): string | undefined => {

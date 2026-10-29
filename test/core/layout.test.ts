@@ -1,7 +1,9 @@
 import { describe, expect, test } from "bun:test";
 import {
   handoffPath,
-  handoffsDir,
+  handoffsLink,
+  handoffsStore,
+  mainCheckout,
   TRACK_NAME,
   trackBranch,
   trackLabel,
@@ -10,6 +12,7 @@ import {
 } from "../../src/core/layout.ts";
 
 const repo = "/home/me/dev/monkey-emu";
+const common = `${repo}/.git`;
 
 describe("track layout", () => {
   test("everything lives under the repo's .agents/", () => {
@@ -18,9 +21,17 @@ describe("track layout", () => {
     );
     expect(trackBranch("docs")).toBe("track/docs");
     expect(trackLabel("docs")).toBe("track:docs");
-    expect(handoffsDir(repo)).toBe("/home/me/dev/monkey-emu/.agents/handoffs");
-    expect(handoffPath(repo, "docs")).toBe("/home/me/dev/monkey-emu/.agents/handoffs/docs.md");
+    expect(handoffsLink(repo)).toBe("/home/me/dev/monkey-emu/.agents/handoffs");
     expect(worktreePath(`${repo}/`, "docs")).toBe(worktreePath(repo, "docs"));
+  });
+
+  test("handoffs are stored under git's common directory, out of reach of git clean", () => {
+    expect(mainCheckout(common)).toBe(repo);
+    expect(mainCheckout(`${common}/`)).toBe(repo);
+    expect(handoffsStore(common)).toBe("/home/me/dev/monkey-emu/.git/monkeyshape/handoffs");
+    expect(handoffPath(common, "docs")).toBe(
+      "/home/me/dev/monkey-emu/.git/monkeyshape/handoffs/docs.md",
+    );
   });
 
   test("a worktree knows its track; the main checkout and strangers don't have one", () => {

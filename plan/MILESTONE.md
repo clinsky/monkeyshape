@@ -46,12 +46,17 @@ Messages) and the maintainer.
 - **Layout:** `src/core/layout.ts` is the only source of track paths and names. Everything
   lives under the repo's `.agents/`, so nothing clutters the directory around it: worktree
   `<repo>/.agents/worktrees/<repo>@<track>` (gitignored), branch `track/<track>`, label
-  `track:<track>`, handoffs in `<repo>/.agents/handoffs/<track>.md` (gitignored), symlink
-  `.handoffs` in every checkout. Amended 2026-10-29 from sibling directories, before any
-  track started, at the maintainer's request.
-  - Trap: `git clean -fdx` in the main checkout deletes `.agents/handoffs` (ignored files).
-    Worktrees survive it, since each holds its own `.git`. `track rm` and the skills never
-    run it.
+  `track:<track>`. Amended 2026-10-29 from sibling directories, before any track started, at
+  the maintainer's request.
+  - **The main checkout comes from git, never from the directory:** every command resolves
+    `git rev-parse --path-format=absolute --git-common-dir` and derives the main checkout
+    from it (`mainCheckout`). Nested worktrees are inside the repo, so walking up the
+    directory tree would find the wrong root.
+  - **Handoffs live inside git's directory:** `<common>/monkeyshape/handoffs/<track>.md`,
+    with `<repo>/.agents/handoffs` and every checkout's `.handoffs` as gitignored symlinks
+    to it. `git clean -fdx` deletes ignored files, which removes the links but never
+    anything under `.git` (reproduced with real worktrees). `init`, `track new` and
+    `track list` recreate a missing link; nothing writes handoffs anywhere else.
 - **Shared paths** (`tracks.sharedPaths` in `shape.config.ts`, already in the schema with
   tests): gitignored data every worktree shares with the main checkout, such as a large
   dataset.

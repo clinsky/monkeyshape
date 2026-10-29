@@ -272,7 +272,9 @@ own. Skills specific to one repo live in that repo.
 
 ### 3.6 Handoffs: shared, live, readable by the human
 
-- **Location:** `<repo>/.agents/handoffs/<track>.md`, gitignored. `mshape track new <track>`
+- **Location:** stored in git's directory, `<common>/monkeyshape/handoffs/<track>.md`, where
+  `git clean` can't reach them; `.agents/handoffs` and each checkout's `.handoffs` are
+  gitignored links to it. `mshape track new <track>`
   creates the worktree `<repo>/.agents/worktrees/<repo>@<track>` (gitignored, so it doesn't
   clutter the directory around the repo, and git, biome and `bun test` skip it) on branch
   `track/<track>` and symlinks `.handoffs/` and the gitignored paths in `tracks.sharedPaths` (such as a
