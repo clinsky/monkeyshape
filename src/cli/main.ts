@@ -5,7 +5,7 @@ import pkg from "../../package.json" with { type: "json" };
 import { BASELINE_FILE, readBaseline, writeBaseline } from "../adapters/baseline.ts";
 import { loadConfig } from "../adapters/config.ts";
 import { loadSnapshot } from "../adapters/workspace.ts";
-import { CHECKS, runChecks, unevaluated } from "../core/check.ts";
+import { CHECKS, notices, runChecks, unevaluated } from "../core/check.ts";
 import { garden } from "../core/garden.ts";
 import type { CheckName } from "../core/model.ts";
 import { applyBaseline, count, tighten } from "../core/ratchet.ts";
@@ -89,10 +89,11 @@ const program = (root: string, args: ReadonlyArray<string>) =>
     const result = applyBaseline(
       runChecks(config, snapshot, only),
       baseline,
-      unevaluated(snapshot),
+      unevaluated(snapshot, only, Object.keys(baseline)),
     );
+    const said = notices(config, snapshot).map((notice) => `note: ${notice}`);
     return {
-      output: formatCheck(result),
+      output: [...said, formatCheck(result)].join("\n"),
       code: result.failing.length + result.loose.length > 0 ? 1 : 0,
     };
   });

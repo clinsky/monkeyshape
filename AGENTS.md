@@ -33,6 +33,10 @@ gate: if a check is too strict for this repo, fix the check, not the repo.
   the cache is keyed on both.
 - Biome base config lives in `config/` and is consumed through `extends`; a rule turned on
   there lands in every adopter on their next bump, so it must already pass here.
+- `node_modules/.bin/*` shims start with `#!/usr/bin/env node`, and adopters may have only
+  Bun: run tools as `[process.execPath, bin]`. A tool that can't run degrades to a `note:`,
+  never silently. Guarded by `test/integration/consumer.test.ts`.
+- The README's install blocks are the consumer test's fixture; edit them as code.
 
 ## Adding a rule
 

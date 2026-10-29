@@ -11,14 +11,24 @@ and treats real-world results as the judge of done.
 ## Install
 
 ```sh
-bun add -d monkeyshape
+bun add -d monkeyshape effect @biomejs/biome typescript @types/bun
 ```
+
+monkeyshape runs on Bun and asks your `tsc` and `biome` which files they cover; `effect` is a
+peer dependency. Add these files (the tests build a repo from exactly these blocks):
 
 ```jsonc
 // tsconfig.json
-{ "extends": "monkeyshape/tsconfig.base.json", "include": ["src", "test"] }
+{ "extends": "monkeyshape/tsconfig.base.json", "include": ["src", "test", "shape.config.ts"] }
+```
+
+```jsonc
 // biome.json
-{ "root": true, "extends": ["monkeyshape/biome"], "files": { "includes": ["src/**", "test/**"] } }
+{
+  "root": true,
+  "extends": ["monkeyshape/biome"],
+  "files": { "includes": ["src/**", "test/**", "shape.config.ts", "*.json"] }
+}
 ```
 
 ```ts
@@ -30,14 +40,29 @@ export default defineConfig({
     modules: {
       schemas: { description: "Pure data contracts." },
       core: { description: "Deterministic logic.", mayImport: ["schemas"] },
-      adapters: { description: "Host I/O behind services.", mayImport: ["schemas", "core"], hostAccess: true },
-      cli: { description: "Composition root.", mayImport: ["schemas", "core", "adapters"], hostAccess: true },
+      adapters: {
+        description: "Host I/O behind services.",
+        mayImport: ["schemas", "core"],
+        hostAccess: true,
+      },
+      cli: {
+        description: "Composition root.",
+        mayImport: ["schemas", "core", "adapters"],
+        hostAccess: true,
+      },
     },
   },
 });
 ```
 
-Then add `mshape check` to your gate: `tsc && biome ci --error-on-warnings && mshape check && bun test`.
+```md
+<!-- AGENTS.md -->
+# My project
+
+Commands, gotchas and decision authority for agents, in 150 lines or fewer.
+```
+
+Then make it your gate: `tsc && biome ci --error-on-warnings && mshape check && bun test`.
 
 ## What `mshape check` enforces
 
@@ -52,6 +77,4 @@ Then add `mshape check` to your gate: `tsc && biome ci --error-on-warnings && ms
 Existing violations can be grandfathered with `mshape baseline --init`; counts may then only
 go down. Every escape hatch (`// shape-ignore <rule>: <reason>`, config allowances) needs a reason.
 
-## Status
-
-Early (0.x). The design is in `SPEC.md`. MIT licensed.
+Early (0.x): the design is in `SPEC.md`. MIT licensed.

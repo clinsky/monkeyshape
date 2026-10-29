@@ -1,4 +1,4 @@
-import type { CallExpression, Class } from "oxc-parser";
+import type { CallExpression, Class, Expression } from "oxc-parser";
 import { importBindings, isEffectModule, memberPath } from "./ast.ts";
 import type { Rule } from "./engine.ts";
 
@@ -13,8 +13,32 @@ const ERROR_CLASSES = new Set([
   "AggregateError",
 ]);
 
-/** Callbacks whose throw the runtime catches and types: throwing is how they fail. */
+/** `Effect.try` / `Effect.tryPromise`: the runtime catches what their `try` callback throws. */
 const CATCHING = new Set(["try", "tryPromise"]);
+
+const isFunction = (node: Expression | undefined): boolean =>
+  node?.type === "ArrowFunctionExpression" || node?.type === "FunctionExpression";
+
+/**
+ * The function whose throws are caught: the sole argument, or the `try` property of the
+ * options object. Not `catch`, which maps an error that has already been caught.
+ */
+const tryCallback = (call: CallExpression): Expression | undefined => {
+  const argument = call.arguments[0];
+  if (argument === undefined || argument.type === "SpreadElement") return undefined;
+  if (isFunction(argument)) return argument;
+  if (argument.type !== "ObjectExpression") return undefined;
+  for (const property of argument.properties)
+    if (
+      property.type === "Property" &&
+      !property.computed &&
+      property.key.type === "Identifier" &&
+      property.key.name === "try" &&
+      isFunction(property.value)
+    )
+      return property.value;
+  return undefined;
+};
 
 export const noThrow: Rule = {
   id: "no-throw",
@@ -26,28 +50,27 @@ export const noThrow: Rule = {
   entryExempt: false,
   visit: (parsed, report) => {
     const bindings = importBindings(parsed.program);
-    let catching = 0;
-    const isCatching = (node: CallExpression) => {
-      const member = memberPath(node.callee);
-      return (
-        member !== undefined &&
-        CATCHING.has(member.property) &&
-        isEffectModule(bindings, member.object, "Effect")
-      );
-    };
+    const caught: Array<{ start: number; end: number }> = [];
     const errorClass = (node: Class) => {
       if (node.superClass?.type === "Identifier" && ERROR_CLASSES.has(node.superClass.name))
         report({ offset: node.start });
     };
     return {
+      // Calls are visited before the throws inside them, so the ranges are known in time.
       CallExpression: (node) => {
-        if (isCatching(node)) catching++;
-      },
-      "CallExpression:exit": (node) => {
-        if (isCatching(node)) catching--;
+        const member = memberPath(node.callee);
+        if (
+          member === undefined ||
+          !CATCHING.has(member.property) ||
+          !isEffectModule(bindings, member.object, "Effect")
+        )
+          return;
+        const callback = tryCallback(node);
+        if (callback !== undefined) caught.push({ start: callback.start, end: callback.end });
       },
       ThrowStatement: (node) => {
-        if (catching === 0) report({ offset: node.start });
+        if (!caught.some((range) => node.start >= range.start && node.end <= range.end))
+          report({ offset: node.start });
       },
       ClassDeclaration: errorClass,
       ClassExpression: errorClass,

@@ -19,10 +19,31 @@ export interface Snapshot {
   /** Contents of the files checks read (sources, docs, configs), by path. */
   readonly texts: ReadonlyMap<string, string>;
   readonly packageScripts: ReadonlySet<string>;
-  /** bd memories by key, when the repo uses beads and `bd` answered. */
+  /** bd memories by key, when `integrations.beads` is ok. */
   readonly memories: ReadonlyMap<string, string> | undefined;
-  /** Every bead id, open or closed, when the repo uses beads and `bd` answered. */
+  /** Every bead id, open or closed, when `integrations.beads` is ok. */
   readonly beadIds: ReadonlySet<string> | undefined;
+  /** Files in a tsconfig program, as `tsc --listFilesOnly` reports them, when tsc ran. */
+  readonly typechecked: ReadonlySet<string> | undefined;
+  /** Files biome processes, as biome itself reports them, when biome ran. */
+  readonly linted: ReadonlySet<string> | undefined;
+  readonly integrations: Integrations;
+}
+
+/**
+ * How an optional tool fared. `absent`: the repo doesn't use it. `unavailable`: it isn't
+ * installed here (bd in CI). `failed`: it ran and broke, which is never silently skipped.
+ */
+export type Integration =
+  | { readonly state: "ok" }
+  | { readonly state: "absent" }
+  | { readonly state: "unavailable"; readonly reason: string }
+  | { readonly state: "failed"; readonly reason: string };
+
+export interface Integrations {
+  readonly beads: Integration;
+  readonly tsc: Integration;
+  readonly biome: Integration;
 }
 
 export const TS_SOURCE = /\.(ts|tsx|mts|cts)$/;

@@ -1,8 +1,8 @@
-/** Loads the repo into a `Snapshot`: git's file list, the texts checks read, scripts, memories. */
-import { stat } from "node:fs/promises";
+/** Loads the repo into a `Snapshot`: git's file list, the texts checks read, and what bd, tsc and biome report. */
+import { realpath, stat } from "node:fs/promises";
 import { Effect } from "effect";
 import { parseJsonc } from "../core/coverage.ts";
-import { isTsSource, type Snapshot } from "../core/model.ts";
+import { type Integration, isTsSource, type Snapshot } from "../core/model.ts";
 import type { ResolvedConfig } from "../schemas/config.ts";
 import { WorkspaceError } from "../schemas/errors.ts";
 
@@ -16,6 +16,10 @@ const run = (root: string, command: ReadonlyArray<string>) =>
     catch: (cause) =>
       new WorkspaceError({ operation: "run", path: command.join(" "), reason: String(cause) }),
   });
+
+/** For optional tools: a spawn failure is an exit code to report, not a reason to abort. */
+const runTool = (root: string, command: ReadonlyArray<string>) =>
+  run(root, command).pipe(Effect.orElseSucceed(() => ({ stdout: "", code: -1 })));
 
 export const readText = (root: string, path: string) =>
   Effect.tryPromise({
@@ -50,38 +54,129 @@ const listFiles = (root: string) =>
     return result.stdout.split("\0").filter((file) => file !== "" && !file.endsWith("/"));
   });
 
-const memories = (root: string) =>
+type Loaded<A> = { readonly integration: Integration; readonly value: A | undefined };
+
+const failed = <A>(reason: string): Loaded<A> => ({
+  integration: { state: "failed", reason },
+  value: undefined,
+});
+
+const jsonRows = (stdout: string): ReadonlyArray<unknown> | undefined => {
+  const parsed = parseJsonc(stdout);
+  // `bd list --limit 0 --json` wraps the rows as `{ issues: [...] }`; limited lists are bare.
+  const rows =
+    typeof parsed === "object" && parsed !== null && "issues" in parsed ? parsed.issues : parsed;
+  return Array.isArray(rows) ? rows : undefined;
+};
+
+/** bd memories and every bead id. A repo without `.beads` is absent; bd missing is unavailable. */
+const beads = (root: string) =>
   Effect.gen(function* () {
-    if (Bun.which("bd") === null || !(yield* exists(root, ".beads/config.yaml"))) return undefined;
-    const result = yield* run(root, ["bd", "memories", "--json"]).pipe(
-      Effect.orElseSucceed(() => undefined),
-    );
-    const parsed = result?.code === 0 ? parseJsonc(result.stdout) : undefined;
-    if (typeof parsed !== "object" || parsed === null) return undefined;
-    return new Map(
-      Object.entries(parsed).filter(
-        (entry): entry is [string, string] => typeof entry[1] === "string",
+    type Value = { memories: ReadonlyMap<string, string>; ids: ReadonlySet<string> };
+    if (!(yield* exists(root, ".beads/config.yaml")))
+      return { integration: { state: "absent" }, value: undefined } satisfies Loaded<Value>;
+    if (Bun.which("bd") === null)
+      return {
+        integration: { state: "unavailable", reason: "bd is not on PATH" },
+        value: undefined,
+      } satisfies Loaded<Value>;
+    const memories = yield* runTool(root, ["bd", "memories", "--json"]);
+    const parsedMemories = memories.code === 0 ? parseJsonc(memories.stdout) : undefined;
+    if (typeof parsedMemories !== "object" || parsedMemories === null)
+      return failed<Value>(`\`bd memories --json\` exited ${memories.code} or printed no object`);
+    const list = yield* runTool(root, [
+      "bd",
+      "list",
+      "--all",
+      "--brief",
+      "--skip-labels",
+      "--limit",
+      "0",
+      "--json",
+    ]);
+    const rows = list.code === 0 ? jsonRows(list.stdout) : undefined;
+    if (rows === undefined)
+      return failed<Value>(`\`bd list --json\` exited ${list.code} or printed no rows`);
+    const value: Value = {
+      memories: new Map(
+        Object.entries(parsedMemories).filter(
+          (entry): entry is [string, string] => typeof entry[1] === "string",
+        ),
       ),
-    );
+      ids: new Set(
+        rows.flatMap((issue) =>
+          typeof issue === "object" &&
+          issue !== null &&
+          "id" in issue &&
+          typeof issue.id === "string"
+            ? [issue.id]
+            : [],
+        ),
+      ),
+    };
+    return { integration: { state: "ok" }, value } satisfies Loaded<Value>;
   });
 
-const beadIds = (root: string) =>
+/**
+ * A tool installed in the repo, as a command. Run through the current bun: the bin shims
+ * start with `#!/usr/bin/env node`, and a Bun-only machine has no node.
+ */
+const localBin = (root: string, name: string) =>
+  Effect.map(exists(root, `node_modules/.bin/${name}`), (found) =>
+    found ? [process.execPath, `${root}/node_modules/.bin/${name}`] : undefined,
+  );
+
+/** The union of every configured tsconfig's program, as tsc itself resolves it. */
+const typechecked = (root: string, realRoot: string, tsconfigs: ReadonlyArray<string>) =>
   Effect.gen(function* () {
-    if (Bun.which("bd") === null || !(yield* exists(root, ".beads/config.yaml"))) return undefined;
-    const command = ["bd", "list", "--all", "--brief", "--skip-labels", "--limit", "0", "--json"];
-    const result = yield* run(root, command).pipe(Effect.orElseSucceed(() => undefined));
-    const parsed = result?.code === 0 ? parseJsonc(result.stdout) : undefined;
-    // `bd list --limit 0 --json` wraps the rows as `{ issues: [...] }`; limited lists are bare.
-    const rows =
-      typeof parsed === "object" && parsed !== null && "issues" in parsed ? parsed.issues : parsed;
-    if (!Array.isArray(rows)) return undefined;
-    return new Set(
-      rows.flatMap((issue: unknown) =>
-        typeof issue === "object" && issue !== null && "id" in issue && typeof issue.id === "string"
-          ? [issue.id]
-          : [],
-      ),
+    const tsc = yield* localBin(root, "tsc");
+    if (tsc === undefined)
+      return {
+        integration: { state: "unavailable", reason: "typescript is not installed" },
+        value: undefined,
+      } satisfies Loaded<ReadonlySet<string>>;
+    const files = new Set<string>();
+    for (const tsconfig of tsconfigs) {
+      const result = yield* runTool(root, [...tsc, "-p", tsconfig, "--listFilesOnly"]);
+      if (result.code !== 0)
+        return failed<ReadonlySet<string>>(
+          `\`tsc -p ${tsconfig} --listFilesOnly\` exited ${result.code}`,
+        );
+      for (const line of result.stdout.split("\n"))
+        if (line.startsWith(`${realRoot}/`)) files.add(line.slice(realRoot.length + 1));
+    }
+    return { integration: { state: "ok" }, value: files } satisfies Loaded<ReadonlySet<string>>;
+  });
+
+/** The files biome processes, from its verbose report, with `extends` and ignores resolved. */
+const linted = (root: string) =>
+  Effect.gen(function* () {
+    const biome = yield* localBin(root, "biome");
+    if (biome === undefined)
+      return {
+        integration: { state: "unavailable", reason: "@biomejs/biome is not installed" },
+        value: undefined,
+      } satisfies Loaded<ReadonlySet<string>>;
+    const result = yield* runTool(root, [
+      ...biome,
+      "lint",
+      "--verbose",
+      "--colors=off",
+      "--max-diagnostics=0",
+      ".",
+    ]);
+    const report = result.stdout.split("Files processed:")[1];
+    if (report === undefined)
+      return failed<ReadonlySet<string>>(
+        `\`biome lint --verbose\` printed no "Files processed:" list (exit ${result.code})`,
+      );
+    const files = new Set(
+      report.split("\n").flatMap((line) => {
+        const match = /^\s+- (.+)$/.exec(line);
+        return match?.[1] === undefined ? [] : [match[1].trim()];
+      }),
     );
+    return { integration: { state: "ok" }, value: files } satisfies Loaded<ReadonlySet<string>>;
   });
 
 export const loadSnapshot = (root: string, config: ResolvedConfig) =>
@@ -111,12 +206,23 @@ export const loadSnapshot = (root: string, config: ResolvedConfig) =>
       typeof manifest.scripts === "object"
         ? Object.keys(manifest.scripts ?? {})
         : [];
+    const realRoot = yield* Effect.promise(() => realpath(root));
+    const loadedBeads = yield* beads(root);
+    const loadedTsc = yield* typechecked(root, realRoot, config.coverage.tsconfigs);
+    const loadedBiome = yield* linted(root);
     const snapshot: Snapshot = {
       files: present,
       texts,
       packageScripts: new Set(scripts),
-      memories: yield* memories(root),
-      beadIds: yield* beadIds(root),
+      memories: loadedBeads.value?.memories,
+      beadIds: loadedBeads.value?.ids,
+      typechecked: loadedTsc.value,
+      linted: loadedBiome.value,
+      integrations: {
+        beads: loadedBeads.integration,
+        tsc: loadedTsc.integration,
+        biome: loadedBiome.integration,
+      },
     };
     return snapshot;
   });

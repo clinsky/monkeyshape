@@ -137,6 +137,26 @@ export const checkBudgets = (
     }
   }
 
+  const beads = snapshot.integrations.beads;
+  if (beads.state === "failed")
+    violations.push(
+      violation(
+        "beads-failed",
+        ".beads",
+        `bd failed, so beads checks did not run: ${beads.reason}`,
+      ),
+    );
+  else if (config.beads === "required" && beads.state !== "ok")
+    violations.push(
+      violation(
+        "beads-required",
+        ".beads",
+        beads.state === "absent"
+          ? "shape.config.ts requires beads, but the repo has no .beads/config.yaml"
+          : `shape.config.ts requires beads, but ${beads.reason}`,
+      ),
+    );
+
   if (metrics.memories !== undefined && metrics.memories > budgets.memories)
     violations.push(
       violation(

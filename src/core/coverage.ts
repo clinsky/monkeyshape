@@ -2,6 +2,10 @@
  * Code outside the gate rots silently. Every TypeScript file must be typechecked by some
  * tsconfig and linted by biome, unless it sits under an exempt segment (generated or
  * vendored code). Excluding real code needs a config change a reviewer will see.
+ *
+ * The tools are the authority: when the adapter could run them, `snapshot.typechecked` and
+ * `snapshot.linted` are their own file lists, with inheritance and project references
+ * resolved. Reading the configs here is the fallback, and approximates both.
  */
 import type { ResolvedConfig } from "../schemas/config.ts";
 import { matchesPathOrBelow } from "./glob.ts";
@@ -40,9 +44,11 @@ export const tsconfigCovers = (tsconfigPath: string, tsconfig: unknown, file: st
   const relative =
     base === "" ? file : file.startsWith(`${base}/`) ? file.slice(base.length + 1) : undefined;
   if (relative === undefined) return false;
-  const files = strings(field(tsconfig, "files")) ?? [];
-  if (files.some((entry) => entry.replace(/^\.\//, "") === relative)) return true;
-  const include = strings(field(tsconfig, "include")) ?? (files.length === 0 ? ["**/*"] : []);
+  const files = strings(field(tsconfig, "files"));
+  if (files?.some((entry) => entry.replace(/^\.\//, "") === relative)) return true;
+  // Absent `include` defaults to everything only when `files` is absent too; `files: []`
+  // (a solution-style config) includes nothing.
+  const include = strings(field(tsconfig, "include")) ?? (files === undefined ? ["**/*"] : []);
   const exclude = strings(field(tsconfig, "exclude")) ?? [];
   return (
     include.some((pattern) => matchesPathOrBelow(relative, pattern)) &&
@@ -68,7 +74,9 @@ export const checkCoverage = (
 ): ReadonlyArray<Violation> => {
   const violations: Array<Violation> = [];
   const tsconfigs: Array<{ path: string; value: unknown }> = [];
-  for (const path of config.coverage.tsconfigs) {
+  const typechecked = snapshot.typechecked;
+  const linted = snapshot.linted;
+  for (const path of typechecked === undefined ? config.coverage.tsconfigs : []) {
     const text = snapshot.texts.get(path);
     const value = text === undefined ? undefined : parseJsonc(text);
     if (value === undefined)
@@ -77,13 +85,19 @@ export const checkCoverage = (
   }
   const biomeText = snapshot.texts.get(config.coverage.biome);
   const biome = biomeText === undefined ? undefined : parseJsonc(biomeText);
-  if (biome === undefined)
+  if (linted === undefined && biome === undefined)
     violations.push(violation("config", config.coverage.biome, "is missing or not valid JSON"));
+  const isTypechecked = (file: string) =>
+    typechecked !== undefined
+      ? typechecked.has(file)
+      : tsconfigs.length === 0 || tsconfigs.some((t) => tsconfigCovers(t.path, t.value, file));
+  const isLinted = (file: string) =>
+    linted !== undefined ? linted.has(file) : biome === undefined || biomeCovers(biome, file);
 
   const exempt = new Set(config.coverage.exempt);
   for (const file of snapshot.files) {
     if (!isTsSource(file) || file.split("/").some((segment) => exempt.has(segment))) continue;
-    if (tsconfigs.length > 0 && !tsconfigs.some((t) => tsconfigCovers(t.path, t.value, file)))
+    if (!isTypechecked(file))
       violations.push(
         violation(
           "typecheck",
@@ -91,7 +105,7 @@ export const checkCoverage = (
           "is not in any tsconfig program. Include it, or move it under an exempt directory if it is generated.",
         ),
       );
-    if (biome !== undefined && !biomeCovers(biome, file))
+    if (!isLinted(file))
       violations.push(
         violation(
           "lint",

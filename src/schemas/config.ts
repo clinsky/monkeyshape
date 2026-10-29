@@ -59,6 +59,8 @@ export const ShapeConfig = Schema.Struct({
     }),
   ),
   rules: Schema.optionalKey(Schema.Record(Schema.String, RuleSetting)),
+  /** `required` fails the check when bd can't answer, so a green CI run means beads was checked. */
+  beads: Schema.optionalKey(Schema.Literals(["optional", "required"])),
   refs: Schema.optionalKey(
     Schema.Struct({
       docs: Schema.optionalKey(Globs),
@@ -98,6 +100,7 @@ export interface ResolvedConfig {
     readonly exclude: ReadonlyArray<string>;
   };
   readonly entry: ReadonlyArray<string>;
+  readonly beads: "optional" | "required";
   readonly arch:
     | {
         readonly root: string;
@@ -150,6 +153,7 @@ export const resolveConfig = (config: ShapeConfig): ResolvedConfig => ({
     exclude: config.sources?.exclude ?? ["**/*.test.ts", "**/*.test.tsx"],
   },
   entry: config.entry ?? ["src/cli/**", "tools/**"],
+  beads: config.beads ?? "optional",
   arch:
     config.arch === undefined
       ? undefined

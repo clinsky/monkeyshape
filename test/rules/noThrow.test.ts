@@ -3,6 +3,29 @@ import { noThrow } from "../../src/core/rules/noThrow.ts";
 import { ruleLines } from "../support.ts";
 
 describe("no-throw", () => {
+  test("only the try callback is exempt: catch callbacks and other arguments are not", () => {
+    const source = [
+      "Effect.try({",
+      "  try: () => JSON.parse(input),",
+      "  catch: () => {",
+      '    throw new Error("mapping failed");',
+      "  },",
+      "});",
+      "Effect.tryPromise({ try: async () => 1, catch: (e) => { throw e; } });",
+      "Effect.try(() => 1, () => { throw bad; });",
+    ].join("\n");
+    expect(ruleLines(noThrow, source)).toEqual([4, 7, 8]);
+  });
+
+  test("a throw nested in a function inside the try callback is still caught there", () => {
+    expect(
+      ruleLines(
+        noThrow,
+        "Effect.try({ try: () => items.map((i) => { if (!i) throw i; }), catch: f });",
+      ),
+    ).toEqual([]);
+  });
+
   test("a throw after a catching callback closes is still reported", () => {
     expect(ruleLines(noThrow, "Effect.try(() => parse(x));\nthrow y;")).toEqual([2]);
   });

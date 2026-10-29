@@ -67,6 +67,39 @@ describe("arch", () => {
     );
   });
 
+  test("host globals need hostAccess too: no import is required to reach the host in Bun", () => {
+    const source = [
+      'const text = await Bun.file("data.json").text();',
+      "const cwd = process.cwd();",
+      'const response = await fetch("https://x.dev");',
+      "Bun.spawn(['ls']);",
+    ].join("\n");
+    const found = checkArch(layered, repo({ "src/core/b.ts": source }));
+    expect(found.map((v) => `${v.rule}:${v.line}`)).toEqual([
+      "arch/host-access:1",
+      "arch/host-access:2",
+      "arch/host-access:3",
+      "arch/host-access:4",
+    ]);
+    expect(rules({ "src/adapters/b.ts": source })).toEqual([]);
+  });
+
+  test("a local binding named like a host global shadows it", () => {
+    const source = [
+      "const process = yield* launcher.spawn(command);",
+      "process.kill();",
+      "const row = ({ process }: Row) => process.turns;",
+      "function run(fetch: Fetcher) { return fetch(url); }",
+    ].join("\n");
+    expect(rules({ "src/core/b.ts": source })).toEqual([]);
+  });
+
+  test("Bun's pure utilities are not host access", () => {
+    expect(
+      rules({ "src/core/b.ts": 'new Bun.Glob("*.ts").match(p);\nBun.deepEquals(a, b);' }),
+    ).toEqual([]);
+  });
+
   test("third-party packages need an allowlist entry", () => {
     expect(rules({ "src/core/b.ts": 'import pg from "pg";' })).toEqual(["arch/forbidden-package"]);
     expect(rules({ "src/adapters/db/b.ts": 'import pg from "pg/lib";' })).toEqual([]);

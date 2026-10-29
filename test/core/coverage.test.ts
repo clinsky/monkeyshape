@@ -49,6 +49,27 @@ describe("coverage", () => {
     ]);
   });
 
+  test("the tools' own file lists win over reading their configs", () => {
+    const files = {
+      ...configs({ include: ["src"] }, { files: { includes: ["src/**"] } }),
+      "src/a.ts": "",
+      "src/b.ts": "",
+    };
+    const snapshot = repo(files, { typechecked: ["src/a.ts"], linted: ["src/b.ts"] });
+    expect(checkCoverage(config(), snapshot).map((v) => `${v.rule} ${v.file}`)).toEqual([
+      "coverage/lint src/a.ts",
+      "coverage/typecheck src/b.ts",
+    ]);
+  });
+
+  test("files: [] includes nothing; only an absent files defaults include to everything", () => {
+    expect(tsconfigCovers("tsconfig.json", { files: [] }, "src/a.ts")).toBe(false);
+    expect(
+      tsconfigCovers("tsconfig.json", { files: [], references: [{ path: "./src" }] }, "src/a.ts"),
+    ).toBe(false);
+    expect(tsconfigCovers("tsconfig.json", { files: [], include: ["src"] }, "src/a.ts")).toBe(true);
+  });
+
   test("tsconfig semantics: directories, globs, files, nested projects", () => {
     expect(tsconfigCovers("tsconfig.json", { include: ["src"] }, "src/deep/a.ts")).toBe(true);
     expect(tsconfigCovers("tsconfig.json", { include: ["src/**/*"] }, "src/a.ts")).toBe(true);

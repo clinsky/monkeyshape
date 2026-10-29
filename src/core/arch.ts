@@ -3,22 +3,108 @@
  * module (the longest matching key in `arch.modules`). A module may import itself and the
  * modules in its `mayImport`; host APIs only with `hostAccess`; third-party packages only
  * from the allowlists. Adding an edge is a deliberate edit to `shape.config.ts`.
+ *
+ * Host access needs no import in Bun: `Bun.file`, `process`, `fetch` are globals. Those
+ * are checked too, so a module without hostAccess can't reach the host by the side door.
  */
+
+import { Visitor } from "oxc-parser";
 import type { ResolvedConfig } from "../schemas/config.ts";
-import { isTsSource, type Snapshot, type Violation } from "./model.ts";
-import { parse } from "./parse.ts";
+import { isTsSource, lineAt, type Snapshot, type Violation } from "./model.ts";
+import { type Parsed, parse } from "./parse.ts";
 import { dirname, join } from "./paths.ts";
 
 type Arch = NonNullable<ResolvedConfig["arch"]>;
 
 const MANIFEST = "package.json";
 
-const violation = (rule: string, file: string, message: string): Violation => ({
+const violation = (rule: string, file: string, message: string, line?: number): Violation => ({
   check: "arch",
   rule: `arch/${rule}`,
   file,
+  ...(line === undefined ? {} : { line }),
   message,
 });
+
+/** Bun's pure utilities: string and data functions with no I/O. */
+const PURE_BUN = new Set(["Glob", "deepEquals", "escapeHTML", "stringWidth", "hash", "inspect"]);
+const HOST_OBJECTS = new Set(["Bun", "process", "Deno"]);
+const HOST_FUNCTIONS = new Set(["fetch", "require"]);
+
+/** Names a binding pattern declares: `x`, `{ a, b: c }`, `[d, ...e]`, `f = 1`. */
+const patternNames = (pattern: unknown): ReadonlyArray<string> => {
+  if (typeof pattern !== "object" || pattern === null || !("type" in pattern)) return [];
+  const node = pattern as Record<string, unknown>;
+  switch (node["type"]) {
+    case "Identifier":
+      return typeof node["name"] === "string" ? [node["name"]] : [];
+    case "ObjectPattern":
+      return (node["properties"] as ReadonlyArray<Record<string, unknown>>).flatMap((p) =>
+        patternNames(p["type"] === "RestElement" ? p["argument"] : p["value"]),
+      );
+    case "ArrayPattern":
+      return (node["elements"] as ReadonlyArray<unknown>).flatMap(patternNames);
+    case "AssignmentPattern":
+      return patternNames(node["left"]);
+    case "RestElement":
+      return patternNames(node["argument"]);
+    case "TSParameterProperty":
+      return patternNames(node["parameter"]);
+    default:
+      return [];
+  }
+};
+
+/**
+ * Names the file declares anywhere. A local `process` (a spawned child, a metrics record)
+ * shadows the global; without scope analysis, any declaration of the name counts.
+ */
+const declaredNames = (parsed: Parsed): ReadonlySet<string> => {
+  const names = new Set<string>();
+  const add = (pattern: unknown) => {
+    for (const name of patternNames(pattern)) names.add(name);
+  };
+  const fn = (node: { readonly params: ReadonlyArray<unknown> }) => node.params.forEach(add);
+  new Visitor({
+    VariableDeclarator: (node) => add(node.id),
+    FunctionDeclaration: (node) => {
+      add(node.id);
+      fn(node);
+    },
+    FunctionExpression: fn,
+    ArrowFunctionExpression: fn,
+    CatchClause: (node) => add(node.param),
+    ImportSpecifier: (node) => add(node.local),
+    ImportDefaultSpecifier: (node) => add(node.local),
+    ImportNamespaceSpecifier: (node) => add(node.local),
+  }).visit(parsed.program);
+  return names;
+};
+
+/** Uses of host globals: `Bun.file(...)`, `process.cwd()`, `fetch(...)`, unless shadowed. */
+export const hostGlobals = (parsed: Parsed): ReadonlyArray<{ offset: number; name: string }> => {
+  const found: Array<{ offset: number; name: string }> = [];
+  const declared = declaredNames(parsed);
+  new Visitor({
+    MemberExpression: (node) => {
+      if (node.object.type !== "Identifier" || !HOST_OBJECTS.has(node.object.name)) return;
+      if (declared.has(node.object.name)) return;
+      const property =
+        !node.computed && node.property.type === "Identifier" ? node.property.name : "";
+      if (node.object.name === "Bun" && PURE_BUN.has(property)) return;
+      found.push({ offset: node.start, name: `${node.object.name}.${property || "[...]"}` });
+    },
+    CallExpression: (node) => {
+      if (
+        node.callee.type === "Identifier" &&
+        HOST_FUNCTIONS.has(node.callee.name) &&
+        !declared.has(node.callee.name)
+      )
+        found.push({ offset: node.start, name: `${node.callee.name}()` });
+    },
+  }).visit(parsed.program);
+  return found;
+};
 
 export const moduleOf = (arch: Arch, path: string): string | undefined => {
   const prefix = `${arch.root}/`;
@@ -91,8 +177,20 @@ export const checkArch = (config: ResolvedConfig, snapshot: Snapshot): ReadonlyA
     const text = snapshot.texts.get(file);
     if (rule === undefined || text === undefined) continue;
     const targets: Array<string> = [];
+    const parsed = parse(file, text);
 
-    for (const specifier of parse(file, text).imports) {
+    if (rule.hostAccess !== true)
+      for (const use of hostGlobals(parsed))
+        violations.push(
+          violation(
+            "host-access",
+            file,
+            `uses ${use.name}, but module '${from}' has no hostAccess. Reach the host through a service in an adapter module.`,
+            lineAt(text, use.offset),
+          ),
+        );
+
+    for (const specifier of parsed.imports) {
       if (!isRelative(specifier)) {
         const host = arch.hostSpecifiers.some((pattern) => matchesSpecifier(specifier, pattern));
         const allowed = host
