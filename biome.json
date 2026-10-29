@@ -3,6 +3,6 @@
   "root": true,
   "extends": ["./config/biome.base.json"],
   "files": {
-    "includes": ["src/**", "test/**", "config/**", "*.json", "*.ts"]
+    "includes": ["src/**", "test/**", "config/**", "*.json", "*.ts", "template/*.ts"]
   }
 }

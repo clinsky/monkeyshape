@@ -6,21 +6,7 @@ import { parseJsonc } from "../core/coverage.ts";
 import { type Integration, isTsSource, type Snapshot } from "../core/model.ts";
 import type { ResolvedConfig } from "../schemas/config.ts";
 import { WorkspaceError } from "../schemas/errors.ts";
-
-const run = (root: string, command: ReadonlyArray<string>) =>
-  Effect.tryPromise({
-    try: async () => {
-      const child = Bun.spawn([...command], { cwd: root, stdout: "pipe", stderr: "ignore" });
-      const stdout = await new Response(child.stdout).text();
-      return { stdout, code: await child.exited };
-    },
-    catch: (cause) =>
-      new WorkspaceError({ operation: "run", path: command.join(" "), reason: String(cause) }),
-  });
-
-/** For optional tools: a spawn failure is an exit code to report, not a reason to abort. */
-const runTool = (root: string, command: ReadonlyArray<string>) =>
-  run(root, command).pipe(Effect.orElseSucceed(() => ({ stdout: "", code: -1 })));
+import { run, runTool } from "./process.ts";
 
 export const readText = (root: string, path: string) =>
   Effect.tryPromise({
