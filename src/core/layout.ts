@@ -25,6 +25,9 @@ export const TRACK_NAME = /^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$/;
 
 export const HANDOFFS_LINK = ".handoffs";
 
+/** Tracks branch from it, and `track rm` counts a branch as merged once it is contained in it. */
+export const MAIN_BRANCH = "main";
+
 const trim = (path: string): string => path.replace(/\/+$/, "");
 
 const repoName = (repo: string): string => trim(repo).slice(trim(repo).lastIndexOf("/") + 1);
