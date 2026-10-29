@@ -4,7 +4,16 @@
  * file missing from package.json `files` fails here, not in an adopter's terminal.
  */
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { mkdir, mkdtemp, readdir, rm, writeFile } from "node:fs/promises";
+import {
+  mkdir,
+  mkdtemp,
+  readdir,
+  readlink,
+  realpath,
+  rm,
+  symlink,
+  writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -21,12 +30,19 @@ const IDENTITY = {
   GIT_COMMITTER_EMAIL: "test@example.com",
 };
 
-const run = async (cwd: string, command: ReadonlyArray<string>) => {
+/** CI runners have no bd: the beads half of init is then covered only by the no-bd test. */
+const HAS_BD = Bun.which("bd") !== null;
+
+const run = async (
+  cwd: string,
+  command: ReadonlyArray<string>,
+  env: Record<string, string> = {},
+) => {
   const child = Bun.spawn([...command], {
     cwd,
     stdout: "pipe",
     stderr: "pipe",
-    env: { ...process.env, ...IDENTITY },
+    env: { ...process.env, ...IDENTITY, ...env },
   });
   const [stdout, stderr] = [
     await new Response(child.stdout).text(),
@@ -35,8 +51,8 @@ const run = async (cwd: string, command: ReadonlyArray<string>) => {
   return { code: await child.exited, output: `${stdout}${stderr}` };
 };
 
-const fromSource = (args: ReadonlyArray<string>) =>
-  run(work, [process.execPath, join(ROOT, "src", "cli", "main.ts"), "init", ...args]);
+const fromSource = (args: ReadonlyArray<string>, env: Record<string, string> = {}) =>
+  run(work, [process.execPath, join(ROOT, "src", "cli", "main.ts"), "init", ...args], env);
 
 const tracked = async (repo: string) =>
   (await run(repo, ["git", "ls-files"])).output.trim().split("\n").sort();
@@ -60,7 +76,7 @@ describe("mshape init", () => {
     expect(created.output).toContain("Created demo/");
     expect(created.output).toContain("bun install");
     expect(created.output).toContain("first commit");
-    expect(created.output).not.toContain("note:");
+    if (HAS_BD) expect(created.output).not.toContain("note:");
     expect(created.output).toContain("run /roadmap");
     expect(created.output).toContain("docs/workflow.md");
     expect(created.code).toBe(0);
@@ -75,6 +91,48 @@ describe("mshape init", () => {
     for (const file of ["bun.lock", ".gitignore", "CLAUDE.md", "plan/.gitkeep", "notes/.gitkeep"])
       expect(files).toContain(file);
     expect(await Bun.file(join(repo, "CLAUDE.md")).text()).toBe("@AGENTS.md\n");
+  });
+
+  test("the handoffs store is under .git, behind relative, ignored links", async () => {
+    const repo = join(work, "demo");
+    const store = join(await realpath(repo), ".git", "monkeyshape", "handoffs");
+    expect(await readdir(store)).toEqual([]);
+    for (const link of [".handoffs", ".agents/handoffs"]) {
+      expect(await readlink(join(repo, link))).not.toStartWith("/");
+      expect(await realpath(join(repo, link))).toBe(store);
+      expect((await run(repo, ["git", "check-ignore", link])).code).toBe(0);
+    }
+    expect((await run(repo, ["git", "check-ignore", ".agents/worktrees/x"])).code).toBe(0);
+  });
+
+  test.skipIf(!HAS_BD)(
+    "beads is ready, its files are in the one commit, prime is capped",
+    async () => {
+      const repo = join(work, "demo");
+      expect((await run(repo, ["bd", "ready"])).code).toBe(0);
+      expect((await run(repo, ["bd", "config", "get", "prime.max-memories"])).output.trim()).toBe(
+        "12",
+      );
+      expect(
+        (await run(repo, ["bd", "config", "get", "prime.max-memory-chars"])).output.trim(),
+      ).toBe("6144");
+      expect(await tracked(repo)).toContain(".beads/config.yaml");
+      expect(await Bun.file(join(repo, "AGENTS.md")).text()).not.toContain("BEGIN BEADS");
+    },
+  );
+
+  test("without bd on PATH, init still succeeds and says how to finish", async () => {
+    // A PATH with bun and git but no bd, as on a CI runner.
+    const path = await mkdtemp(join(tmpdir(), "mshape-path-"));
+    await symlink(process.execPath, join(path, "bun"));
+    await symlink(Bun.which("git") ?? "/usr/bin/git", join(path, "git"));
+    const result = await fromSource(["no-beads", "--from", tarball], { PATH: path });
+    await rm(path, { recursive: true, force: true });
+    expect(result.output).toContain("note: bd is not on PATH");
+    expect(result.output).toContain("bd init --skip-agents --non-interactive");
+    expect(result.output).toContain("first commit");
+    expect(result.code).toBe(0);
+    expect(await Bun.file(join(work, "no-beads", ".beads", "config.yaml")).exists()).toBe(false);
   });
 
   test("its gate passes empty, with nothing skipped", async () => {
