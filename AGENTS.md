@@ -39,6 +39,9 @@ gate: if a check is too strict for this repo, fix the check, not the repo.
 - `node_modules/.bin/*` shims start with `#!/usr/bin/env node`, and adopters may have only
   Bun: run tools as `[process.execPath, bin]`. A tool that can't run degrades to a `note:`,
   never silently. Guarded by `test/integration/consumer.test.ts`.
+- `template/` is what `mshape init` copies; its JSON configs are generated in
+  `src/core/scaffold.ts` instead, since a `biome.json` there would be a nested root for biome.
+  Guarded by `test/integration/init.test.ts`, which runs the new repo's own gate.
 - The README's install blocks are the consumer test's fixture; edit them as code.
 
 ## Adding a rule

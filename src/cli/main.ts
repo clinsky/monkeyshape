@@ -1,9 +1,11 @@
 #!/usr/bin/env bun
 /** The `mshape` executable: the composition root, and the only place effects are run. */
+import { resolve } from "node:path";
 import { Effect } from "effect";
 import pkg from "../../package.json" with { type: "json" };
 import { BASELINE_FILE, readBaseline, writeBaseline } from "../adapters/baseline.ts";
 import { loadConfig } from "../adapters/config.ts";
+import { initRepo } from "../adapters/init.ts";
 import { loadSnapshot } from "../adapters/workspace.ts";
 import { CHECKS, notices, prerequisites, runChecks, unevaluated } from "../core/check.ts";
 import { garden } from "../core/garden.ts";
@@ -11,9 +13,13 @@ import type { CheckName } from "../core/model.ts";
 import { applyBaseline, count, tighten } from "../core/ratchet.ts";
 import { formatCheck, formatGarden, formatViolation } from "../core/report.ts";
 import { RULES } from "../core/rules/registry.ts";
+import { nextStep, REPO_NAME } from "../core/scaffold.ts";
 
 const USAGE = `mshape ${pkg.version}
 
+  mshape init <name> [--from <spec>]
+      Create ./<name>: a new repo whose gate passes empty. --from installs monkeyshape
+      from <spec> (a tarball path) instead of the registry, to try a release before publishing.
   mshape check [--only arch,refs,budgets,coverage,rules]
       Run the checks; violations above .shape/baseline.json fail.
   mshape baseline --tighten
@@ -37,10 +43,48 @@ const parseOnly = (args: ReadonlyArray<string>): ReadonlyArray<CheckName> | stri
     : (names as ReadonlyArray<CheckName>);
 };
 
+/** The package's own directory: `template/` and `skills/` ship beside `src/`. */
+const PACKAGE_ROOT = new URL("../..", import.meta.url).pathname.replace(/\/$/, "");
+
+const WORKFLOW_URL = `${pkg.homepage.replace(/#.*$/, "")}/blob/main/docs/workflow.md`;
+
+const init = (root: string, args: ReadonlyArray<string>) =>
+  Effect.gen(function* () {
+    const [name] = args;
+    if (name === undefined || !REPO_NAME.test(name))
+      return {
+        output: `mshape init: give the new repo's name in lowercase words joined by hyphens, e.g. \`mshape init my-app\` (got ${name === undefined ? "nothing" : `'${name}'`})`,
+        code: 2,
+      };
+    const fromFlag = args.indexOf("--from");
+    const from = fromFlag === -1 ? undefined : args[fromFlag + 1];
+    // A bare path is a tarball; bun would resolve it from the new repo, not from here.
+    const spec = from === undefined || from.includes(":") ? from : `file:${resolve(root, from)}`;
+    const dev = pkg.devDependencies;
+    const result = yield* initRepo(`${root}/${name}`, name, `${PACKAGE_ROOT}/template`, {
+      bun: Bun.version,
+      monkeyshape: spec ?? pkg.version,
+      effect: dev.effect,
+      biome: dev["@biomejs/biome"],
+      typescript: dev.typescript,
+      typesBun: dev["@types/bun"],
+    });
+    return {
+      output: [
+        `Created ${name}/: ${result.done.join(", ")}.`,
+        ...result.notes.map((note) => `note: ${note}`),
+        "",
+        nextStep(name, WORKFLOW_URL),
+      ].join("\n"),
+      code: 0,
+    };
+  });
+
 const program = (root: string, args: ReadonlyArray<string>) =>
   Effect.gen(function* () {
     const [command, ...rest] = args;
     if (command === "--version") return { output: pkg.version, code: 0 };
+    if (command === "init") return yield* init(root, rest);
     if (command === "rules")
       return {
         output: RULES.map((r) => `${r.id.padEnd(22)}${r.layer.padEnd(9)}${r.bugClass}`).join("\n"),

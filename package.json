@@ -40,6 +40,8 @@
   "files": [
     "src",
     "config",
+    "template",
+    "skills",
     "!src/**/*.test.ts",
     "README.md",
     "LICENSE"
