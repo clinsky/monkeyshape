@@ -4,6 +4,7 @@ import { dirname } from "node:path";
 import { Effect } from "effect";
 import { scaffold, type Toolchain } from "../core/scaffold.ts";
 import { WorkspaceError } from "../schemas/errors.ts";
+import { runTool } from "./process.ts";
 
 export interface InitResult {
   /** What was done, one line each. */
@@ -15,23 +16,12 @@ export interface InitResult {
 const fail = (path: string, reason: string) =>
   new WorkspaceError({ operation: "init", path, reason });
 
-/** A command's exit code and output; a command that can't start exits -1 with the reason. */
+/** A command's exit code and combined output; one that can't start exits -1 with the reason. */
 const run = (cwd: string, command: ReadonlyArray<string>) =>
-  Effect.try(() => Bun.spawn([...command], { cwd, stdout: "pipe", stderr: "pipe" })).pipe(
-    Effect.flatMap((child) =>
-      // Both pipes at once: a tool that fills one while we wait on the other would hang.
-      Effect.all(
-        [
-          Effect.promise(() => new Response(child.stdout).text()),
-          Effect.promise(() => new Response(child.stderr).text()),
-          Effect.promise(() => child.exited),
-        ],
-        { concurrency: "unbounded" },
-      ),
-    ),
-    Effect.map(([stdout, stderr, code]) => ({ code, output: `${stdout}${stderr}`.trim() })),
-    Effect.orElseSucceed(() => ({ code: -1, output: `cannot run ${command[0]}` })),
-  );
+  Effect.map(runTool(cwd, command), (ran) => ({
+    code: ran.code,
+    output: `${ran.stdout}${ran.stderr}`.trim(),
+  }));
 
 /** The last lines of a tool's output: enough to say why it failed. */
 const tail = (output: string): string => output.split("\n").slice(-3).join("\n  ");

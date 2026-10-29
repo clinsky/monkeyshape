@@ -1,6 +1,7 @@
 #!/usr/bin/env bun
 /** The `mshape` executable: the composition root, and the only place effects are run. */
 import { resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import { Effect } from "effect";
 import pkg from "../../package.json" with { type: "json" };
 import { BASELINE_FILE, readBaseline, writeBaseline } from "../adapters/baseline.ts";
@@ -44,20 +45,29 @@ const parseOnly = (args: ReadonlyArray<string>): ReadonlyArray<CheckName> | stri
 };
 
 /** The package's own directory: `template/` and `skills/` ship beside `src/`. */
-const PACKAGE_ROOT = new URL("../..", import.meta.url).pathname.replace(/\/$/, "");
+const PACKAGE_ROOT = fileURLToPath(new URL("../..", import.meta.url)).replace(/\/$/, "");
 
 const WORKFLOW_URL = `${pkg.homepage.replace(/#.*$/, "")}/blob/main/docs/workflow.md`;
 
 const init = (root: string, args: ReadonlyArray<string>) =>
   Effect.gen(function* () {
-    const [name] = args;
-    if (name === undefined || !REPO_NAME.test(name))
-      return {
-        output: `mshape init: give the new repo's name in lowercase words joined by hyphens, e.g. \`mshape init my-app\` (got ${name === undefined ? "nothing" : `'${name}'`})`,
-        code: 2,
-      };
     const fromFlag = args.indexOf("--from");
     const from = fromFlag === -1 ? undefined : args[fromFlag + 1];
+    // A forgotten value would silently install from the registry, which --from exists to avoid.
+    if (fromFlag !== -1 && (from === undefined || from.startsWith("--")))
+      return {
+        output: "mshape init: --from needs a value: a tarball path or a spec bun install accepts",
+        code: 2,
+      };
+    const positional = args.filter(
+      (_, i) => fromFlag === -1 || (i !== fromFlag && i !== fromFlag + 1),
+    );
+    const [name, ...extra] = positional;
+    if (name === undefined || !REPO_NAME.test(name) || extra.length > 0)
+      return {
+        output: `mshape init: give the new repo's name in lowercase words joined by hyphens, e.g. \`mshape init my-app\` (got ${positional.length === 0 ? "nothing" : positional.map((arg) => `'${arg}'`).join(" ")})`,
+        code: 2,
+      };
     // A bare path is a tarball; bun would resolve it from the new repo, not from here.
     const spec = from === undefined || from.includes(":") ? from : `file:${resolve(root, from)}`;
     const dev = pkg.devDependencies;

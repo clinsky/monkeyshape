@@ -44,7 +44,8 @@ const tracked = async (repo: string) =>
 let created = { code: 0, output: "" };
 
 beforeAll(async () => {
-  work = await mkdtemp(join(tmpdir(), "mshape-init-"));
+  // A space in the path: the installed binary must find its template through it.
+  work = await mkdtemp(join(tmpdir(), "mshape init "));
   const packed = await Bun.$`bun pm pack --destination ${work} --quiet`.cwd(ROOT).text();
   tarball = join(work, packed.trim().split("\n").at(-1)?.split("/").at(-1) ?? "");
   created = await fromSource(["demo", "--from", tarball]);
@@ -85,7 +86,7 @@ describe("mshape init", () => {
 
   test("the installed package carries the template: its init makes the same repo", async () => {
     const bin = join(work, "demo", "node_modules", ".bin", "mshape");
-    const again = await run(work, [process.execPath, bin, "init", "again", "--from", tarball]);
+    const again = await run(work, [process.execPath, bin, "init", "--from", tarball, "again"]);
     expect(again.code).toBe(0);
     expect(await tracked(join(work, "again"))).toEqual(await tracked(join(work, "demo")));
   }, 60_000);
@@ -94,6 +95,18 @@ describe("mshape init", () => {
     const result = await fromSource(["My_App"]);
     expect(result.output).toContain("lowercase words joined by hyphens");
     expect(result.code).toBe(2);
+  });
+
+  test("refuses --from without a value rather than installing from the registry", async () => {
+    for (const args of [
+      ["no-value", "--from"],
+      ["--from", "--other", "no-value"],
+    ]) {
+      const result = await fromSource(args);
+      expect(result.output).toContain("--from needs a value");
+      expect(result.code).toBe(2);
+    }
+    expect(await Bun.file(join(work, "no-value", "package.json")).exists()).toBe(false);
   });
 
   test("refuses a directory that is not empty, and leaves it alone", async () => {
