@@ -146,25 +146,6 @@ The **milestone boundary** is where the routine process happens: delivery, retro
 the next milestone plan, grooming, then the garden sweep (§8). Between boundaries there is no
 ceremony. Tracks work their queues, and PR bodies record what was learned.
 
-### 2.4 The working loop
-
-Skills carry judgement; the `mshape` CLI carries everything deterministic. A skill never
-creates a worktree or a file layout by hand: it calls the CLI, which is tested. Each skill is
-started by name in a fresh chat, so the human's message can be just the skill plus intent.
-
-| Step | Started by | What happens |
-|---|---|---|
-| Init | human: `mshape init <name>` | A new repo: template files, toolchain, `bd init`, skills in `.agents/skills/`, the state directory. Its gate passes empty. |
-| Long term | chat: `/roadmap` + a brain-dump | Interview until the requirements are clear; write `docs/roadmap.md`; one deferred epic per goal; a PR. |
-| Mid term | chat: `/milestone` + priorities | Retrospective on the last milestone; propose a goal with acceptance on real data; once agreed, write `plan/MILESTONE.md`; groom beads (stories, dependencies, closures) and the roadmap; propose named tracks; `mshape track new` for each; prune finished tracks. |
-| Short term | chat in a track worktree: `/track` | `mshape track current` names the track; read its handoff and `bd ready --label track:<name>`; work; open PRs. A **stub** handoff (an ad-hoc track) means: interview the human about the work, then write the handoff and its beads. |
-| Hand off | human, near 75% of context: `/handoff` | Rewrite the track's handoff so a fresh chat can continue; the human opens one and runs `/track`. |
-| Review | `/review-pr <n>`, in a separate chat | Review against real data; blockers need a failing input; the human merges. |
-| Ad hoc | human: `mshape track new <name>` / `mshape track rm <name>` | A named track with a stub handoff, for work that didn't come from a milestone; removed when done. |
-
-When the process itself gets in the way, file a bead labelled `process` saying what broke;
-`/milestone` reviews them at the boundary, and fixes land in monkeyshape.
-
 ### 2.2 What this replaces
 
 | Replaced | Replacement |
@@ -188,6 +169,25 @@ Without a home they leak into decision records, oversized tickets and AGENTS.md.
 - **never loaded automatically.**
 
 A lesson that should apply going forward is promoted to a check, a test or a decision.
+
+### 2.4 The working loop
+
+Skills carry judgement; the `mshape` CLI carries everything deterministic. A skill never
+creates a worktree or a file layout by hand: it calls the CLI, which is tested. Each skill is
+started by name in a fresh chat, so the human's message can be just the skill plus intent.
+
+| Step | Started by | What happens |
+|---|---|---|
+| Init | human: `mshape init <name>` | A new repo: template files, toolchain, `bd init`, skills in `.agents/skills/`, the state directory. Its gate passes empty. |
+| Long term | chat: `/roadmap` + a brain-dump | Interview until the requirements are clear; write `docs/roadmap.md`; one deferred epic per goal; a PR. |
+| Mid term | chat: `/milestone` + priorities | Retrospective on the last milestone; propose a goal with acceptance on real data; once agreed, write `plan/MILESTONE.md`; groom beads (stories, dependencies, closures) and the roadmap; propose named tracks; `mshape track new` for each; prune finished tracks. |
+| Short term | chat in a track worktree: `/track` | `mshape track current` names the track; read its handoff and `bd ready --label track:<name>`; work; open PRs. A **stub** handoff (an ad-hoc track) means: interview the human about the work, then write the handoff and its beads. |
+| Hand off | human, near 75% of context: `/handoff` | Rewrite the track's handoff so a fresh chat can continue; the human opens one and runs `/track`. |
+| Review | `/review-pr <n>`, in a separate chat | Review against real data; blockers need a failing input; the human merges. |
+| Ad hoc | human: `mshape track new <name>` / `mshape track rm <name>` | A named track with a stub handoff, for work that didn't come from a milestone; removed when done. |
+
+When the process itself gets in the way, file a bead labelled `process` saying what broke;
+`/milestone` reviews them at the boundary, and fixes land in monkeyshape.
 
 ## 3. Documents
 

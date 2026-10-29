@@ -8,11 +8,24 @@ const decodes = (input: unknown): boolean =>
 
 describe("tracks.sharedPaths", () => {
   test("repo-relative paths inside the repo are accepted", () => {
-    expect(decodes({ tracks: { sharedPaths: ["cases", "data/large", ".cache"] } })).toBe(true);
+    expect(
+      decodes({ tracks: { sharedPaths: ["cases", "data/large", ".cache", "a/.b/c..d"] } }),
+    ).toBe(true);
   });
 
-  test("absolute paths, `..` segments and trailing slashes are refused", () => {
-    for (const bad of ["/abs", "../outside", "data/../../x", "..", "cases/"])
+  test("only normal paths: no absolute, `..`, `.`, empty segments or trailing slash", () => {
+    for (const bad of [
+      "/abs",
+      "../outside",
+      "data/../../x",
+      "..",
+      "cases/",
+      ".",
+      "./x",
+      "data//large",
+      "data/./x",
+      "",
+    ])
       expect(decodes({ tracks: { sharedPaths: [bad] } })).toBe(false);
   });
 

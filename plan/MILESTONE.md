@@ -57,6 +57,9 @@ Messages) and the maintainer.
   - If `<worktree>/<path>` already exists (the path is tracked, or was created by hand),
     `track new` refuses and says so: a shared path must be gitignored, never tracked.
   - `.handoffs` is always shared, without being listed.
+  - Before touching the filesystem, `track new` checks the list as a whole: duplicates and
+    overlapping entries (`data` with `data/large`) are refused, as is any entry that is, or
+    lies under, `.handoffs` or `.git`. The schema already guarantees each entry is normal.
 - **CLI surface** (implemented by `init` and `tracks`, called by `skills`):
   - `mshape init <name>`
   - `mshape skills sync` (refresh `.agents/skills` from the installed package)

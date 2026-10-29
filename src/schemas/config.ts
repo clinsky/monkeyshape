@@ -36,9 +36,12 @@ export const RuleSetting = Schema.Struct({
   allow: Schema.optionalKey(Schema.Array(Allowance)),
 });
 
-/** Repo-relative and inside the repo: no leading `/`, no `..` segment, no trailing `/`. */
+/**
+ * Repo-relative and already normal: segments joined by single `/`, none empty, `.` or `..`.
+ * So `cases` and `data/large` pass; `/abs`, `../x`, `.`, `./x`, `data//large`, `cases/` don't.
+ */
 export const SharedPath = Schema.String.check(
-  Schema.isPattern(/^(?!\/)(?!.*(?:^|\/)\.\.(?:\/|$))[^\0]*[^/]$/),
+  Schema.isPattern(/^(?!\.\.?(?:\/|$))[^/\0]+(?:\/(?!\.\.?(?:\/|$))[^/\0]+)*$/),
 );
 
 export const ForbiddenPattern = Schema.Struct({
