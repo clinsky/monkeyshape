@@ -47,6 +47,7 @@ The conventions in full: [docs/workflow.md](docs/workflow.md). An existing repo:
 | `refs` | Docs and comments that point at paths, scripts or decisions that don't exist |
 | `budgets` | Bloated `AGENTS.md`, decision logs and memories; oversized files |
 | `coverage` | Code that escaped the typechecker or the linter and rots silently |
+| `skills` | Installed skills that agents can't see (a broken `.claude/skills` link) or that lag the package |
 
 Existing violations can be grandfathered with `mshape baseline --init`; counts may then only
 go down. Every escape hatch (`// shape-ignore <rule>: <reason>`, config allowances) needs a reason.

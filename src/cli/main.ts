@@ -7,22 +7,28 @@ import pkg from "../../package.json" with { type: "json" };
 import { BASELINE_FILE, readBaseline, writeBaseline } from "../adapters/baseline.ts";
 import { loadConfig } from "../adapters/config.ts";
 import { initRepo } from "../adapters/init.ts";
+import { installSkills } from "../adapters/skills.ts";
 import { trackCurrent, trackList, trackNew, trackRm } from "../adapters/tracks.ts";
 import { loadSnapshot } from "../adapters/workspace.ts";
 import { CHECKS, notices, prerequisites, runChecks, unevaluated } from "../core/check.ts";
 import { garden } from "../core/garden.ts";
+import { CLAUDE_SKILLS_LINK } from "../core/layout.ts";
 import type { CheckName } from "../core/model.ts";
 import { applyBaseline, count, tighten } from "../core/ratchet.ts";
 import { formatCheck, formatGarden, formatViolation } from "../core/report.ts";
 import { RULES } from "../core/rules/registry.ts";
 import { nextStep, REPO_NAME } from "../core/scaffold.ts";
+import { formatCollisions, formatSync } from "../core/skills.ts";
 
 const USAGE = `mshape ${pkg.version}
 
   mshape init <name> [--from <spec>]
       Create ./<name>: a new repo whose gate passes empty. --from installs monkeyshape
       from <spec> (a tarball path) instead of the registry, to try a release before publishing.
-  mshape check [--only arch,refs,budgets,coverage,rules]
+  mshape skills sync
+      Refresh the shared skills in .agents/skills from the installed package, after a bump.
+      Skills the package doesn't ship are the repo's own and are left alone.
+  mshape check [--only arch,refs,budgets,coverage,rules,skills]
       Run the checks; violations above .shape/baseline.json fail.
   mshape baseline --tighten
       Lower baseline counts to what is found now. Never raises one.
@@ -84,7 +90,7 @@ const init = (root: string, args: ReadonlyArray<string>) =>
     // A bare path is a tarball; bun would resolve it from the new repo, not from here.
     const spec = from === undefined || from.includes(":") ? from : `file:${resolve(root, from)}`;
     const dev = pkg.devDependencies;
-    const result = yield* initRepo(`${root}/${name}`, name, `${PACKAGE_ROOT}/template`, {
+    const result = yield* initRepo(`${root}/${name}`, name, PACKAGE_ROOT, {
       bun: Bun.version,
       monkeyshape: spec ?? pkg.version,
       effect: dev.effect,
@@ -142,6 +148,17 @@ const program = (root: string, args: ReadonlyArray<string>) =>
     const [command, ...rest] = args;
     if (command === "--version") return { output: pkg.version, code: 0 };
     if (command === "init") return yield* init(root, rest);
+    if (command === "skills" && rest[0] === "sync") {
+      const { sync, linked } = yield* installSkills(`${PACKAGE_ROOT}/skills`, root);
+      return {
+        output: [
+          formatSync(sync),
+          ...(linked ? [`${CLAUDE_SKILLS_LINK}: linked`] : []),
+          ...formatCollisions(sync),
+        ].join("\n"),
+        code: sync.collisions.length > 0 ? 1 : 0,
+      };
+    }
     if (command === "track") return yield* track(root, rest);
     if (command === "rules")
       return {
@@ -164,7 +181,7 @@ const program = (root: string, args: ReadonlyArray<string>) =>
           ? configPath
           : `${root}/${configPath}`,
     );
-    const snapshot = yield* loadSnapshot(root, config);
+    const snapshot = yield* loadSnapshot(root, config, `${PACKAGE_ROOT}/skills`);
     const baseline = yield* readBaseline(root);
 
     if (command === "garden")

@@ -7,8 +7,16 @@ import type { CheckName, Snapshot, Violation } from "./model.ts";
 import { checkRefs } from "./refs.ts";
 import { checkRules } from "./rules/engine.ts";
 import { RULES } from "./rules/registry.ts";
+import { checkSkills } from "./skills.ts";
 
-export const CHECKS: ReadonlyArray<CheckName> = ["arch", "refs", "budgets", "coverage", "rules"];
+export const CHECKS: ReadonlyArray<CheckName> = [
+  "arch",
+  "refs",
+  "budgets",
+  "coverage",
+  "rules",
+  "skills",
+];
 
 const run: Record<
   CheckName,
@@ -19,6 +27,7 @@ const run: Record<
   budgets: checkBudgets,
   coverage: checkCoverage,
   rules: (config, snapshot) => checkRules(config, snapshot, RULES),
+  skills: checkSkills,
 };
 
 const BEADS_RULES = ["refs/bead-in-code", "budgets/memories-count", "budgets/memories-bytes"];
