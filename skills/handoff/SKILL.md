@@ -47,8 +47,8 @@ State (with today's date), Lessons not yet promoted, Traps, Messages, in that or
 
 Run `mshape track list`: this track must show `stub` (if the charter isn't agreed yet:
 leave it empty, never write one the human hasn't agreed) or `active`, never `invalid`. If it
-shows `invalid`, fix what it reports. Then tell the human, in a few lines: what is done and
-in flight, any messages they need to relay to another track or decide on, and "open a
+shows `invalid`, each problem is printed under its row: fix them all and run it again. Then
+tell the human, in a few lines: what is done and in flight, any messages they need to relay to another track or decide on, and "open a
 fresh chat in this worktree and run `/track`".
 
 Review this skill when a fresh chat had to rediscover something the last one knew.
