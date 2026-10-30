@@ -26,7 +26,8 @@ describe("the package's skills", () => {
     const shipped = await readdir(join(import.meta.dir, "..", "..", "skills"), {
       withFileTypes: true,
     });
-    const names = shipped.filter((entry) => entry.isDirectory()).map((entry) => entry.name);
+    // Not only directories: sync follows symlinks, so a symlinked skill is installed too.
+    const names = shipped.filter((entry) => !entry.isFile()).map((entry) => entry.name);
     expect(names.length).toBeGreaterThan(0);
     expect(names.filter((name) => !SKILL_NAME.test(name))).toEqual([]);
   });
