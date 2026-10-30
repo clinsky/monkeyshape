@@ -25,6 +25,19 @@ export const TRACK_NAME = /^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$/;
 
 export const HANDOFFS_LINK = ".handoffs";
 
+/** Committed: the shared skills `mshape skills sync` installs, and the repo's own. */
+export const SKILLS_DIR = ".agents/skills";
+
+/** Inside `SKILLS_DIR`: the names of the shared skills sync installed, so a same-named skill
+ * of the repo's own is never taken for one, and a retired one can be removed. */
+export const SKILLS_MANIFEST = "monkeyshape.json";
+
+/** Committed symlink: Claude Code reads project skills only from here. */
+export const CLAUDE_SKILLS_LINK = ".claude/skills";
+
+/** The link's text, relative to `.claude/`, so it resolves in every clone and worktree. */
+export const CLAUDE_SKILLS_TARGET = "../.agents/skills";
+
 /** Repo-relative: where the worktrees live, and the main checkout's link to the handoffs. */
 export const WORKTREES_DIR = ".agents/worktrees";
 export const AGENTS_HANDOFFS_LINK = ".agents/handoffs";

@@ -53,7 +53,7 @@ afterAll(async () => {
 describe("typecheck coverage through project references", () => {
   test("files in referenced projects are covered; a file in no project is not", async () => {
     const shape = config();
-    const snapshot = await Effect.runPromise(loadSnapshot(repo, shape));
+    const snapshot = await Effect.runPromise(loadSnapshot(repo, shape, `${repo}/no-skills`));
     expect(snapshot.integrations.tsc).toEqual({ state: "ok" });
     expect([...(snapshot.typechecked ?? [])].sort()).toEqual([
       "packages/api/src/a.ts",

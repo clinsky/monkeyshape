@@ -1,0 +1,10 @@
+{
+  "about": "The shared skills `mshape skills sync` installed. Written by sync; don't edit.",
+  "shared": [
+    "handoff",
+    "milestone",
+    "review-pr",
+    "roadmap",
+    "track"
+  ]
+}
