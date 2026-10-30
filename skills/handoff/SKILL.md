@@ -16,17 +16,21 @@ belongs to a track.
 
 ## 2. Leave nothing only in this chat
 
-- **Uncommitted work:** commit it to the track branch, as a WIP commit if it isn't finished,
-  and push. Never stash: the stash is shared by every worktree.
+- **Uncommitted work:** if no PR is open from the track branch, commit it there, as a WIP
+  commit if it isn't finished, and push. If one is open, a push would add it to the PR:
+  leave it uncommitted (the next chat opens in this same worktree) and list it in State.
+  Never stash: the stash is shared by every worktree.
 - **Beads:** close what merged; claim what is half done; file what you found and didn't do.
 - **Open PRs:** note each one's number and what it waits on.
 
 ## 3. Rewrite the handoff
 
-Overwrite `.handoffs/<name>.md`; don't append. Keep its format: the title, `Status:` and
-`Queue:` lines, then exactly the sections Charter, State (with today's date), Lessons not
-yet promoted, Traps, Messages, in that order, with `###` for headings inside them. About 120
-lines at most.
+Overwrite `.handoffs/<name>.md`; don't append. Other tracks write to its Messages while you
+work, so read the file again just before writing, and keep every message you hadn't seen.
+
+Keep its format: the title, `Status:` and `Queue:` lines, then exactly the sections Charter,
+State (with today's date), Lessons not yet promoted, Traps, Messages, in that order, with
+`###` for headings inside them. About 120 lines at most.
 
 - **Charter:** leave it unless the work changed what the track is for; then rewrite it, and
   say in State that it changed and why.
@@ -41,9 +45,10 @@ lines at most.
 
 ## 4. Check it and hand over
 
-Run `mshape track list`: this track must show `active`, not `invalid`. If it is invalid,
-fix the problem it names. Then tell the human, in a few lines: what is done and in flight,
-any messages they need to relay to another track or decide on, and "open a fresh chat in
-this worktree and run `/track`".
+Run `mshape track list`: this track must show `stub` (if the charter isn't agreed yet:
+leave it empty, never write one the human hasn't agreed) or `active`, never `invalid`. If it
+shows `invalid`, fix what it reports. Then tell the human, in a few lines: what is done and
+in flight, any messages they need to relay to another track or decide on, and "open a
+fresh chat in this worktree and run `/track`".
 
 Review this skill when a fresh chat had to rediscover something the last one knew.

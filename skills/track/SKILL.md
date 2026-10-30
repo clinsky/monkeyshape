@@ -11,8 +11,8 @@ Your job is to pick up exactly where it stopped.
 
 ## 1. Which track
 
-Run `mshape track current`. It prints the track's name, or exits 1 with the reason this
-directory isn't a track. Then stop: tell the human the reason, and suggest
+Run `mshape track current`. It prints the track's name. If it exits 1, stop: tell the human
+the reason it gave for this directory not being a track, and suggest
 `mshape track list` to find the worktree they meant, or `mshape track new <name>` if this is
 new work. Never work a track from outside its worktree.
 
@@ -22,7 +22,9 @@ new work. Never work a track from outside its worktree.
   then State, Traps and Charter.
 - AGENTS.md, and whatever the charter points at (often plan/MILESTONE.md, for the
   interfaces this track owns or consumes).
-- The queue: `bd ready --label track:<name>`, and `bd show` for each bead you take.
+- The queue: `bd list --label track:<name>` for every open bead, including the one the last
+  session left in progress and those blocked on other tracks; `bd ready --label
+  track:<name>` for what can start now; `bd show` for each bead you take.
 - Where the code is: `git status`, `git log --oneline main..HEAD`, open PRs from this
   branch (`gh pr list --head track/<name>`), and the gate as AGENTS.md says to run it.
 
@@ -49,16 +51,21 @@ charter and the beads; start once they agree.
 
 - Claim a bead (`bd update <id> --claim`) before starting it. Work it, gate green, and open
   PRs as AGENTS.md says. Close beads when their PR merges.
+- **One open PR at a time**, from `track/<name>`: the branch is the PR's head, so a commit
+  pushed while it is in review joins it. While it waits, answer its review and prepare the
+  next bead without committing. If waiting would stall the track, tell the human.
 - **Diverging from the milestone plan:** say so in the handoff's State. If it changes
   another track's work or the milestone's goal, stop and tell the human.
-- **Talking to another track:** write in its handoff's Messages, saying who it is from and
-  the date. Read your own Messages again after each PR.
+- **Talking to another track:** add to its handoff's Messages, saying who it is from and the
+  date. Edit the file in place; never rewrite another track's handoff. Read your own
+  Messages again after each PR.
 - **A mechanical step with no command:** don't script it into prose; file a bead for the CLI.
 - **The process got in the way:** `bd create --labels process` saying what broke.
 
 Update the handoff's State when a PR opens or merges, so a crash loses nothing. When the
-human says the context is running out, run `/handoff`. When the queue is empty and the PRs
-are merged, tell the human the track is done; removing it is theirs or `/milestone`'s.
+human says the context is running out, run `/handoff`. When `bd list --label track:<name>`
+is empty and the PRs are merged, tell the human the track is done (an empty `bd ready` is
+not enough: it hides beads in progress or blocked); removing it is theirs or `/milestone`'s.
 
 Review this skill when a fresh chat running it had to ask the human something the handoff
 should have said.
