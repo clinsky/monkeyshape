@@ -20,3 +20,12 @@ export class ConfigError extends Schema.TaggedError<ConfigError>()("ConfigError"
     return `${this.path}: ${this.reason}`;
   }
 }
+
+/** A track command refused, or stopped partway; the message says which, and what to do. */
+export class TrackError extends Schema.TaggedError<TrackError>()("TrackError", {
+  reason: Schema.String,
+}) {
+  override get message(): string {
+    return this.reason;
+  }
+}

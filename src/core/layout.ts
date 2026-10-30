@@ -25,6 +25,10 @@ export const TRACK_NAME = /^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$/;
 
 export const HANDOFFS_LINK = ".handoffs";
 
+/** Repo-relative: where the worktrees live, and the main checkout's link to the handoffs. */
+export const WORKTREES_DIR = ".agents/worktrees";
+export const AGENTS_HANDOFFS_LINK = ".agents/handoffs";
+
 /** Tracks branch from it, and `track rm` counts a branch as merged once it is contained in it. */
 export const MAIN_BRANCH = "main";
 
@@ -36,7 +40,7 @@ export const trackBranch = (track: string): string => `track/${track}`;
 
 export const trackLabel = (track: string): string => `track:${track}`;
 
-export const worktreesDir = (repo: string): string => `${trim(repo)}/.agents/worktrees`;
+export const worktreesDir = (repo: string): string => `${trim(repo)}/${WORKTREES_DIR}`;
 
 export const worktreePath = (repo: string, track: string): string =>
   `${worktreesDir(repo)}/${repoName(repo)}@${track}`;
@@ -51,7 +55,7 @@ export const mainCheckout = (common: string): string => {
 export const handoffsStore = (common: string): string => `${trim(common)}/monkeyshape/handoffs`;
 
 /** The user-facing link to the store, in the main checkout. */
-export const handoffsLink = (repo: string): string => `${trim(repo)}/.agents/handoffs`;
+export const handoffsLink = (repo: string): string => `${trim(repo)}/${AGENTS_HANDOFFS_LINK}`;
 
 export const handoffPath = (common: string, track: string): string =>
   `${handoffsStore(common)}/${track}.md`;

@@ -268,12 +268,10 @@ own. Skills specific to one repo live in that repo.
   dataset) into it. Every worktree and the human see one live copy. Handoffs are
   never committed, so they can't fork. They are ephemeral by design; PR bodies are the durable
   record.
-- **Shape**, about 120 lines as a soft cap:
-  - Header: track, epic, queue command, the milestone sections this track owns
-  - State, dated and overwritten: done, in flight, next
-  - Lessons not yet promoted
-  - Traps specific to this track
-  - Messages to and from other tracks and the human
+- **Shape**, about 120 lines as a soft cap: a header (track, `Status: stub | active`, queue
+  command), then Charter, State (dated and overwritten: done, in flight, next), Lessons not yet
+  promoted, Traps, Messages. The format's one home is `src/core/handoff.ts`, which parses it;
+  `track new` writes a stub with an empty charter, and `track list` shows each status.
 - **Lessons not yet promoted:** a staging area. Grooming promotes each lesson to a check, test,
   gotcha or decision, or deletes it.
 - **When to hand off:** at a natural break, around 75% of the context window. Use judgement,
