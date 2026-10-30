@@ -133,29 +133,49 @@ const requireMain = (repo: string) =>
 const unmergedCount = (repo: string, branch: string) =>
   Effect.map(gitOk(repo, ["rev-list", "--count", `${head(MAIN_BRANCH)}..${head(branch)}`]), Number);
 
-/** `link` → `target` as a relative link, so it survives moving the repo. */
-const linkTo = (link: string, target: string) =>
+/**
+ * `link` → `target`. Relative when the link's real directory is inside the repo, so it survives
+ * moving the repo; measured from that real directory, since that is where the OS resolves it
+ * (`.agents/worktrees` may be a symlink). Absolute when the directory lies outside the repo:
+ * a worktree on another disk doesn't move with the repo anyway.
+ */
+const linkTo = (repo: string, link: string, target: string) =>
   Effect.gen(function* () {
-    yield* fs("mkdir", posix.dirname(link), () => mkdir(posix.dirname(link), { recursive: true }));
-    yield* fs("symlink", link, () => symlink(posix.relative(posix.dirname(link), target), link));
+    const dir = posix.dirname(link);
+    yield* fs("mkdir", dir, () => mkdir(dir, { recursive: true }));
+    const realDir = yield* real(dir);
+    const inside = realDir === repo || realDir.startsWith(`${repo}/`);
+    const text = inside ? posix.relative(realDir, target) : target;
+    yield* fs("symlink", link, () => symlink(text, link));
   });
 
-/** A missing link is created; one that exists and points elsewhere is left alone, with a note. */
-const ensureLink = (link: string, target: string) =>
+/**
+ * A missing link is created, and so is one of ours that dangles: a link holds no data. One
+ * that resolves elsewhere, or isn't a link, is left alone with a note.
+ */
+const ensureLink = (repo: string, link: string, target: string) =>
   Effect.gen(function* () {
     if (!(yield* lexists(link))) {
-      yield* linkTo(link, target);
+      yield* linkTo(repo, link, target);
       return `linked ${link} -> ${target}`;
     }
-    const pointsHere = yield* Effect.promise(() =>
+    const state = yield* Effect.promise(() =>
       readlink(link).then(
-        async () => (await realpath(link).catch(() => "")) === (await realpath(target)),
-        () => false,
+        () =>
+          realpath(link).then(
+            async (resolved) => (resolved === (await realpath(target)) ? "ok" : "elsewhere"),
+            () => "dangling" as const,
+          ),
+        () => "not a link" as const,
       ),
     );
-    return pointsHere
-      ? undefined
-      : `note: ${link} exists but is not a link to ${target}; left alone`;
+    if (state === "ok") return undefined;
+    if (state === "dangling") {
+      yield* fs("unlink", link, () => unlink(link));
+      yield* linkTo(repo, link, target);
+      return `relinked ${link} -> ${target} (it dangled)`;
+    }
+    return `note: ${link} exists but is not a link to ${target}; left alone`;
   });
 
 /** The store, `.agents/handoffs` and every checkout's `.handoffs`: what `git clean` may have removed. */
@@ -164,7 +184,7 @@ const ensureHandoffLinks = (common: string, repo: string, checkouts: ReadonlyArr
     const store = handoffsStore(common);
     yield* fs("mkdir", store, () => mkdir(store, { recursive: true }));
     const links = [handoffsLink(repo), ...[repo, ...checkouts].map((c) => `${c}/${HANDOFFS_LINK}`)];
-    const said = yield* Effect.forEach(links, (link) => ensureLink(link, store));
+    const said = yield* Effect.forEach(links, (link) => ensureLink(repo, link, store));
     return said.filter((line): line is string => line !== undefined);
   });
 
@@ -240,7 +260,7 @@ export const trackNew = (cwd: string, track: string, date: string) =>
           return yield* refuse(
             `${link} already exists in the new worktree, so shared path \`${entry}\` is not linked. A shared path must be gitignored, never tracked`,
           );
-        yield* linkTo(link, `${repo}/${entry}`);
+        yield* linkTo(repo, link, `${repo}/${entry}`);
         said.push(`linked ${link} -> ${repo}/${entry}`);
       }
       const handoff = handoffPath(common, track);

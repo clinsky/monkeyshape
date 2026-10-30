@@ -180,6 +180,16 @@ describe("track list", () => {
       ["init", "stub", "1", "no", ".agents/worktrees/repo@init"],
     ]);
     expect(await realpath(`${repo}/.handoffs`)).toBe(`${repo}/.git/monkeyshape/handoffs`);
+
+    // A dangling link of ours is replaced; one pointing at something real is left alone.
+    await rm(`${wt("docs")}/.handoffs`);
+    await symlink("../nowhere", `${wt("docs")}/.handoffs`);
+    await rm(`${wt("init")}/.handoffs`);
+    await mkdir(`${wt("init")}/.handoffs`);
+    const repaired = mshape(repo, "list").stdout;
+    expect(repaired).toContain(`relinked ${wt("docs")}/.handoffs`);
+    expect(repaired).toContain(`note: ${wt("init")}/.handoffs exists but is not a link`);
+    expect(await realpath(`${wt("docs")}/.handoffs`)).toBe(`${repo}/.git/monkeyshape/handoffs`);
   });
 
   test("an invalid handoff is listed with each problem under its row", async () => {
@@ -334,13 +344,17 @@ describe("track rm", () => {
 });
 
 describe("track layout under links", () => {
-  test("a symlinked worktrees directory: current, list and rm still find the track", async () => {
-    await setup();
+  test("a symlinked worktrees directory: links resolve; current, list and rm find the track", async () => {
+    await setup(["data"]);
+    await mkdir(join(repo, "data"));
     await mkdir(`${base}/disk`);
     await mkdir(`${repo}/.agents`);
     await symlink(`${base}/disk`, `${repo}/.agents/worktrees`);
     expect(mshape(repo, "new", "docs").code).toBe(0);
     expect(await exists(`${base}/disk/repo@docs`)).toBe(true);
+    // The OS resolves a link from its real directory, here outside the repo.
+    expect(await realpath(`${wt("docs")}/data`)).toBe(`${repo}/data`);
+    expect(await realpath(`${wt("docs")}/.handoffs`)).toBe(`${repo}/.git/monkeyshape/handoffs`);
 
     expect(mshape(wt("docs"), "current")).toMatchObject({ code: 0, stdout: "docs" });
     expect(mshape(repo, "list").stdout).toContain(".agents/worktrees/repo@docs");
