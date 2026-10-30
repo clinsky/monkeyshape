@@ -1,10 +1,13 @@
 import { describe, expect, test } from "bun:test";
+import { readdir } from "node:fs/promises";
+import { join } from "node:path";
 import type { SkillsLink } from "../../src/core/model.ts";
 import {
   checkSkills,
   formatCollisions,
   formatSync,
   parseManifest,
+  SKILL_NAME,
   syncSkills,
 } from "../../src/core/skills.ts";
 import { config, repo } from "../support.ts";
@@ -16,6 +19,18 @@ const manifest = (...shared: ReadonlyArray<string>) =>
   JSON.stringify({ about: "", shared: [...shared] });
 
 const decode = (bytes: Uint8Array | undefined) => new TextDecoder().decode(bytes);
+
+describe("the package's skills", () => {
+  test("every shipped skill has a name sync can record in its manifest", async () => {
+    // A name outside SKILL_NAME would install, then make every later sync refuse its own manifest.
+    const shipped = await readdir(join(import.meta.dir, "..", "..", "skills"), {
+      withFileTypes: true,
+    });
+    const names = shipped.filter((entry) => entry.isDirectory()).map((entry) => entry.name);
+    expect(names.length).toBeGreaterThan(0);
+    expect(names.filter((name) => !SKILL_NAME.test(name))).toEqual([]);
+  });
+});
 
 describe("syncSkills", () => {
   test("installs every shipped skill into an empty repo, and records them", () => {
