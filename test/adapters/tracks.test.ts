@@ -181,6 +181,26 @@ describe("track list", () => {
     ]);
     expect(await realpath(`${repo}/.handoffs`)).toBe(`${repo}/.git/monkeyshape/handoffs`);
   });
+
+  test("an invalid handoff is listed with each problem under its row", async () => {
+    await setup();
+    mshape(repo, "new", "docs");
+    mshape(repo, "new", "init");
+    const text = await Bun.file(handoff("docs")).text();
+    await writeFile(
+      handoff("docs"),
+      text.replace("Status: stub", "Status: done").replace("## Traps", "## Pitfalls"),
+    );
+
+    const lines = mshape(repo, "list").stdout.split("\n");
+    const row = lines.findIndex((line) => line.startsWith("docs "));
+    expect(lines[row]?.split(/\s+/)[1]).toBe("invalid");
+    expect(lines[row + 1]).toBe(
+      "  .handoffs/docs.md: `Status:` must be `stub` or `active`, found `done`",
+    );
+    expect(lines[row + 2]).toStartWith("  .handoffs/docs.md: sections must be exactly");
+    expect(lines[row + 3]).toMatch(/^init\s+stub/);
+  });
 });
 
 describe("track rm", () => {

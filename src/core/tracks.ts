@@ -227,6 +227,8 @@ export interface TrackRow {
   readonly worktree: string | undefined;
   /** Set when the worktree is on another branch than `track/<track>`. */
   readonly worktreeBranch?: string | undefined;
+  /** Why the handoff is `invalid`: `parseHandoff`'s problems, printed under the row. */
+  readonly problems?: ReadonlyArray<string> | undefined;
 }
 
 export const formatTracks = (rows: ReadonlyArray<TrackRow>): string => {
@@ -248,13 +250,18 @@ export const formatTracks = (rows: ReadonlyArray<TrackRow>): string => {
   const widths =
     table[0]?.map((_, column) => Math.max(...table.map((cells) => cells[column]?.length ?? 0))) ??
     [];
-  return table
-    .map((cells) =>
-      cells
-        .map((cell, column) =>
-          column === cells.length - 1 ? cell : cell.padEnd((widths[column] ?? 0) + 2),
-        )
-        .join(""),
-    )
-    .join("\n");
+  const line = (cells: ReadonlyArray<string>) =>
+    cells
+      .map((cell, column) =>
+        column === cells.length - 1 ? cell : cell.padEnd((widths[column] ?? 0) + 2),
+      )
+      .join("");
+  // Each problem names the file through the `.handoffs` link, which every checkout has.
+  return [
+    line(table[0] ?? []),
+    ...rows.flatMap((row, index) => [
+      line(table[index + 1] ?? []),
+      ...(row.problems ?? []).map((problem) => `  ${HANDOFFS_LINK}/${row.track}.md: ${problem}`),
+    ]),
+  ].join("\n");
 };

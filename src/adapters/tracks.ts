@@ -308,6 +308,7 @@ export const trackList = (cwd: string) =>
         const row: TrackRow = {
           track,
           status: parsed === undefined ? "none" : "problems" in parsed ? "invalid" : parsed.status,
+          problems: parsed !== undefined && "problems" in parsed ? parsed.problems : undefined,
           ahead: branches.includes(track)
             ? yield* unmergedCount(repo, trackBranch(track))
             : undefined,
