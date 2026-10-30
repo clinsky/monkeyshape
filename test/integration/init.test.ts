@@ -16,53 +16,13 @@ import {
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-
-const ROOT = join(import.meta.dir, "..", "..");
+import { HAS_BD, initFromSource, pack, run, unexpectedNotes } from "./harness.ts";
 
 let work = "";
 let tarball = "";
 
-/** A CI runner has no git identity; init's first commit needs one. */
-const IDENTITY = {
-  GIT_AUTHOR_NAME: "Test",
-  GIT_AUTHOR_EMAIL: "test@example.com",
-  GIT_COMMITTER_NAME: "Test",
-  GIT_COMMITTER_EMAIL: "test@example.com",
-};
-
-/** CI runners have no bd: the beads half of init is then covered only by the no-bd test. */
-const HAS_BD = Bun.which("bd") !== null;
-
-const run = async (
-  cwd: string,
-  command: ReadonlyArray<string>,
-  env: Record<string, string> = {},
-) => {
-  const child = Bun.spawn([...command], {
-    cwd,
-    stdout: "pipe",
-    stderr: "pipe",
-    env: { ...process.env, ...IDENTITY, ...env },
-  });
-  const [stdout, stderr] = [
-    await new Response(child.stdout).text(),
-    await new Response(child.stderr).text(),
-  ];
-  return { code: await child.exited, output: `${stdout}${stderr}` };
-};
-
-/**
- * Notes init printed that this machine doesn't explain. Without bd (as in CI) the one expected
- * note is bd's; anything else, a failed install or format, fails everywhere.
- */
-const unexpectedNotes = (output: string): ReadonlyArray<string> =>
-  output
-    .split("\n")
-    .filter((line) => line.startsWith("note:"))
-    .filter((line) => HAS_BD || !line.startsWith("note: bd is not on PATH"));
-
 const fromSource = (args: ReadonlyArray<string>, env: Record<string, string> = {}) =>
-  run(work, [process.execPath, join(ROOT, "src", "cli", "main.ts"), "init", ...args], env);
+  initFromSource(work, args, env);
 
 const tracked = async (repo: string) =>
   (await run(repo, ["git", "ls-files"])).output.trim().split("\n").sort();
@@ -72,8 +32,7 @@ let created = { code: 0, output: "" };
 beforeAll(async () => {
   // A space in the path: the installed binary must find its template through it.
   work = await mkdtemp(join(tmpdir(), "mshape init "));
-  const packed = await Bun.$`bun pm pack --destination ${work} --quiet`.cwd(ROOT).text();
-  tarball = join(work, packed.trim().split("\n").at(-1)?.split("/").at(-1) ?? "");
+  tarball = await pack(work);
   created = await fromSource(["demo", "--from", tarball]);
 }, 120_000);
 
