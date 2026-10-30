@@ -34,7 +34,8 @@ const USAGE = `mshape ${pkg.version}
       List the custom rules and the bug class each one removes.
   mshape track new <name>
       Start a track: worktree .agents/worktrees/<repo>@<name> on track/<name> from main,
-      the shared handoffs and tracks.sharedPaths linked in, and a stub handoff.
+      the shared handoffs and tracks.sharedPaths linked in, and a stub handoff. Shared paths
+      come from the main checkout's shape.config.ts, from whichever checkout this runs.
   mshape track list
       Every track: handoff status, commits not in main, worktree. Restores missing handoff links.
   mshape track current
@@ -43,7 +44,8 @@ const USAGE = `mshape ${pkg.version}
       Remove a finished track: worktree, branch, handoff. Refuses on uncommitted changes or
       commits not in main; --force discards them. Never touches main or other tracks.
 
-  --config <path>   Use this config instead of ./shape.config.ts (trying a repo before adopting).`;
+  --config <path>   For check, baseline and garden: use this config instead of ./shape.config.ts
+                    (trying a repo before adopting).`;
 
 const parseOnly = (args: ReadonlyArray<string>): ReadonlyArray<CheckName> | string => {
   const index = args.indexOf("--only");

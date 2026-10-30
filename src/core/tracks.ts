@@ -4,11 +4,13 @@
  * are read by `src/adapters/tracks.ts`, which hands the facts here.
  */
 import {
+  AGENTS_HANDOFFS_LINK,
   HANDOFFS_LINK,
   MAIN_BRANCH,
   TRACK_NAME,
   trackBranch,
   trackOf,
+  WORKTREES_DIR,
   worktreePath,
 } from "./layout.ts";
 
@@ -17,6 +19,8 @@ export interface Worktree {
   readonly path: string;
   /** Short name, e.g. `track/docs`; undefined when detached or bare. */
   readonly branch: string | undefined;
+  /** Registered, but its directory is gone: `git worktree prune` drops it. */
+  readonly prunable: boolean;
 }
 
 export const parseWorktrees = (porcelain: string): ReadonlyArray<Worktree> =>
@@ -28,7 +32,13 @@ export const parseWorktrees = (porcelain: string): ReadonlyArray<Worktree> =>
       const ref = lines.find((line) => line.startsWith("branch "))?.slice("branch ".length);
       return path === undefined
         ? []
-        : [{ path, branch: ref?.startsWith("refs/heads/") ? ref.slice(11) : ref }];
+        : [
+            {
+              path,
+              branch: ref?.startsWith("refs/heads/") ? ref.slice(11) : ref,
+              prunable: lines.some((line) => line === "prunable" || line.startsWith("prunable ")),
+            },
+          ];
     });
 
 export const nameProblem = (track: string): string | undefined =>
@@ -38,17 +48,18 @@ export const nameProblem = (track: string): string | undefined =>
 
 /**
  * `tracks.sharedPaths` as a whole. The schema has already made each entry normal; here the
- * entries must not repeat or nest, and none may be or lie under `.handoffs` or `.git`.
+ * entries must not repeat or nest, nor overlap what the track commands manage: `.git`, the
+ * handoff links and the worktrees directory, which linked into a worktree would contain itself.
  */
 export const sharedPathProblems = (paths: ReadonlyArray<string>): ReadonlyArray<string> => {
   const within = (path: string, root: string) => path === root || path.startsWith(`${root}/`);
   const problems: Array<string> = [];
   paths.forEach((path, index) => {
     if (paths.indexOf(path) !== index) problems.push(`\`${path}\` is listed twice`);
-    for (const reserved of [HANDOFFS_LINK, ".git"])
-      if (within(path, reserved))
+    for (const reserved of [".git", HANDOFFS_LINK, AGENTS_HANDOFFS_LINK, WORKTREES_DIR])
+      if (within(path, reserved) || within(reserved, path))
         problems.push(
-          `\`${path}\` is at or under \`${reserved}\`, which the track commands manage themselves`,
+          `\`${path}\` overlaps \`${reserved}\`, which the track commands manage themselves: share something narrower`,
         );
     for (const other of paths)
       if (other !== path && within(path, other))
@@ -90,11 +101,13 @@ export interface RmFacts {
   readonly pathExists: boolean;
   /** `git status --porcelain` lines in the worktree; empty when clean or gone. */
   readonly changes: ReadonlyArray<string>;
+  /** Set when `git status` failed in the worktree: its changes can't be known. */
+  readonly statusError: string | undefined;
   readonly branchExists: boolean;
   /** Commits on the branch that are not in `main`. */
   readonly unmerged: number;
   /** Other checkouts that have the branch checked out. */
-  readonly branchCheckedOutAt: ReadonlyArray<string>;
+  readonly branchCheckedOutAt: ReadonlyArray<Worktree>;
   readonly handoffPath: string;
   readonly handoffExists: boolean;
   readonly force: boolean;
@@ -127,7 +140,8 @@ export const describeStep = (step: RmStep): string =>
 /**
  * Only the track's own worktree, branch and handoff are ever candidates, so the main
  * checkout, other tracks and the handoff store are out of reach by construction. `--force`
- * overrides exactly two refusals: uncommitted changes and unmerged commits.
+ * overrides exactly two refusals: uncommitted changes and unmerged commits, both as listed.
+ * Changes that can't be read are not changes the user agreed to discard.
  */
 export const planRm = (facts: RmFacts): RmPlan => {
   const branch = trackBranch(facts.track);
@@ -161,7 +175,13 @@ export const planRm = (facts: RmFacts): RmPlan => {
     );
   for (const elsewhere of facts.branchCheckedOutAt)
     refusals.push(
-      `\`${branch}\` is checked out at ${elsewhere}: switch that checkout to another branch first`,
+      elsewhere.prunable
+        ? `\`${branch}\` is still registered as checked out at ${elsewhere.path}, which no longer exists: run \`git worktree prune\`, then retry`
+        : `\`${branch}\` is checked out at ${elsewhere.path}: switch that checkout to another branch first`,
+    );
+  if (facts.statusError !== undefined)
+    refusals.push(
+      `can't read the state of ${facts.worktreePath} (\`git status\` failed: ${facts.statusError}), so --force can't know what it would discard: inspect it by hand`,
     );
 
   if (facts.changes.length > 0) {

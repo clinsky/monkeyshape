@@ -3,7 +3,18 @@
  * Never the real repo's worktrees.
  */
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { lstat, mkdir, mkdtemp, readlink, realpath, rename, rm, writeFile } from "node:fs/promises";
+import {
+  chmod,
+  lstat,
+  mkdir,
+  mkdtemp,
+  readlink,
+  realpath,
+  rename,
+  rm,
+  symlink,
+  writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { parseHandoff } from "../../src/core/handoff.ts";
@@ -37,7 +48,7 @@ const exists = (path: string) =>
     () => false,
   );
 
-const branches = () => sh(repo, "branch", "--format=%(refname:short)").split("\n").sort();
+const branches = () => sh(repo, "branch", "--format=%(refname:lstrip=2)").split("\n").sort();
 const wt = (track: string) => `${repo}/.agents/worktrees/repo@${track}`;
 const handoff = (track: string) => `${repo}/.git/monkeyshape/handoffs/${track}.md`;
 
@@ -77,7 +88,8 @@ describe("track new", () => {
     expect(made.code).toBe(0);
     expect(made.stdout).toContain("note: shared path `cases` is missing");
     expect(sh(wt("docs"), "branch", "--show-current")).toBe("track/docs");
-    expect(await readlink(`${wt("docs")}/data`)).toBe(`${repo}/data`);
+    expect(await readlink(`${wt("docs")}/data`)).toBe("../../../data");
+    expect(await realpath(`${wt("docs")}/data`)).toBe(`${repo}/data`);
     expect(await exists(`${wt("docs")}/cases`)).toBe(false);
     for (const link of [`${wt("docs")}/.handoffs`, `${repo}/.handoffs`, `${repo}/.agents/handoffs`])
       expect(await realpath(link)).toBe(`${repo}/.git/monkeyshape/handoffs`);
@@ -273,5 +285,75 @@ describe("track rm", () => {
       `\`track/docs\` is checked out at ${repo}`,
     );
     expect(branches()).toContain("track/docs");
+  });
+
+  test("a tag named like the branch hides nothing: unmerged commits still refuse", async () => {
+    await setup();
+    mshape(repo, "new", "docs");
+    await writeFile(`${wt("docs")}/a.md`, "a");
+    sh(wt("docs"), "add", ".");
+    sh(wt("docs"), "commit", "-qm", "a");
+    // Short names resolve tags first: `main..track/docs` would count zero commits here.
+    sh(repo, "tag", "track/docs", "main");
+
+    const refused = mshape(repo, "rm", "docs");
+    expect(refused.code).toBe(1);
+    expect(refused.stderr).toContain("1 commit(s) not in `main`");
+    expect(branches()).toEqual(["main", "track/docs"]);
+    expect(mshape(repo, "list").stdout).toMatch(/^docs\s+stub\s+1\s+no/m);
+  });
+
+  test("a stale registration of the branch elsewhere asks for a prune", async () => {
+    await setup();
+    sh(repo, "worktree", "add", "-q", "-b", "track/docs", `${base}/elsewhere`, "main");
+    await rm(`${base}/elsewhere`, { recursive: true });
+    const refused = mshape(repo, "rm", "docs");
+    expect(refused.code).toBe(1);
+    expect(refused.stderr).toContain("which no longer exists: run `git worktree prune`");
+  });
+});
+
+describe("track layout under links", () => {
+  test("a symlinked worktrees directory: current, list and rm still find the track", async () => {
+    await setup();
+    await mkdir(`${base}/disk`);
+    await mkdir(`${repo}/.agents`);
+    await symlink(`${base}/disk`, `${repo}/.agents/worktrees`);
+    expect(mshape(repo, "new", "docs").code).toBe(0);
+    expect(await exists(`${base}/disk/repo@docs`)).toBe(true);
+
+    expect(mshape(wt("docs"), "current")).toMatchObject({ code: 0, stdout: "docs" });
+    expect(mshape(repo, "list").stdout).toContain(".agents/worktrees/repo@docs");
+    expect(mshape(repo, "rm", "docs").code).toBe(0);
+    expect(await exists(`${base}/disk/repo@docs`)).toBe(false);
+  });
+
+  test("handoff and shared-path links survive moving the repo", async () => {
+    await setup(["data"]);
+    await mkdir(join(repo, "data"));
+    mshape(repo, "new", "docs");
+    await mkdir(`${base}/moved`);
+    await rename(repo, `${base}/moved/repo`);
+    repo = `${base}/moved/repo`;
+    sh(repo, "worktree", "repair", wt("docs"));
+    expect(await realpath(`${wt("docs")}/data`)).toBe(`${repo}/data`);
+    expect(await realpath(`${wt("docs")}/.handoffs`)).toBe(`${repo}/.git/monkeyshape/handoffs`);
+    expect(mshape(wt("docs"), "current").stdout).toBe("docs");
+  });
+
+  test("a failure after the worktree exists says what was done and how to undo it", async () => {
+    await setup();
+    const store = `${repo}/.git/monkeyshape/handoffs`;
+    await mkdir(store, { recursive: true });
+    await chmod(store, 0o555);
+    const stopped = mshape(repo, "new", "docs");
+    await chmod(store, 0o755);
+    expect(stopped.code).toBe(1);
+    expect(stopped.stderr).toContain("track new docs: stopped: write");
+    expect(stopped.stderr).toContain(`done: created ${wt("docs")} on \`track/docs\``);
+    expect(stopped.stderr).toContain("undo with `mshape track rm docs`");
+
+    expect(mshape(repo, "rm", "docs").code).toBe(0);
+    expect(mshape(repo, "new", "docs").code).toBe(0);
   });
 });

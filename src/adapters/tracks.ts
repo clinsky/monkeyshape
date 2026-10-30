@@ -19,6 +19,7 @@ import {
   trackBranch,
   trackOf,
   worktreePath,
+  worktreesDir,
 } from "../core/layout.ts";
 import {
   currentTrack,
@@ -71,8 +72,26 @@ const lexists = (path: string) =>
     ),
   );
 
-/** Symlinks resolved, so paths from git and from the layout compare equal. Missing stays as is. */
+/** Symlinks resolved. A missing path stays as is. */
 const real = (path: string) => Effect.promise(() => realpath(path).catch(() => path));
+
+/** A branch as a full ref: a short name would resolve to a same-named tag first. */
+const head = (branch: string): string => `refs/heads/${branch}`;
+
+/**
+ * Paths from git, in the layout's terms: resolved, then put back under `<repo>/.agents/worktrees`
+ * when they are inside it, even if that directory is a symlink (to another disk, say).
+ */
+const canonical = (repo: string) =>
+  Effect.map(
+    real(worktreesDir(repo)),
+    (resolved) => (path: string) =>
+      Effect.map(real(path), (path) =>
+        path.startsWith(`${resolved}/`)
+          ? `${worktreesDir(repo)}${path.slice(resolved.length)}`
+          : path,
+      ),
+  );
 
 const fs = <A>(operation: string, path: string, run: () => Promise<A>) =>
   Effect.tryPromise({
@@ -92,14 +111,15 @@ const locate = (cwd: string) =>
 const worktrees = (repo: string) =>
   Effect.gen(function* () {
     const listed = parseWorktrees(yield* gitOk(repo, ["worktree", "list", "--porcelain"]));
+    const resolve = yield* canonical(repo);
     return yield* Effect.forEach(listed, (worktree) =>
-      Effect.map(real(worktree.path), (path): Worktree => ({ ...worktree, path })),
+      Effect.map(resolve(worktree.path), (path): Worktree => ({ ...worktree, path })),
     );
   });
 
 const branchExists = (repo: string, branch: string) =>
   Effect.map(
-    git(repo, ["show-ref", "--verify", "--quiet", `refs/heads/${branch}`]),
+    git(repo, ["show-ref", "--verify", "--quiet", head(branch)]),
     (result) => result.code === 0,
   );
 
@@ -111,19 +131,20 @@ const requireMain = (repo: string) =>
   );
 
 const unmergedCount = (repo: string, branch: string) =>
-  Effect.map(gitOk(repo, ["rev-list", "--count", `${MAIN_BRANCH}..${branch}`]), Number);
+  Effect.map(gitOk(repo, ["rev-list", "--count", `${head(MAIN_BRANCH)}..${head(branch)}`]), Number);
 
-/**
- * `link` → `target`, as a relative link so it survives moving the repo. A missing link is
- * created; one that exists and points elsewhere is left alone, with a note.
- */
+/** `link` → `target` as a relative link, so it survives moving the repo. */
+const linkTo = (link: string, target: string) =>
+  Effect.gen(function* () {
+    yield* fs("mkdir", posix.dirname(link), () => mkdir(posix.dirname(link), { recursive: true }));
+    yield* fs("symlink", link, () => symlink(posix.relative(posix.dirname(link), target), link));
+  });
+
+/** A missing link is created; one that exists and points elsewhere is left alone, with a note. */
 const ensureLink = (link: string, target: string) =>
   Effect.gen(function* () {
     if (!(yield* lexists(link))) {
-      yield* fs("mkdir", posix.dirname(link), () =>
-        mkdir(posix.dirname(link), { recursive: true }),
-      );
-      yield* fs("symlink", link, () => symlink(posix.relative(posix.dirname(link), target), link));
+      yield* linkTo(link, target);
       return `linked ${link} -> ${target}`;
     }
     const pointsHere = yield* Effect.promise(() =>
@@ -156,13 +177,17 @@ const trackedInMain = (repo: string, path: string) =>
     const segments = path.split("/");
     for (let end = 1; end <= segments.length; end++) {
       const prefix = segments.slice(0, end).join("/");
-      const type = yield* git(repo, ["cat-file", "-t", `${MAIN_BRANCH}:${prefix}`]);
+      const type = yield* git(repo, ["cat-file", "-t", `${head(MAIN_BRANCH)}:${prefix}`]);
       if (type.code !== 0) return false;
       if (end === segments.length || type.stdout.trim() !== "tree") return true;
     }
     return false;
   });
 
+/**
+ * Shared paths come from the main checkout's `shape.config.ts`: they name the main checkout's
+ * data, whichever checkout the command runs from.
+ */
 export const trackNew = (cwd: string, track: string, date: string) =>
   Effect.gen(function* () {
     const invalid = nameProblem(track);
@@ -204,28 +229,38 @@ export const trackNew = (cwd: string, track: string, date: string) =>
       if (!(yield* ignored(repo, at)))
         notes.push(`note: ${what} (\`${at}\`) is not gitignored; add it to .gitignore`);
 
-    yield* gitOk(repo, ["worktree", "add", "--quiet", "-b", branch, path, MAIN_BRANCH]);
+    yield* gitOk(repo, ["worktree", "add", "--quiet", "-b", branch, path, head(MAIN_BRANCH)]);
     const said = [`created ${path} on \`${branch}\` from \`${MAIN_BRANCH}\``];
-    said.push(...(yield* ensureHandoffLinks(common, repo, [path])));
-    for (const entry of linkable) {
-      const link = `${path}/${entry}`;
-      if (yield* lexists(link))
-        return yield* refuse(
-          `${[...said, ""].join("\n")}stopped: ${link} already exists in the new worktree, so shared path \`${entry}\` is not linked. A shared path must be gitignored, never tracked; undo with \`mshape track rm ${track}\``,
-        );
-      yield* fs("mkdir", posix.dirname(link), () =>
-        mkdir(posix.dirname(link), { recursive: true }),
-      );
-      yield* fs("symlink", link, () => symlink(`${repo}/${entry}`, link));
-      said.push(`linked ${link} -> ${repo}/${entry}`);
-    }
-
-    const handoff = handoffPath(common, track);
-    if (yield* lexists(handoff)) said.push(`kept the existing handoff ${handoff}`);
-    else {
-      yield* fs("write", handoff, () => Bun.write(handoff, stub.text));
-      said.push(`wrote the stub handoff ${handoff}`);
-    }
+    // From here the track exists: a failure must say what was done and how to undo it.
+    const finish = Effect.gen(function* () {
+      said.push(...(yield* ensureHandoffLinks(common, repo, [path])));
+      for (const entry of linkable) {
+        const link = `${path}/${entry}`;
+        if (yield* lexists(link))
+          return yield* refuse(
+            `${link} already exists in the new worktree, so shared path \`${entry}\` is not linked. A shared path must be gitignored, never tracked`,
+          );
+        yield* linkTo(link, `${repo}/${entry}`);
+        said.push(`linked ${link} -> ${repo}/${entry}`);
+      }
+      const handoff = handoffPath(common, track);
+      if (yield* lexists(handoff)) said.push(`kept the existing handoff ${handoff}`);
+      else {
+        yield* fs("write", handoff, () => Bun.write(handoff, stub.text));
+        said.push(`wrote the stub handoff ${handoff}`);
+      }
+    });
+    yield* finish.pipe(
+      Effect.catch((error) =>
+        refuse(
+          [
+            `track new ${track}: stopped: ${error.message}`,
+            ...said.map((line) => `done: ${line}`),
+            `undo with \`mshape track rm ${track}\`, fix the cause, then run \`mshape track new ${track}\` again`,
+          ].join("\n  "),
+        ),
+      ),
+    );
     return [...notes, ...said, `next: cd ${path}, then run /track`].join("\n");
   });
 
@@ -241,12 +276,12 @@ export const trackList = (cwd: string) =>
     }
     const branches = (yield* gitOk(repo, [
       "for-each-ref",
-      "--format=%(refname:short)",
+      // The name after `refs/heads/track/`; `:short` may say `heads/track/x` when a tag shares it.
+      "--format=%(refname:lstrip=3)",
       "refs/heads/track/",
     ]))
       .split("\n")
-      .filter((line) => line !== "")
-      .map((branch) => branch.slice("track/".length));
+      .filter((line) => line !== "");
     const store = handoffsStore(common);
     const handoffs = yield* Effect.promise(() =>
       readdir(store).then(
@@ -291,7 +326,10 @@ export const trackList = (cwd: string) =>
 export const trackCurrent = (cwd: string) =>
   Effect.gen(function* () {
     const { repo } = yield* locate(cwd);
-    const toplevel = yield* Effect.flatMap(gitOk(cwd, ["rev-parse", "--show-toplevel"]), real);
+    const toplevel = yield* Effect.flatMap(
+      gitOk(cwd, ["rev-parse", "--show-toplevel"]),
+      yield* canonical(repo),
+    );
     const found = currentTrack(repo, toplevel, yield* worktrees(repo));
     return "track" in found ? found.track : yield* refuse(found.reason);
   });
@@ -318,9 +356,7 @@ export const trackRm = (
         ? yield* git(path, ["status", "--porcelain", "--untracked-files=all"])
         : { stdout: "", stderr: "", code: 0 };
     const changes =
-      status.code === 0
-        ? status.stdout.split("\n").filter((line) => line.trim() !== "")
-        : [`(\`git status\` failed: ${status.stderr})`];
+      status.code === 0 ? status.stdout.split("\n").filter((line) => line.trim() !== "") : [];
     const hasBranch = yield* branchExists(repo, branch);
     const handoff = handoffPath(common, track);
     const plan = planRm({
@@ -329,11 +365,12 @@ export const trackRm = (
       worktree,
       pathExists,
       changes,
+      statusError: status.code === 0 ? undefined : status.stderr || `exit ${status.code}`,
       branchExists: hasBranch,
       unmerged: hasBranch ? yield* unmergedCount(repo, branch) : 0,
-      branchCheckedOutAt: registered
-        .filter((candidate) => candidate.branch === branch && candidate.path !== path)
-        .map((candidate) => candidate.path),
+      branchCheckedOutAt: registered.filter(
+        (candidate) => candidate.branch === branch && candidate.path !== path,
+      ),
       handoffPath: handoff,
       handoffExists: yield* lexists(handoff),
       force: options.force,
