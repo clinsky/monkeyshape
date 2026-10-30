@@ -52,7 +52,8 @@ const USAGE = `mshape ${pkg.version}
       commits not in main; --force discards them. Never touches main or other tracks.
   mshape review <n>
       Pull request <n>'s head from origin in a detached worktree .agents/worktrees/<repo>.pr-<n>,
-      tracks.sharedPaths linked in. Again later: move it to the new head, printing the old one.
+      tracks.sharedPaths linked in. Again later: put it exactly at the new head, printing the
+      old one; edits to tracked files there are listed, then discarded.
   mshape review rm <n>
       Remove that worktree, listing what it discards, and its fetched ref. Never the shared data.
 
@@ -152,7 +153,12 @@ const track = (root: string, args: ReadonlyArray<string>) =>
 const review = (root: string, args: ReadonlyArray<string>) =>
   Effect.gen(function* () {
     if (args.length === 1 && args[0] !== "rm")
-      return { output: yield* reviewNew(root, args[0] ?? ""), code: 0 };
+      return {
+        output: yield* reviewNew(root, args[0] ?? "", (line) =>
+          Effect.sync(() => console.error(line)),
+        ),
+        code: 0,
+      };
     if (args.length === 2 && args[0] === "rm")
       return {
         output: yield* reviewRm(root, args[1] ?? "", (line) =>

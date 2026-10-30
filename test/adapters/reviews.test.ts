@@ -110,13 +110,50 @@ describe("review", () => {
   test("again after a push: moved to the new head, printing the old one", async () => {
     const first = await publish(7, "src/a.ts");
     mshape(repo, "review", "7");
-    expect(mshape(repo, "review", "7").stdout).toContain("is already at the head of #7");
+    expect(mshape(repo, "review", "7").stdout).toContain("is at the head of #7");
     const second = await publish(7, "src/a.ts", "fixed\n");
     const moved = mshape(wt(7), "review", "7");
     expect(moved.code).toBe(0);
     expect(moved.stdout).toContain(`moved ${wt(7)} to the head of #7: ${second}`);
     expect(moved.stdout).toContain(`previous head: ${first}`);
     expect(sh(wt(7), "rev-parse", "HEAD")).toBe(second);
+  });
+
+  test("a move discards edits to tracked files, saying so, and keeps untracked probes", async () => {
+    await publish(7, "src/a.ts", "export const a = 1;\n");
+    mshape(repo, "review", "7");
+    await writeFile(join(wt(7), "shape.config.ts"), "// mutated by a probe\n");
+    await writeFile(join(wt(7), "probe.ts"), "scratch\n");
+    const same = mshape(repo, "review", "7");
+    expect(same.stderr).toContain("discarding in");
+    expect(same.stderr).toContain("shape.config.ts");
+    expect(sh(wt(7), "status", "--porcelain", "--untracked-files=no")).toBe("");
+
+    await writeFile(join(wt(7), "shape.config.ts"), "// mutated again\n");
+    await writeFile(join(wt(7), "src", "a.ts"), "export const a = 99;\n");
+    const head = await publish(7, "src/a.ts", "export const a = 2;\n");
+    const moved = mshape(repo, "review", "7");
+    expect(moved.code).toBe(0);
+    expect(moved.stderr).toContain("shape.config.ts");
+    expect(moved.stderr).toContain("src/a.ts");
+    expect(sh(wt(7), "rev-parse", "HEAD")).toBe(head);
+    expect(sh(wt(7), "status", "--porcelain", "--untracked-files=no")).toBe("");
+    expect(await readFile(join(wt(7), "src", "a.ts"), "utf8")).toBe("export const a = 2;\n");
+    expect(await readFile(join(wt(7), "probe.ts"), "utf8")).toBe("scratch\n");
+  });
+
+  test("a move relinks shared paths as create does: a note when tracked, linked when not", async () => {
+    await publish(7, "src/a.ts");
+    mshape(repo, "review", "7");
+    expect((await lstat(join(wt(7), "data"))).isSymbolicLink()).toBe(true);
+    await publish(7, "data/big.bin", "tracked\n");
+    const tracked = mshape(repo, "review", "7");
+    expect(tracked.stdout).toContain("shared path `data` is tracked at the head of #7; not linked");
+    await publish(7, "src/a.ts", "again\n");
+    const untracked = mshape(repo, "review", "7");
+    expect(untracked.stdout).toContain(`linked ${wt(7)}/data`);
+    expect((await lstat(join(wt(7), "data"))).isSymbolicLink()).toBe(true);
+    expect(await readFile(join(repo, "data", "big.bin"), "utf8")).toBe("dataset\n");
   });
 
   test("rm lists what it discards and removes worktree and ref, never the shared data", async () => {

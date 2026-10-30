@@ -38,10 +38,51 @@ const fetchHead = (repo: string, pr: string) =>
   });
 
 /**
- * Creates the review's worktree at the pull request's head, or moves an existing one to the
- * current head, printing the previous one: a re-review checks a regression test against both.
+ * `tracks.sharedPaths` linked into the review's worktree, after a create or a move alike: a path
+ * the head tracks is the PR's own (git put it there) and only noted; a missing link is made.
  */
-export const reviewNew = (cwd: string, pr: string) =>
+const linkShared = (repo: string, path: string, pr: string, shared: ReadonlyArray<string>) =>
+  Effect.gen(function* () {
+    const said: Array<string> = [];
+    for (const entry of shared) {
+      const target = `${repo}/${entry}`;
+      if ((yield* git(path, ["cat-file", "-e", `HEAD:${entry}`])).code === 0)
+        said.push(
+          `note: shared path \`${entry}\` is tracked at the head of #${pr}; not linked. A shared path must be gitignored, never tracked`,
+        );
+      else if (yield* lexists(`${path}/${entry}`)) continue;
+      else if (!(yield* lexists(target)))
+        said.push(`note: shared path \`${entry}\` is missing in ${repo}; not linked`);
+      else {
+        yield* linkTo(repo, `${path}/${entry}`, target);
+        said.push(`linked ${path}/${entry} -> ${target}`);
+      }
+    }
+    return said;
+  });
+
+/**
+ * Puts an existing review worktree exactly at `head`. It is scratch, so edits to tracked files
+ * are discarded, after `say` lists them; untracked probes stay, unless `head` tracks the same
+ * path. Never git's "commit or stash" advice: the stash is shared by every worktree.
+ */
+const resetTo = (path: string, head: string, say: (line: string) => Effect.Effect<void>) =>
+  Effect.gen(function* () {
+    const status = yield* git(path, ["status", "--porcelain", "--untracked-files=all"]);
+    for (const line of status.stdout.split("\n").filter((line) => line.trim() !== "")) {
+      const file = line.slice(3);
+      if (!line.startsWith("??")) yield* say(`discarding in ${path}: ${line.trim()}`);
+      else if ((yield* git(path, ["cat-file", "-e", `${head}:${file}`])).code === 0)
+        yield* say(`overwriting in ${path}: ${file}, which the head tracks`);
+    }
+    yield* gitOk(path, ["checkout", "--quiet", "--force", "--detach", head]);
+  });
+
+/**
+ * Creates the review's worktree at the pull request's head, or puts an existing one there,
+ * printing the previous head: a re-review checks a regression test against both.
+ */
+export const reviewNew = (cwd: string, pr: string, say: (line: string) => Effect.Effect<void>) =>
   Effect.gen(function* () {
     yield* numberProblem(pr);
     const { repo } = yield* locate(cwd);
@@ -63,11 +104,13 @@ export const reviewNew = (cwd: string, pr: string) =>
     const head = yield* fetchHead(repo, pr);
     if (registered) {
       const before = yield* gitOk(path, ["rev-parse", "HEAD"]);
-      if (before === head) return `${path} is already at the head of #${pr}: ${head}`;
-      yield* gitOk(path, ["checkout", "--quiet", "--detach", head]);
+      yield* resetTo(path, head, say);
+      const linked = yield* linkShared(repo, path, pr, shared);
       return [
-        `moved ${path} to the head of #${pr}: ${head}`,
-        `previous head: ${before}`,
+        ...(before === head
+          ? [`${path} is at the head of #${pr}: ${head}`]
+          : [`moved ${path} to the head of #${pr}: ${head}`, `previous head: ${before}`]),
+        ...linked,
         `next: cd ${path}`,
       ].join("\n");
     }
@@ -78,34 +121,19 @@ export const reviewNew = (cwd: string, pr: string) =>
         `note: the worktrees directory (\`${posix.relative(repo, path)}\`) is not gitignored; add it to .gitignore`,
       );
     yield* gitOk(repo, ["worktree", "add", "--quiet", "--detach", path, head]);
-    const said = [`created ${path} at the head of #${pr}: ${head}`];
-    const link = Effect.gen(function* () {
-      for (const entry of shared) {
-        const target = `${repo}/${entry}`;
-        if (!(yield* lexists(target)))
-          notes.push(`note: shared path \`${entry}\` is missing in ${repo}; not linked`);
-        else if (yield* lexists(`${path}/${entry}`))
-          notes.push(
-            `note: shared path \`${entry}\` is tracked at the head of #${pr}; not linked. A shared path must be gitignored, never tracked`,
-          );
-        else {
-          yield* linkTo(repo, `${path}/${entry}`, target);
-          said.push(`linked ${path}/${entry} -> ${target}`);
-        }
-      }
-    });
-    yield* link.pipe(
+    const created = `created ${path} at the head of #${pr}: ${head}`;
+    const linked = yield* linkShared(repo, path, pr, shared).pipe(
       Effect.catch((error) =>
         refuse(
           [
             `review ${pr}: stopped: ${error.message}`,
-            ...said.map((line) => `done: ${line}`),
+            `done: ${created}`,
             `undo with \`mshape review rm ${pr}\``,
           ].join("\n  "),
         ),
       ),
     );
-    return [...notes, ...said, `next: cd ${path}`].join("\n");
+    return [...notes, created, ...linked, `next: cd ${path}`].join("\n");
   });
 
 /**

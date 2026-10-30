@@ -104,13 +104,16 @@ worktree to the new head; it prints the previous one too.
    both heads. It must fail on the old one and pass on the new:
 
    ```bash
-   git switch --detach <old head> && git checkout <new head> -- <test file>
+   git switch --detach <old head> && git checkout <new head> -- <test file> <files it needs>
    bun test <test file>                                   # must fail
    git reset -q --hard && git switch --detach <new head>
    bun test <test file>                                   # must pass
    ```
 
-   A test that passes on the old head doesn't test the bug: that is a finding. For a prose
+   The failure on the old head must be the test's own assertion, saying what the finding
+   said: a load or import error means it never reached the bug, so check out the helpers
+   and fixtures it imports too, and rerun `bun install` if the dependencies changed. A test
+   that passes on the old head doesn't test the bug: that is a finding. For a prose
    blocker, read the fix. Rerun the real-data runs the findings rested on.
 2. Look for what the fix opened: a new unchecked field, the mirror case of a new check.
 3. **Pushback is an argument, not a refusal.** If it holds, say so and drop the point; if it
