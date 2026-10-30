@@ -44,7 +44,7 @@ normative may cite.
 | Mid term | chat: `/milestone` + priorities | Retrospective on the last milestone; agree a goal with acceptance on real data; write plan/MILESTONE.md; groom beads and the roadmap; garden; create the tracks with `mshape track new`; remove finished ones. |
 | Short term | chat in a track's worktree: `/track` | Read the handoff and the track's queue; work; open PRs. |
 | Hand off | you, near 75% of a chat's context: `/handoff` | The handoff is rewritten so a fresh chat can continue; open one in the same worktree and run `/track`. |
-| Review | chat: `/review-pr <number>` | Review against real data in a track of its own; findings go on the PR; you merge. |
+| Review | chat: `/review-pr <number>` | Review against real data in a scratch worktree (`mshape review <n>`); findings go on the PR; you merge. |
 
 A first repo goes: `mshape init`, then `/roadmap`, then `/milestone`, then one chat per track
 running `/track`. The first milestone of a new repo is "a first result on a real target".
@@ -76,13 +76,16 @@ the other handoff.
 
 ## Pull requests and review
 
-- Agents commit, push and open PRs; the human merges. One theme per PR, and batch the work:
-  many small PRs cost more review than a few large ones.
+- Agents commit, push and open PRs; the human merges. A track has one PR open at a time, from
+  its branch, and a PR composes several beads: one theme, about 1k changed lines at least and
+  2.5k at most. Many small PRs cost more review than a few large ones.
 - The PR body says what changed and why, the evidence on real data, the gate output, the bug
   class a new check closes, what is not done, and the beads closed or filed.
 - `bun run check` is the gate, the same locally and in CI. It is green before every PR.
-- `/review-pr` runs in its own chat and posts its findings on the PR; the skill says what
-  blocks. After a re-review, what is still open is the human's call.
+- `/review-pr` runs in its own chat, in a detached worktree at the PR's head that
+  `mshape review <n>` makes and `mshape review rm <n>` removes. A review is not a track: it
+  has no handoff, and everything about it lives on the PR. The skill says what blocks; after
+  a re-review, what is still open is the human's call.
 
 ## Beads
 

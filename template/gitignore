@@ -1,7 +1,7 @@
 node_modules/
 .private/
 
-# Tracks: worktrees, and links to the handoffs store under .git (no trailing slash on links)
+# Tracks and reviews: worktrees, and links to the handoffs store under .git (no trailing slash on links)
 .agents/worktrees/
 .agents/handoffs
 .handoffs

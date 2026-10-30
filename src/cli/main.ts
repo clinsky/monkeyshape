@@ -7,6 +7,7 @@ import pkg from "../../package.json" with { type: "json" };
 import { BASELINE_FILE, readBaseline, writeBaseline } from "../adapters/baseline.ts";
 import { loadConfig } from "../adapters/config.ts";
 import { initRepo } from "../adapters/init.ts";
+import { reviewNew, reviewRm } from "../adapters/reviews.ts";
 import { installSkills } from "../adapters/skills.ts";
 import { trackCurrent, trackList, trackNew, trackRm } from "../adapters/tracks.ts";
 import { loadSnapshot } from "../adapters/workspace.ts";
@@ -49,6 +50,12 @@ const USAGE = `mshape ${pkg.version}
   mshape track rm <name> [--force] [--keep-handoff]
       Remove a finished track: worktree, branch, handoff. Refuses on uncommitted changes or
       commits not in main; --force discards them. Never touches main or other tracks.
+  mshape review <n>
+      Pull request <n>'s head from origin in a detached worktree .agents/worktrees/<repo>.pr-<n>,
+      tracks.sharedPaths linked in. Again later: put it exactly at the new head, printing the
+      old one; edits to tracked files there are listed, then discarded.
+  mshape review rm <n>
+      Remove that worktree, listing what it discards, and its fetched ref. Never the shared data.
 
   --config <path>   For check, baseline and garden: use this config instead of ./shape.config.ts
                     (trying a repo before adopting).`;
@@ -143,6 +150,25 @@ const track = (root: string, args: ReadonlyArray<string>) =>
     return usage;
   });
 
+const review = (root: string, args: ReadonlyArray<string>) =>
+  Effect.gen(function* () {
+    if (args.length === 1 && args[0] !== "rm")
+      return {
+        output: yield* reviewNew(root, args[0] ?? "", (line) =>
+          Effect.sync(() => console.error(line)),
+        ),
+        code: 0,
+      };
+    if (args.length === 2 && args[0] === "rm")
+      return {
+        output: yield* reviewRm(root, args[1] ?? "", (line) =>
+          Effect.sync(() => console.error(line)),
+        ),
+        code: 0,
+      };
+    return { output: USAGE, code: 2 };
+  });
+
 const program = (root: string, args: ReadonlyArray<string>) =>
   Effect.gen(function* () {
     const [command, ...rest] = args;
@@ -160,6 +186,7 @@ const program = (root: string, args: ReadonlyArray<string>) =>
       };
     }
     if (command === "track") return yield* track(root, rest);
+    if (command === "review") return yield* review(root, rest);
     if (command === "rules")
       return {
         output: RULES.map((r) => `${r.id.padEnd(22)}${r.layer.padEnd(9)}${r.bugClass}`).join("\n"),

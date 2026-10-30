@@ -12,6 +12,7 @@
  *   <common>/monkeyshape/handoffs/<track>.md   the handoffs themselves, inside git's directory
  *   <repo>/.agents/handoffs                    gitignored symlink to that store
  *   <checkout>/.handoffs                       gitignored symlink to that store, in every checkout
+ *   <repo>/.agents/worktrees/<name>.pr-<n>     gitignored: a pull request under review, detached
  *
  * The store lives under `.git` because handoffs are live state: `git clean -fdx` deletes
  * ignored files, which would include a handoffs directory in the working tree, but it never
@@ -81,3 +82,16 @@ export const trackOf = (repo: string, worktree: string): string | undefined => {
   const track = path.slice(prefix.length);
   return TRACK_NAME.test(track) ? track : undefined;
 };
+
+/** A pull request's number, as `mshape review` takes it. */
+export const PR_NUMBER = /^[1-9][0-9]*$/;
+
+/**
+ * A review's worktree, beside the tracks. `.pr-<n>`, not `@`: `trackOf` must never read a review
+ * as a track, since a review has no branch, handoff or label.
+ */
+export const reviewPath = (repo: string, pr: string): string =>
+  `${worktreesDir(repo)}/${repoName(repo)}.pr-${pr}`;
+
+/** Where the pull request's head is fetched: a ref of its own, so parallel reviews never race. */
+export const reviewRef = (pr: string): string => `refs/monkeyshape/reviews/pr-${pr}`;

@@ -49,11 +49,13 @@ charter and the beads; start once they agree.
 
 ## 4. Work
 
-- Claim a bead (`bd update <id> --claim`) before starting it. Work it, gate green, and open
-  PRs as AGENTS.md says. Close beads when their PR merges.
+- Claim a bead (`bd update <id> --claim`) before starting it, and commit as you go.
+- **A PR composes several beads**, sized as the working-loop conventions say (docs/workflow.md
+  in the monkeyshape package): one theme, gate green, its body as AGENTS.md says. Close the
+  beads when it merges.
 - **One open PR at a time**, from `track/<name>`: the branch is the PR's head, so a commit
   pushed while it is in review joins it. While it waits, answer its review and prepare the
-  next bead without committing. If waiting would stall the track, tell the human.
+  next beads without committing. If waiting would stall the track, tell the human.
 - **Diverging from the milestone plan:** say so in the handoff's State. If it changes
   another track's work or the milestone's goal, stop and tell the human.
 - **Talking to another track:** add to its handoff's Messages, saying who it is from and the
