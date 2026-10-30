@@ -89,6 +89,26 @@ describe("syncSkills", () => {
     expect(formatSync(sync)).toBe(".agents/skills: removed (no longer shipped) review-pr");
   });
 
+  test("a manifest name that isn't one skill directory makes the manifest unreadable", () => {
+    for (const name of ["", ".", "..", "mine/..", "../../keep", "a/b", "Upper"])
+      expect(parseManifest(new TextEncoder().encode(manifest(name)))).toBeUndefined();
+    expect(parseManifest(new TextEncoder().encode(manifest("review-pr", "a2")))).toEqual([
+      "review-pr",
+      "a2",
+    ]);
+  });
+
+  test("retires only installed skill directories, so a stale name deletes nothing", () => {
+    const sync = syncSkills(
+      files({ "roadmap/SKILL.md": "r" }),
+      files({ "roadmap/SKILL.md": "r", "monkeyshape.json": manifest("gone", "roadmap") }),
+    );
+    expect(sync.retired).toEqual([]);
+    expect(parseManifest(sync.write.get("monkeyshape.json") ?? new Uint8Array())).toEqual([
+      "roadmap",
+    ]);
+  });
+
   test("leaves unchanged skills and the repo's own skills alone", () => {
     const sync = syncSkills(
       files({ "roadmap/SKILL.md": "r" }),
@@ -230,9 +250,13 @@ describe("checkSkills", () => {
     ]);
   });
 
-  test("an unreadable manifest is reported", () => {
-    const found = check({ installed: { ...SHIPPED, "monkeyshape.json": "{" } });
-    expect(found[0]).toStartWith("skills/manifest .agents/skills/monkeyshape.json");
+  test("an unreadable manifest is reported, and asks for no sync", () => {
+    for (const text of ["{", manifest("../../keep"), manifest(".."), manifest("")]) {
+      const found = check({ installed: { "mine/SKILL.md": "m", "monkeyshape.json": text } });
+      expect(found[0]).toStartWith("skills/manifest .agents/skills/monkeyshape.json");
+      expect(found[0]).toContain("sync refuses to run");
+      expect(found.some((line) => line.includes("../"))).toBe(false);
+    }
   });
 
   test("a stale shared skill says a sync is due", () => {

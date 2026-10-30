@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { mkdir, mkdtemp, readlink, realpath, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import { Effect } from "effect";
+import { Effect, Exit } from "effect";
 import { installSkills } from "../../src/adapters/skills.ts";
 
 let dir = "";
@@ -109,6 +109,26 @@ describe("installSkills", () => {
       bytes,
     );
     expect((await install()).sync.unchanged).toEqual(["roadmap", "track"]);
+  });
+
+  test("a manifest naming anything but a skill directory stops sync before it touches anything", async () => {
+    await put(join(repo(), ".agents", "skills", "mine", "SKILL.md"), "mine\n");
+    await put(join(repo(), "keep", "data.txt"), "data\n");
+    for (const name of ["", "..", "mine/..", "../../keep"]) {
+      await put(
+        join(repo(), ".agents", "skills", "monkeyshape.json"),
+        JSON.stringify({ shared: [name] }),
+      );
+      const exit = await Effect.runPromiseExit(installSkills(shipped(), repo()));
+      expect(Exit.isFailure(exit)).toBe(true);
+      expect(await Bun.file(join(repo(), ".agents", "skills", "mine", "SKILL.md")).exists()).toBe(
+        true,
+      );
+      expect(await Bun.file(join(repo(), "keep", "data.txt")).exists()).toBe(true);
+      expect(
+        await Bun.file(join(repo(), ".agents", "skills", "roadmap", "SKILL.md")).exists(),
+      ).toBe(false);
+    }
   });
 
   test("a package without skills installs none and still links", async () => {

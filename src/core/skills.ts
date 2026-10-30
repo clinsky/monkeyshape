@@ -42,13 +42,23 @@ const equalBytes = (a: Uint8Array | undefined, b: Uint8Array): boolean =>
 const same = (a: SkillFiles, b: SkillFiles): boolean =>
   a.size === b.size && [...b].every(([path, bytes]) => equalBytes(a.get(path), bytes));
 
-/** The shared skill names in an installed manifest; undefined when it isn't sync's format. */
+/**
+ * What a shared skill's name may be: one directory, lowercase words joined by hyphens. Sync
+ * removes retired skills by name, so a manifest name like `..` or `../x` must never be read.
+ */
+export const SKILL_NAME = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
+
+/**
+ * The shared skill names in an installed manifest; undefined when it isn't sync's format,
+ * including any name that isn't a single skill directory.
+ */
 export const parseManifest = (bytes: Uint8Array): ReadonlyArray<string> | undefined => {
   try {
     const value: unknown = JSON.parse(new TextDecoder().decode(bytes));
     const shared =
       typeof value === "object" && value !== null && "shared" in value ? value.shared : undefined;
-    return Array.isArray(shared) && shared.every((name) => typeof name === "string")
+    return Array.isArray(shared) &&
+      shared.every((name) => typeof name === "string" && SKILL_NAME.test(name))
       ? shared
       : undefined;
   } catch {
@@ -94,7 +104,10 @@ export const syncSkills = (shipped: SkillFiles, installed: SkillFiles): SkillSyn
       for (const path of current.keys()) if (!files.has(path)) remove.push(path);
     }
   }
-  const retired = shared.filter((skill) => !shippedBySkill.has(skill)).sort();
+  // Only an installed skill directory can be retired: a stale name never becomes a delete.
+  const retired = shared
+    .filter((skill) => !shippedBySkill.has(skill) && installedBySkill.has(skill))
+    .sort();
   const installing = new Set([...added, ...updated]);
   const write = new Map([...shipped].filter(([path]) => installing.has(skillOf(path))));
   const next = [...added, ...updated, ...unchanged].sort();
@@ -247,7 +260,7 @@ export const checkSkills = (
       violation(
         "manifest",
         `${SKILLS_DIR}/${SKILLS_MANIFEST}`,
-        `is not the list \`mshape skills sync\` writes, so shared skills can't be told from this repo's own. Restore it with \`git checkout -- ${SKILLS_DIR}/${SKILLS_MANIFEST}\`.`,
+        `is not the list \`mshape skills sync\` writes (a JSON \`shared\` array of skill directory names), so shared skills can't be told from this repo's own, and sync refuses to run. Restore it with \`git checkout -- ${SKILLS_DIR}/${SKILLS_MANIFEST}\`.`,
       ),
     );
 
