@@ -39,10 +39,12 @@ const isEmptyOrMissing = (dir: string) =>
 
 /**
  * The handoffs store under git's common directory, and the two links to it. Relative links,
- * so the repo still works after it is moved.
+ * so the repo still works after it is moved. A failure is a note with the commands to finish:
+ * by now the repo exists, and init refuses to run over it again.
  */
-const stateDirectory = (target: string) =>
+const stateDirectory = (target: string, name: string) =>
   Effect.gen(function* () {
+    const byHand = `In ${name}/ run \`mkdir -p .agents .git/monkeyshape/handoffs && ln -s ../.git/monkeyshape/handoffs .agents/handoffs && ln -s .git/monkeyshape/handoffs ${HANDOFFS_LINK}\``;
     const common = yield* run(target, [
       "git",
       "rev-parse",
@@ -50,10 +52,10 @@ const stateDirectory = (target: string) =>
       "--git-common-dir",
     ]);
     if (common.code !== 0)
-      return yield* Effect.fail(fail(target, `cannot find git's directory: ${common.output}`));
+      return `the handoffs store is not set up: git did not name its directory. ${byHand}:\n  ${tail(common.output)}`;
     const store = handoffsStore(common.output);
-    yield* Effect.tryPromise({
-      try: async () => {
+    return yield* Effect.promise(async () => {
+      try {
         await mkdir(store, { recursive: true });
         // git answers with real paths; a link computed from a symlinked path would miss.
         const repo = await realpath(target);
@@ -61,12 +63,19 @@ const stateDirectory = (target: string) =>
           await mkdir(dirname(link), { recursive: true });
           await symlink(relative(dirname(link), store), link);
         }
-      },
-      catch: (cause) => fail(store, `cannot create the handoffs store: ${String(cause)}`),
+        return undefined;
+      } catch (cause) {
+        return `the handoffs store is not fully set up (${String(cause)}). ${byHand}, skipping what exists.`;
+      }
     });
   });
 
-/** `bd init` without its AGENTS.md block, and prime capped at the budgets `mshape check` holds. */
+/**
+ * `bd init` without its AGENTS.md block, and prime capped at the budgets `mshape check` holds.
+ * prime caps characters and the budget counts UTF-8 bytes, so the character cap is only a
+ * backstop: while the check passes, memories are within the byte budget, hence also within
+ * the same number of characters, and prime never truncates them.
+ */
 const beads = (target: string, name: string) =>
   Effect.gen(function* () {
     const { memories, memoryBytes } = resolveConfig({}).budgets;
@@ -91,7 +100,15 @@ export const initRepo = (target: string, name: string, packageRoot: string, tool
   Effect.gen(function* () {
     if (!(yield* isEmptyOrMissing(target)))
       return yield* Effect.fail(fail(target, "exists and is not empty; init only creates repos"));
-    const template = yield* readTree(`${packageRoot}/template`);
+    /** Past this point the directory exists, and init won't run over it again. */
+    const partial = (reason: string) =>
+      fail(target, `${reason}. Delete ${target} and run mshape init again`);
+    const decoder = new TextDecoder();
+    const template = new Map(
+      [...(yield* readTree(`${packageRoot}/template`))].map(
+        ([path, bytes]) => [path, decoder.decode(bytes)] as const,
+      ),
+    );
     if (template.size === 0)
       return yield* Effect.fail(fail(packageRoot, "has no template/; reinstall monkeyshape"));
     const files = scaffold(name, template, toolchain);
@@ -102,19 +119,22 @@ export const initRepo = (target: string, name: string, packageRoot: string, tool
           await Bun.write(`${target}/${path}`, text);
         }
       },
-      catch: (cause) => fail(target, `cannot write the template: ${String(cause)}`),
+      catch: (cause) => partial(`cannot write the template: ${String(cause)}`),
     });
     const done = [`wrote ${files.size} files`];
     const notes: Array<string> = [];
-    const skills = yield* installSkills(`${packageRoot}/skills`, target);
+    const skills = yield* installSkills(`${packageRoot}/skills`, target).pipe(
+      Effect.mapError((error) => partial(`cannot install the skills: ${error.reason}`)),
+    );
     done.push(`${skills.sync.added.length} shared skills`);
 
     const git = yield* run(target, ["git", "init", "--quiet", "--initial-branch=main"]);
-    if (git.code !== 0) return yield* Effect.fail(fail(target, `git init failed: ${git.output}`));
+    if (git.code !== 0) return yield* Effect.fail(partial(`git init failed: ${git.output}`));
     done.push("git init (branch main)");
 
-    yield* stateDirectory(target);
-    done.push("handoffs store");
+    const stateNote = yield* stateDirectory(target, name);
+    if (stateNote === undefined) done.push("handoffs store");
+    else notes.push(stateNote);
 
     const beadsNote = yield* beads(target, name);
     if (beadsNote === undefined) done.push("bd init");

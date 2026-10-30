@@ -51,6 +51,16 @@ const run = async (
   return { code: await child.exited, output: `${stdout}${stderr}` };
 };
 
+/**
+ * Notes init printed that this machine doesn't explain. Without bd (as in CI) the one expected
+ * note is bd's; anything else, a failed install or format, fails everywhere.
+ */
+const unexpectedNotes = (output: string): ReadonlyArray<string> =>
+  output
+    .split("\n")
+    .filter((line) => line.startsWith("note:"))
+    .filter((line) => HAS_BD || !line.startsWith("note: bd is not on PATH"));
+
 const fromSource = (args: ReadonlyArray<string>, env: Record<string, string> = {}) =>
   run(work, [process.execPath, join(ROOT, "src", "cli", "main.ts"), "init", ...args], env);
 
@@ -76,7 +86,7 @@ describe("mshape init", () => {
     expect(created.output).toContain("Created demo/");
     expect(created.output).toContain("bun install");
     expect(created.output).toContain("first commit");
-    if (HAS_BD) expect(created.output).not.toContain("note:");
+    expect(unexpectedNotes(created.output)).toEqual([]);
     expect(created.output).toContain("run /roadmap");
     expect(created.output).toContain("docs/workflow.md");
     expect(created.code).toBe(0);
@@ -176,6 +186,7 @@ describe("mshape init", () => {
     const bin = join(work, "demo", "node_modules", ".bin", "mshape");
     const again = await run(work, [process.execPath, bin, "init", "--from", tarball, "again"]);
     expect(again.code).toBe(0);
+    expect(unexpectedNotes(again.output)).toEqual([]);
     expect(await tracked(join(work, "again"))).toEqual(await tracked(join(work, "demo")));
   }, 60_000);
 

@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { mkdir, mkdtemp, readlink, realpath, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readlink, realpath, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { Effect } from "effect";
@@ -9,7 +9,7 @@ let dir = "";
 const shipped = () => join(dir, "package", "skills");
 const repo = () => join(dir, "repo");
 
-const put = async (path: string, text: string) => {
+const put = async (path: string, text: string | Uint8Array) => {
   await mkdir(dirname(path), { recursive: true });
   await writeFile(path, text);
 };
@@ -64,6 +64,51 @@ describe("installSkills", () => {
     expect(await Bun.file(join(repo(), ".claude", "skills", "mine", "SKILL.md")).text()).toBe(
       "mine\n",
     );
+  });
+
+  test("a symlinked skill is read through its link", async () => {
+    await put(join(dir, "vendor", "linked", "SKILL.md"), "linked\n");
+    await symlink(join(dir, "vendor", "linked"), join(shipped(), "linked"));
+    const result = await install();
+    expect(result.sync.added).toEqual(["linked", "roadmap", "track"]);
+    expect(await Bun.file(join(repo(), ".agents", "skills", "linked", "SKILL.md")).text()).toBe(
+      "linked\n",
+    );
+  });
+
+  test("a skill of the repo's own with a shipped name is left exactly as it was", async () => {
+    await put(join(repo(), ".agents", "skills", "track", "SKILL.md"), "ours\n");
+    await put(join(repo(), ".agents", "skills", "track", "helper.md"), "ours\n");
+    const result = await install();
+    expect(result.sync.collisions).toEqual(["track"]);
+    expect(await Bun.file(join(repo(), ".agents", "skills", "track", "SKILL.md")).text()).toBe(
+      "ours\n",
+    );
+    expect(await Bun.file(join(repo(), ".agents", "skills", "track", "helper.md")).exists()).toBe(
+      true,
+    );
+  });
+
+  test("a shared skill the package drops is removed; the repo's own stay", async () => {
+    await install();
+    await put(join(repo(), ".agents", "skills", "deploy", "SKILL.md"), "ours\n");
+    await rm(join(shipped(), "track"), { recursive: true });
+    const result = await install();
+    expect(result.sync.retired).toEqual(["track"]);
+    expect(await Bun.file(join(repo(), ".agents", "skills", "track")).exists()).toBe(false);
+    expect(await Bun.file(join(repo(), ".agents", "skills", "deploy", "SKILL.md")).exists()).toBe(
+      true,
+    );
+  });
+
+  test("copies binary files byte for byte", async () => {
+    const bytes = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0xff, 0x00, 0xfe]);
+    await put(join(shipped(), "track", "icon.png"), bytes);
+    await install();
+    expect(await Bun.file(join(repo(), ".agents", "skills", "track", "icon.png")).bytes()).toEqual(
+      bytes,
+    );
+    expect((await install()).sync.unchanged).toEqual(["roadmap", "track"]);
   });
 
   test("a package without skills installs none and still links", async () => {

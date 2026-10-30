@@ -11,12 +11,13 @@ import { installSkills } from "../adapters/skills.ts";
 import { loadSnapshot } from "../adapters/workspace.ts";
 import { CHECKS, notices, prerequisites, runChecks, unevaluated } from "../core/check.ts";
 import { garden } from "../core/garden.ts";
+import { CLAUDE_SKILLS_LINK } from "../core/layout.ts";
 import type { CheckName } from "../core/model.ts";
 import { applyBaseline, count, tighten } from "../core/ratchet.ts";
 import { formatCheck, formatGarden, formatViolation } from "../core/report.ts";
 import { RULES } from "../core/rules/registry.ts";
 import { nextStep, REPO_NAME } from "../core/scaffold.ts";
-import { CLAUDE_SKILLS_LINK, formatSync } from "../core/skills.ts";
+import { formatCollisions, formatSync } from "../core/skills.ts";
 
 const USAGE = `mshape ${pkg.version}
 
@@ -103,8 +104,12 @@ const program = (root: string, args: ReadonlyArray<string>) =>
     if (command === "skills" && rest[0] === "sync") {
       const { sync, linked } = yield* installSkills(`${PACKAGE_ROOT}/skills`, root);
       return {
-        output: [formatSync(sync), ...(linked ? [`${CLAUDE_SKILLS_LINK}: linked`] : [])].join("\n"),
-        code: 0,
+        output: [
+          formatSync(sync),
+          ...(linked ? [`${CLAUDE_SKILLS_LINK}: linked`] : []),
+          ...formatCollisions(sync),
+        ].join("\n"),
+        code: sync.collisions.length > 0 ? 1 : 0,
       };
     }
     if (command === "rules")

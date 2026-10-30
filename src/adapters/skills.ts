@@ -2,14 +2,9 @@
 import { lstat, mkdir, readlink, rm, symlink } from "node:fs/promises";
 import { dirname } from "node:path";
 import { Effect } from "effect";
+import { CLAUDE_SKILLS_LINK, CLAUDE_SKILLS_TARGET, SKILLS_DIR } from "../core/layout.ts";
 import type { SkillFiles, SkillsLink, SkillsSnapshot } from "../core/model.ts";
-import {
-  CLAUDE_SKILLS_LINK,
-  CLAUDE_SKILLS_TARGET,
-  SKILLS_DIR,
-  type SkillSync,
-  syncSkills,
-} from "../core/skills.ts";
+import { type SkillSync, syncSkills } from "../core/skills.ts";
 import { WorkspaceError } from "../schemas/errors.ts";
 
 /** Whether anything is at `path`, a dangling link included. */
@@ -19,14 +14,17 @@ const present = (path: string): Promise<boolean> =>
     () => false,
   );
 
-/** Every file under `dir`, by relative path; a missing directory has none. */
+/**
+ * Every file under `dir` as bytes, by relative path; a missing directory has none. Symlinks
+ * are followed, so a skill linked in from elsewhere is read like any other.
+ */
 export const readTree = (dir: string) =>
   Effect.tryPromise({
     try: async () => {
-      const files = new Map<string, string>();
-      if (!(await present(dir))) return files;
-      for await (const path of new Bun.Glob("**").scan({ cwd: dir, dot: true }))
-        files.set(path, await Bun.file(`${dir}/${path}`).text());
+      const files = new Map<string, Uint8Array>();
+      if (!(await present(dir))) return files as SkillFiles;
+      const glob = new Bun.Glob("**").scan({ cwd: dir, dot: true, followSymlinks: true });
+      for await (const path of glob) files.set(path, await Bun.file(`${dir}/${path}`).bytes());
       return files as SkillFiles;
     },
     catch: (cause) => new WorkspaceError({ operation: "read", path: dir, reason: String(cause) }),
@@ -52,9 +50,11 @@ export const installSkills = (shippedDir: string, repo: string) =>
       try: async () => {
         await mkdir(installedDir, { recursive: true });
         for (const path of sync.remove) await rm(`${installedDir}/${path}`);
-        for (const [path, text] of sync.write) {
+        for (const skill of sync.retired)
+          await rm(`${installedDir}/${skill}`, { recursive: true, force: true });
+        for (const [path, bytes] of sync.write) {
           await mkdir(dirname(`${installedDir}/${path}`), { recursive: true });
-          await Bun.write(`${installedDir}/${path}`, text);
+          await Bun.write(`${installedDir}/${path}`, bytes);
         }
         if (await present(link)) return false;
         await mkdir(dirname(link), { recursive: true });

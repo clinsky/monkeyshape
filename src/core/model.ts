@@ -35,8 +35,9 @@ export interface Snapshot {
   readonly skills: SkillsSnapshot;
 }
 
-/** Files keyed by path relative to a skills directory: `<skill>/SKILL.md`. */
-export type SkillFiles = ReadonlyMap<string, string>;
+/** File bytes keyed by path relative to a skills directory: `<skill>/SKILL.md`. Bytes, so a
+ * skill's images or binaries are copied and compared exactly. */
+export type SkillFiles = ReadonlyMap<string, Uint8Array>;
 
 /** What sits at `.claude/skills`: `target` is the link's own text, unresolved. */
 export type SkillsLink =

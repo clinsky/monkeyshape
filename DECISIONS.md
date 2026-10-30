@@ -27,5 +27,5 @@ Revisit when: tightening by hand becomes a frequent chore in PRs.
 Decision: `mshape init` and `mshape skills sync` install shared skills into .agents/skills, which Codex and other agents read, and commit the symlink .claude/skills with the text ../.agents/skills, since Claude Code reads project skills only from .claude/skills.
 Tempting wrong fix: Copy the skills into both directories, which drift apart; or an absolute link, which points every clone and worktree back at one machine's checkout.
 Evidence: verified 2026-10-29: Claude Code listed a skill reached only through the link, in a repo and in a nested worktree with a skill of its own.
-Enforced by: test/integration/init.test.ts, test/adapters/skills.test.ts
+Enforced by: src/core/skills.ts (the skills check), test/core/skills.test.ts, test/integration/init.test.ts, test/adapters/skills.test.ts
 Revisit when: Claude Code reads .agents/skills itself.
