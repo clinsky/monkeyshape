@@ -1,5 +1,11 @@
 import { describe, expect, test } from "bun:test";
-import { parseWorktrees, planRm, type RmFacts, sharedPathProblems } from "../../src/core/tracks.ts";
+import {
+  openBeadsByTrack,
+  parseWorktrees,
+  planRm,
+  type RmFacts,
+  sharedPathProblems,
+} from "../../src/core/tracks.ts";
 
 describe("shared paths as a whole", () => {
   test("distinct, non-nested paths outside .handoffs and .git pass", () => {
@@ -48,6 +54,7 @@ describe("what track rm may do", () => {
     branchCheckedOutAt: [],
     handoffPath: "/r/.git/monkeyshape/handoffs/docs.md",
     handoffExists: true,
+    beads: { state: "ok", open: [] },
     force: false,
     keepHandoff: false,
   };
@@ -88,4 +95,48 @@ describe("what track rm may do", () => {
     expect(plan.refusals[0]).toContain("can't read the state of /r/.agents/worktrees/r@docs");
     expect(plan.steps).toEqual([]);
   });
+
+  test("open beads refuse, listing each, and --force does not override them", () => {
+    const open = [
+      { id: "x-1", title: "Write the guide", status: "open" },
+      { id: "x-2", title: "Fix the stub", status: "in_progress" },
+    ];
+    for (const force of [false, true]) {
+      const plan = planRm({ ...facts, force, beads: { state: "ok", open } });
+      expect(plan.steps).toEqual([]);
+      expect(plan.refusals[0]).toContain("`track:docs` still labels 2 bead(s) that aren't closed");
+      expect(plan.refusals[0]).toContain("x-2 (in_progress) Fix the stub");
+      expect(plan.refusals[0]).toContain(
+        "bd update <id> --remove-label track:docs --add-label track:<other>",
+      );
+    }
+  });
+
+  test("beads that can't answer: a refusal when required, a note when optional or absent", () => {
+    const unreadable = (required: boolean) =>
+      planRm({ ...facts, beads: { state: "unreadable", reason: "bd exited 1", required } });
+    expect(unreadable(true).refusals[0]).toContain('shape.config.ts sets `beads: "required"`');
+    expect(unreadable(false).refusals).toEqual([]);
+    expect(unreadable(false).notes[0]).toContain("open beads were not checked: bd exited 1");
+    expect(unreadable(false).steps).toHaveLength(3);
+    const absent = planRm({ ...facts, beads: { state: "absent" } });
+    expect(absent.notes).toEqual([
+      "this repo has no beads (no .beads/), so open beads were not checked",
+    ]);
+    expect(absent.steps).toHaveLength(3);
+  });
+});
+
+test("open beads by track: closed ones and other labels left out, a bead in two tracks counted twice", () => {
+  const byTrack = openBeadsByTrack([
+    { id: "a", title: "A", status: "open", labels: ["track:docs", "process"] },
+    { id: "b", title: "B", status: "closed", labels: ["track:docs"] },
+    { id: "c", title: "C", status: "blocked", labels: ["track:docs", "track:init"] },
+    { id: "d", title: "D", status: "open", labels: ["track:Not_A_Track"] },
+    { id: "e", title: "E", status: "open" },
+    "not a row",
+  ]);
+  expect([...byTrack.keys()].sort()).toEqual(["docs", "init"]);
+  expect(byTrack.get("docs")?.map((bead) => bead.id)).toEqual(["a", "c"]);
+  expect(byTrack.get("init")).toEqual([{ id: "c", title: "C", status: "blocked" }]);
 });

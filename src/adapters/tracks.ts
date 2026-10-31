@@ -22,10 +22,13 @@ import {
   worktreesDir,
 } from "../core/layout.ts";
 import {
+  type BeadsCheck,
   currentTrack,
   describeStep,
   formatTracks,
   nameProblem,
+  type OpenBead,
+  openBeadsByTrack,
   parseWorktrees,
   planRm,
   type RmStep,
@@ -35,6 +38,7 @@ import {
 } from "../core/tracks.ts";
 import { TrackError, WorkspaceError } from "../schemas/errors.ts";
 import { loadConfig } from "./config.ts";
+import { jsonRows } from "./workspace.ts";
 
 export const refuse = (reason: string) => Effect.fail(new TrackError({ reason }));
 
@@ -188,6 +192,39 @@ const ensureHandoffLinks = (common: string, repo: string, checkouts: ReadonlyArr
     return said.filter((line): line is string => line !== undefined);
   });
 
+/**
+ * Every bead with a `track:` label that isn't closed, by track; one `bd` call serves `list`
+ * and `rm`. Absent when the repo has no beads; a reason when beads is set up but can't answer.
+ */
+const trackBeads = (repo: string) =>
+  Effect.gen(function* () {
+    type Result =
+      | { readonly state: "ok"; readonly byTrack: ReadonlyMap<string, ReadonlyArray<OpenBead>> }
+      | { readonly state: "absent" }
+      | { readonly state: "unreadable"; readonly reason: string };
+    if (!(yield* lexists(`${repo}/.beads/config.yaml`))) return { state: "absent" } as Result;
+    if (Bun.which("bd") === null)
+      return { state: "unreadable", reason: "bd is not on PATH" } as Result;
+    const command = ["list", "--all", "--label-pattern", "track:*", "--brief", "--json"];
+    const listed = yield* Effect.try({
+      try: () =>
+        Bun.spawnSync(["bd", ...command, "--limit", "0"], {
+          cwd: repo,
+          stdout: "pipe",
+          stderr: "pipe",
+        }),
+      catch: (cause) =>
+        new WorkspaceError({ operation: "run", path: "bd list", reason: String(cause) }),
+    });
+    const rows = listed.exitCode === 0 ? jsonRows(listed.stdout.toString()) : undefined;
+    if (rows === undefined)
+      return {
+        state: "unreadable",
+        reason: `\`bd ${command.join(" ")}\` exited ${listed.exitCode} or printed no rows${listed.stderr.toString().trim() === "" ? "" : `: ${listed.stderr.toString().trim()}`}`,
+      } as Result;
+    return { state: "ok", byTrack: openBeadsByTrack(rows) } as Result;
+  });
+
 export const ignored = (repo: string, path: string) =>
   Effect.map(git(repo, ["check-ignore", "-q", path]), (result) => result.code === 0);
 
@@ -309,13 +346,17 @@ export const trackList = (cwd: string) =>
         () => [],
       ),
     );
-    const tracks = [...new Set([...byTrack.keys(), ...branches, ...handoffs])]
+    const beads = yield* trackBeads(repo);
+    // A label with open beads is a track too, even after its worktree is gone: that work is orphaned.
+    const labelled = beads.state === "ok" ? [...beads.byTrack.keys()] : [];
+    const tracks = [...new Set([...byTrack.keys(), ...branches, ...handoffs, ...labelled])]
       .filter((track) => TRACK_NAME.test(track))
       .sort();
 
     const checkouts = [...byTrack.values()].map((worktree) => worktree.path);
     const present = yield* Effect.filter(checkouts, lexists);
     const notes = yield* ensureHandoffLinks(common, repo, present);
+    if (beads.state === "unreadable") notes.push(`note: open beads not counted: ${beads.reason}`);
 
     const rows = yield* Effect.forEach(tracks, (track) =>
       Effect.gen(function* () {
@@ -329,6 +370,7 @@ export const trackList = (cwd: string) =>
           track,
           status: parsed === undefined ? "none" : "problems" in parsed ? "invalid" : parsed.status,
           problems: parsed !== undefined && "problems" in parsed ? parsed.problems : undefined,
+          beads: beads.state === "ok" ? (beads.byTrack.get(track)?.length ?? 0) : undefined,
           ahead: branches.includes(track)
             ? yield* unmergedCount(repo, trackBranch(track))
             : undefined,
@@ -380,6 +422,20 @@ export const trackRm = (
       status.code === 0 ? status.stdout.split("\n").filter((line) => line.trim() !== "") : [];
     const hasBranch = yield* branchExists(repo, branch);
     const handoff = handoffPath(common, track);
+    const found = yield* trackBeads(repo);
+    // Only asked when beads can't answer; without a readable config, the default applies.
+    const required =
+      found.state === "unreadable" &&
+      (yield* loadConfig(repo).pipe(
+        Effect.map((config) => config.beads === "required"),
+        Effect.orElseSucceed(() => false),
+      ));
+    const beads: BeadsCheck =
+      found.state === "ok"
+        ? { state: "ok", open: found.byTrack.get(track) ?? [] }
+        : found.state === "absent"
+          ? found
+          : { state: "unreadable", reason: found.reason, required };
     const plan = planRm({
       track,
       worktreePath: path,
@@ -394,9 +450,11 @@ export const trackRm = (
       ),
       handoffPath: handoff,
       handoffExists: yield* lexists(handoff),
+      beads,
       force: options.force,
       keepHandoff: options.keepHandoff,
     });
+    yield* Effect.forEach(plan.notes, (note) => say(`note: ${note}`));
     if (plan.refusals.length > 0)
       return yield* refuse(
         [`track rm ${track}: refused, nothing removed`, ...plan.refusals].join("\n  "),

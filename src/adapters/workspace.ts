@@ -49,7 +49,7 @@ const failed = <A>(reason: string): Loaded<A> => ({
   value: undefined,
 });
 
-const jsonRows = (stdout: string): ReadonlyArray<unknown> | undefined => {
+export const jsonRows = (stdout: string): ReadonlyArray<unknown> | undefined => {
   const parsed = parseJsonc(stdout);
   // `bd list --limit 0 --json` wraps the rows as `{ issues: [...] }`; limited lists are bare.
   const rows =

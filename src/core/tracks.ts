@@ -9,6 +9,7 @@ import {
   MAIN_BRANCH,
   TRACK_NAME,
   trackBranch,
+  trackLabel,
   trackOf,
   WORKTREES_DIR,
   worktreePath,
@@ -91,6 +92,47 @@ export const currentTrack = (
   return { track };
 };
 
+/** A bead that isn't closed, as `bd list --json` reports it. */
+export interface OpenBead {
+  readonly id: string;
+  readonly title: string;
+  readonly status: string;
+}
+
+/**
+ * Beads that aren't closed, by the track each `track:<name>` label names: a bead labelled for
+ * two tracks belongs to both. Rows that aren't beads are skipped.
+ */
+export const openBeadsByTrack = (
+  rows: ReadonlyArray<unknown>,
+): ReadonlyMap<string, ReadonlyArray<OpenBead>> => {
+  const byTrack = new Map<string, Array<OpenBead>>();
+  for (const row of rows) {
+    if (typeof row !== "object" || row === null) continue;
+    const { id, title, status, labels } = row as Record<string, unknown>;
+    if (typeof id !== "string" || status === "closed" || !Array.isArray(labels)) continue;
+    const bead = {
+      id,
+      title: typeof title === "string" ? title : "",
+      status: typeof status === "string" ? status : "unknown",
+    };
+    for (const label of labels) {
+      const track = typeof label === "string" ? /^track:(.+)$/.exec(label)?.[1] : undefined;
+      if (track !== undefined && TRACK_NAME.test(track))
+        byTrack.set(track, [...(byTrack.get(track) ?? []), bead]);
+    }
+  }
+  return byTrack;
+};
+
+/** What beads said about a track's open work. */
+export type BeadsCheck =
+  | { readonly state: "ok"; readonly open: ReadonlyArray<OpenBead> }
+  /** The repo has no beads: nothing to check. */
+  | { readonly state: "absent" }
+  /** Beads is set up but couldn't answer; `required` is the config's `beads: "required"`. */
+  | { readonly state: "unreadable"; readonly reason: string; readonly required: boolean };
+
 /** What `track rm` found, before touching anything. */
 export interface RmFacts {
   readonly track: string;
@@ -110,6 +152,8 @@ export interface RmFacts {
   readonly branchCheckedOutAt: ReadonlyArray<Worktree>;
   readonly handoffPath: string;
   readonly handoffExists: boolean;
+  /** Beads labelled `track:<track>` that aren't closed: removing the track would orphan them. */
+  readonly beads: BeadsCheck;
   readonly force: boolean;
   readonly keepHandoff: boolean;
 }
@@ -128,6 +172,8 @@ export interface RmPlan {
   readonly steps: ReadonlyArray<RmStep>;
   /** What stays, and why, when nothing is wrong with keeping it. */
   readonly kept: ReadonlyArray<string>;
+  /** Said whether or not it refuses: a check that couldn't run. */
+  readonly notes: ReadonlyArray<string>;
 }
 
 export const describeStep = (step: RmStep): string =>
@@ -141,7 +187,9 @@ export const describeStep = (step: RmStep): string =>
  * Only the track's own worktree, branch and handoff are ever candidates, so the main
  * checkout, other tracks and the handoff store are out of reach by construction. `--force`
  * overrides exactly two refusals: uncommitted changes and unmerged commits, both as listed.
- * Changes that can't be read are not changes the user agreed to discard.
+ * Changes that can't be read are not changes the user agreed to discard. Open beads are never
+ * overridden: closing or moving each one is a single command, and removing the track would
+ * leave them with no one to do them.
  */
 export const planRm = (facts: RmFacts): RmPlan => {
   const branch = trackBranch(facts.track);
@@ -149,6 +197,15 @@ export const planRm = (facts: RmFacts): RmPlan => {
   const warnings: Array<string> = [];
   const kept: Array<string> = [];
   const steps: Array<RmStep> = [];
+  const label = trackLabel(facts.track);
+  const notes: Array<string> = [];
+  const listBeads = `bd list --label ${label} --status open,in_progress,blocked,deferred`;
+  if (facts.beads.state === "absent")
+    notes.push("this repo has no beads (no .beads/), so open beads were not checked");
+  if (facts.beads.state === "unreadable" && !facts.beads.required)
+    notes.push(
+      `open beads were not checked: ${facts.beads.reason}. Check by hand with \`${listBeads}\``,
+    );
 
   if (
     facts.worktree === undefined &&
@@ -163,6 +220,7 @@ export const planRm = (facts: RmFacts): RmPlan => {
       warnings,
       steps,
       kept,
+      notes: [],
     };
 
   if (facts.worktree === undefined && facts.pathExists)
@@ -178,6 +236,18 @@ export const planRm = (facts: RmFacts): RmPlan => {
       elsewhere.prunable
         ? `\`${branch}\` is still registered as checked out at ${elsewhere.path}, which no longer exists: run \`git worktree prune\`, then retry`
         : `\`${branch}\` is checked out at ${elsewhere.path}: switch that checkout to another branch first`,
+    );
+  if (facts.beads.state === "ok" && facts.beads.open.length > 0)
+    refusals.push(
+      [
+        `\`${label}\` still labels ${facts.beads.open.length} bead(s) that aren't closed, and removing the track would orphan them:`,
+        ...facts.beads.open.map((bead) => `  ${bead.id} (${bead.status}) ${bead.title}`),
+        `close each one that's done (\`bd close <id>\`), or move it to the track that will do it (\`bd update <id> --remove-label ${label} --add-label track:<other>\`). --force doesn't override this`,
+      ].join("\n    "),
+    );
+  if (facts.beads.state === "unreadable" && facts.beads.required)
+    refusals.push(
+      `can't check for open beads labelled \`${label}\` (${facts.beads.reason}), and shape.config.ts sets \`beads: "required"\`: get \`bd\` working, then retry`,
     );
   if (facts.statusError !== undefined)
     refusals.push(
@@ -213,14 +283,16 @@ export const planRm = (facts: RmFacts): RmPlan => {
     else steps.push({ kind: "handoff", path: facts.handoffPath });
   }
   return refusals.length > 0
-    ? { refusals, warnings: [], steps: [], kept: [] }
-    : { refusals, warnings, steps, kept };
+    ? { refusals, warnings: [], steps: [], kept: [], notes }
+    : { refusals, warnings, steps, kept, notes };
 };
 
 /** One line per track in `track list`. */
 export interface TrackRow {
   readonly track: string;
   readonly status: "stub" | "active" | "invalid" | "none";
+  /** Beads labelled `track:<track>` that aren't closed; undefined when beads couldn't say. */
+  readonly beads: number | undefined;
   /** Commits not in `main`; undefined without a branch. */
   readonly ahead: number | undefined;
   /** Relative to the main checkout; undefined without a worktree. */
@@ -234,10 +306,11 @@ export interface TrackRow {
 export const formatTracks = (rows: ReadonlyArray<TrackRow>): string => {
   if (rows.length === 0) return "no tracks: start one with `mshape track new <name>`";
   const table = [
-    ["track", "status", "ahead", "merged", "worktree"],
+    ["track", "status", "beads", "ahead", "merged", "worktree"],
     ...rows.map((row) => [
       row.track,
       row.status,
+      row.beads === undefined ? "-" : String(row.beads),
       row.ahead === undefined ? "-" : String(row.ahead),
       row.ahead === undefined ? "-" : row.ahead === 0 ? "yes" : "no",
       row.worktree === undefined
