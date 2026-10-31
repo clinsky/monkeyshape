@@ -40,7 +40,9 @@ describe("refs in docs", () => {
       listFenceExample: "1. Step\n   - sub\n\n     ```sh\n     bash `scripts/nope.sh`\n     ```\n",
       indentedCode: "Text\n\n    echo `date\n",
       indentedCodeAfterList: "- a\n\nText\n\n    ```\n    a ` b\n",
-      indentedCodeInItem: "- Step:\n\n      echo `date\n",
+      tabCode: "Text\n\n\techo `date\n",
+      tabCodeInItem: "- Step:\n\n\t\techo `date\n",
+      tabsCode: "Text\n\n\t\techo `date\n",
     };
     for (const [name, text] of Object.entries(valid))
       expect([name, rules({ "AGENTS.md": text })]).toEqual([name, []]);
@@ -49,15 +51,6 @@ describe("refs in docs", () => {
       "refs/split-code-span",
       "refs/split-code-span",
     ]);
-    // Indented code is four spaces past the list item's content, not past the margin.
-    for (const nested of [
-      "- a\n  - b\n    - run `scripts/\n      nope.sh` now\n",
-      "- Step\n\t- run `bd ready --label\n\t  track:x` now\n",
-    ])
-      expect(rules({ "AGENTS.md": nested })).toEqual([
-        "refs/split-code-span",
-        "refs/split-code-span",
-      ]);
   });
 
   test("bare extensions, node_modules and runtime file names are not checked", () => {

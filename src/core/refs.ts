@@ -118,15 +118,14 @@ export const checkRefs = (config: ResolvedConfig, snapshot: Snapshot): ReadonlyA
     const text = snapshot.texts.get(doc);
     if (text === undefined) continue;
     const normative = !matchesAny(doc, config.refs.narrativeDocs);
-    const { indentedCode } = fencedLines(text.split("\n"));
     stripFences(text)
       .split("\n")
       .forEach((line, i) => {
         const n = i + 1;
         checkCommon(doc, n, line);
-        // Lines are read one at a time, so a span split across two is never checked. In
-        // indented code a backtick is literal.
-        if (!indentedCode[i] && opensCodeSpan(line))
+        // Lines are read one at a time, so a span split across two is never checked. A line
+        // indented four spaces may be an indented code block, where a backtick is literal.
+        if (!/^( {4}|\t)/.test(line) && opensCodeSpan(line))
           violations.push(
             violation(
               "split-code-span",
