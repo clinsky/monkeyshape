@@ -90,8 +90,10 @@ the other handoff.
 - `bun run check` is the gate, the same locally and in CI. It is green before every PR.
 - `/review-pr` runs in its own chat, in a detached worktree at the PR's head that
   `mshape review <n>` makes and `mshape review rm <n>` removes. A review is not a track: it
-  has no handoff, and everything about it lives on the PR. The skill says what blocks; after
-  a re-review, what is still open is the human's call.
+  has no handoff, and everything about it lives on the PR. A review holds the PR to 95%,
+  not 100%: a blocker is a defect the PR would ship, and the skill says what counts. It
+  takes as many rounds as that needs, and LGTM means nothing is open. You merge, and can
+  step in at any point.
 
 ## Beads
 

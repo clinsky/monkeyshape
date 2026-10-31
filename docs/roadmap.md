@@ -403,10 +403,14 @@ out/              gitignored output
 
 - **How:** the `review-pr` skill runs in a separate worktree, runs the change on real
   targets, writes adversarial probes, and posts inline comments tagged by severity.
-- **What blocks:** a blocker needs a concrete failing input or a real-data result. Style
-  never blocks, because the linter owns style.
-- **Limits:** one round plus a re-review, then the human decides. After merge, `validate` is
-  the final check.
+- **What blocks:** a defect the PR would ship and someone would hit, shown by a concrete
+  failing input or a real-data result: the 95% bar, not 100%. Style never blocks, because
+  the linter owns style.
+- **Rounds:** no fixed number; the bar limits what a review asks for, not how often it
+  asks. A cap would push reviewers to call blockers nits. When fixes keep opening new
+  blockers, the reviewer tells the human. LGTM means nothing is open: each nit is fixed in
+  the PR, declined with a reason, or filed as a bead. After merge, `validate` is the final
+  check.
 
 ### 6.3 Beads
 
