@@ -61,7 +61,8 @@ The plan is frozen once tracks start. Say so at its top.
   dependencies (`bd dep add`). An interface gets its own bead, owned by one track. A bead
   is intent and an outcome as acceptance, about 1,500 characters at most, not a spec.
 - Pull roadmap epics in with `bd undefer`; close epics whose work is done.
-- Close, defer or rewrite every open story the milestone doesn't need, with a reason.
+- Close, defer or rewrite every open story the milestone doesn't need, with a reason. A
+  story deferred out of the milestone drops its `track:` label.
 - P1 is the critical path only.
 - Re-verify each bd memory (`bd memories`) against the code; rewrite or delete stale ones.
 - Every `TODO(<bead id>)` in code whose bead is now closed: fix it or re-point it.
@@ -85,7 +86,10 @@ and why. The human merges.
 Once the PR is merged (or the human says to start):
 
 - `mshape track rm <name>` for each finished track. If it refuses, report the reason; never
-  reach for `--force` without the human.
+  reach for `--force` without the human. If the reason is open beads, `--force` won't help,
+  and grooming has already decided each one: move it to the track the new plan gives it, or
+  close it if it's done, and list what you did in your report. Ask the human only when the
+  plan doesn't say.
 - `mshape track new <name>` for each new track. Fill its handoff: `Status: active`, the
   charter (its beads, the interfaces it owns or consumes), the state ("not started", and
   how to start), the traps you already know, and messages from the plan.

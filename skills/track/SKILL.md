@@ -50,9 +50,9 @@ charter and the beads; start once they agree.
 ## 4. Work
 
 - Claim a bead (`bd update <id> --claim`) before starting it, and commit as you go.
-- **A PR composes several beads**, sized as the working-loop conventions say (docs/workflow.md
-  in the monkeyshape package): one theme, gate green, its body as AGENTS.md says. Close the
-  beads when it merges.
+- **Batch beads into PRs** sized as the working-loop conventions say (docs/workflow.md in the
+  monkeyshape package): one theme, gate green, its body as AGENTS.md says. Close the beads
+  when it merges.
 - **One open PR at a time**, from `track/<name>`: the branch is the PR's head, so a commit
   pushed while it is in review joins it. While it waits, answer its review and prepare the
   next beads without committing. If waiting would stall the track, tell the human.
@@ -65,9 +65,11 @@ charter and the beads; start once they agree.
 - **The process got in the way:** `bd create --labels process` saying what broke.
 
 Update the handoff's State when a PR opens or merges, so a crash loses nothing. When the
-human says the context is running out, run `/handoff`. When `bd list --label track:<name>`
-is empty and the PRs are merged, tell the human the track is done (an empty `bd ready` is
-not enough: it hides beads in progress or blocked); removing it is theirs or `/milestone`'s.
+human says the context is running out, run `/handoff`. When this track's `beads` column
+in `mshape track list` shows 0 and the PRs are merged, tell the human the track is done (an
+empty `bd ready` is not enough: it hides beads in progress or blocked). A `-` there means
+beads weren't counted: act on the note `track list` prints, and don't call the track done.
+Removing it is the human's or `/milestone`'s.
 
 Review this skill when a fresh chat running it had to ask the human something the handoff
 should have said.
