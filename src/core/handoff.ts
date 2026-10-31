@@ -17,6 +17,7 @@
  * free Markdown, with `###` for headings inside a section (`## ` in a fenced block is fine).
  */
 import { MAIN_BRANCH, TRACK_NAME, trackBranch, trackLabel } from "./layout.ts";
+import { fencedLines } from "./markdown.ts";
 
 export type HandoffStatus = "stub" | "active";
 
@@ -86,30 +87,13 @@ sets \`Status: active\`. Worktree \`${worktree}\` on \`${trackBranch(track)}\`, 
   return "problems" in parsed ? parsed : { text: `${text}\n` };
 };
 
-/**
- * `## ` lines outside fenced code blocks, since a body may quote Markdown, and the line of a
- * fence still open at the end. Fences as CommonMark has them: at most three spaces of indent;
- * closed by the same character, at least as long, with nothing after it.
- */
+/** `## ` lines outside fenced code blocks, since a body may quote Markdown, and the line of a fence still open at the end. */
 const headingsOf = (lines: ReadonlyArray<string>) => {
-  const headings: Array<{ readonly name: string; readonly line: number }> = [];
-  let open: { readonly marker: string; readonly line: number } | undefined;
-  lines.forEach((line, index) => {
-    const fence = /^ {0,3}(`{3,}|~{3,})(.*)$/.exec(line);
-    const marker = fence?.[1];
-    if (marker !== undefined && open === undefined) open = { marker, line: index };
-    else if (
-      marker !== undefined &&
-      open !== undefined &&
-      marker[0] === open.marker[0] &&
-      marker.length >= open.marker.length &&
-      (fence?.[2] ?? "").trim() === ""
-    )
-      open = undefined;
-    else if (open === undefined && line.startsWith("## "))
-      headings.push({ name: line.slice(3).trim(), line: index });
-  });
-  return { headings, unclosedFence: open?.line };
+  const { fenced, unclosed } = fencedLines(lines);
+  const headings = lines.flatMap((line, index) =>
+    !fenced[index] && line.startsWith("## ") ? [{ name: line.slice(3).trim(), line: index }] : [],
+  );
+  return { headings, unclosedFence: unclosed };
 };
 
 /** The handoff, or every way the text departs from the format. */

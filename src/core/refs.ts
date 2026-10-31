@@ -8,6 +8,7 @@
 import type { ResolvedConfig } from "../schemas/config.ts";
 import { parseDecisions, SLUG } from "./decisions.ts";
 import { matchesAny } from "./glob.ts";
+import { fencedLines, opensCodeSpan } from "./markdown.ts";
 import { isTsSource, lineAt, pathIndex, type Snapshot, type Violation } from "./model.ts";
 import { parse } from "./parse.ts";
 import { basename, dirname, join } from "./paths.ts";
@@ -33,17 +34,9 @@ const violation = (rule: string, file: string, line: number, message: string): V
 
 /** Blanks fenced code blocks (keeping line numbers): examples there are not claims. */
 export const stripFences = (text: string): string => {
-  let inFence = false;
-  return text
-    .split("\n")
-    .map((line) => {
-      if (/^\s*(```|~~~)/.test(line)) {
-        inFence = !inFence;
-        return "";
-      }
-      return inFence ? "" : line;
-    })
-    .join("\n");
+  const lines = text.split("\n");
+  const { fenced } = fencedLines(lines);
+  return lines.map((line, i) => (fenced[i] ? "" : line)).join("\n");
 };
 
 /** Anything shaped like `prefix-id` or `prefix-id.3`; only ids beads actually knows count. */
@@ -131,7 +124,7 @@ export const checkRefs = (config: ResolvedConfig, snapshot: Snapshot): ReadonlyA
         const n = i + 1;
         checkCommon(doc, n, line);
         // Lines are read one at a time, so a span split across two is never checked.
-        if ((line.match(/`/g) ?? []).length % 2 === 1)
+        if (opensCodeSpan(line))
           violations.push(
             violation(
               "split-code-span",

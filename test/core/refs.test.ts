@@ -27,6 +27,20 @@ describe("refs in docs", () => {
     expect(rules({ "AGENTS.md": "`a` and `b`\n```\nfenced ` stray\n```\n" })).toEqual([]);
   });
 
+  test("valid one-line Markdown with odd backticks passes: runs pair by length, fences by kind", () => {
+    const valid = {
+      doubleSpan: "Start a span with `` ` `` and close it.",
+      escaped: "A lone \\` is literal in Markdown.",
+      longFence: "````md\n```bash\necho `date\n```\n````\n",
+      tildeFence: "~~~\n```\nodd ` here\n~~~\n",
+      comment: "<!-- don't ` -->",
+      nested: "``a ` b`` and `c`",
+    };
+    for (const [name, text] of Object.entries(valid))
+      expect([name, rules({ "AGENTS.md": text })]).toEqual([name, []]);
+    expect(rules({ "AGENTS.md": "a `` b ` c" })).toEqual(["refs/split-code-span"]);
+  });
+
   test("bare extensions, node_modules and runtime file names are not checked", () => {
     expect(
       rules({ "AGENTS.md": "`.d.ts`, `.tsx`, `node_modules/effect/AGENTS.md`, `index.jsonl`" }),
