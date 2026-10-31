@@ -13,11 +13,15 @@ code it rests on. Read AGENTS.md first: it holds the rules the PR is reviewed ag
 - **The PR is the review's only home.** Findings, evidence, replies and what is still open
   all go on it; nothing about the review is kept anywhere else. A fresh chat re-reviewing
   reads the thread.
-- **Don't fix the PR yourself** and don't file beads for findings: the author fixes them in
-  the same PR.
-- **A blocker needs a concrete failing input or a real-data result.** Style never blocks:
-  the linter owns style. Everything else is a nit, and says so.
-- **One round and a re-review**, then the human decides what is still open.
+- **Don't fix the PR yourself**: the author fixes findings in the same PR.
+- **Hold the PR to 95%, not 100%.** A blocker is a defect the PR would ship and someone
+  would hit, shown by a concrete failing input or a real-data result. "Could be better", or
+  an edge nobody has, is a nit, in any round. Style never blocks: the linter owns style.
+- **A nit stays open until it's settled:** fixed in this PR, declined with a reason you
+  accept, or filed by the author as a bead when it is real work beyond the PR. Never call a
+  blocker a nit to close a review.
+- **As many rounds as that takes.** If each fix keeps opening a new blocker, tell the human:
+  the design may need rethinking more than another patch. The human can step in at any point.
 - Real data may be read and run freely; spend past the repo's cap, or writes to shared data,
   need the human first (see AGENTS.md).
 
@@ -61,7 +65,9 @@ From cheapest to most expensive:
    rejected, one variation each, from a real artifact where there is one. **A bad input
    that passes is a finding**, and the probe's input and output are its evidence on the PR.
    Probes are scratch and are never committed or kept: one worth keeping is a regression
-   test, and that is the author's to add (step 4).
+   test, and that is the author's to add (step 4). **When the PR adds a check**, also probe
+   it with valid input it must pass: a false failure reaches everyone who runs the check,
+   and is a blocker.
 3. **Run the real workflow** when the claim is about what it produces end to end.
 
 Don't rerun the gate on the first pass if the PR body shows it green; do on a re-review whose
@@ -121,8 +127,8 @@ worktree to the new head; it prints the previous one too.
 4. Reply in the threads, then post a short summary review: what was re-verified, what is
    resolved, what is still open. Tell the human.
 
-**When every blocker is resolved and verified, say "LGTM"** explicitly, on the PR and to
-the human, with any remaining nits beside it. Never while a blocker is open or unverified.
+**When nothing is open, say "LGTM"** explicitly, on the PR and to the human: every blocker
+resolved and verified, every nit settled. Never while a finding is open or unverified.
 Merging is the human's call. When the review is over, `mshape review rm $N`: it lists what
 it discards, which in a review worktree is only scratch, then removes it.
 

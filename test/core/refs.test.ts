@@ -18,6 +18,41 @@ describe("refs in docs", () => {
     ]);
   });
 
+  test("a code span split across lines fails, since its path would never be checked", () => {
+    expect(rules({ "AGENTS.md": "Run `scripts/nope.sh` first." })).toEqual(["refs/missing-path"]);
+    expect(rules({ "AGENTS.md": "Run `scripts/\nnope.sh` first." })).toEqual([
+      "refs/split-code-span",
+      "refs/split-code-span",
+    ]);
+    expect(rules({ "AGENTS.md": "`a` and `b`\n```\nfenced ` stray\n```\n" })).toEqual([]);
+  });
+
+  test("valid one-line Markdown with odd backticks passes: runs pair by length, fences by kind", () => {
+    const valid = {
+      doubleSpan: "Start a span with `` ` `` and close it.",
+      escaped: "A lone \\` is literal in Markdown.",
+      longFence: "````md\n```bash\necho `date\n```\n````\n",
+      tildeFence: "~~~\n```\nodd ` here\n~~~\n",
+      comment: "<!-- don't ` -->",
+      nested: "``a ` b`` and `c`",
+      listFence:
+        "1. Install:\n   - then run:\n\n     ```sh\n     cat scripts/setup.sh `# not a path claim`\n     echo `date\n     ```\n",
+      listFenceExample: "1. Step\n   - sub\n\n     ```sh\n     bash `scripts/nope.sh`\n     ```\n",
+      indentedCode: "Text\n\n    echo `date\n",
+      indentedCodeAfterList: "- a\n\nText\n\n    ```\n    a ` b\n",
+      tabCode: "Text\n\n\techo `date\n",
+      tabCodeInItem: "- Step:\n\n\t\techo `date\n",
+      tabsCode: "Text\n\n\t\techo `date\n",
+    };
+    for (const [name, text] of Object.entries(valid))
+      expect([name, rules({ "AGENTS.md": text })]).toEqual([name, []]);
+    expect(rules({ "AGENTS.md": "a `` b ` c" })).toEqual(["refs/split-code-span"]);
+    expect(rules({ "AGENTS.md": "- run `bd ready --label\n  track:x` now\n" })).toEqual([
+      "refs/split-code-span",
+      "refs/split-code-span",
+    ]);
+  });
+
   test("bare extensions, node_modules and runtime file names are not checked", () => {
     expect(
       rules({ "AGENTS.md": "`.d.ts`, `.tsx`, `node_modules/effect/AGENTS.md`, `index.jsonl`" }),

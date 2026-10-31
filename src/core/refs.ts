@@ -1,12 +1,14 @@
 /**
  * References in prose must resolve, and prose may only point at things a check keeps true.
- * Docs: backticked paths, `bun run` scripts, decision slugs and relative links must exist;
+ * Docs: backticked paths, `bun run` scripts, decision slugs and relative links must exist, and
+ * each backticked span sits on one line, where it can be checked;
  * normative docs may not link into notes/, plan/ or handoffs. Code comments: no links into
  * those either, no `§N` citations, decision slugs must exist, bead ids only in `TODO(id)`.
  */
 import type { ResolvedConfig } from "../schemas/config.ts";
 import { parseDecisions, SLUG } from "./decisions.ts";
 import { matchesAny } from "./glob.ts";
+import { fencedLines, opensCodeSpan } from "./markdown.ts";
 import { isTsSource, lineAt, pathIndex, type Snapshot, type Violation } from "./model.ts";
 import { parse } from "./parse.ts";
 import { basename, dirname, join } from "./paths.ts";
@@ -32,17 +34,9 @@ const violation = (rule: string, file: string, line: number, message: string): V
 
 /** Blanks fenced code blocks (keeping line numbers): examples there are not claims. */
 export const stripFences = (text: string): string => {
-  let inFence = false;
-  return text
-    .split("\n")
-    .map((line) => {
-      if (/^\s*(```|~~~)/.test(line)) {
-        inFence = !inFence;
-        return "";
-      }
-      return inFence ? "" : line;
-    })
-    .join("\n");
+  const lines = text.split("\n");
+  const { fenced } = fencedLines(lines);
+  return lines.map((line, i) => (fenced[i] ? "" : line)).join("\n");
 };
 
 /** Anything shaped like `prefix-id` or `prefix-id.3`; only ids beads actually knows count. */
@@ -129,6 +123,17 @@ export const checkRefs = (config: ResolvedConfig, snapshot: Snapshot): ReadonlyA
       .forEach((line, i) => {
         const n = i + 1;
         checkCommon(doc, n, line);
+        // Lines are read one at a time, so a span split across two is never checked. A line
+        // indented four spaces may be an indented code block, where a backtick is literal.
+        if (!/^( {4}|\t)/.test(line) && opensCodeSpan(line))
+          violations.push(
+            violation(
+              "split-code-span",
+              doc,
+              n,
+              "a code span crosses a line break, so the refs check can't see it: keep each `...` span on one line.",
+            ),
+          );
         if (
           normative &&
           NON_NORMATIVE.test(line.replace(/`[^`]*`/g, (span) => span.replaceAll("`", " ")))
