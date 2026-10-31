@@ -8,8 +8,9 @@
 const LIST_ITEM = /^\s*(?:[-*+]|\d{1,9}[.)])\s+/;
 
 /**
- * For each line, whether it belongs to a fenced code block, fence lines included; and the line
- * of a fence still open at the end. A fence opens with at least three backticks or tildes (a
+ * For each line, whether it belongs to a fenced code block, fence lines included; whether it
+ * is indented code (four spaces or more past its list item's content, outside a fence); and
+ * the line of a fence still open at the end. A fence opens with at least three backticks or tildes (a
  * backtick fence's info string has no backtick), and closes only on the same character, at
  * least as long, with nothing after it. It may be indented at most three spaces past the
  * content of the list item it sits in, as in CommonMark: four spaces at the top level is an
@@ -17,8 +18,13 @@ const LIST_ITEM = /^\s*(?:[-*+]|\d{1,9}[.)])\s+/;
  */
 export const fencedLines = (
   lines: ReadonlyArray<string>,
-): { readonly fenced: ReadonlyArray<boolean>; readonly unclosed: number | undefined } => {
+): {
+  readonly fenced: ReadonlyArray<boolean>;
+  readonly indentedCode: ReadonlyArray<boolean>;
+  readonly unclosed: number | undefined;
+} => {
   const fenced: Array<boolean> = [];
+  const indentedCode: Array<boolean> = [];
   let open: { readonly marker: string; readonly line: number } | undefined;
   // Where the enclosing list item's content starts; 0 outside a list. Approximate: a line
   // indented less than that is taken to have left the item.
@@ -29,19 +35,20 @@ export const fencedLines = (
     const rest = fence?.[3] ?? "";
     if (open === undefined) {
       const indent = line.length - line.trimStart().length;
+      const item = LIST_ITEM.exec(line);
       const opens =
         marker !== undefined &&
         indent - Math.min(content, indent) <= 3 &&
         !(marker.startsWith("`") && rest.includes("`"));
+      indentedCode.push(!opens && item === null && line.trim() !== "" && indent - content >= 4);
       if (opens) open = { marker, line: index };
-      else if (line.trim() !== "") {
-        const item = LIST_ITEM.exec(line);
+      else if (line.trim() !== "")
         content = item !== null ? item[0].length : Math.min(content, indent);
-      }
       fenced.push(opens);
       return;
     }
     fenced.push(true);
+    indentedCode.push(false);
     if (
       marker !== undefined &&
       marker[0] === open.marker[0] &&
@@ -50,7 +57,7 @@ export const fencedLines = (
     )
       open = undefined;
   });
-  return { fenced, unclosed: open?.line };
+  return { fenced, indentedCode, unclosed: open?.line };
 };
 
 /**
