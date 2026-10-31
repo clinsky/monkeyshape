@@ -3,6 +3,9 @@
  * init` makes a repo, its gate passes, `track new` starts two tracks, `track list` and
  * `track current` find them, work lands on one and merges to main, and `track rm` cleans
  * both up. Every command is the new repo's installed binary.
+ *
+ * The tests are one scenario, run in order: each builds on the state the ones before it left.
+ * When several fail, the first failure is the cause; run the whole file, not one test.
  */
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { mkdir, mkdtemp, realpath, rm, writeFile } from "node:fs/promises";
@@ -103,8 +106,17 @@ describe("init, then tracks", () => {
     expect(await exists(join(repo, ".handoffs", "a.md"))).toBe(true);
   });
 
-  test("once merged, track rm removes the worktree, the branch and the handoff", async () => {
+  test("merged, main's gate passes while both tracks are live, seeing none of their files", async () => {
     expect((await run(repo, ["git", "merge", "--quiet", "track/a"])).code).toBe(0);
+    // Worktrees sit inside the repo: a tool that walks into .agents/worktrees (a nested biome
+    // root, a second copy of the test) breaks the main checkout's gate while any track exists.
+    const check = await gate(repo);
+    expect(check.output).toContain("mshape check passed");
+    expect(check.output).toContain(" 1 pass");
+    expect(check.code).toBe(0);
+  }, 60_000);
+
+  test("once merged, track rm removes the worktree, the branch and the handoff", async () => {
     const removed = await mshape(repo, ["track", "rm", "a"]);
     expect(removed.code).toBe(0);
     expect(await exists(join(worktree("a"), "AGENTS.md"))).toBe(false);
