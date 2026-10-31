@@ -35,10 +35,19 @@ describe("refs in docs", () => {
       tildeFence: "~~~\n```\nodd ` here\n~~~\n",
       comment: "<!-- don't ` -->",
       nested: "``a ` b`` and `c`",
+      listFence:
+        "1. Install:\n   - then run:\n\n     ```sh\n     cat scripts/setup.sh `# not a path claim`\n     echo `date\n     ```\n",
+      listFenceExample: "1. Step\n   - sub\n\n     ```sh\n     bash `scripts/nope.sh`\n     ```\n",
+      indentedCode: "Text\n\n    echo `date\n",
+      indentedCodeAfterList: "- a\n\nText\n\n    ```\n    a ` b\n",
     };
     for (const [name, text] of Object.entries(valid))
       expect([name, rules({ "AGENTS.md": text })]).toEqual([name, []]);
     expect(rules({ "AGENTS.md": "a `` b ` c" })).toEqual(["refs/split-code-span"]);
+    expect(rules({ "AGENTS.md": "- run `bd ready --label\n  track:x` now\n" })).toEqual([
+      "refs/split-code-span",
+      "refs/split-code-span",
+    ]);
   });
 
   test("bare extensions, node_modules and runtime file names are not checked", () => {

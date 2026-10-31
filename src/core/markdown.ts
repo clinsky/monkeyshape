@@ -4,24 +4,40 @@
  * disagree about where a block ends.
  */
 
+/** A list item's marker and the space after it: the item's content starts where this ends. */
+const LIST_ITEM = /^\s*(?:[-*+]|\d{1,9}[.)])\s+/;
+
 /**
  * For each line, whether it belongs to a fenced code block, fence lines included; and the line
- * of a fence still open at the end. A fence opens with at least three backticks or tildes,
- * indented at most three spaces (a backtick fence's info string has no backtick), and closes
- * only on the same character, at least as long, with nothing after it.
+ * of a fence still open at the end. A fence opens with at least three backticks or tildes (a
+ * backtick fence's info string has no backtick), and closes only on the same character, at
+ * least as long, with nothing after it. It may be indented at most three spaces past the
+ * content of the list item it sits in, as in CommonMark: four spaces at the top level is an
+ * indented code block, but five inside a nested item is still a fence.
  */
 export const fencedLines = (
   lines: ReadonlyArray<string>,
 ): { readonly fenced: ReadonlyArray<boolean>; readonly unclosed: number | undefined } => {
   const fenced: Array<boolean> = [];
   let open: { readonly marker: string; readonly line: number } | undefined;
+  // Where the enclosing list item's content starts; 0 outside a list. Approximate: a line
+  // indented less than that is taken to have left the item.
+  let content = 0;
   lines.forEach((line, index) => {
-    const fence = /^ {0,3}(`{3,}|~{3,})(.*)$/.exec(line);
-    const marker = fence?.[1];
-    const rest = fence?.[2] ?? "";
+    const fence = /^(\s*)(`{3,}|~{3,})(.*)$/.exec(line);
+    const marker = fence?.[2];
+    const rest = fence?.[3] ?? "";
     if (open === undefined) {
-      const opens = marker !== undefined && !(marker.startsWith("`") && rest.includes("`"));
+      const indent = line.length - line.trimStart().length;
+      const opens =
+        marker !== undefined &&
+        indent - Math.min(content, indent) <= 3 &&
+        !(marker.startsWith("`") && rest.includes("`"));
       if (opens) open = { marker, line: index };
+      else if (line.trim() !== "") {
+        const item = LIST_ITEM.exec(line);
+        content = item !== null ? item[0].length : Math.min(content, indent);
+      }
       fenced.push(opens);
       return;
     }
