@@ -85,11 +85,13 @@ and why. The human merges.
 
 Once the PR is merged (or the human says to start):
 
-- `mshape track rm <name>` for each finished track. If it refuses, report the reason; never
-  reach for `--force` without the human. If the reason is open beads, `--force` won't help,
-  and grooming has already decided each one: move it to the track the new plan gives it, or
-  close it if it's done, and list what you did in your report. Ask the human only when the
-  plan doesn't say.
+- `mshape track rm <name>` for each finished track whose `beads` column in `mshape track
+  list` shows 0. A `-` means beads weren't counted, and `rm` may then remove the track with
+  only a note: get `bd` working, or check by hand with the command that note gives, first.
+  If `rm` refuses, report the reason; never reach for `--force` without the human. If the
+  reason is open beads, `--force` won't help, and grooming has already decided each one:
+  move it to the track the new plan gives it, or close it if it's done, and list what you
+  did in your report. Ask the human only when the plan doesn't say.
 - `mshape track new <name>` for each new track. Fill its handoff: `Status: active`, the
   charter (its beads, the interfaces it owns or consumes), the state ("not started", and
   how to start), the traps you already know, and messages from the plan.
