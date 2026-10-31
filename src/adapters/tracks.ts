@@ -36,9 +36,9 @@ import {
 import { TrackError, WorkspaceError } from "../schemas/errors.ts";
 import { loadConfig } from "./config.ts";
 
-const refuse = (reason: string) => Effect.fail(new TrackError({ reason }));
+export const refuse = (reason: string) => Effect.fail(new TrackError({ reason }));
 
-const git = (cwd: string, args: ReadonlyArray<string>) =>
+export const git = (cwd: string, args: ReadonlyArray<string>) =>
   Effect.try({
     try: () => {
       const child = Bun.spawnSync(["git", ...args], { cwd, stdout: "pipe", stderr: "pipe" });
@@ -57,14 +57,14 @@ const git = (cwd: string, args: ReadonlyArray<string>) =>
   });
 
 /** Git's stdout, trimmed; a non-zero exit is a TrackError carrying git's own message. */
-const gitOk = (cwd: string, args: ReadonlyArray<string>) =>
+export const gitOk = (cwd: string, args: ReadonlyArray<string>) =>
   Effect.flatMap(git(cwd, args), (result) =>
     result.code === 0
       ? Effect.succeed(result.stdout.trim())
       : refuse(`\`git ${args.join(" ")}\` failed: ${result.stderr || `exit ${result.code}`}`),
   );
 
-const lexists = (path: string) =>
+export const lexists = (path: string) =>
   Effect.promise(() =>
     lstat(path).then(
       () => true,
@@ -93,14 +93,14 @@ const canonical = (repo: string) =>
       ),
   );
 
-const fs = <A>(operation: string, path: string, run: () => Promise<A>) =>
+export const fs = <A>(operation: string, path: string, run: () => Promise<A>) =>
   Effect.tryPromise({
     try: run,
     catch: (cause) => new WorkspaceError({ operation, path, reason: String(cause) }),
   });
 
 /** Git's common directory and the main checkout, from git: never by walking up directories. */
-const locate = (cwd: string) =>
+export const locate = (cwd: string) =>
   Effect.gen(function* () {
     const found = yield* git(cwd, ["rev-parse", "--path-format=absolute", "--git-common-dir"]);
     if (found.code !== 0) return yield* refuse(`${cwd} is not inside a git repository`);
@@ -108,7 +108,7 @@ const locate = (cwd: string) =>
     return { common, repo: mainCheckout(common) };
   });
 
-const worktrees = (repo: string) =>
+export const worktrees = (repo: string) =>
   Effect.gen(function* () {
     const listed = parseWorktrees(yield* gitOk(repo, ["worktree", "list", "--porcelain"]));
     const resolve = yield* canonical(repo);
@@ -139,7 +139,7 @@ const unmergedCount = (repo: string, branch: string) =>
  * (`.agents/worktrees` may be a symlink). Absolute when the directory lies outside the repo:
  * a worktree on another disk doesn't move with the repo anyway.
  */
-const linkTo = (repo: string, link: string, target: string) =>
+export const linkTo = (repo: string, link: string, target: string) =>
   Effect.gen(function* () {
     const dir = posix.dirname(link);
     yield* fs("mkdir", dir, () => mkdir(dir, { recursive: true }));
@@ -188,7 +188,7 @@ const ensureHandoffLinks = (common: string, repo: string, checkouts: ReadonlyArr
     return said.filter((line): line is string => line !== undefined);
   });
 
-const ignored = (repo: string, path: string) =>
+export const ignored = (repo: string, path: string) =>
   Effect.map(git(repo, ["check-ignore", "-q", path]), (result) => result.code === 0);
 
 /** A shared path git tracks in `main`, itself or through a parent that is a file: it would be checked out. */

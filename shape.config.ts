@@ -28,6 +28,6 @@ export default defineConfig({
       },
     },
   },
-  // The adopters' guide ships in the package, not in their repos, so only this repo checks it.
-  refs: { docs: [...DEFAULT_DOCS, "docs/workflow.md"] },
+  // The adopters' guides live in this repo, not in theirs, so only this repo checks them.
+  refs: { docs: [...DEFAULT_DOCS, "docs/workflow.md", "docs/adopting.md"] },
 });

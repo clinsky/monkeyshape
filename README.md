@@ -19,49 +19,24 @@ src/core/client.ts  arch/host-access
 mshape check failed: 2 problems
 ```
 
-## Install
+## Quick start
 
 ```sh
-bun add -d monkeyshape effect @biomejs/biome typescript @types/bun
+bunx --package monkeyshape mshape init my-app
 ```
 
-monkeyshape runs on Bun and asks your `tsc` and `biome` which files they cover; `effect` is a
-peer dependency. Add these files (the tests build a repo from exactly these blocks):
+A new repo whose gate (`bun run check`) passes empty: Bun, TypeScript, Effect, beads, the
+configs, CI, and five skills for your coding agent. Then the working loop, one chat each:
 
-```jsonc
-// tsconfig.json
-{ "extends": "monkeyshape/tsconfig.base.json", "include": ["src", "test", "shape.config.ts"] }
-```
+1. `/roadmap` with a brain-dump: the direction, and one deferred epic per goal.
+2. `/milestone` with your priorities: a plan with acceptance on real data, beads, and
+   tracks, each its own worktree from `mshape track new`.
+3. `/track` in each track's worktree: the agent works its queue and opens PRs.
+4. `/handoff` when a chat's context runs low; a fresh chat runs `/track` to continue.
+5. `/review-pr <n>` in its own chat; you merge.
 
-```jsonc
-// biome.json
-{
-  "root": true,
-  "extends": ["monkeyshape/biome"],
-  "files": { "includes": ["src/**", "test/**", "shape.config.ts", "*.json"] }
-}
-```
-
-```ts
-// shape.config.ts
-import { defineConfig } from "monkeyshape";
-
-export default defineConfig({
-  arch: {
-    modules: {
-      core: { description: "Deterministic logic. No host I/O." },
-      adapters: { description: "Host I/O behind services.", mayImport: ["core"], hostAccess: true },
-    },
-  },
-});
-```
-
-```md
-<!-- AGENTS.md -->
-# My project: commands, gotchas and decision authority for agents, in 150 lines or fewer.
-```
-
-Then make it your gate: `tsc && biome ci --error-on-warnings && mshape check && bun test`.
+The conventions in full: [docs/workflow.md](docs/workflow.md). An existing repo:
+[docs/adopting.md](docs/adopting.md).
 
 ## What `mshape check` enforces
 
