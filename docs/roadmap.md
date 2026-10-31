@@ -383,9 +383,9 @@ out/              gitignored output
 
 - **Who does what.** Agents commit, push and open PRs automatically. The human reads them and
   merges to main.
-- **PR size.** About 1k changed lines is the floor and about 2.5k is a soft ceiling, with one
-  theme per PR. Agent authors should batch their work, because many small PRs slow everyone
-  down.
+- **PR size.** Batch work into PRs of one theme, typically 1k to 2.5k changed lines, because
+  many small PRs slow everyone down. It is a default for batching, not a gate: a small
+  one-off that unblocks work or keeps docs in step with code ships on its own.
 - **The PR body is the main narrative the human reads.** Its sections:
   - What changed and why
   - Evidence on real data

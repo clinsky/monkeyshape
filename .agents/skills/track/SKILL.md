@@ -65,9 +65,10 @@ charter and the beads; start once they agree.
 - **The process got in the way:** `bd create --labels process` saying what broke.
 
 Update the handoff's State when a PR opens or merges, so a crash loses nothing. When the
-human says the context is running out, run `/handoff`. When `bd list --label track:<name>`
-is empty and the PRs are merged, tell the human the track is done (an empty `bd ready` is
-not enough: it hides beads in progress or blocked); removing it is theirs or `/milestone`'s.
+human says the context is running out, run `/handoff`. When this track's `beads` column
+in `mshape track list` shows 0 and the PRs are merged, tell the human the track is done (an
+empty `bd ready` is not enough: it hides beads in progress or blocked); removing it is theirs
+or `/milestone`'s.
 
 Review this skill when a fresh chat running it had to ask the human something the handoff
 should have said.

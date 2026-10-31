@@ -77,8 +77,10 @@ the other handoff.
 ## Pull requests and review
 
 - Agents commit, push and open PRs; the human merges. A track has one PR open at a time, from
-  its branch, and a PR composes several beads: one theme, about 1k changed lines at least and
-  2.5k at most. Many small PRs cost more review than a few large ones.
+  its branch. Batch a track's beads into PRs of one theme, typically 1k to 2.5k changed
+  lines: many small PRs cost more review than a few large ones. That is a default for
+  batching, not a gate: a small PR is fine when it unblocks work or keeps docs in step with
+  code.
 - The PR body says what changed and why, the evidence on real data, the gate output, the bug
   class a new check closes, what is not done, and the beads closed or filed.
 - `bun run check` is the gate, the same locally and in CI. It is green before every PR.
