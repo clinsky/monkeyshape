@@ -1,6 +1,6 @@
 /**
  * An adopter's first hour, for real: pack this package, install the tarball into a fresh git
- * repo built from the README's own code blocks, and drive the installed `mshape` binary
+ * repo built from the code blocks in docs/adopting.md, and drive the installed `mshape` binary
  * through the gate, a regression, a fix, the ratchet, `--only`, and beads without `bd`.
  */
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
@@ -11,15 +11,15 @@ import pkg from "../../package.json" with { type: "json" };
 
 const ROOT = join(import.meta.dir, "..", "..");
 
-const readmeBlocks = async (): Promise<ReadonlyArray<string>> => {
-  const readme = await Bun.file(join(ROOT, "README.md")).text();
-  return [...readme.matchAll(/```\w*\n([\s\S]*?)```/g)].map((block) => block[1] ?? "");
+const blocks = async (doc: string): Promise<ReadonlyArray<string>> => {
+  const text = await Bun.file(join(ROOT, doc)).text();
+  return [...text.matchAll(/```\w*\n([\s\S]*?)```/g)].map((block) => block[1] ?? "");
 };
 
-/** `// <file>` or `<!-- <file> -->` on the first line of a README code block names the file. */
-const readmeFiles = async (): Promise<Record<string, string>> => {
+/** `// <file>` or `<!-- <file> -->` on the first line of a code block in docs/adopting.md names the file. */
+const adoptingFiles = async (): Promise<Record<string, string>> => {
   const files: Record<string, string> = {};
-  for (const block of await readmeBlocks()) {
+  for (const block of await blocks("docs/adopting.md")) {
     const [first = "", ...rest] = block.split("\n");
     const name = /^(?:\/\/|<!--)\s*([\w.-]+\.\w+)\s*(?:-->)?$/.exec(first.trim())?.[1];
     if (name !== undefined) files[name] = rest.join("\n");
@@ -78,7 +78,7 @@ beforeAll(async () => {
       2,
     )}\n`,
   );
-  for (const [path, text] of Object.entries(await readmeFiles())) await write(path, text);
+  for (const [path, text] of Object.entries(await adoptingFiles())) await write(path, text);
   await write(".gitignore", "node_modules/\n");
   await write(
     "src/core/greet.ts",
@@ -95,9 +95,9 @@ afterAll(async () => {
   await rm(bin, { recursive: true, force: true });
 });
 
-describe("an adopter following the README", () => {
-  test("the README files carry everything the gate needs", async () => {
-    expect(Object.keys(await readmeFiles()).sort()).toEqual([
+describe("an adopter following docs/adopting.md", () => {
+  test("the adopting guide's files carry everything the gate needs", async () => {
+    expect(Object.keys(await adoptingFiles()).sort()).toEqual([
       "AGENTS.md",
       "biome.json",
       "shape.config.ts",
@@ -105,7 +105,7 @@ describe("an adopter following the README", () => {
     ]);
   });
 
-  test("tsc and biome accept the README configs, extends and all", async () => {
+  test("tsc and biome accept the guide's configs, extends and all", async () => {
     const tsc = await run([process.execPath, "node_modules/.bin/tsc", "-p", "."]);
     expect(tsc.output).toBe("");
     const biome = await run([
@@ -138,7 +138,9 @@ describe("an adopter following the README", () => {
       await rm(join(repo, "src/core/cache.ts"));
       await rm(join(repo, "src/core/client.ts"));
     }
-    const example = (await readmeBlocks()).find((block) => block.startsWith("$ mshape check\n"));
+    const example = (await blocks("README.md")).find((block) =>
+      block.startsWith("$ mshape check\n"),
+    );
     expect(`$ mshape check\n${actual.output}`).toBe(example ?? "(no example block in README)");
     expect(actual.code).toBe(1);
   });

@@ -42,7 +42,8 @@ gate: if a check is too strict for this repo, fix the check, not the repo.
 - `template/` is what `mshape init` copies; its JSON configs are generated in
   `src/core/scaffold.ts` instead, since a `biome.json` there would be a nested root for biome.
   Guarded by `test/integration/init.test.ts`, which runs the new repo's own gate.
-- The README's install blocks are the consumer test's fixture; edit them as code.
+- The code blocks in `docs/adopting.md` are the consumer test's fixture, and the README's
+  `$ mshape check` block its expected output: edit both as code.
 
 ## Adding a rule
 
