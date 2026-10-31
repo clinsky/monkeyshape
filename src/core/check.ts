@@ -3,7 +3,7 @@ import type { ResolvedConfig } from "../schemas/config.ts";
 import { checkArch } from "./arch.ts";
 import { checkBudgets } from "./budgets.ts";
 import { checkCoverage } from "./coverage.ts";
-import type { CheckName, Snapshot, Violation } from "./model.ts";
+import type { CheckName, Integration, Snapshot, Violation } from "./model.ts";
 import { checkRefs } from "./refs.ts";
 import { checkRules } from "./rules/engine.ts";
 import { RULES } from "./rules/registry.ts";
@@ -74,6 +74,21 @@ const prerequisite = (rule: string, message: string): Violation => ({
 });
 
 /**
+ * When beads can't be trusted, whatever asks it: `failed` when bd ran and failed, whatever the
+ * config says; `required` when `beads: "required"` and beads isn't ok. `check` and
+ * `track rm` both decide with this, so a beads failure means one thing everywhere.
+ */
+export const beadsBlocker = (
+  setting: ResolvedConfig["beads"],
+  beads: Integration,
+): "failed" | "required" | undefined =>
+  beads.state === "failed"
+    ? "failed"
+    : setting === "required" && beads.state !== "ok"
+      ? "required"
+      : undefined;
+
+/**
  * Integrations that must work for a result to mean anything: bd failing outright, or bd
  * unavailable when `beads: "required"`. These are facts about the environment, not the code,
  * so no baseline can accept them and no `--only` selection skips them.
@@ -83,11 +98,12 @@ export const prerequisites = (
   snapshot: Snapshot,
 ): ReadonlyArray<Violation> => {
   const beads = snapshot.integrations.beads;
-  if (beads.state === "failed")
+  const blocker = beadsBlocker(config.beads, beads);
+  if (blocker === "failed" && beads.state === "failed")
     return [
       prerequisite("beads-failed", `bd failed, so beads checks did not run: ${beads.reason}`),
     ];
-  if (config.beads === "required" && beads.state !== "ok")
+  if (blocker === "required" && beads.state !== "ok")
     return [
       prerequisite(
         "beads-required",

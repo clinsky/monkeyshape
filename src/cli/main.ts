@@ -44,12 +44,14 @@ const USAGE = `mshape ${pkg.version}
       the shared handoffs and tracks.sharedPaths linked in, and a stub handoff. Shared paths
       come from the main checkout's shape.config.ts, from whichever checkout this runs.
   mshape track list
-      Every track: handoff status, commits not in main, worktree. Restores missing handoff links.
+      Every track: handoff status, open beads, commits not in main, worktree. Restores missing
+      handoff links; a track label with open beads and no track left is listed too.
   mshape track current
       The track of this directory, name only; exit 1, saying why, outside a track.
   mshape track rm <name> [--force] [--keep-handoff]
       Remove a finished track: worktree, branch, handoff. Refuses on uncommitted changes or
-      commits not in main; --force discards them. Never touches main or other tracks.
+      commits not in main; --force discards them. Also refuses while beads labelled
+      track:<name> aren't closed, which --force doesn't override. Never touches main or other tracks.
   mshape review <n>
       Pull request <n>'s head from origin in a detached worktree .agents/worktrees/<repo>.pr-<n>,
       tracks.sharedPaths linked in. Again later: put it exactly at the new head, printing the

@@ -29,9 +29,14 @@ const sh = (cwd: string, ...args: ReadonlyArray<string>) => {
   return result.stdout.toString().trim();
 };
 
-const mshape = (cwd: string, ...args: ReadonlyArray<string>) => {
+const mshapeWith = (
+  env: Readonly<Record<string, string | undefined>>,
+  cwd: string,
+  ...args: ReadonlyArray<string>
+) => {
   const result = Bun.spawnSync([process.execPath, CLI, "track", ...args], {
     cwd,
+    env: { ...process.env, ...env },
     stdout: "pipe",
     stderr: "pipe",
   });
@@ -41,6 +46,8 @@ const mshape = (cwd: string, ...args: ReadonlyArray<string>) => {
     stderr: result.stderr.toString().trim(),
   };
 };
+
+const mshape = (cwd: string, ...args: ReadonlyArray<string>) => mshapeWith({}, cwd, ...args);
 
 const exists = (path: string) =>
   lstat(path).then(
@@ -176,8 +183,8 @@ describe("track list", () => {
     expect(listed.stdout).toContain(`linked ${repo}/.agents/handoffs`);
     const rows = listed.stdout.split("\n").filter((line) => /^(docs|init) /.test(line));
     expect(rows.map((row) => row.split(/\s+/))).toEqual([
-      ["docs", "stub", "0", "yes", ".agents/worktrees/repo@docs"],
-      ["init", "stub", "1", "no", ".agents/worktrees/repo@init"],
+      ["docs", "stub", "-", "0", "yes", ".agents/worktrees/repo@docs"],
+      ["init", "stub", "-", "1", "no", ".agents/worktrees/repo@init"],
     ]);
     expect(await realpath(`${repo}/.handoffs`)).toBe(`${repo}/.git/monkeyshape/handoffs`);
 
@@ -330,7 +337,7 @@ describe("track rm", () => {
     expect(refused.code).toBe(1);
     expect(refused.stderr).toContain("1 commit(s) not in `main`");
     expect(branches()).toEqual(["main", "track/docs"]);
-    expect(mshape(repo, "list").stdout).toMatch(/^docs\s+stub\s+1\s+no/m);
+    expect(mshape(repo, "list").stdout).toMatch(/^docs\s+stub\s+-\s+1\s+no/m);
   });
 
   test("a stale registration of the branch elsewhere asks for a prune", async () => {
@@ -390,4 +397,130 @@ describe("track layout under links", () => {
     expect(mshape(repo, "rm", "docs").code).toBe(0);
     expect(mshape(repo, "new", "docs").code).toBe(0);
   });
+});
+
+/**
+ * Open beads hold a track. A fake `bd` on PATH prints the rows these tests give it, so they run
+ * where bd isn't installed (CI); the last test uses the real one when it is.
+ */
+describe("track rm and list with beads", () => {
+  const bead = (id: string, status: string, labels: ReadonlyArray<string>) => ({
+    id,
+    title: `bead ${id}`,
+    status,
+    labels,
+  });
+
+  /** Beads set up in the repo, and a fake bd printing `rows` (exiting `exit`). */
+  const fakeBd = async (rows: ReadonlyArray<unknown>, exit = 0) => {
+    await mkdir(`${repo}/.beads`, { recursive: true });
+    await writeFile(`${repo}/.beads/config.yaml`, "");
+    await mkdir(`${base}/bin`, { recursive: true });
+    await writeFile(`${base}/rows.json`, JSON.stringify(rows));
+    await writeFile(`${base}/bin/bd`, `#!/bin/sh\ncat "${base}/rows.json"\nexit ${exit}\n`);
+    await chmod(`${base}/bin/bd`, 0o755);
+    return { PATH: `${base}/bin:${process.env["PATH"] ?? ""}` };
+  };
+
+  test("open beads refuse, even with --force, touching nothing; once closed, rm goes ahead", async () => {
+    await setup();
+    mshape(repo, "new", "docs");
+    const env = await fakeBd([
+      bead("x-1", "in_progress", ["track:docs"]),
+      bead("x-2", "closed", ["track:docs"]),
+      bead("x-3", "open", ["track:init"]),
+    ]);
+    for (const flags of [[], ["--force"]]) {
+      const refused = mshapeWith(env, repo, "rm", "docs", ...flags);
+      expect(refused.code).toBe(1);
+      expect(refused.stderr).toContain("`track:docs` still labels 1 bead(s) that aren't closed");
+      expect(refused.stderr).toContain("x-1 (in_progress) bead x-1");
+      expect(refused.stderr).not.toContain("x-2");
+    }
+    expect(await exists(wt("docs"))).toBe(true);
+    expect(branches()).toEqual(["main", "track/docs"]);
+
+    const listed = mshapeWith(env, repo, "list").stdout;
+    expect(listed).toMatch(/^docs\s+stub\s+1\s+0\s+yes/m);
+    // A label with open beads and nothing else: work filed for a track that doesn't exist.
+    expect(listed).toMatch(/^init\s+none\s+1\s+-\s+-\s+-$/m);
+
+    const closed = await fakeBd([bead("x-1", "closed", ["track:docs"])]);
+    expect(mshapeWith(closed, repo, "rm", "docs").code).toBe(0);
+    expect(await exists(wt("docs"))).toBe(false);
+  });
+
+  test("bd failing refuses under the default config, even with --force; list notes it", async () => {
+    await setup();
+    mshape(repo, "new", "docs");
+    // The open bead is there, but bd can't show it: removing the track would orphan it unseen.
+    const broken = await fakeBd([bead("x-1", "open", ["track:docs"])], 1);
+    for (const flags of [[], ["--force"]]) {
+      const refused = mshapeWith(broken, repo, "rm", "docs", ...flags);
+      expect(refused.code).toBe(1);
+      expect(refused.stderr).toContain(
+        "bd failed, so the open beads labelled `track:docs` can't be seen",
+      );
+    }
+    expect(await exists(wt("docs"))).toBe(true);
+    expect(branches()).toEqual(["main", "track/docs"]);
+    expect(mshapeWith(broken, repo, "list").stdout).toContain("note: open beads not counted");
+  });
+
+  test("bd not installed: a note when beads is optional, a refusal when required", async () => {
+    await setup();
+    mshape(repo, "new", "docs");
+    await fakeBd([]);
+    // A PATH with git and nothing else: the CLI spawns only git and bd.
+    await mkdir(`${base}/git-only`);
+    await symlink(Bun.which("git") ?? "git", `${base}/git-only/git`);
+    const noBd = { PATH: `${base}/git-only` };
+
+    await writeFile(join(repo, "shape.config.ts"), `export default { beads: "required" };\n`);
+    const refused = mshapeWith(noBd, repo, "rm", "docs");
+    expect(refused.code).toBe(1);
+    expect(refused.stderr).toContain("requires beads, but bd is not on PATH");
+    expect(await exists(wt("docs"))).toBe(true);
+
+    await writeFile(join(repo, "shape.config.ts"), "export default {};\n");
+    const noted = mshapeWith(noBd, repo, "rm", "docs");
+    expect(noted.code).toBe(0);
+    expect(noted.stderr).toContain("note: open beads were not checked: bd is not on PATH");
+  });
+
+  test("a repo without beads says it didn't check", async () => {
+    await setup();
+    mshape(repo, "new", "docs");
+    const removed = mshape(repo, "rm", "docs");
+    expect(removed.code).toBe(0);
+    expect(removed.stderr).toContain("note: this repo has no beads");
+  });
+
+  test.skipIf(Bun.which("bd") === null)(
+    "with the real bd: an open bead labelled for the track refuses until it is closed",
+    async () => {
+      await setup();
+      const bd = (...args: ReadonlyArray<string>) => {
+        const result = Bun.spawnSync(["bd", ...args], {
+          cwd: repo,
+          stdout: "pipe",
+          stderr: "pipe",
+        });
+        if (result.exitCode !== 0) throw new Error(`bd ${args.join(" ")}: ${result.stderr}`);
+        return result.stdout.toString().trim();
+      };
+      bd("init", "-q", "--skip-agents", "--prefix", "t");
+      mshape(repo, "new", "docs");
+      const id = bd("create", "--title", "left behind", "--labels", "track:docs", "--silent");
+
+      const refused = mshape(repo, "rm", "docs");
+      expect(refused.code).toBe(1);
+      expect(refused.stderr).toContain(`${id} (open) left behind`);
+      expect(mshape(repo, "list").stdout).toMatch(/^docs\s+stub\s+1\s/m);
+
+      bd("close", id);
+      expect(mshape(repo, "rm", "docs").code).toBe(0);
+    },
+    30_000,
+  );
 });

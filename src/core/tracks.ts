@@ -3,16 +3,20 @@
  * track, what `rm` may delete and in what order, and how `list` reads. Git and the filesystem
  * are read by `src/adapters/tracks.ts`, which hands the facts here.
  */
+import type { ResolvedConfig } from "../schemas/config.ts";
+import { beadsBlocker } from "./check.ts";
 import {
   AGENTS_HANDOFFS_LINK,
   HANDOFFS_LINK,
   MAIN_BRANCH,
   TRACK_NAME,
   trackBranch,
+  trackLabel,
   trackOf,
   WORKTREES_DIR,
   worktreePath,
 } from "./layout.ts";
+import type { Integration } from "./model.ts";
 
 /** A worktree as `git worktree list --porcelain` reports it. */
 export interface Worktree {
@@ -91,6 +95,49 @@ export const currentTrack = (
   return { track };
 };
 
+/** A bead that isn't closed, as `bd list --json` reports it. */
+export interface OpenBead {
+  readonly id: string;
+  readonly title: string;
+  readonly status: string;
+}
+
+/**
+ * Beads that aren't closed, by the track each `track:<name>` label names: a bead labelled for
+ * two tracks belongs to both. Rows that aren't beads are skipped.
+ */
+export const openBeadsByTrack = (
+  rows: ReadonlyArray<unknown>,
+): ReadonlyMap<string, ReadonlyArray<OpenBead>> => {
+  const byTrack = new Map<string, Array<OpenBead>>();
+  for (const row of rows) {
+    if (typeof row !== "object" || row === null) continue;
+    const { id, title, status, labels } = row as Record<string, unknown>;
+    if (typeof id !== "string" || status === "closed" || !Array.isArray(labels)) continue;
+    const bead = {
+      id,
+      title: typeof title === "string" ? title : "",
+      status: typeof status === "string" ? status : "unknown",
+    };
+    for (const label of labels) {
+      const track = typeof label === "string" ? /^track:(.+)$/.exec(label)?.[1] : undefined;
+      if (track !== undefined && TRACK_NAME.test(track))
+        byTrack.set(track, [...(byTrack.get(track) ?? []), bead]);
+    }
+  }
+  return byTrack;
+};
+
+/**
+ * What beads said about a track's open work: the integration state `mshape check` uses, the
+ * config's `beads` setting, and, when the state is ok, the track's beads that aren't closed.
+ */
+export interface BeadsCheck {
+  readonly integration: Integration;
+  readonly setting: ResolvedConfig["beads"];
+  readonly open: ReadonlyArray<OpenBead>;
+}
+
 /** What `track rm` found, before touching anything. */
 export interface RmFacts {
   readonly track: string;
@@ -110,6 +157,8 @@ export interface RmFacts {
   readonly branchCheckedOutAt: ReadonlyArray<Worktree>;
   readonly handoffPath: string;
   readonly handoffExists: boolean;
+  /** Beads labelled `track:<track>` that aren't closed: removing the track would orphan them. */
+  readonly beads: BeadsCheck;
   readonly force: boolean;
   readonly keepHandoff: boolean;
 }
@@ -128,6 +177,8 @@ export interface RmPlan {
   readonly steps: ReadonlyArray<RmStep>;
   /** What stays, and why, when nothing is wrong with keeping it. */
   readonly kept: ReadonlyArray<string>;
+  /** Said whether or not it refuses: a check that couldn't run. */
+  readonly notes: ReadonlyArray<string>;
 }
 
 export const describeStep = (step: RmStep): string =>
@@ -141,7 +192,9 @@ export const describeStep = (step: RmStep): string =>
  * Only the track's own worktree, branch and handoff are ever candidates, so the main
  * checkout, other tracks and the handoff store are out of reach by construction. `--force`
  * overrides exactly two refusals: uncommitted changes and unmerged commits, both as listed.
- * Changes that can't be read are not changes the user agreed to discard.
+ * Changes that can't be read are not changes the user agreed to discard. Open beads are never
+ * overridden: closing or moving each one is a single command, and removing the track would
+ * leave them with no one to do them.
  */
 export const planRm = (facts: RmFacts): RmPlan => {
   const branch = trackBranch(facts.track);
@@ -149,6 +202,17 @@ export const planRm = (facts: RmFacts): RmPlan => {
   const warnings: Array<string> = [];
   const kept: Array<string> = [];
   const steps: Array<RmStep> = [];
+  const label = trackLabel(facts.track);
+  const notes: Array<string> = [];
+  const listBeads = `bd list --label ${label} --status open,in_progress,blocked,deferred`;
+  const { integration, setting, open } = facts.beads;
+  const blocker = beadsBlocker(setting, integration);
+  if (blocker === undefined && integration.state === "absent")
+    notes.push("this repo has no beads (no .beads/), so open beads were not checked");
+  if (blocker === undefined && integration.state === "unavailable")
+    notes.push(
+      `open beads were not checked: ${integration.reason}. Check by hand with \`${listBeads}\``,
+    );
 
   if (
     facts.worktree === undefined &&
@@ -163,6 +227,7 @@ export const planRm = (facts: RmFacts): RmPlan => {
       warnings,
       steps,
       kept,
+      notes: [],
     };
 
   if (facts.worktree === undefined && facts.pathExists)
@@ -178,6 +243,25 @@ export const planRm = (facts: RmFacts): RmPlan => {
       elsewhere.prunable
         ? `\`${branch}\` is still registered as checked out at ${elsewhere.path}, which no longer exists: run \`git worktree prune\`, then retry`
         : `\`${branch}\` is checked out at ${elsewhere.path}: switch that checkout to another branch first`,
+    );
+  if (integration.state === "ok" && open.length > 0)
+    refusals.push(
+      [
+        `\`${label}\` still labels ${open.length} bead(s) that aren't closed, and removing the track would orphan them:`,
+        ...open.map((bead) => `  ${bead.id} (${bead.status}) ${bead.title}`),
+        `close each one that's done (\`bd close <id>\`), or move it to the track that will do it (\`bd update <id> --remove-label ${label} --add-label track:<other>\`). --force doesn't override this`,
+      ].join("\n    "),
+    );
+  // A failing bd hides the beads, so there is nothing for --force to agree to discard.
+  if (blocker === "failed" && integration.state === "failed")
+    refusals.push(
+      `bd failed, so the open beads labelled \`${label}\` can't be seen: ${integration.reason}. Get \`bd\` working, then retry; --force doesn't override this`,
+    );
+  if (blocker === "required")
+    refusals.push(
+      integration.state === "absent"
+        ? `shape.config.ts requires beads, but the repo has no .beads/config.yaml, so the open beads labelled \`${label}\` can't be checked: set beads up, or set \`beads: "optional"\``
+        : `shape.config.ts requires beads, but ${"reason" in integration ? integration.reason : "it didn't answer"}, so the open beads labelled \`${label}\` can't be checked: get \`bd\` working, then retry`,
     );
   if (facts.statusError !== undefined)
     refusals.push(
@@ -213,14 +297,16 @@ export const planRm = (facts: RmFacts): RmPlan => {
     else steps.push({ kind: "handoff", path: facts.handoffPath });
   }
   return refusals.length > 0
-    ? { refusals, warnings: [], steps: [], kept: [] }
-    : { refusals, warnings, steps, kept };
+    ? { refusals, warnings: [], steps: [], kept: [], notes }
+    : { refusals, warnings, steps, kept, notes };
 };
 
 /** One line per track in `track list`. */
 export interface TrackRow {
   readonly track: string;
   readonly status: "stub" | "active" | "invalid" | "none";
+  /** Beads labelled `track:<track>` that aren't closed; undefined when beads couldn't say. */
+  readonly beads: number | undefined;
   /** Commits not in `main`; undefined without a branch. */
   readonly ahead: number | undefined;
   /** Relative to the main checkout; undefined without a worktree. */
@@ -234,10 +320,11 @@ export interface TrackRow {
 export const formatTracks = (rows: ReadonlyArray<TrackRow>): string => {
   if (rows.length === 0) return "no tracks: start one with `mshape track new <name>`";
   const table = [
-    ["track", "status", "ahead", "merged", "worktree"],
+    ["track", "status", "beads", "ahead", "merged", "worktree"],
     ...rows.map((row) => [
       row.track,
       row.status,
+      row.beads === undefined ? "-" : String(row.beads),
       row.ahead === undefined ? "-" : String(row.ahead),
       row.ahead === undefined ? "-" : row.ahead === 0 ? "yes" : "no",
       row.worktree === undefined

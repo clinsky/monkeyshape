@@ -22,10 +22,12 @@ import {
   worktreesDir,
 } from "../core/layout.ts";
 import {
+  type BeadsCheck,
   currentTrack,
   describeStep,
   formatTracks,
   nameProblem,
+  openBeadsByTrack,
   parseWorktrees,
   planRm,
   type RmStep,
@@ -35,6 +37,7 @@ import {
 } from "../core/tracks.ts";
 import { TrackError, WorkspaceError } from "../schemas/errors.ts";
 import { loadConfig } from "./config.ts";
+import { beadRows } from "./workspace.ts";
 
 export const refuse = (reason: string) => Effect.fail(new TrackError({ reason }));
 
@@ -188,6 +191,16 @@ const ensureHandoffLinks = (common: string, repo: string, checkouts: ReadonlyArr
     return said.filter((line): line is string => line !== undefined);
   });
 
+/**
+ * Every bead with a `track:` label that isn't closed, by track, in the beads state `mshape
+ * check` uses: one loader, so the two can't disagree about what a beads failure means.
+ */
+const trackBeads = (repo: string) =>
+  Effect.map(beadRows(repo, ["--label-pattern", "track:*", "--brief"]), (loaded) => ({
+    integration: loaded.integration,
+    byTrack: openBeadsByTrack(loaded.value ?? []),
+  }));
+
 export const ignored = (repo: string, path: string) =>
   Effect.map(git(repo, ["check-ignore", "-q", path]), (result) => result.code === 0);
 
@@ -309,13 +322,19 @@ export const trackList = (cwd: string) =>
         () => [],
       ),
     );
-    const tracks = [...new Set([...byTrack.keys(), ...branches, ...handoffs])]
+    const beads = yield* trackBeads(repo);
+    // A label with open beads is a track too, even after its worktree is gone: that work is orphaned.
+    const labelled = [...beads.byTrack.keys()];
+    const tracks = [...new Set([...byTrack.keys(), ...branches, ...handoffs, ...labelled])]
       .filter((track) => TRACK_NAME.test(track))
       .sort();
 
     const checkouts = [...byTrack.values()].map((worktree) => worktree.path);
     const present = yield* Effect.filter(checkouts, lexists);
     const notes = yield* ensureHandoffLinks(common, repo, present);
+    // list reports, it doesn't gate: a failing bd is a note here, and a refusal in rm.
+    if (beads.integration.state === "unavailable" || beads.integration.state === "failed")
+      notes.push(`note: open beads not counted: ${beads.integration.reason}`);
 
     const rows = yield* Effect.forEach(tracks, (track) =>
       Effect.gen(function* () {
@@ -329,6 +348,8 @@ export const trackList = (cwd: string) =>
           track,
           status: parsed === undefined ? "none" : "problems" in parsed ? "invalid" : parsed.status,
           problems: parsed !== undefined && "problems" in parsed ? parsed.problems : undefined,
+          beads:
+            beads.integration.state === "ok" ? (beads.byTrack.get(track)?.length ?? 0) : undefined,
           ahead: branches.includes(track)
             ? yield* unmergedCount(repo, trackBranch(track))
             : undefined,
@@ -380,6 +401,17 @@ export const trackRm = (
       status.code === 0 ? status.stdout.split("\n").filter((line) => line.trim() !== "") : [];
     const hasBranch = yield* branchExists(repo, branch);
     const handoff = handoffPath(common, track);
+    const found = yield* trackBeads(repo);
+    // A repo without shape.config.ts gets the default, `optional`; a failing bd refuses either way.
+    const setting = yield* loadConfig(repo).pipe(
+      Effect.map((config) => config.beads),
+      Effect.orElseSucceed(() => "optional" as const),
+    );
+    const beads: BeadsCheck = {
+      integration: found.integration,
+      setting,
+      open: found.byTrack.get(track) ?? [],
+    };
     const plan = planRm({
       track,
       worktreePath: path,
@@ -394,9 +426,11 @@ export const trackRm = (
       ),
       handoffPath: handoff,
       handoffExists: yield* lexists(handoff),
+      beads,
       force: options.force,
       keepHandoff: options.keepHandoff,
     });
+    yield* Effect.forEach(plan.notes, (note) => say(`note: ${note}`));
     if (plan.refusals.length > 0)
       return yield* refuse(
         [`track rm ${track}: refused, nothing removed`, ...plan.refusals].join("\n  "),

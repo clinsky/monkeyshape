@@ -57,12 +57,16 @@ handoff, all derived from the name by `mshape track`:
 - `mshape track new <name>` creates the worktree `.agents/worktrees/<repo>@<name>`, the branch
   `track/<name>` and the handoff, and links the shared paths from `shape.config.ts`
   (gitignored data such as a dataset) into the worktree.
-- `mshape track list` shows the tracks; `mshape track current` names the track of the
-  current directory, and fails with a reason anywhere else.
+- `mshape track list` shows the tracks and each one's open beads; `mshape track current`
+  names the track of the current directory, and fails with a reason anywhere else.
 - `mshape track rm <name>` removes a finished track. It refuses while the worktree has
-  uncommitted work or the branch has unmerged commits, and says which.
+  uncommitted work or the branch has unmerged commits, and says which; `--force` discards
+  them. It also refuses while any bead labelled `track:<name>` isn't closed, and `--force`
+  doesn't override that: close each one, or move it to the track that will do it.
 
-Its beads carry the label `track:<name>`; its queue is `bd ready --label track:<name>`.
+Its beads carry the label `track:<name>`; its queue is `bd ready --label track:<name>`. An
+empty queue doesn't mean the track is done: `bd ready` leaves out beads in progress or blocked.
+The track is done when `mshape track list` shows it with 0 open beads and `merged: yes`.
 
 **Ad-hoc tracks.** For work that didn't come from a milestone, run `mshape track new <name>`
 yourself, open a chat in the worktree it prints and run `/track`. The handoff starts as a

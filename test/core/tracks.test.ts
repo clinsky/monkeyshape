@@ -1,5 +1,12 @@
 import { describe, expect, test } from "bun:test";
-import { parseWorktrees, planRm, type RmFacts, sharedPathProblems } from "../../src/core/tracks.ts";
+import type { Integration } from "../../src/core/model.ts";
+import {
+  openBeadsByTrack,
+  parseWorktrees,
+  planRm,
+  type RmFacts,
+  sharedPathProblems,
+} from "../../src/core/tracks.ts";
 
 describe("shared paths as a whole", () => {
   test("distinct, non-nested paths outside .handoffs and .git pass", () => {
@@ -48,6 +55,7 @@ describe("what track rm may do", () => {
     branchCheckedOutAt: [],
     handoffPath: "/r/.git/monkeyshape/handoffs/docs.md",
     handoffExists: true,
+    beads: { integration: { state: "ok" }, setting: "optional", open: [] },
     force: false,
     keepHandoff: false,
   };
@@ -88,4 +96,70 @@ describe("what track rm may do", () => {
     expect(plan.refusals[0]).toContain("can't read the state of /r/.agents/worktrees/r@docs");
     expect(plan.steps).toEqual([]);
   });
+
+  test("open beads refuse, listing each, and --force does not override them", () => {
+    const open = [
+      { id: "x-1", title: "Write the guide", status: "open" },
+      { id: "x-2", title: "Fix the stub", status: "in_progress" },
+    ];
+    for (const force of [false, true]) {
+      const plan = planRm({
+        ...facts,
+        force,
+        beads: { integration: { state: "ok" }, setting: "optional", open },
+      });
+      expect(plan.steps).toEqual([]);
+      expect(plan.refusals[0]).toContain("`track:docs` still labels 2 bead(s) that aren't closed");
+      expect(plan.refusals[0]).toContain("x-2 (in_progress) Fix the stub");
+      expect(plan.refusals[0]).toContain(
+        "bd update <id> --remove-label track:docs --add-label track:<other>",
+      );
+    }
+  });
+
+  test("beads that can't answer: refusals and notes as `mshape check` decides them", () => {
+    const plan = (integration: Integration, setting: "optional" | "required", force = false) =>
+      planRm({ ...facts, force, beads: { integration, setting, open: [] } });
+    const failed: Integration = { state: "failed", reason: "database is locked" };
+    const unavailable: Integration = { state: "unavailable", reason: "bd is not on PATH" };
+    const absent: Integration = { state: "absent" };
+
+    // bd ran and failed: the beads can't be seen, under any setting, and --force can't help.
+    for (const setting of ["optional", "required"] as const)
+      for (const force of [false, true]) {
+        const refused = plan(failed, setting, force);
+        expect(refused.refusals[0]).toContain(
+          "bd failed, so the open beads labelled `track:docs` can't be seen: database is locked",
+        );
+        expect(refused.steps).toEqual([]);
+      }
+    expect(plan(unavailable, "required").refusals[0]).toContain(
+      "requires beads, but bd is not on PATH",
+    );
+    expect(plan(absent, "required").refusals[0]).toContain("the repo has no .beads/config.yaml");
+
+    const noted = plan(unavailable, "optional");
+    expect(noted.refusals).toEqual([]);
+    expect(noted.notes[0]).toContain("open beads were not checked: bd is not on PATH");
+    expect(noted.steps).toHaveLength(3);
+    const quiet = plan(absent, "optional");
+    expect(quiet.notes).toEqual([
+      "this repo has no beads (no .beads/), so open beads were not checked",
+    ]);
+    expect(quiet.steps).toHaveLength(3);
+  });
+});
+
+test("open beads by track: closed ones and other labels left out, a bead in two tracks counted twice", () => {
+  const byTrack = openBeadsByTrack([
+    { id: "a", title: "A", status: "open", labels: ["track:docs", "process"] },
+    { id: "b", title: "B", status: "closed", labels: ["track:docs"] },
+    { id: "c", title: "C", status: "blocked", labels: ["track:docs", "track:init"] },
+    { id: "d", title: "D", status: "open", labels: ["track:Not_A_Track"] },
+    { id: "e", title: "E", status: "open" },
+    "not a row",
+  ]);
+  expect([...byTrack.keys()].sort()).toEqual(["docs", "init"]);
+  expect(byTrack.get("docs")?.map((bead) => bead.id)).toEqual(["a", "c"]);
+  expect(byTrack.get("init")).toEqual([{ id: "c", title: "C", status: "blocked" }]);
 });
