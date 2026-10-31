@@ -85,9 +85,10 @@ and why. The human merges.
 
 Once the PR is merged (or the human says to start):
 
-- `mshape track rm <name>` for each finished track whose `beads` column in `mshape track
-  list` shows 0. A `-` means beads weren't counted, and `rm` may then remove the track with
-  only a note: get `bd` working, or check by hand with the command that note gives, first.
+- `mshape track rm <name>` for each finished track whose `beads` column in
+  `mshape track list` shows 0. A `-` means beads weren't counted, and `rm` may then remove
+  the track with only a note. So first get `bd` working, or check by hand that
+  `bd list --label track:<name> --limit 0` lists nothing (it hides only closed beads).
   If `rm` refuses, report the reason; never reach for `--force` without the human. If the
   reason is open beads, `--force` won't help, and grooming has already decided each one:
   move it to the track the new plan gives it, or close it if it's done, and list what you

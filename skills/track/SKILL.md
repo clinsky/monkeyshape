@@ -23,8 +23,8 @@ new work. Never work a track from outside its worktree.
 - AGENTS.md, and whatever the charter points at (often plan/MILESTONE.md, for the
   interfaces this track owns or consumes).
 - The queue: `bd list --label track:<name>` for every open bead, including the one the last
-  session left in progress and those blocked on other tracks; `bd ready --label
-  track:<name>` for what can start now; `bd show` for each bead you take.
+  session left in progress and those blocked on other tracks;
+  `bd ready --label track:<name>` for what can start now; `bd show` for each bead you take.
 - Where the code is: `git status`, `git log --oneline main..HEAD`, open PRs from this
   branch (`gh pr list --head track/<name>`), and the gate as AGENTS.md says to run it.
 

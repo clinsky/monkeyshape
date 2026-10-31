@@ -1,6 +1,7 @@
 /**
  * References in prose must resolve, and prose may only point at things a check keeps true.
- * Docs: backticked paths, `bun run` scripts, decision slugs and relative links must exist;
+ * Docs: backticked paths, `bun run` scripts, decision slugs and relative links must exist, and
+ * each backticked span sits on one line, where it can be checked;
  * normative docs may not link into notes/, plan/ or handoffs. Code comments: no links into
  * those either, no `§N` citations, decision slugs must exist, bead ids only in `TODO(id)`.
  */
@@ -129,6 +130,16 @@ export const checkRefs = (config: ResolvedConfig, snapshot: Snapshot): ReadonlyA
       .forEach((line, i) => {
         const n = i + 1;
         checkCommon(doc, n, line);
+        // Lines are read one at a time, so a span split across two is never checked.
+        if ((line.match(/`/g) ?? []).length % 2 === 1)
+          violations.push(
+            violation(
+              "split-code-span",
+              doc,
+              n,
+              "a code span crosses a line break, so the refs check can't see it: keep each `...` span on one line.",
+            ),
+          );
         if (
           normative &&
           NON_NORMATIVE.test(line.replace(/`[^`]*`/g, (span) => span.replaceAll("`", " ")))

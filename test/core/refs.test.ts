@@ -18,6 +18,15 @@ describe("refs in docs", () => {
     ]);
   });
 
+  test("a code span split across lines fails, since its path would never be checked", () => {
+    expect(rules({ "AGENTS.md": "Run `scripts/nope.sh` first." })).toEqual(["refs/missing-path"]);
+    expect(rules({ "AGENTS.md": "Run `scripts/\nnope.sh` first." })).toEqual([
+      "refs/split-code-span",
+      "refs/split-code-span",
+    ]);
+    expect(rules({ "AGENTS.md": "`a` and `b`\n```\nfenced ` stray\n```\n" })).toEqual([]);
+  });
+
   test("bare extensions, node_modules and runtime file names are not checked", () => {
     expect(
       rules({ "AGENTS.md": "`.d.ts`, `.tsx`, `node_modules/effect/AGENTS.md`, `index.jsonl`" }),
