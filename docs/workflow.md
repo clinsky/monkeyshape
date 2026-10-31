@@ -66,7 +66,7 @@ handoff, all derived from the name by `mshape track`:
 
 Its beads carry the label `track:<name>`; its queue is `bd ready --label track:<name>`. An
 empty queue doesn't mean the track is done: `bd ready` leaves out beads in progress or blocked.
-The track is done when `mshape track list` shows it with 0 open beads.
+The track is done when `mshape track list` shows it with 0 open beads and `merged: yes`.
 
 **Ad-hoc tracks.** For work that didn't come from a milestone, run `mshape track new <name>`
 yourself, open a chat in the worktree it prints and run `/track`. The handoff starts as a

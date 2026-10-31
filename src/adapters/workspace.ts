@@ -49,7 +49,7 @@ const failed = <A>(reason: string): Loaded<A> => ({
   value: undefined,
 });
 
-export const jsonRows = (stdout: string): ReadonlyArray<unknown> | undefined => {
+const jsonRows = (stdout: string): ReadonlyArray<unknown> | undefined => {
   const parsed = parseJsonc(stdout);
   // `bd list --limit 0 --json` wraps the rows as `{ issues: [...] }`; limited lists are bare.
   const rows =
@@ -57,34 +57,57 @@ export const jsonRows = (stdout: string): ReadonlyArray<unknown> | undefined => 
   return Array.isArray(rows) ? rows : undefined;
 };
 
+/** Whether bd can be asked: absent without `.beads/config.yaml`, unavailable without bd. */
+const beadsUnreachable = (root: string) =>
+  Effect.gen(function* () {
+    if (!(yield* exists(root, ".beads/config.yaml")))
+      return { state: "absent" } satisfies Integration;
+    if (Bun.which("bd") === null)
+      return { state: "unavailable", reason: "bd is not on PATH" } satisfies Integration;
+    return undefined;
+  });
+
+/**
+ * Every bead `bd list --all <filters> --json` prints, with the integration state `check` and
+ * `track` both read: absent, unavailable, failed (bd ran and failed, its stderr kept) or ok.
+ */
+export const beadRows = (root: string, filters: ReadonlyArray<string>) =>
+  Effect.gen(function* () {
+    const unreachable = yield* beadsUnreachable(root);
+    if (unreachable !== undefined)
+      return { integration: unreachable, value: undefined } satisfies Loaded<
+        ReadonlyArray<unknown>
+      >;
+    const command = ["bd", "list", "--all", ...filters, "--limit", "0", "--json"];
+    // A spawn that throws is bd failing to run: reported as failed, never an abort.
+    const result = yield* Effect.try(() =>
+      Bun.spawnSync(command, { cwd: root, stdout: "pipe", stderr: "pipe" }),
+    ).pipe(Effect.orElseSucceed(() => undefined));
+    const rows = result?.exitCode === 0 ? jsonRows(result.stdout.toString()) : undefined;
+    if (rows === undefined) {
+      const stderr = result?.stderr.toString().trim() ?? "";
+      return failed<ReadonlyArray<unknown>>(
+        `\`${command.join(" ")}\` exited ${result?.exitCode ?? "without running"} or printed no rows${stderr === "" ? "" : `: ${stderr}`}`,
+      );
+    }
+    return { integration: { state: "ok" }, value: rows } satisfies Loaded<ReadonlyArray<unknown>>;
+  });
+
 /** bd memories and every bead id. A repo without `.beads` is absent; bd missing is unavailable. */
 const beads = (root: string) =>
   Effect.gen(function* () {
     type Value = { memories: ReadonlyMap<string, string>; ids: ReadonlySet<string> };
-    if (!(yield* exists(root, ".beads/config.yaml")))
-      return { integration: { state: "absent" }, value: undefined } satisfies Loaded<Value>;
-    if (Bun.which("bd") === null)
-      return {
-        integration: { state: "unavailable", reason: "bd is not on PATH" },
-        value: undefined,
-      } satisfies Loaded<Value>;
+    const unreachable = yield* beadsUnreachable(root);
+    if (unreachable !== undefined)
+      return { integration: unreachable, value: undefined } satisfies Loaded<Value>;
     const memories = yield* runTool(root, ["bd", "memories", "--json"]);
     const parsedMemories = memories.code === 0 ? parseJsonc(memories.stdout) : undefined;
     if (typeof parsedMemories !== "object" || parsedMemories === null)
       return failed<Value>(`\`bd memories --json\` exited ${memories.code} or printed no object`);
-    const list = yield* runTool(root, [
-      "bd",
-      "list",
-      "--all",
-      "--brief",
-      "--skip-labels",
-      "--limit",
-      "0",
-      "--json",
-    ]);
-    const rows = list.code === 0 ? jsonRows(list.stdout) : undefined;
+    const list = yield* beadRows(root, ["--brief", "--skip-labels"]);
+    const rows = list.value;
     if (rows === undefined)
-      return failed<Value>(`\`bd list --json\` exited ${list.code} or printed no rows`);
+      return { integration: list.integration, value: undefined } satisfies Loaded<Value>;
     const value: Value = {
       memories: new Map(
         Object.entries(parsedMemories).filter(

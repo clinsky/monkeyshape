@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import type { Integration } from "../../src/core/model.ts";
 import {
   openBeadsByTrack,
   parseWorktrees,
@@ -54,7 +55,7 @@ describe("what track rm may do", () => {
     branchCheckedOutAt: [],
     handoffPath: "/r/.git/monkeyshape/handoffs/docs.md",
     handoffExists: true,
-    beads: { state: "ok", open: [] },
+    beads: { integration: { state: "ok" }, setting: "optional", open: [] },
     force: false,
     keepHandoff: false,
   };
@@ -102,7 +103,11 @@ describe("what track rm may do", () => {
       { id: "x-2", title: "Fix the stub", status: "in_progress" },
     ];
     for (const force of [false, true]) {
-      const plan = planRm({ ...facts, force, beads: { state: "ok", open } });
+      const plan = planRm({
+        ...facts,
+        force,
+        beads: { integration: { state: "ok" }, setting: "optional", open },
+      });
       expect(plan.steps).toEqual([]);
       expect(plan.refusals[0]).toContain("`track:docs` still labels 2 bead(s) that aren't closed");
       expect(plan.refusals[0]).toContain("x-2 (in_progress) Fix the stub");
@@ -112,18 +117,36 @@ describe("what track rm may do", () => {
     }
   });
 
-  test("beads that can't answer: a refusal when required, a note when optional or absent", () => {
-    const unreadable = (required: boolean) =>
-      planRm({ ...facts, beads: { state: "unreadable", reason: "bd exited 1", required } });
-    expect(unreadable(true).refusals[0]).toContain('shape.config.ts sets `beads: "required"`');
-    expect(unreadable(false).refusals).toEqual([]);
-    expect(unreadable(false).notes[0]).toContain("open beads were not checked: bd exited 1");
-    expect(unreadable(false).steps).toHaveLength(3);
-    const absent = planRm({ ...facts, beads: { state: "absent" } });
-    expect(absent.notes).toEqual([
+  test("beads that can't answer: refusals and notes as `mshape check` decides them", () => {
+    const plan = (integration: Integration, setting: "optional" | "required", force = false) =>
+      planRm({ ...facts, force, beads: { integration, setting, open: [] } });
+    const failed: Integration = { state: "failed", reason: "database is locked" };
+    const unavailable: Integration = { state: "unavailable", reason: "bd is not on PATH" };
+    const absent: Integration = { state: "absent" };
+
+    // bd ran and failed: the beads can't be seen, under any setting, and --force can't help.
+    for (const setting of ["optional", "required"] as const)
+      for (const force of [false, true]) {
+        const refused = plan(failed, setting, force);
+        expect(refused.refusals[0]).toContain(
+          "bd failed, so the open beads labelled `track:docs` can't be seen: database is locked",
+        );
+        expect(refused.steps).toEqual([]);
+      }
+    expect(plan(unavailable, "required").refusals[0]).toContain(
+      "requires beads, but bd is not on PATH",
+    );
+    expect(plan(absent, "required").refusals[0]).toContain("the repo has no .beads/config.yaml");
+
+    const noted = plan(unavailable, "optional");
+    expect(noted.refusals).toEqual([]);
+    expect(noted.notes[0]).toContain("open beads were not checked: bd is not on PATH");
+    expect(noted.steps).toHaveLength(3);
+    const quiet = plan(absent, "optional");
+    expect(quiet.notes).toEqual([
       "this repo has no beads (no .beads/), so open beads were not checked",
     ]);
-    expect(absent.steps).toHaveLength(3);
+    expect(quiet.steps).toHaveLength(3);
   });
 });
 

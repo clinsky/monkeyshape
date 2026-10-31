@@ -450,22 +450,42 @@ describe("track rm and list with beads", () => {
     expect(await exists(wt("docs"))).toBe(false);
   });
 
-  test("bd failing: a note when beads is optional, a refusal when required", async () => {
+  test("bd failing refuses under the default config, even with --force; list notes it", async () => {
     await setup();
     mshape(repo, "new", "docs");
-    const broken = await fakeBd([], 1);
+    // The open bead is there, but bd can't show it: removing the track would orphan it unseen.
+    const broken = await fakeBd([bead("x-1", "open", ["track:docs"])], 1);
+    for (const flags of [[], ["--force"]]) {
+      const refused = mshapeWith(broken, repo, "rm", "docs", ...flags);
+      expect(refused.code).toBe(1);
+      expect(refused.stderr).toContain(
+        "bd failed, so the open beads labelled `track:docs` can't be seen",
+      );
+    }
+    expect(await exists(wt("docs"))).toBe(true);
+    expect(branches()).toEqual(["main", "track/docs"]);
     expect(mshapeWith(broken, repo, "list").stdout).toContain("note: open beads not counted");
+  });
+
+  test("bd not installed: a note when beads is optional, a refusal when required", async () => {
+    await setup();
+    mshape(repo, "new", "docs");
+    await fakeBd([]);
+    // A PATH with git and nothing else: the CLI spawns only git and bd.
+    await mkdir(`${base}/git-only`);
+    await symlink(Bun.which("git") ?? "git", `${base}/git-only/git`);
+    const noBd = { PATH: `${base}/git-only` };
 
     await writeFile(join(repo, "shape.config.ts"), `export default { beads: "required" };\n`);
-    const refused = mshapeWith(broken, repo, "rm", "docs");
+    const refused = mshapeWith(noBd, repo, "rm", "docs");
     expect(refused.code).toBe(1);
-    expect(refused.stderr).toContain('shape.config.ts sets `beads: "required"`');
+    expect(refused.stderr).toContain("requires beads, but bd is not on PATH");
     expect(await exists(wt("docs"))).toBe(true);
 
     await writeFile(join(repo, "shape.config.ts"), "export default {};\n");
-    const noted = mshapeWith(broken, repo, "rm", "docs");
+    const noted = mshapeWith(noBd, repo, "rm", "docs");
     expect(noted.code).toBe(0);
-    expect(noted.stderr).toContain("note: open beads were not checked");
+    expect(noted.stderr).toContain("note: open beads were not checked: bd is not on PATH");
   });
 
   test("a repo without beads says it didn't check", async () => {

@@ -3,6 +3,8 @@
  * track, what `rm` may delete and in what order, and how `list` reads. Git and the filesystem
  * are read by `src/adapters/tracks.ts`, which hands the facts here.
  */
+import type { ResolvedConfig } from "../schemas/config.ts";
+import { beadsBlocker } from "./check.ts";
 import {
   AGENTS_HANDOFFS_LINK,
   HANDOFFS_LINK,
@@ -14,6 +16,7 @@ import {
   WORKTREES_DIR,
   worktreePath,
 } from "./layout.ts";
+import type { Integration } from "./model.ts";
 
 /** A worktree as `git worktree list --porcelain` reports it. */
 export interface Worktree {
@@ -125,13 +128,15 @@ export const openBeadsByTrack = (
   return byTrack;
 };
 
-/** What beads said about a track's open work. */
-export type BeadsCheck =
-  | { readonly state: "ok"; readonly open: ReadonlyArray<OpenBead> }
-  /** The repo has no beads: nothing to check. */
-  | { readonly state: "absent" }
-  /** Beads is set up but couldn't answer; `required` is the config's `beads: "required"`. */
-  | { readonly state: "unreadable"; readonly reason: string; readonly required: boolean };
+/**
+ * What beads said about a track's open work: the integration state `mshape check` uses, the
+ * config's `beads` setting, and, when the state is ok, the track's beads that aren't closed.
+ */
+export interface BeadsCheck {
+  readonly integration: Integration;
+  readonly setting: ResolvedConfig["beads"];
+  readonly open: ReadonlyArray<OpenBead>;
+}
 
 /** What `track rm` found, before touching anything. */
 export interface RmFacts {
@@ -200,11 +205,13 @@ export const planRm = (facts: RmFacts): RmPlan => {
   const label = trackLabel(facts.track);
   const notes: Array<string> = [];
   const listBeads = `bd list --label ${label} --status open,in_progress,blocked,deferred`;
-  if (facts.beads.state === "absent")
+  const { integration, setting, open } = facts.beads;
+  const blocker = beadsBlocker(setting, integration);
+  if (blocker === undefined && integration.state === "absent")
     notes.push("this repo has no beads (no .beads/), so open beads were not checked");
-  if (facts.beads.state === "unreadable" && !facts.beads.required)
+  if (blocker === undefined && integration.state === "unavailable")
     notes.push(
-      `open beads were not checked: ${facts.beads.reason}. Check by hand with \`${listBeads}\``,
+      `open beads were not checked: ${integration.reason}. Check by hand with \`${listBeads}\``,
     );
 
   if (
@@ -237,17 +244,24 @@ export const planRm = (facts: RmFacts): RmPlan => {
         ? `\`${branch}\` is still registered as checked out at ${elsewhere.path}, which no longer exists: run \`git worktree prune\`, then retry`
         : `\`${branch}\` is checked out at ${elsewhere.path}: switch that checkout to another branch first`,
     );
-  if (facts.beads.state === "ok" && facts.beads.open.length > 0)
+  if (integration.state === "ok" && open.length > 0)
     refusals.push(
       [
-        `\`${label}\` still labels ${facts.beads.open.length} bead(s) that aren't closed, and removing the track would orphan them:`,
-        ...facts.beads.open.map((bead) => `  ${bead.id} (${bead.status}) ${bead.title}`),
+        `\`${label}\` still labels ${open.length} bead(s) that aren't closed, and removing the track would orphan them:`,
+        ...open.map((bead) => `  ${bead.id} (${bead.status}) ${bead.title}`),
         `close each one that's done (\`bd close <id>\`), or move it to the track that will do it (\`bd update <id> --remove-label ${label} --add-label track:<other>\`). --force doesn't override this`,
       ].join("\n    "),
     );
-  if (facts.beads.state === "unreadable" && facts.beads.required)
+  // A failing bd hides the beads, so there is nothing for --force to agree to discard.
+  if (blocker === "failed" && integration.state === "failed")
     refusals.push(
-      `can't check for open beads labelled \`${label}\` (${facts.beads.reason}), and shape.config.ts sets \`beads: "required"\`: get \`bd\` working, then retry`,
+      `bd failed, so the open beads labelled \`${label}\` can't be seen: ${integration.reason}. Get \`bd\` working, then retry; --force doesn't override this`,
+    );
+  if (blocker === "required")
+    refusals.push(
+      integration.state === "absent"
+        ? `shape.config.ts requires beads, but the repo has no .beads/config.yaml, so the open beads labelled \`${label}\` can't be checked: set beads up, or set \`beads: "optional"\``
+        : `shape.config.ts requires beads, but ${"reason" in integration ? integration.reason : "it didn't answer"}, so the open beads labelled \`${label}\` can't be checked: get \`bd\` working, then retry`,
     );
   if (facts.statusError !== undefined)
     refusals.push(
