@@ -24,8 +24,8 @@ import { formatCollisions, formatSync } from "../core/skills.ts";
 const USAGE = `mshape ${pkg.version}
 
   mshape init <name> [--from <spec>]
-      Create ./<name>: a new repo whose gate passes empty. --from installs monkeyshape
-      from <spec> (a tarball path) instead of the registry, to try a release before publishing.
+      Create ./<name>: a new repo whose gate passes, with one starter test. --from installs
+      monkeyshape from <spec> (a tarball path) instead of the registry, to try a release first.
   mshape skills sync
       Refresh the shared skills in .agents/skills from the installed package, after a bump.
       Skills the package doesn't ship are the repo's own and are left alone.
