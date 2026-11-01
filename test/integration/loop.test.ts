@@ -92,7 +92,7 @@ describe("init, then tracks", () => {
     );
     const check = await gate(a);
     expect(check.output).toContain("mshape check passed");
-    expect(check.output).toContain("1 pass");
+    expect(check.output).toContain(" 2 pass");
     expect(check.code).toBe(0);
     expect((await run(a, ["git", "add", "--all"])).code).toBe(0);
     expect((await run(a, ["git", "commit", "--quiet", "-m", "Greet"])).code).toBe(0);
@@ -110,9 +110,10 @@ describe("init, then tracks", () => {
     expect((await run(repo, ["git", "merge", "--quiet", "track/a"])).code).toBe(0);
     // Worktrees sit inside the repo: a tool that walks into .agents/worktrees (a nested biome
     // root, a second copy of the test) breaks the main checkout's gate while any track exists.
+    // Two tests, each once: the template's and track a's.
     const check = await gate(repo);
     expect(check.output).toContain("mshape check passed");
-    expect(check.output).toContain(" 1 pass");
+    expect(check.output).toContain(" 2 pass");
     expect(check.code).toBe(0);
   }, 60_000);
 
@@ -136,7 +137,7 @@ describe("init, then tracks", () => {
     );
     const check = await gate(repo);
     expect(check.output).toContain("mshape check passed");
-    expect(check.output).toContain("1 pass");
+    expect(check.output).toContain(" 2 pass");
     expect(check.code).toBe(0);
   }, 60_000);
 });

@@ -138,6 +138,9 @@ describe("mshape init", () => {
     const check = await run(join(work, "demo"), [process.execPath, "run", "check"]);
     expect(check.output).toContain("mshape check passed");
     expect(check.output).not.toContain("note:");
+    // A first run that says "error:" teaches a new user to ignore the gate.
+    expect(check.output).not.toContain("error:");
+    expect(check.output).toContain(" 1 pass");
     expect(check.code).toBe(0);
   }, 60_000);
 
