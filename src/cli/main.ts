@@ -44,13 +44,15 @@ const USAGE = `mshape ${pkg.version}
       the shared handoffs and tracks.sharedPaths linked in, and a stub handoff. Shared paths
       come from the main checkout's shape.config.ts, from whichever checkout this runs.
   mshape track list
-      Every track: handoff status, open beads, commits not in main, worktree. Restores missing
-      handoff links; a track label with open beads and no track left is listed too.
+      Every track: handoff status, open beads, commits in neither main nor origin/main,
+      worktree. Restores missing handoff links; a track label with open beads and no track
+      left is listed too. Offline: run git fetch to see merges done on the remote.
   mshape track current
       The track of this directory, name only; exit 1, saying why, outside a track.
   mshape track rm <name> [--force] [--keep-handoff]
-      Remove a finished track: worktree, branch, handoff. Refuses on uncommitted changes or
-      commits not in main; --force discards them. Also refuses while beads labelled
+      Remove a finished track: worktree, branch, handoff. Fetches main's upstream first, then
+      refuses on uncommitted changes or commits in neither main nor origin/main; --force
+      discards them. Also refuses while beads labelled
       track:<name> aren't closed, which --force doesn't override. Never touches main or other tracks.
   mshape review <n>
       Pull request <n>'s head from origin in a detached worktree .agents/worktrees/<repo>.pr-<n>,
@@ -144,7 +146,16 @@ const track = (root: string, args: ReadonlyArray<string>) =>
         output: yield* trackRm(
           root,
           name,
-          { force: flags.includes("--force"), keepHandoff: flags.includes("--keep-handoff") },
+          {
+            force: flags.includes("--force"),
+            keepHandoff: flags.includes("--keep-handoff"),
+            // rm fetches main's upstream; with no terminal to answer, a prompt would hang it.
+            fetchEnv: {
+              ...process.env,
+              GIT_TERMINAL_PROMPT: "0",
+              GIT_SSH_COMMAND: process.env["GIT_SSH_COMMAND"] ?? "ssh -o BatchMode=yes",
+            },
+          },
           (line) => Effect.sync(() => console.error(line)),
         ),
         code: 0,
