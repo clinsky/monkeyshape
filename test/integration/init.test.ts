@@ -134,7 +134,7 @@ describe("mshape init", () => {
     expect(await Bun.file(join(work, "no-beads", ".beads", "config.yaml")).exists()).toBe(false);
   });
 
-  test("its gate passes empty, with nothing skipped", async () => {
+  test("its gate passes with its one starter test, and nothing skipped or in error", async () => {
     const check = await run(join(work, "demo"), [process.execPath, "run", "check"]);
     expect(check.output).toContain("mshape check passed");
     expect(check.output).not.toContain("note:");
