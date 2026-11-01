@@ -41,10 +41,24 @@ import { beadRows } from "./workspace.ts";
 
 export const refuse = (reason: string) => Effect.fail(new TrackError({ reason }));
 
-export const git = (cwd: string, args: ReadonlyArray<string>) =>
+export const git = (
+  cwd: string,
+  args: ReadonlyArray<string>,
+  /** `env` replaces the environment whole: the composition root builds it. */
+  options: {
+    readonly env?: Readonly<Record<string, string | undefined>>;
+    readonly timeout?: number;
+  } = {},
+) =>
   Effect.try({
     try: () => {
-      const child = Bun.spawnSync(["git", ...args], { cwd, stdout: "pipe", stderr: "pipe" });
+      const child = Bun.spawnSync(["git", ...args], {
+        cwd,
+        stdout: "pipe",
+        stderr: "pipe",
+        ...(options.env === undefined ? {} : { env: { ...options.env } }),
+        ...(options.timeout === undefined ? {} : { timeout: options.timeout }),
+      });
       return {
         stdout: child.stdout.toString(),
         stderr: child.stderr.toString().trim(),
@@ -133,8 +147,45 @@ const requireMain = (repo: string) =>
       : refuse(`this repository has no \`${MAIN_BRANCH}\` branch: tracks branch from it`),
   );
 
-const unmergedCount = (repo: string, branch: string) =>
-  Effect.map(gitOk(repo, ["rev-list", "--count", `${head(MAIN_BRANCH)}..${head(branch)}`]), Number);
+/**
+ * What counts as merged: `main`, and its upstream (`origin/main`) when that ref exists, so a PR
+ * merged on the remote counts before anyone pulls `main`. Full refs, for the reason `head` gives.
+ */
+const mergeTargets = (repo: string) =>
+  Effect.gen(function* () {
+    const found = yield* git(repo, ["for-each-ref", "--format=%(upstream)", head(MAIN_BRANCH)]);
+    const upstream = found.code === 0 ? found.stdout.trim() : "";
+    const present =
+      upstream !== "" &&
+      (yield* git(repo, ["show-ref", "--verify", "--quiet", upstream])).code === 0;
+    return present ? [head(MAIN_BRANCH), upstream] : [head(MAIN_BRANCH)];
+  });
+
+/** `refs/heads/main` → `main`, `refs/remotes/origin/main` → `origin/main`: as people say them. */
+const shortRef = (ref: string): string => ref.replace(/^refs\/(heads|remotes)\//, "");
+
+/**
+ * Brings `main`'s upstream up to date, so `rm` sees a merge done on the remote. It only moves
+ * remote-tracking refs, never a branch. `env` is from the composition root and must keep git
+ * from prompting for credentials; it gives up after a while. A failure is a note, and the
+ * judgement falls back to the refs already here.
+ */
+const fetchUpstream = (repo: string, env: Readonly<Record<string, string | undefined>>) =>
+  Effect.gen(function* () {
+    const remote = (yield* git(repo, ["config", `branch.${MAIN_BRANCH}.remote`])).stdout.trim();
+    const merge = (yield* git(repo, ["config", `branch.${MAIN_BRANCH}.merge`])).stdout.trim();
+    if (remote === "" || merge === "") return undefined;
+    const fetched = yield* git(repo, ["fetch", "--quiet", remote, merge], {
+      env,
+      timeout: 30_000,
+    });
+    return fetched.code === 0
+      ? undefined
+      : `couldn't fetch \`${MAIN_BRANCH}\` from \`${remote}\` (${fetched.stderr || `exit ${fetched.code}`}), so merges done there since the last fetch aren't seen`;
+  });
+
+const unmergedCount = (repo: string, branch: string, targets: ReadonlyArray<string>) =>
+  Effect.map(gitOk(repo, ["rev-list", "--count", head(branch), "--not", ...targets]), Number);
 
 /**
  * `link` → `target`. Relative when the link's real directory is inside the repo, so it survives
@@ -323,6 +374,8 @@ export const trackList = (cwd: string) =>
       ),
     );
     const beads = yield* trackBeads(repo);
+    // No fetch here: list stays offline and fast, and rm fetches before it decides.
+    const targets = yield* mergeTargets(repo);
     // A label with open beads is a track too, even after its worktree is gone: that work is orphaned.
     const labelled = [...beads.byTrack.keys()];
     const tracks = [...new Set([...byTrack.keys(), ...branches, ...handoffs, ...labelled])]
@@ -351,7 +404,7 @@ export const trackList = (cwd: string) =>
           beads:
             beads.integration.state === "ok" ? (beads.byTrack.get(track)?.length ?? 0) : undefined,
           ahead: branches.includes(track)
-            ? yield* unmergedCount(repo, trackBranch(track))
+            ? yield* unmergedCount(repo, trackBranch(track), targets)
             : undefined,
           worktree: worktree === undefined ? undefined : posix.relative(repo, worktree.path),
           worktreeBranch:
@@ -380,7 +433,12 @@ export const trackCurrent = (cwd: string) =>
 export const trackRm = (
   cwd: string,
   track: string,
-  options: { readonly force: boolean; readonly keepHandoff: boolean },
+  options: {
+    readonly force: boolean;
+    readonly keepHandoff: boolean;
+    /** The environment for fetching `main`'s upstream: one where git can't prompt. */
+    readonly fetchEnv: Readonly<Record<string, string | undefined>>;
+  },
   say: (line: string) => Effect.Effect<void>,
 ) =>
   Effect.gen(function* () {
@@ -401,6 +459,9 @@ export const trackRm = (
       status.code === 0 ? status.stdout.split("\n").filter((line) => line.trim() !== "") : [];
     const hasBranch = yield* branchExists(repo, branch);
     const handoff = handoffPath(common, track);
+    const unfetched = hasBranch ? yield* fetchUpstream(repo, options.fetchEnv) : undefined;
+    if (unfetched !== undefined) yield* say(`note: ${unfetched}`);
+    const targets = yield* mergeTargets(repo);
     const found = yield* trackBeads(repo);
     // A repo without shape.config.ts gets the default, `optional`; a failing bd refuses either way.
     const setting = yield* loadConfig(repo).pipe(
@@ -420,7 +481,8 @@ export const trackRm = (
       changes,
       statusError: status.code === 0 ? undefined : status.stderr || `exit ${status.code}`,
       branchExists: hasBranch,
-      unmerged: hasBranch ? yield* unmergedCount(repo, branch) : 0,
+      unmerged: hasBranch ? yield* unmergedCount(repo, branch, targets) : 0,
+      mergeTargets: targets.map(shortRef),
       branchCheckedOutAt: registered.filter(
         (candidate) => candidate.branch === branch && candidate.path !== path,
       ),
