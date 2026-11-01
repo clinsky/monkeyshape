@@ -8,7 +8,6 @@ import { beadsBlocker } from "./check.ts";
 import {
   AGENTS_HANDOFFS_LINK,
   HANDOFFS_LINK,
-  MAIN_BRANCH,
   TRACK_NAME,
   trackBranch,
   trackLabel,
@@ -151,8 +150,10 @@ export interface RmFacts {
   /** Set when `git status` failed in the worktree: its changes can't be known. */
   readonly statusError: string | undefined;
   readonly branchExists: boolean;
-  /** Commits on the branch that are not in `main`. */
+  /** Commits on the branch in none of `mergeTargets`. */
   readonly unmerged: number;
+  /** What counts as merged, as people say them: `main`, and `origin/main` when it exists. */
+  readonly mergeTargets: ReadonlyArray<string>;
   /** Other checkouts that have the branch checked out. */
   readonly branchCheckedOutAt: ReadonlyArray<Worktree>;
   readonly handoffPath: string;
@@ -279,13 +280,12 @@ export const planRm = (facts: RmFacts): RmPlan => {
       );
   }
   if (facts.branchExists && facts.unmerged > 0) {
+    const targets = facts.mergeTargets.map((target) => `\`${target}\``).join(" or ");
     if (facts.force)
-      warnings.push(
-        `deleting \`${branch}\` with ${facts.unmerged} commit(s) not in \`${MAIN_BRANCH}\``,
-      );
+      warnings.push(`deleting \`${branch}\` with ${facts.unmerged} commit(s) not in ${targets}`);
     else
       refusals.push(
-        `\`${branch}\` has ${facts.unmerged} commit(s) not in \`${MAIN_BRANCH}\`: merge them, or if they were merged upstream update \`${MAIN_BRANCH}\` (\`git fetch origin ${MAIN_BRANCH}:${MAIN_BRANCH}\`), or pass --force to delete them`,
+        `\`${branch}\` has ${facts.unmerged} commit(s) not in ${targets}: merge them first (a squash merge leaves the originals unmerged), or pass --force to delete them`,
       );
   }
 

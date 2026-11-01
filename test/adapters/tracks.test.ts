@@ -524,3 +524,57 @@ describe("track rm and list with beads", () => {
     30_000,
   );
 });
+
+/**
+ * A PR merged on the remote, as GitHub does it, while the main checkout's `main` is behind:
+ * `origin` is a bare repo, and a second clone stands in for the merge button.
+ */
+describe("merged upstream, before anyone pulls main", () => {
+  const merged = async () => {
+    await setup();
+    const origin = `${base}/origin.git`;
+    sh(base, "init", "-q", "--bare", "-b", "main", origin);
+    sh(repo, "remote", "add", "origin", origin);
+    sh(repo, "push", "-q", "-u", "origin", "main");
+    mshape(repo, "new", "docs");
+    await writeFile(`${wt("docs")}/page.md`, "page");
+    sh(wt("docs"), "add", ".");
+    sh(wt("docs"), "commit", "-qm", "page");
+    sh(wt("docs"), "push", "-q", "origin", "track/docs");
+
+    const github = `${base}/github`;
+    sh(base, "clone", "-q", origin, github);
+    sh(github, "config", "user.name", "Test");
+    sh(github, "config", "user.email", "test@example.com");
+    sh(github, "merge", "-q", "--no-ff", "--no-edit", "origin/track/docs");
+    sh(github, "push", "-q", "origin", "main");
+    return origin;
+  };
+
+  test("rm fetches main's upstream, sees the merge and removes the track; local main is untouched", async () => {
+    await merged();
+    const mainBefore = sh(repo, "rev-parse", "main");
+    const removed = mshape(repo, "rm", "docs");
+    expect(removed.code).toBe(0);
+    expect(removed.stdout).toContain("removed branch `track/docs`");
+    expect(await exists(wt("docs"))).toBe(false);
+    expect(sh(repo, "rev-parse", "main")).toBe(mainBefore);
+  });
+
+  test("list counts a branch merged into origin/main as merged, once that ref is fetched", async () => {
+    await merged();
+    expect(mshape(repo, "list").stdout).toMatch(/^docs\s+stub\s+-\s+1\s+no/m);
+    sh(repo, "fetch", "-q", "origin");
+    expect(mshape(repo, "list").stdout).toMatch(/^docs\s+stub\s+-\s+0\s+yes/m);
+  });
+
+  test("a remote it can't reach is a note, and rm judges on the refs it has", async () => {
+    const origin = await merged();
+    await rename(origin, `${base}/gone.git`);
+    const refused = mshape(repo, "rm", "docs");
+    expect(refused.code).toBe(1);
+    expect(refused.stderr).toContain("note: couldn't fetch `main` from `origin`");
+    expect(refused.stderr).toContain("1 commit(s) not in `main` or `origin/main`");
+    expect(await exists(wt("docs"))).toBe(true);
+  });
+});
