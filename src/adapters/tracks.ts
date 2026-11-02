@@ -208,23 +208,26 @@ const patchIds = (repo: string, patch: string) =>
   );
 
 /**
- * Merging the branch into `target` would change nothing: its work is all there, whichever way
- * it got there. Needs git 2.38 (`merge-tree --write-tree`); older git answers no, and
- * `patchMerged` still decides. A conflict also answers no.
+ * Whether merging the branch into `target` would change nothing, so its work is all there,
+ * whichever way it got there. A clean merge is exact about content, so its answer is final
+ * both ways. `unknown` when git can't say: before 2.38 (no `merge-tree --write-tree`), or on a
+ * conflict.
  */
 const contentMerged = (repo: string, branch: string, target: string) =>
   Effect.gen(function* () {
     const merged = yield* git(repo, ["merge-tree", "--write-tree", target, head(branch)]);
-    if (merged.code !== 0) return false;
     const tree = yield* git(repo, ["rev-parse", `${target}^{tree}`]);
-    return tree.code === 0 && merged.stdout.split("\n")[0] === tree.stdout.trim();
+    if (merged.code !== 0 || tree.code !== 0) return "unknown" as const;
+    return merged.stdout.split("\n")[0] === tree.stdout.trim() ? ("yes" as const) : ("no" as const);
   });
 
 /**
- * The branch's changes are already in `target` as patches: the whole change as one commit (a
- * squash), or every commit one by one (a rebase). Patch ids without context (`-U0`), so a
- * change `main` made to a nearby line before the merge doesn't hide it; ids ignore line
- * numbers already. Any git version.
+ * The fallback when `contentMerged` can't say: the branch's changes are already in `target`
+ * as patches, the whole change as one commit (a squash) or every commit one by one (a
+ * rebase). Patch ids keep their default three lines of context. Without context they ignore
+ * line numbers too, so one fixed copy of a repeated line would match another copy fixed in
+ * `main`, and `rm` would delete unmerged work. With context, a squash after `main` edited a
+ * nearby line isn't recognised, and `rm` asks for --force instead. Any git version.
  */
 export const patchMerged = (repo: string, branch: string, target: string) =>
   Effect.gen(function* () {
@@ -232,9 +235,9 @@ export const patchMerged = (repo: string, branch: string, target: string) =>
     if (found.code !== 0) return false;
     const base = found.stdout.trim();
     const since = (tip: string) =>
-      gitOk(repo, ["log", "-p", "-U0", "--no-merges", "--format=commit %H", `${base}..${tip}`]);
+      gitOk(repo, ["log", "-p", "--no-merges", "--format=commit %H", `${base}..${tip}`]);
     const landed = new Set(yield* patchIds(repo, yield* since(target)));
-    const whole = yield* patchIds(repo, yield* gitOk(repo, ["diff", "-U0", base, head(branch)]));
+    const whole = yield* patchIds(repo, yield* gitOk(repo, ["diff", base, head(branch)]));
     if (whole.length > 0 && whole.every((id) => landed.has(id))) return true;
     const each = yield* patchIds(repo, yield* since(head(branch)));
     return each.length > 0 && each.every((id) => landed.has(id));
@@ -242,9 +245,9 @@ export const patchMerged = (repo: string, branch: string, target: string) =>
 
 /**
  * Commits on the branch in no target, and whether its work is merged anyway, by any of the
- * ways a PR merges: a merge commit (every commit contained), a rebase or a squash (the work is
- * there as content, or as patches). Either test saying so is enough; each misses cases the
- * other catches, and neither says "merged" for work that isn't there.
+ * ways a PR merges: a merge commit (every commit contained), a rebase or a squash. Content
+ * decides when git can; patches only when it can't. Erring toward "unmerged" is the safe
+ * side: it asks for --force, where a wrong "merged" deletes work without asking.
  */
 const mergeState = (repo: string, branch: string, targets: ReadonlyArray<string>) =>
   Effect.gen(function* () {
@@ -252,12 +255,12 @@ const mergeState = (repo: string, branch: string, targets: ReadonlyArray<string>
       yield* gitOk(repo, ["rev-list", "--count", head(branch), "--not", ...targets]),
     );
     if (ahead === 0) return { ahead, merged: true };
-    for (const target of targets)
-      if (
-        (yield* contentMerged(repo, branch, target)) ||
-        (yield* patchMerged(repo, branch, target))
-      )
+    for (const target of targets) {
+      const content = yield* contentMerged(repo, branch, target);
+      if (content === "yes") return { ahead, merged: true };
+      if (content === "unknown" && (yield* patchMerged(repo, branch, target)))
         return { ahead, merged: true };
+    }
     return { ahead, merged: false };
   });
 

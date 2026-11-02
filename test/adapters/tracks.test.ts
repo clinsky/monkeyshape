@@ -650,20 +650,39 @@ describe("merged upstream, before anyone pulls main", () => {
     expect(await exists(`${base}/ssh.log`)).toBe(true);
   });
 
-  test("a squash after main edited a nearby line counts as merged, by content and by patch", async () => {
+  test("a squash after main edited a nearby line counts as merged; older git's patch ids refuse it", async () => {
     await merged("squash-nearby");
     sh(repo, "fetch", "-q", "origin");
-    // Each test alone must see it: patch ids are all that older git (before 2.38) has.
-    const byPatch = (branch: string) =>
-      Effect.runPromise(patchMerged(repo, branch, "refs/remotes/origin/main"));
-    expect(await byPatch("track/docs")).toBe(true);
     expect(mshape(repo, "list").stdout).toMatch(/^docs\s+stub\s+-\s+3\s+yes/m);
+    // Without merge-tree (git before 2.38), patches with context don't match: rm asks for --force.
+    expect(
+      await Effect.runPromise(patchMerged(repo, "track/docs", "refs/remotes/origin/main")),
+    ).toBe(false);
     expect(mshape(repo, "rm", "docs").code).toBe(0);
+  });
 
-    mshape(repo, "new", "open");
-    await writeFile(`${wt("open")}/new.md`, "not merged anywhere");
-    sh(wt("open"), "add", ".");
-    sh(wt("open"), "commit", "-qm", "new");
-    expect(await byPatch("track/open")).toBe(false);
+  test("one copy of a repeated line fixed on each side: unmerged, and rm refuses", async () => {
+    await setup();
+    // The same line twice, far apart: without context, the two fixes would look like one patch.
+    const code = [
+      "  retrun x;",
+      ...Array.from({ length: 30 }, (_, i) => `  step(${i});`),
+      "  retrun x;",
+    ];
+    await writeFile(`${repo}/code.txt`, `${code.join("\n")}\n`);
+    sh(repo, "add", ".");
+    sh(repo, "commit", "-qm", "code");
+    mshape(repo, "new", "dup");
+    const fixed = (index: number) =>
+      `${code.map((line, i) => (i === index ? "  return x;" : line)).join("\n")}\n`;
+    await writeFile(`${wt("dup")}/code.txt`, fixed(0));
+    sh(wt("dup"), "commit", "-qam", "fix the first");
+    await writeFile(`${repo}/code.txt`, fixed(code.length - 1));
+    sh(repo, "commit", "-qam", "fix the last");
+
+    expect(mshape(repo, "list").stdout).toMatch(/^dup\s+stub\s+-\s+1\s+no/m);
+    expect(await Effect.runPromise(patchMerged(repo, "track/dup", "refs/heads/main"))).toBe(false);
+    expect(mshape(repo, "rm", "dup").code).toBe(1);
+    expect(branches()).toEqual(["main", "track/dup"]);
   });
 });
