@@ -17,6 +17,8 @@ import {
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { Effect } from "effect";
+import { patchMerged } from "../../src/adapters/tracks.ts";
 import { parseHandoff } from "../../src/core/handoff.ts";
 
 const CLI = join(import.meta.dir, "..", "..", "src", "cli", "main.ts");
@@ -531,8 +533,12 @@ describe("track rm and list with beads", () => {
  */
 describe("merged upstream, before anyone pulls main", () => {
   /** The track's two commits reach origin's main by `style`, after main has moved on there. */
-  const merged = async (style: "merge" | "squash" | "rebase" = "merge") => {
+  const merged = async (style: "merge" | "squash" | "rebase" | "squash-nearby" = "merge") => {
     await setup();
+    const lines = Array.from({ length: 20 }, (_, i) => `line ${i + 1}`);
+    await writeFile(`${repo}/lines.txt`, `${lines.join("\n")}\n`);
+    sh(repo, "add", ".");
+    sh(repo, "commit", "-qm", "lines");
     const origin = `${base}/origin.git`;
     sh(base, "init", "-q", "--bare", "-b", "main", origin);
     sh(repo, "remote", "add", "origin", origin);
@@ -543,6 +549,11 @@ describe("merged upstream, before anyone pulls main", () => {
       sh(wt("docs"), "add", ".");
       sh(wt("docs"), "commit", "-qm", page);
     }
+    if (style === "squash-nearby") {
+      const edited = lines.map((line, i) => (i === 9 ? "line 10, by the track" : line));
+      await writeFile(`${wt("docs")}/lines.txt`, `${edited.join("\n")}\n`);
+      sh(wt("docs"), "commit", "-qam", "line 10");
+    }
     sh(wt("docs"), "push", "-q", "origin", "track/docs");
 
     const github = `${base}/github`;
@@ -550,10 +561,16 @@ describe("merged upstream, before anyone pulls main", () => {
     sh(github, "config", "user.name", "Test");
     sh(github, "config", "user.email", "test@example.com");
     await writeFile(`${github}/other.md`, "meanwhile");
+    // Two lines from the track's change: inside the three lines of context a patch carries.
+    if (style === "squash-nearby")
+      await writeFile(
+        `${github}/lines.txt`,
+        `${lines.map((line, i) => (i === 11 ? "line 12, by main" : line)).join("\n")}\n`,
+      );
     sh(github, "add", ".");
     sh(github, "commit", "-qm", "main moves on");
     if (style === "merge") sh(github, "merge", "-q", "--no-ff", "--no-edit", "origin/track/docs");
-    if (style === "squash") {
+    if (style === "squash" || style === "squash-nearby") {
       sh(github, "merge", "-q", "--squash", "origin/track/docs");
       sh(github, "commit", "-qm", "docs (#1)");
     }
@@ -631,5 +648,22 @@ describe("merged upstream, before anyone pulls main", () => {
     const result = mshape(repo, "rm", "docs");
     expect(result.stderr).toContain("note: couldn't fetch `main` from `origin`");
     expect(await exists(`${base}/ssh.log`)).toBe(true);
+  });
+
+  test("a squash after main edited a nearby line counts as merged, by content and by patch", async () => {
+    await merged("squash-nearby");
+    sh(repo, "fetch", "-q", "origin");
+    // Each test alone must see it: patch ids are all that older git (before 2.38) has.
+    const byPatch = (branch: string) =>
+      Effect.runPromise(patchMerged(repo, branch, "refs/remotes/origin/main"));
+    expect(await byPatch("track/docs")).toBe(true);
+    expect(mshape(repo, "list").stdout).toMatch(/^docs\s+stub\s+-\s+3\s+yes/m);
+    expect(mshape(repo, "rm", "docs").code).toBe(0);
+
+    mshape(repo, "new", "open");
+    await writeFile(`${wt("open")}/new.md`, "not merged anywhere");
+    sh(wt("open"), "add", ".");
+    sh(wt("open"), "commit", "-qm", "new");
+    expect(await byPatch("track/open")).toBe(false);
   });
 });

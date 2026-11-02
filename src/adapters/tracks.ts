@@ -48,6 +48,7 @@ export const git = (
   options: {
     readonly env?: Readonly<Record<string, string | undefined>>;
     readonly timeout?: number;
+    readonly stdin?: string;
   } = {},
 ) =>
   Effect.try({
@@ -58,6 +59,7 @@ export const git = (
         stderr: "pipe",
         ...(options.env === undefined ? {} : { env: { ...options.env } }),
         ...(options.timeout === undefined ? {} : { timeout: options.timeout }),
+        ...(options.stdin === undefined ? {} : { stdin: Buffer.from(options.stdin) }),
       });
       return {
         stdout: child.stdout.toString(),
@@ -196,12 +198,53 @@ const fetchUpstream = (repo: string, env: Readonly<Record<string, string | undef
       : `couldn't fetch \`${MAIN_BRANCH}\` from \`${remote}\` (${why}), so merges done there since the last fetch aren't seen`;
   });
 
+/** `git patch-id --stable` of a patch text: one id per commit, or one for a bare diff. */
+const patchIds = (repo: string, patch: string) =>
+  Effect.map(git(repo, ["patch-id", "--stable"], { stdin: patch }), (result) =>
+    result.stdout
+      .split("\n")
+      .map((line) => line.split(" ")[0] ?? "")
+      .filter((id) => id !== ""),
+  );
+
+/**
+ * Merging the branch into `target` would change nothing: its work is all there, whichever way
+ * it got there. Needs git 2.38 (`merge-tree --write-tree`); older git answers no, and
+ * `patchMerged` still decides. A conflict also answers no.
+ */
+const contentMerged = (repo: string, branch: string, target: string) =>
+  Effect.gen(function* () {
+    const merged = yield* git(repo, ["merge-tree", "--write-tree", target, head(branch)]);
+    if (merged.code !== 0) return false;
+    const tree = yield* git(repo, ["rev-parse", `${target}^{tree}`]);
+    return tree.code === 0 && merged.stdout.split("\n")[0] === tree.stdout.trim();
+  });
+
+/**
+ * The branch's changes are already in `target` as patches: the whole change as one commit (a
+ * squash), or every commit one by one (a rebase). Patch ids without context (`-U0`), so a
+ * change `main` made to a nearby line before the merge doesn't hide it; ids ignore line
+ * numbers already. Any git version.
+ */
+export const patchMerged = (repo: string, branch: string, target: string) =>
+  Effect.gen(function* () {
+    const found = yield* git(repo, ["merge-base", target, head(branch)]);
+    if (found.code !== 0) return false;
+    const base = found.stdout.trim();
+    const since = (tip: string) =>
+      gitOk(repo, ["log", "-p", "-U0", "--no-merges", "--format=commit %H", `${base}..${tip}`]);
+    const landed = new Set(yield* patchIds(repo, yield* since(target)));
+    const whole = yield* patchIds(repo, yield* gitOk(repo, ["diff", "-U0", base, head(branch)]));
+    if (whole.length > 0 && whole.every((id) => landed.has(id))) return true;
+    const each = yield* patchIds(repo, yield* since(head(branch)));
+    return each.length > 0 && each.every((id) => landed.has(id));
+  });
+
 /**
  * Commits on the branch in no target, and whether its work is merged anyway, by any of the
- * ways a PR merges: a merge commit (every commit contained), a rebase (every commit's patch is
- * in a target, `git cherry`), or a squash (the branch's whole change, as one synthetic commit
- * on its merge base, is a patch in a target). The synthetic commit is a dangling object that
- * nothing references; gc removes it. A branch whose work differs at all reads as unmerged.
+ * ways a PR merges: a merge commit (every commit contained), a rebase or a squash (the work is
+ * there as content, or as patches). Either test saying so is enough; each misses cases the
+ * other catches, and neither says "merged" for work that isn't there.
  */
 const mergeState = (repo: string, branch: string, targets: ReadonlyArray<string>) =>
   Effect.gen(function* () {
@@ -209,27 +252,12 @@ const mergeState = (repo: string, branch: string, targets: ReadonlyArray<string>
       yield* gitOk(repo, ["rev-list", "--count", head(branch), "--not", ...targets]),
     );
     if (ahead === 0) return { ahead, merged: true };
-    for (const target of targets) {
-      const cherry = yield* git(repo, ["cherry", target, head(branch)]);
-      if (cherry.code === 0 && !/^\+/m.test(cherry.stdout)) return { ahead, merged: true };
-      const base = yield* git(repo, ["merge-base", target, head(branch)]);
-      if (base.code !== 0) continue;
-      const squash = yield* git(repo, [
-        "-c",
-        "user.name=mshape",
-        "-c",
-        "user.email=mshape@invalid",
-        "commit-tree",
-        `${head(branch)}^{tree}`,
-        "-p",
-        base.stdout.trim(),
-        "-m",
-        "mshape: was this branch squash-merged?",
-      ]);
-      if (squash.code !== 0) continue;
-      const squashed = yield* git(repo, ["cherry", target, squash.stdout.trim()]);
-      if (squashed.code === 0 && squashed.stdout.startsWith("-")) return { ahead, merged: true };
-    }
+    for (const target of targets)
+      if (
+        (yield* contentMerged(repo, branch, target)) ||
+        (yield* patchMerged(repo, branch, target))
+      )
+        return { ahead, merged: true };
     return { ahead, merged: false };
   });
 
