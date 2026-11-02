@@ -52,6 +52,8 @@ describe("what track rm may do", () => {
     statusError: undefined,
     branchExists: true,
     unmerged: 0,
+    merged: true,
+    mergeTargets: ["main"],
     branchCheckedOutAt: [],
     handoffPath: "/r/.git/monkeyshape/handoffs/docs.md",
     handoffExists: true,

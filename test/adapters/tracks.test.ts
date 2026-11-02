@@ -17,6 +17,8 @@ import {
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { Effect } from "effect";
+import { patchMerged } from "../../src/adapters/tracks.ts";
 import { parseHandoff } from "../../src/core/handoff.ts";
 
 const CLI = join(import.meta.dir, "..", "..", "src", "cli", "main.ts");
@@ -523,4 +525,164 @@ describe("track rm and list with beads", () => {
     },
     30_000,
   );
+});
+
+/**
+ * A PR merged on the remote, as GitHub does it, while the main checkout's `main` is behind:
+ * `origin` is a bare repo, and a second clone stands in for the merge button.
+ */
+describe("merged upstream, before anyone pulls main", () => {
+  /** The track's two commits reach origin's main by `style`, after main has moved on there. */
+  const merged = async (style: "merge" | "squash" | "rebase" | "squash-nearby" = "merge") => {
+    await setup();
+    const lines = Array.from({ length: 20 }, (_, i) => `line ${i + 1}`);
+    await writeFile(`${repo}/lines.txt`, `${lines.join("\n")}\n`);
+    sh(repo, "add", ".");
+    sh(repo, "commit", "-qm", "lines");
+    const origin = `${base}/origin.git`;
+    sh(base, "init", "-q", "--bare", "-b", "main", origin);
+    sh(repo, "remote", "add", "origin", origin);
+    sh(repo, "push", "-q", "-u", "origin", "main");
+    mshape(repo, "new", "docs");
+    for (const page of ["one", "two"]) {
+      await writeFile(`${wt("docs")}/${page}.md`, page);
+      sh(wt("docs"), "add", ".");
+      sh(wt("docs"), "commit", "-qm", page);
+    }
+    if (style === "squash-nearby") {
+      const edited = lines.map((line, i) => (i === 9 ? "line 10, by the track" : line));
+      await writeFile(`${wt("docs")}/lines.txt`, `${edited.join("\n")}\n`);
+      sh(wt("docs"), "commit", "-qam", "line 10");
+    }
+    sh(wt("docs"), "push", "-q", "origin", "track/docs");
+
+    const github = `${base}/github`;
+    sh(base, "clone", "-q", origin, github);
+    sh(github, "config", "user.name", "Test");
+    sh(github, "config", "user.email", "test@example.com");
+    await writeFile(`${github}/other.md`, "meanwhile");
+    // Two lines from the track's change: inside the three lines of context a patch carries.
+    if (style === "squash-nearby")
+      await writeFile(
+        `${github}/lines.txt`,
+        `${lines.map((line, i) => (i === 11 ? "line 12, by main" : line)).join("\n")}\n`,
+      );
+    sh(github, "add", ".");
+    sh(github, "commit", "-qm", "main moves on");
+    if (style === "merge") sh(github, "merge", "-q", "--no-ff", "--no-edit", "origin/track/docs");
+    if (style === "squash" || style === "squash-nearby") {
+      sh(github, "merge", "-q", "--squash", "origin/track/docs");
+      sh(github, "commit", "-qm", "docs (#1)");
+    }
+    if (style === "rebase") {
+      sh(github, "switch", "-qc", "rebased", "origin/track/docs");
+      sh(github, "rebase", "-q", "main");
+      sh(github, "switch", "-q", "main");
+      sh(github, "merge", "-q", "--ff-only", "rebased");
+    }
+    sh(github, "push", "-q", "origin", "main");
+    return origin;
+  };
+
+  test("rm fetches main's upstream, sees the merge and removes the track; local main is untouched", async () => {
+    await merged();
+    const mainBefore = sh(repo, "rev-parse", "main");
+    const removed = mshape(repo, "rm", "docs");
+    expect(removed.code).toBe(0);
+    expect(removed.stdout).toContain("removed branch `track/docs`");
+    expect(await exists(wt("docs"))).toBe(false);
+    expect(sh(repo, "rev-parse", "main")).toBe(mainBefore);
+  });
+
+  test("list counts a branch merged into origin/main as merged, once that ref is fetched", async () => {
+    await merged();
+    expect(mshape(repo, "list").stdout).toMatch(/^docs\s+stub\s+-\s+2\s+no/m);
+    sh(repo, "fetch", "-q", "origin");
+    expect(mshape(repo, "list").stdout).toMatch(/^docs\s+stub\s+-\s+0\s+yes/m);
+  });
+
+  test("a remote it can't reach is a note, and rm judges on the refs it has", async () => {
+    const origin = await merged();
+    await rename(origin, `${base}/gone.git`);
+    const refused = mshape(repo, "rm", "docs");
+    expect(refused.code).toBe(1);
+    expect(refused.stderr).toContain("note: couldn't fetch `main` from `origin`");
+    expect(refused.stderr).toContain("2 commit(s) not in `main` or `origin/main`");
+    expect(await exists(wt("docs"))).toBe(true);
+  });
+
+  test.each(["squash", "rebase"] as const)(
+    "a %s merge counts as merged: rm removes the track, list says so",
+    async (style) => {
+      await merged(style);
+      sh(repo, "fetch", "-q", "origin");
+      // The original commits are in neither main, yet the work is.
+      expect(mshape(repo, "list").stdout).toMatch(/^docs\s+stub\s+-\s+2\s+yes/m);
+      expect(mshape(repo, "rm", "docs").code).toBe(0);
+      expect(branches()).toEqual(["main"]);
+    },
+  );
+
+  test("work that differs from what was squashed stays unmerged", async () => {
+    await merged("squash");
+    await writeFile(`${wt("docs")}/three.md`, "after the merge");
+    sh(wt("docs"), "add", ".");
+    sh(wt("docs"), "commit", "-qm", "three");
+    const refused = mshape(repo, "rm", "docs");
+    expect(refused.code).toBe(1);
+    expect(refused.stderr).toContain("isn't there by a merge, a rebase or a squash either");
+    expect(branches()).toEqual(["main", "track/docs"]);
+  });
+
+  test("the fetch uses the user's own core.sshCommand", async () => {
+    await setup();
+    mshape(repo, "new", "docs");
+    sh(repo, "remote", "add", "origin", "ssh://git.invalid/repo.git");
+    sh(repo, "config", "branch.main.remote", "origin");
+    sh(repo, "config", "branch.main.merge", "refs/heads/main");
+    // Their SSH command, as a deploy key or a second account would set it: here it logs and fails.
+    await writeFile(`${base}/ssh`, `#!/bin/sh\necho called >> "${base}/ssh.log"\nexit 1\n`);
+    await chmod(`${base}/ssh`, 0o755);
+    sh(repo, "config", "core.sshCommand", `${base}/ssh`);
+
+    const result = mshape(repo, "rm", "docs");
+    expect(result.stderr).toContain("note: couldn't fetch `main` from `origin`");
+    expect(await exists(`${base}/ssh.log`)).toBe(true);
+  });
+
+  test("a squash after main edited a nearby line counts as merged; older git's patch ids refuse it", async () => {
+    await merged("squash-nearby");
+    sh(repo, "fetch", "-q", "origin");
+    expect(mshape(repo, "list").stdout).toMatch(/^docs\s+stub\s+-\s+3\s+yes/m);
+    // Without merge-tree (git before 2.38), patches with context don't match: rm asks for --force.
+    expect(
+      await Effect.runPromise(patchMerged(repo, "track/docs", "refs/remotes/origin/main")),
+    ).toBe(false);
+    expect(mshape(repo, "rm", "docs").code).toBe(0);
+  });
+
+  test("one copy of a repeated line fixed on each side: unmerged, and rm refuses", async () => {
+    await setup();
+    // The same line twice, far apart: without context, the two fixes would look like one patch.
+    const code = [
+      "  retrun x;",
+      ...Array.from({ length: 30 }, (_, i) => `  step(${i});`),
+      "  retrun x;",
+    ];
+    await writeFile(`${repo}/code.txt`, `${code.join("\n")}\n`);
+    sh(repo, "add", ".");
+    sh(repo, "commit", "-qm", "code");
+    mshape(repo, "new", "dup");
+    const fixed = (index: number) =>
+      `${code.map((line, i) => (i === index ? "  return x;" : line)).join("\n")}\n`;
+    await writeFile(`${wt("dup")}/code.txt`, fixed(0));
+    sh(wt("dup"), "commit", "-qam", "fix the first");
+    await writeFile(`${repo}/code.txt`, fixed(code.length - 1));
+    sh(repo, "commit", "-qam", "fix the last");
+
+    expect(mshape(repo, "list").stdout).toMatch(/^dup\s+stub\s+-\s+1\s+no/m);
+    expect(await Effect.runPromise(patchMerged(repo, "track/dup", "refs/heads/main"))).toBe(false);
+    expect(mshape(repo, "rm", "dup").code).toBe(1);
+    expect(branches()).toEqual(["main", "track/dup"]);
+  });
 });

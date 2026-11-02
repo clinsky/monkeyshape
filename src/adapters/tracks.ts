@@ -41,10 +41,26 @@ import { beadRows } from "./workspace.ts";
 
 export const refuse = (reason: string) => Effect.fail(new TrackError({ reason }));
 
-export const git = (cwd: string, args: ReadonlyArray<string>) =>
+export const git = (
+  cwd: string,
+  args: ReadonlyArray<string>,
+  /** `env` replaces the environment whole: the composition root builds it. */
+  options: {
+    readonly env?: Readonly<Record<string, string | undefined>>;
+    readonly timeout?: number;
+    readonly stdin?: string;
+  } = {},
+) =>
   Effect.try({
     try: () => {
-      const child = Bun.spawnSync(["git", ...args], { cwd, stdout: "pipe", stderr: "pipe" });
+      const child = Bun.spawnSync(["git", ...args], {
+        cwd,
+        stdout: "pipe",
+        stderr: "pipe",
+        ...(options.env === undefined ? {} : { env: { ...options.env } }),
+        ...(options.timeout === undefined ? {} : { timeout: options.timeout }),
+        ...(options.stdin === undefined ? {} : { stdin: Buffer.from(options.stdin) }),
+      });
       return {
         stdout: child.stdout.toString(),
         stderr: child.stderr.toString().trim(),
@@ -133,8 +149,120 @@ const requireMain = (repo: string) =>
       : refuse(`this repository has no \`${MAIN_BRANCH}\` branch: tracks branch from it`),
   );
 
-const unmergedCount = (repo: string, branch: string) =>
-  Effect.map(gitOk(repo, ["rev-list", "--count", `${head(MAIN_BRANCH)}..${head(branch)}`]), Number);
+/**
+ * What counts as merged: `main`, and its upstream (`origin/main`) when that ref exists, so a PR
+ * merged on the remote counts before anyone pulls `main`. Full refs, for the reason `head` gives.
+ */
+const mergeTargets = (repo: string) =>
+  Effect.gen(function* () {
+    const found = yield* git(repo, ["for-each-ref", "--format=%(upstream)", head(MAIN_BRANCH)]);
+    const upstream = found.code === 0 ? found.stdout.trim() : "";
+    const present =
+      upstream !== "" &&
+      (yield* git(repo, ["show-ref", "--verify", "--quiet", upstream])).code === 0;
+    return present ? [head(MAIN_BRANCH), upstream] : [head(MAIN_BRANCH)];
+  });
+
+/** `refs/heads/main` → `main`, `refs/remotes/origin/main` → `origin/main`: as people say them. */
+const shortRef = (ref: string): string => ref.replace(/^refs\/(heads|remotes)\//, "");
+
+const FETCH_TIMEOUT_MS = 30_000;
+
+/**
+ * Brings `main`'s upstream up to date, so `rm` sees a merge done on the remote. It only moves
+ * remote-tracking refs, never a branch. `env` is from the composition root, with terminal
+ * prompts off; SSH runs in batch mode unless the user configured their own SSH command. It
+ * gives up after a while (git is killed; an ssh it started may outlive it briefly). A failure is a note, and the
+ * judgement falls back to the refs already here.
+ */
+const fetchUpstream = (repo: string, env: Readonly<Record<string, string | undefined>>) =>
+  Effect.gen(function* () {
+    const remote = (yield* git(repo, ["config", `branch.${MAIN_BRANCH}.remote`])).stdout.trim();
+    const merge = (yield* git(repo, ["config", `branch.${MAIN_BRANCH}.merge`])).stdout.trim();
+    if (remote === "" || merge === "") return undefined;
+    // SSH batch mode only when the user has no SSH command of their own: an environment
+    // variable overrides `core.sshCommand`, which picks deploy keys and accounts.
+    const configured = (yield* git(repo, ["config", "--get", "core.sshCommand"])).stdout.trim();
+    const ownSsh =
+      configured !== "" || env["GIT_SSH_COMMAND"] !== undefined || env["GIT_SSH"] !== undefined;
+    const fetched = yield* git(repo, ["fetch", "--quiet", remote, merge], {
+      env: ownSsh ? env : { ...env, GIT_SSH_COMMAND: "ssh -o BatchMode=yes" },
+      timeout: FETCH_TIMEOUT_MS,
+    });
+    const why =
+      fetched.code === null
+        ? `timed out after ${FETCH_TIMEOUT_MS / 1000}s`
+        : fetched.stderr || `exit ${fetched.code}`;
+    return fetched.code === 0
+      ? undefined
+      : `couldn't fetch \`${MAIN_BRANCH}\` from \`${remote}\` (${why}), so merges done there since the last fetch aren't seen`;
+  });
+
+/** `git patch-id --stable` of a patch text: one id per commit, or one for a bare diff. */
+const patchIds = (repo: string, patch: string) =>
+  Effect.map(git(repo, ["patch-id", "--stable"], { stdin: patch }), (result) =>
+    result.stdout
+      .split("\n")
+      .map((line) => line.split(" ")[0] ?? "")
+      .filter((id) => id !== ""),
+  );
+
+/**
+ * Whether merging the branch into `target` would change nothing, so its work is all there,
+ * whichever way it got there. A clean merge is exact about content, so its answer is final
+ * both ways. `unknown` when git can't say: before 2.38 (no `merge-tree --write-tree`), or on a
+ * conflict.
+ */
+const contentMerged = (repo: string, branch: string, target: string) =>
+  Effect.gen(function* () {
+    const merged = yield* git(repo, ["merge-tree", "--write-tree", target, head(branch)]);
+    const tree = yield* git(repo, ["rev-parse", `${target}^{tree}`]);
+    if (merged.code !== 0 || tree.code !== 0) return "unknown" as const;
+    return merged.stdout.split("\n")[0] === tree.stdout.trim() ? ("yes" as const) : ("no" as const);
+  });
+
+/**
+ * The fallback when `contentMerged` can't say: the branch's changes are already in `target`
+ * as patches, the whole change as one commit (a squash) or every commit one by one (a
+ * rebase). Patch ids keep their default three lines of context. Without context they ignore
+ * line numbers too, so one fixed copy of a repeated line would match another copy fixed in
+ * `main`, and `rm` would delete unmerged work. With context, a squash after `main` edited a
+ * nearby line isn't recognised, and `rm` asks for --force instead. Any git version.
+ */
+export const patchMerged = (repo: string, branch: string, target: string) =>
+  Effect.gen(function* () {
+    const found = yield* git(repo, ["merge-base", target, head(branch)]);
+    if (found.code !== 0) return false;
+    const base = found.stdout.trim();
+    const since = (tip: string) =>
+      gitOk(repo, ["log", "-p", "--no-merges", "--format=commit %H", `${base}..${tip}`]);
+    const landed = new Set(yield* patchIds(repo, yield* since(target)));
+    const whole = yield* patchIds(repo, yield* gitOk(repo, ["diff", base, head(branch)]));
+    if (whole.length > 0 && whole.every((id) => landed.has(id))) return true;
+    const each = yield* patchIds(repo, yield* since(head(branch)));
+    return each.length > 0 && each.every((id) => landed.has(id));
+  });
+
+/**
+ * Commits on the branch in no target, and whether its work is merged anyway, by any of the
+ * ways a PR merges: a merge commit (every commit contained), a rebase or a squash. Content
+ * decides when git can; patches only when it can't. Erring toward "unmerged" is the safe
+ * side: it asks for --force, where a wrong "merged" deletes work without asking.
+ */
+const mergeState = (repo: string, branch: string, targets: ReadonlyArray<string>) =>
+  Effect.gen(function* () {
+    const ahead = Number(
+      yield* gitOk(repo, ["rev-list", "--count", head(branch), "--not", ...targets]),
+    );
+    if (ahead === 0) return { ahead, merged: true };
+    for (const target of targets) {
+      const content = yield* contentMerged(repo, branch, target);
+      if (content === "yes") return { ahead, merged: true };
+      if (content === "unknown" && (yield* patchMerged(repo, branch, target)))
+        return { ahead, merged: true };
+    }
+    return { ahead, merged: false };
+  });
 
 /**
  * `link` → `target`. Relative when the link's real directory is inside the repo, so it survives
@@ -323,6 +451,8 @@ export const trackList = (cwd: string) =>
       ),
     );
     const beads = yield* trackBeads(repo);
+    // No fetch here: list stays offline and fast, and rm fetches before it decides.
+    const targets = yield* mergeTargets(repo);
     // A label with open beads is a track too, even after its worktree is gone: that work is orphaned.
     const labelled = [...beads.byTrack.keys()];
     const tracks = [...new Set([...byTrack.keys(), ...branches, ...handoffs, ...labelled])]
@@ -350,9 +480,9 @@ export const trackList = (cwd: string) =>
           problems: parsed !== undefined && "problems" in parsed ? parsed.problems : undefined,
           beads:
             beads.integration.state === "ok" ? (beads.byTrack.get(track)?.length ?? 0) : undefined,
-          ahead: branches.includes(track)
-            ? yield* unmergedCount(repo, trackBranch(track))
-            : undefined,
+          ...(branches.includes(track)
+            ? yield* mergeState(repo, trackBranch(track), targets)
+            : { ahead: undefined, merged: undefined }),
           worktree: worktree === undefined ? undefined : posix.relative(repo, worktree.path),
           worktreeBranch:
             worktree === undefined || worktree.branch === trackBranch(track)
@@ -380,7 +510,12 @@ export const trackCurrent = (cwd: string) =>
 export const trackRm = (
   cwd: string,
   track: string,
-  options: { readonly force: boolean; readonly keepHandoff: boolean },
+  options: {
+    readonly force: boolean;
+    readonly keepHandoff: boolean;
+    /** The environment for fetching `main`'s upstream: one where git can't prompt. */
+    readonly fetchEnv: Readonly<Record<string, string | undefined>>;
+  },
   say: (line: string) => Effect.Effect<void>,
 ) =>
   Effect.gen(function* () {
@@ -401,6 +536,9 @@ export const trackRm = (
       status.code === 0 ? status.stdout.split("\n").filter((line) => line.trim() !== "") : [];
     const hasBranch = yield* branchExists(repo, branch);
     const handoff = handoffPath(common, track);
+    const unfetched = hasBranch ? yield* fetchUpstream(repo, options.fetchEnv) : undefined;
+    if (unfetched !== undefined) yield* say(`note: ${unfetched}`);
+    const targets = yield* mergeTargets(repo);
     const found = yield* trackBeads(repo);
     // A repo without shape.config.ts gets the default, `optional`; a failing bd refuses either way.
     const setting = yield* loadConfig(repo).pipe(
@@ -420,7 +558,13 @@ export const trackRm = (
       changes,
       statusError: status.code === 0 ? undefined : status.stderr || `exit ${status.code}`,
       branchExists: hasBranch,
-      unmerged: hasBranch ? yield* unmergedCount(repo, branch) : 0,
+      ...(hasBranch
+        ? yield* Effect.map(mergeState(repo, branch, targets), (state) => ({
+            unmerged: state.ahead,
+            merged: state.merged,
+          }))
+        : { unmerged: 0, merged: true }),
+      mergeTargets: targets.map(shortRef),
       branchCheckedOutAt: registered.filter(
         (candidate) => candidate.branch === branch && candidate.path !== path,
       ),

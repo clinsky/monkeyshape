@@ -8,7 +8,6 @@ import { beadsBlocker } from "./check.ts";
 import {
   AGENTS_HANDOFFS_LINK,
   HANDOFFS_LINK,
-  MAIN_BRANCH,
   TRACK_NAME,
   trackBranch,
   trackLabel,
@@ -151,8 +150,12 @@ export interface RmFacts {
   /** Set when `git status` failed in the worktree: its changes can't be known. */
   readonly statusError: string | undefined;
   readonly branchExists: boolean;
-  /** Commits on the branch that are not in `main`. */
+  /** Commits on the branch in none of `mergeTargets`. */
   readonly unmerged: number;
+  /** The branch's work is in a target anyway: merged, rebased or squashed there. */
+  readonly merged: boolean;
+  /** What counts as merged, as people say them: `main`, and `origin/main` when it exists. */
+  readonly mergeTargets: ReadonlyArray<string>;
   /** Other checkouts that have the branch checked out. */
   readonly branchCheckedOutAt: ReadonlyArray<Worktree>;
   readonly handoffPath: string;
@@ -278,14 +281,13 @@ export const planRm = (facts: RmFacts): RmPlan => {
         `${facts.worktreePath} has uncommitted or untracked changes (${shown}${more}): commit or discard them, or pass --force to discard them`,
       );
   }
-  if (facts.branchExists && facts.unmerged > 0) {
+  if (facts.branchExists && !facts.merged) {
+    const targets = facts.mergeTargets.map((target) => `\`${target}\``).join(" or ");
     if (facts.force)
-      warnings.push(
-        `deleting \`${branch}\` with ${facts.unmerged} commit(s) not in \`${MAIN_BRANCH}\``,
-      );
+      warnings.push(`deleting \`${branch}\` with ${facts.unmerged} commit(s) not in ${targets}`);
     else
       refusals.push(
-        `\`${branch}\` has ${facts.unmerged} commit(s) not in \`${MAIN_BRANCH}\`: merge them, or if they were merged upstream update \`${MAIN_BRANCH}\` (\`git fetch origin ${MAIN_BRANCH}:${MAIN_BRANCH}\`), or pass --force to delete them`,
+        `\`${branch}\` has ${facts.unmerged} commit(s) not in ${targets}, and its work isn't there by a merge, a rebase or a squash either: merge it first, or pass --force to delete it`,
       );
   }
 
@@ -309,6 +311,8 @@ export interface TrackRow {
   readonly beads: number | undefined;
   /** Commits not in `main`; undefined without a branch. */
   readonly ahead: number | undefined;
+  /** Merged, rebased or squashed into a target; undefined without a branch. */
+  readonly merged?: boolean | undefined;
   /** Relative to the main checkout; undefined without a worktree. */
   readonly worktree: string | undefined;
   /** Set when the worktree is on another branch than `track/<track>`. */
@@ -326,7 +330,7 @@ export const formatTracks = (rows: ReadonlyArray<TrackRow>): string => {
       row.status,
       row.beads === undefined ? "-" : String(row.beads),
       row.ahead === undefined ? "-" : String(row.ahead),
-      row.ahead === undefined ? "-" : row.ahead === 0 ? "yes" : "no",
+      row.merged === undefined ? "-" : row.merged ? "yes" : "no",
       row.worktree === undefined
         ? "-"
         : row.worktreeBranch === undefined
