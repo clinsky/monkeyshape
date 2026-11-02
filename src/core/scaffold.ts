@@ -2,7 +2,10 @@
  * What `mshape init` writes: the package's `template/` files, rendered, plus the JSON configs
  * generated here. The configs are generated rather than copied because they pin versions, and
  * because a `biome.json` inside `template/` would be a nested root config for biome itself.
+ * `.claude/settings.json` is rendered from the hook list in `hooks.ts`, the same as this repo's.
  */
+
+import { HOOKS, renderSettings, SETTINGS_FILE } from "./hooks.ts";
 
 /** Lowercase words joined by hyphens: a package name, a directory and a beads prefix at once. */
 export const REPO_NAME = /^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$/;
@@ -42,6 +45,8 @@ const configs = (name: string, toolchain: Toolchain): Record<string, string> => 
       typecheck: "tsc -p .",
       lint: "biome ci --error-on-warnings .",
       fix: "biome check --write .",
+      // How hooks and skills run mshape: D-run-mshape.
+      mshape: "mshape",
       shape: "mshape check",
       check: "bun run typecheck && bun run lint && bun run shape && bun test --pass-with-no-tests",
     },
@@ -62,6 +67,7 @@ const configs = (name: string, toolchain: Toolchain): Record<string, string> => 
     extends: ["monkeyshape/biome"],
     files: { includes: ["src/**", "test/**", "*.json", "*.ts"] },
   }),
+  [SETTINGS_FILE]: renderSettings(HOOKS),
 });
 
 /** Every file of the new repo, by repo-relative path. Generated configs win over the template. */

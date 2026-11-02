@@ -13,10 +13,14 @@
  *   <repo>/.agents/handoffs                    gitignored symlink to that store
  *   <checkout>/.handoffs                       gitignored symlink to that store, in every checkout
  *   <repo>/.agents/worktrees/<name>.pr-<n>     gitignored: a pull request under review, detached
+ *   <common>/monkeyshape/mail/<track>/<id>.json        a track's unread message
+ *   <common>/monkeyshape/mail/<track>/read/<id>.json   moved there when read
+ *   <common>/monkeyshape/sessions/<track>/<session>.json   a live session of the track
  *
- * The store lives under `.git` because handoffs are live state: `git clean -fdx` deletes
+ * The stores live under `.git` because they are live state: `git clean -fdx` deletes
  * ignored files, which would include a handoffs directory in the working tree, but it never
- * touches `.git`. It can delete the symlinks, which the track commands recreate.
+ * touches `.git`. It can delete the symlinks, which the track commands recreate. Nothing here
+ * creates a directory: the command that first writes to one creates it.
  *
  * Beads for a track carry the label `track:<track>`.
  */
@@ -95,3 +99,25 @@ export const reviewPath = (repo: string, pr: string): string =>
 
 /** Where the pull request's head is fetched: a ref of its own, so parallel reviews never race. */
 export const reviewRef = (pr: string): string => `refs/monkeyshape/reviews/pr-${pr}`;
+
+/** The mailbox: one directory per track, under git's directory beside the handoffs store. */
+export const mailDir = (common: string): string => `${trim(common)}/monkeyshape/mail`;
+
+/** A track's unread mail, one `<id>.json` per message. */
+export const mailboxDir = (common: string, track: string): string => `${mailDir(common)}/${track}`;
+
+/** Where reading a message moves it, by atomic rename. */
+export const mailboxReadDir = (common: string, track: string): string =>
+  `${mailboxDir(common, track)}/read`;
+
+export const messagePath = (common: string, track: string, id: string): string =>
+  `${mailboxDir(common, track)}/${id}.json`;
+
+/** The session registry: the live sessions of each track, for notices. */
+export const sessionsDir = (common: string): string => `${trim(common)}/monkeyshape/sessions`;
+
+export const trackSessionsDir = (common: string, track: string): string =>
+  `${sessionsDir(common)}/${track}`;
+
+export const sessionPath = (common: string, track: string, session: string): string =>
+  `${trackSessionsDir(common, track)}/${session}.json`;

@@ -148,7 +148,8 @@ export const checkRefs = (config: ResolvedConfig, snapshot: Snapshot): ReadonlyA
           );
         for (const match of line.matchAll(/`([^`\n]+)`/g)) {
           const span = match[1] ?? "";
-          const script = /^bun run ([\w:./-]+)/.exec(span)?.[1];
+          const script = /^bun run (?:--?[\w-]+ )*([\w:./-]+)/.exec(span)?.[1];
+          // Flags such as `--silent` come before the script.
           // `bun run path/to/file.ts` runs a file, which the path check below covers.
           if (script !== undefined && !script.includes("/") && !KNOWN_EXTENSION.test(script)) {
             if (!snapshot.packageScripts.has(script))
