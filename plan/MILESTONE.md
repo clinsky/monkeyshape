@@ -118,8 +118,8 @@ exists) and to the maintainer.
   (name, purpose, required), `PR_SIZE` (the default range and its wording), `TRACK_BRANCH`
   (re-exported from `layout.ts`), the soft caps (handoff lines, plan lines, bead characters,
   hand-off point), and the default decision authority. Owner: `conventions`.
-- **Rendering:** skills and templates refer to a value as `{{conventions.<key>}}`; `mshape
-  sync` and `init` render them from `conventions.ts`. A check fails if a rendered file is out
+- **Rendering:** skills and templates refer to a value as `{{conventions.<key>}}`;
+  `mshape sync` and `init` render them from `conventions.ts`. A check fails if a rendered file is out
   of date or a value is written out literally where a placeholder belongs. Owner:
   `conventions`; every track uses placeholders instead of numbers.
 - **`.beads/PRIME.md` is monkeyshape's always-loaded conventions file** (about 60 lines,
@@ -136,11 +136,11 @@ exists) and to the maintainer.
   `conventions`.
 - **The mailbox:** messages live in git's directory beside the handoffs,
   `<common>/monkeyshape/mail/<track>.jsonl`, so `git clean` can't delete them. Each message
-  has `id`, `from`, `to`, `subject`, `body`, `created` and `read`. Commands: `mshape msg send
-  <track> --subject <s> [body]`, `mshape msg inbox`, `mshape msg read <id>`. A hook command,
-  `mshape msg notify`, runs on SessionStart, UserPromptSubmit and PostToolUse; it costs one
-  file check when nothing is new, and injects only `you have mail: <subject> (mshape msg
-  read <id>)`, never the body, once per message. Handoff Messages sections are retired.
+  has `id`, `from`, `to`, `subject`, `body`, `created` and `read`. Commands:
+  `mshape msg send <track> --subject <subject> [body]`, `mshape msg inbox`,
+  `mshape msg read <id>`. A hook command, `mshape msg notify`, runs on SessionStart,
+  UserPromptSubmit and PostToolUse; it costs one file check when nothing is new, and injects
+  only `you have mail: <subject> (mshape msg read <id>)`, never the body, once per message. Handoff Messages sections are retired.
   Owner: `coordination`.
 - **Handoff format additions:** the Charter opens with `Serves: goal step <n>, because ...`,
   then `Out of scope:` and `Done means:`; `/milestone` writes them from this plan's track
