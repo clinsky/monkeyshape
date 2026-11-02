@@ -45,9 +45,11 @@ loop, not trip over contradictions we already know about.
 2. **Delivered at the moment of need.** What every session needs arrives at session start for
    any agent; what one step needs is in that step's skill or printed by the command used then.
    No skill sends an agent to another doc for a rule.
-3. **Messages are delivered, not hoped for.** A message to another track reaches its live
-   session as a notice with the subject at the next tool call or prompt, and waits for the
-   next session if none is running.
+3. **Messages are delivered, not hoped for.** A message to another track is stored durably and
+   its subject is pushed at once into the recipient's live session, busy or idle, through
+   Claude Code's native cross-session messaging. The recipient decides when to read the body;
+   the notice never marks it read. With no live session, it waits and is shown at the next
+   session's start.
 4. **Status is derived, not remembered.** Whether a track is done, whether a bead's work has
    merged, whether a handoff is stale: computed from git, PRs and beads, and flagged.
 5. **Review looks up.** A reviewer reads the milestone's why and non-goals, the track's
@@ -61,6 +63,12 @@ loop, not trip over contradictions we already know about.
   another track. It must fail on today's `main`.
 - A duplicate-fact test passes on this repo and on a born repo, and fails when a convention
   is restated somewhere that isn't a registered copy.
+- Two independently running Claude Code sessions, in two tracks: `mshape msg send` from one
+  makes an **idle** recipient show the subject notice without any new user prompt; the
+  recipient defers it (the message stays unread, the notice doesn't mark it read), keeps
+  working, and later reads it with `mshape msg read`. A message to a track with no session,
+  or one whose registration is stale, waits and is shown at the next session's start. The
+  maintainer runs this once by hand; a test covers the same contract against a fake socket.
 - During this milestone, the three tracks message each other through `mshape msg` from the
   moment it merges; the maintainer relays nothing that the mailbox could have carried.
 - A release is published, and the README quick start works from npm on a clean machine.
@@ -74,8 +82,9 @@ loop, not trip over contradictions we already know about.
   and work. This milestone adds the look-up and an author-side self-check, nothing else.
 - **Changing the PR size default** (1k to 2.5k changed lines, as `docs/workflow.md` says):
   this milestone moves it to where agents see it, not what it is.
-- **A socket transport that relies on Claude Code internals** as the only delivery path (see
-  "Decision points").
+- **Live delivery for agents other than Claude Code.** The transport is replaceable and the
+  mailbox readable by any agent, but Claude Code is the only live-delivery harness this
+  milestone.
 
 ## Where we are
 
@@ -134,14 +143,27 @@ exists) and to the maintainer.
   the beads in its commits). A CI step on pull requests checks the body's headings and that
   the head branch is `track/*`. Skills say `mshape track pr`, not section lists. Owner:
   `conventions`.
-- **The mailbox:** messages live in git's directory beside the handoffs,
-  `<common>/monkeyshape/mail/<track>.jsonl`, so `git clean` can't delete them. Each message
-  has `id`, `from`, `to`, `subject`, `body`, `created` and `read`. Commands:
+- **The mailbox is the durable source of truth.** Messages live in git's directory beside
+  the handoffs, `<common>/monkeyshape/mail/<track>.jsonl`, so `git clean` can't delete them
+  and unread mail survives restarts. Each message has `id`, `from`, `to`, `subject`, `body`,
+  `created` and `read`. Only `mshape msg read <id>` marks a message read. Commands:
   `mshape msg send <track> --subject <subject> [body]`, `mshape msg inbox`,
-  `mshape msg read <id>`. A hook command, `mshape msg notify`, runs on SessionStart,
-  UserPromptSubmit and PostToolUse; it costs one file check when nothing is new, and injects
-  only `you have mail: <subject> (mshape msg read <id>)`, never the body, once per message. Handoff Messages sections are retired.
-  Owner: `coordination`.
+  `mshape msg read <id>`. Handoff Messages sections are retired. Owner: `coordination`.
+- **Live notices go through Claude Code's native cross-session messaging.**
+  - **Registration:** a SessionStart hook runs `mshape msg register`, which records the
+    session against its track (from `mshape track current`) with its
+    `CLAUDE_CODE_MESSAGING_SOCKET`, session id and process, in
+    `<common>/monkeyshape/sessions/<track>/<session>.json`. Outside a track it does nothing.
+  - **Send:** `mshape msg send` writes the message to the mailbox first, then sends every live
+    session registered for the recipient track one line:
+    `[mshape] Message from <from>: <subject> (mshape msg read <id>)`. Never the body.
+  - **Stale and multiple registrations:** a registration whose process is gone or whose socket
+    doesn't answer is pruned at send time; every live session for the track gets the notice.
+    A failed notice never fails the send: the mail waits.
+  - **Restarts:** the same SessionStart hook prints the subjects of unread mail, so nothing
+    sent while no session was live is missed.
+  - **Replaceable transport:** notices go through a `Notifier` service; the Claude Code socket
+    is its one implementation now, behind a check of the session registry's protocol version.
 - **Handoff format additions:** the Charter opens with `Serves: goal step <n>, because ...`,
   then `Out of scope:` and `Done means:`; `/milestone` writes them from this plan's track
   table. `Status` is derived by `track list`, and the parser warns when a written status
@@ -157,7 +179,7 @@ exists) and to the maintainer.
 | Track | Serves | Charter | Acceptance |
 |---|---|---|---|
 | `conventions` | goal 1, 2 | `conventions.ts` and placeholder rendering; PRIME.md with `mshape sync` and its checks; generated PR template, `mshape track pr` and the CI body check; the born repo works from the first chat (an `mshape` script, `init`'s next steps covering the remote and `gh`); the AGENTS.md split, with the dogfooding section in this repo's; the duplicate-fact test; the roadmap cut back to direction | The "what a fresh agent loaded" test and the duplicate-fact test pass, and fail on today's `main` |
-| `coordination` | goal 3, 4 | `mshape msg` and its hooks in the template and this repo; the handoff format additions and derived status; a beads-ownership check (merged but open, open with no `track:` label, deferred but labelled, `TODO(id)` on a closed bead); `track new` from upstream `main`; `track rm` refuses when beads couldn't be counted; handoff hygiene warnings in `track list`; the `track` and `handoff` skills | A message between two live sessions arrives as a notice within one tool call; one sent to a track with no session waits and is shown at its next session; `track list` shows done tracks as done |
+| `coordination` | goal 3, 4 | `mshape msg` (the mailbox, `register`, live notices through Claude Code's native messaging, the replaceable `Notifier`) and its SessionStart hook in the template and this repo; the handoff format additions and derived status; a beads-ownership check (merged but open, open with no `track:` label, deferred but labelled, `TODO(id)` on a closed bead); `track new` from upstream `main`; `track rm` refuses when beads couldn't be counted; handoff hygiene warnings in `track list`; the `track` and `handoff` skills | The two-session acceptance above, including the idle recipient; a message to a track with no live session waits and is shown at its next session; `track list` shows done tracks as done |
 | `review` | goal 5 | `review-pr` reads the milestone (why, non-goals, the track's row), the track's charter and the PR's beads before the diff, and every review body has a short "Fit" section: does it serve its beads and goal step, anything outside them (filed as a bead, as nits already are), redundant with existing code or docs, prose where a check belongs; the `track` skill gains an author self-check before replying "fixed" (re-run the reviewer's probes, try to break the fix with valid input), sent to `coordination` as a change to their file; the `milestone` and `roadmap` skills write the plan sections this plan uses (why, non-goals, how tracks serve, amendments); a test that every rule has must-pass and must-fail cases; a reference-parser test for the checks that read Markdown | A review of a deliberately out-of-scope test PR flags it in "Fit"; a plan written by `/milestone` has every section above; the rule-cases test fails when a rule loses its must-pass case |
 
 `conventions` lands `conventions.ts` and the placeholder rendering first: the other tracks
@@ -173,8 +195,11 @@ tracks use it for the rest of the milestone.
   the AGENTS.md split and the dogfooding section; duplicate-fact test; the
   what-a-fresh-agent-loaded test; roadmap cut to direction; check messages that say how to
   fix (`unknown-module`, `readme-lines`, where budgets and exempt directories are set).
-- **coordination:** `mshape msg` (send, inbox, read) and its storage; `mshape msg notify`
-  hooks; handoff format additions and derived status; beads-ownership check; `track new`
+- **coordination:** first a short spike that proves the native socket notice end to end
+  between two real sessions (its message format is undocumented; only the auth line is), and
+  reports before the rest builds on it; then `mshape msg` (send, inbox, read) and its storage;
+  `register`, the session registry and stale pruning; the `Notifier` service and its Claude
+  Code socket implementation; the SessionStart hook; handoff format additions and derived status; beads-ownership check; `track new`
   from upstream `main`; `track rm` when beads couldn't be counted; handoff hygiene warnings;
   `track` and `handoff` skills updated (mailbox, self-check text from `review`).
 - **review:** `review-pr` look-up and the Fit section; the self-check text for the `track`
@@ -185,13 +210,11 @@ tracks use it for the rest of the milestone.
 
 ## Decision points
 
-- **Live delivery.** The mailbox plus documented hooks is the delivery path: it reaches a
-  busy session at its next tool call, any session at its next prompt, and a new session at
-  start, and non-Claude agents read the same mailbox. Claude Code's own cross-session
-  messaging can wake an idle session, but an external command can only reach it through an
-  undocumented socket format. Proposal: `coordination` builds the mailbox and hooks; waking
-  an idle session through the socket is a follow-up behind a protocol-version check, decided
-  by the maintainer once the mailbox has been used for a while.
+- **The native socket's message format is undocumented.** Claude Code documents its
+  cross-session messaging, the socket's path and its auth line, but not the message payload
+  an external process sends. `coordination`'s spike establishes it against the installed
+  version and records the protocol version it was proven on. If it can't be made reliable,
+  that comes back to the maintainer before anything else is built on it.
 - **Can PRIME.md carry the conventions for non-Claude agents?** It reaches any agent whose
   SessionStart hook runs `bd prime`. `conventions` confirms how Codex's hook is wired (without
   `bd setup codex`, which writes into AGENTS.md) and reports before relying on it.
