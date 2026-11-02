@@ -530,23 +530,39 @@ describe("track rm and list with beads", () => {
  * `origin` is a bare repo, and a second clone stands in for the merge button.
  */
 describe("merged upstream, before anyone pulls main", () => {
-  const merged = async () => {
+  /** The track's two commits reach origin's main by `style`, after main has moved on there. */
+  const merged = async (style: "merge" | "squash" | "rebase" = "merge") => {
     await setup();
     const origin = `${base}/origin.git`;
     sh(base, "init", "-q", "--bare", "-b", "main", origin);
     sh(repo, "remote", "add", "origin", origin);
     sh(repo, "push", "-q", "-u", "origin", "main");
     mshape(repo, "new", "docs");
-    await writeFile(`${wt("docs")}/page.md`, "page");
-    sh(wt("docs"), "add", ".");
-    sh(wt("docs"), "commit", "-qm", "page");
+    for (const page of ["one", "two"]) {
+      await writeFile(`${wt("docs")}/${page}.md`, page);
+      sh(wt("docs"), "add", ".");
+      sh(wt("docs"), "commit", "-qm", page);
+    }
     sh(wt("docs"), "push", "-q", "origin", "track/docs");
 
     const github = `${base}/github`;
     sh(base, "clone", "-q", origin, github);
     sh(github, "config", "user.name", "Test");
     sh(github, "config", "user.email", "test@example.com");
-    sh(github, "merge", "-q", "--no-ff", "--no-edit", "origin/track/docs");
+    await writeFile(`${github}/other.md`, "meanwhile");
+    sh(github, "add", ".");
+    sh(github, "commit", "-qm", "main moves on");
+    if (style === "merge") sh(github, "merge", "-q", "--no-ff", "--no-edit", "origin/track/docs");
+    if (style === "squash") {
+      sh(github, "merge", "-q", "--squash", "origin/track/docs");
+      sh(github, "commit", "-qm", "docs (#1)");
+    }
+    if (style === "rebase") {
+      sh(github, "switch", "-qc", "rebased", "origin/track/docs");
+      sh(github, "rebase", "-q", "main");
+      sh(github, "switch", "-q", "main");
+      sh(github, "merge", "-q", "--ff-only", "rebased");
+    }
     sh(github, "push", "-q", "origin", "main");
     return origin;
   };
@@ -563,7 +579,7 @@ describe("merged upstream, before anyone pulls main", () => {
 
   test("list counts a branch merged into origin/main as merged, once that ref is fetched", async () => {
     await merged();
-    expect(mshape(repo, "list").stdout).toMatch(/^docs\s+stub\s+-\s+1\s+no/m);
+    expect(mshape(repo, "list").stdout).toMatch(/^docs\s+stub\s+-\s+2\s+no/m);
     sh(repo, "fetch", "-q", "origin");
     expect(mshape(repo, "list").stdout).toMatch(/^docs\s+stub\s+-\s+0\s+yes/m);
   });
@@ -574,7 +590,46 @@ describe("merged upstream, before anyone pulls main", () => {
     const refused = mshape(repo, "rm", "docs");
     expect(refused.code).toBe(1);
     expect(refused.stderr).toContain("note: couldn't fetch `main` from `origin`");
-    expect(refused.stderr).toContain("1 commit(s) not in `main` or `origin/main`");
+    expect(refused.stderr).toContain("2 commit(s) not in `main` or `origin/main`");
     expect(await exists(wt("docs"))).toBe(true);
+  });
+
+  test.each(["squash", "rebase"] as const)(
+    "a %s merge counts as merged: rm removes the track, list says so",
+    async (style) => {
+      await merged(style);
+      sh(repo, "fetch", "-q", "origin");
+      // The original commits are in neither main, yet the work is.
+      expect(mshape(repo, "list").stdout).toMatch(/^docs\s+stub\s+-\s+2\s+yes/m);
+      expect(mshape(repo, "rm", "docs").code).toBe(0);
+      expect(branches()).toEqual(["main"]);
+    },
+  );
+
+  test("work that differs from what was squashed stays unmerged", async () => {
+    await merged("squash");
+    await writeFile(`${wt("docs")}/three.md`, "after the merge");
+    sh(wt("docs"), "add", ".");
+    sh(wt("docs"), "commit", "-qm", "three");
+    const refused = mshape(repo, "rm", "docs");
+    expect(refused.code).toBe(1);
+    expect(refused.stderr).toContain("isn't there by a merge, a rebase or a squash either");
+    expect(branches()).toEqual(["main", "track/docs"]);
+  });
+
+  test("the fetch uses the user's own core.sshCommand", async () => {
+    await setup();
+    mshape(repo, "new", "docs");
+    sh(repo, "remote", "add", "origin", "ssh://git.invalid/repo.git");
+    sh(repo, "config", "branch.main.remote", "origin");
+    sh(repo, "config", "branch.main.merge", "refs/heads/main");
+    // Their SSH command, as a deploy key or a second account would set it: here it logs and fails.
+    await writeFile(`${base}/ssh`, `#!/bin/sh\necho called >> "${base}/ssh.log"\nexit 1\n`);
+    await chmod(`${base}/ssh`, 0o755);
+    sh(repo, "config", "core.sshCommand", `${base}/ssh`);
+
+    const result = mshape(repo, "rm", "docs");
+    expect(result.stderr).toContain("note: couldn't fetch `main` from `origin`");
+    expect(await exists(`${base}/ssh.log`)).toBe(true);
   });
 });

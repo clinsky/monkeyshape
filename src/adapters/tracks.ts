@@ -164,10 +164,13 @@ const mergeTargets = (repo: string) =>
 /** `refs/heads/main` → `main`, `refs/remotes/origin/main` → `origin/main`: as people say them. */
 const shortRef = (ref: string): string => ref.replace(/^refs\/(heads|remotes)\//, "");
 
+const FETCH_TIMEOUT_MS = 30_000;
+
 /**
  * Brings `main`'s upstream up to date, so `rm` sees a merge done on the remote. It only moves
- * remote-tracking refs, never a branch. `env` is from the composition root and must keep git
- * from prompting for credentials; it gives up after a while. A failure is a note, and the
+ * remote-tracking refs, never a branch. `env` is from the composition root, with terminal
+ * prompts off; SSH runs in batch mode unless the user configured their own SSH command. It
+ * gives up after a while (git is killed; an ssh it started may outlive it briefly). A failure is a note, and the
  * judgement falls back to the refs already here.
  */
 const fetchUpstream = (repo: string, env: Readonly<Record<string, string | undefined>>) =>
@@ -175,17 +178,60 @@ const fetchUpstream = (repo: string, env: Readonly<Record<string, string | undef
     const remote = (yield* git(repo, ["config", `branch.${MAIN_BRANCH}.remote`])).stdout.trim();
     const merge = (yield* git(repo, ["config", `branch.${MAIN_BRANCH}.merge`])).stdout.trim();
     if (remote === "" || merge === "") return undefined;
+    // SSH batch mode only when the user has no SSH command of their own: an environment
+    // variable overrides `core.sshCommand`, which picks deploy keys and accounts.
+    const configured = (yield* git(repo, ["config", "--get", "core.sshCommand"])).stdout.trim();
+    const ownSsh =
+      configured !== "" || env["GIT_SSH_COMMAND"] !== undefined || env["GIT_SSH"] !== undefined;
     const fetched = yield* git(repo, ["fetch", "--quiet", remote, merge], {
-      env,
-      timeout: 30_000,
+      env: ownSsh ? env : { ...env, GIT_SSH_COMMAND: "ssh -o BatchMode=yes" },
+      timeout: FETCH_TIMEOUT_MS,
     });
+    const why =
+      fetched.code === null
+        ? `timed out after ${FETCH_TIMEOUT_MS / 1000}s`
+        : fetched.stderr || `exit ${fetched.code}`;
     return fetched.code === 0
       ? undefined
-      : `couldn't fetch \`${MAIN_BRANCH}\` from \`${remote}\` (${fetched.stderr || `exit ${fetched.code}`}), so merges done there since the last fetch aren't seen`;
+      : `couldn't fetch \`${MAIN_BRANCH}\` from \`${remote}\` (${why}), so merges done there since the last fetch aren't seen`;
   });
 
-const unmergedCount = (repo: string, branch: string, targets: ReadonlyArray<string>) =>
-  Effect.map(gitOk(repo, ["rev-list", "--count", head(branch), "--not", ...targets]), Number);
+/**
+ * Commits on the branch in no target, and whether its work is merged anyway, by any of the
+ * ways a PR merges: a merge commit (every commit contained), a rebase (every commit's patch is
+ * in a target, `git cherry`), or a squash (the branch's whole change, as one synthetic commit
+ * on its merge base, is a patch in a target). The synthetic commit is a dangling object that
+ * nothing references; gc removes it. A branch whose work differs at all reads as unmerged.
+ */
+const mergeState = (repo: string, branch: string, targets: ReadonlyArray<string>) =>
+  Effect.gen(function* () {
+    const ahead = Number(
+      yield* gitOk(repo, ["rev-list", "--count", head(branch), "--not", ...targets]),
+    );
+    if (ahead === 0) return { ahead, merged: true };
+    for (const target of targets) {
+      const cherry = yield* git(repo, ["cherry", target, head(branch)]);
+      if (cherry.code === 0 && !/^\+/m.test(cherry.stdout)) return { ahead, merged: true };
+      const base = yield* git(repo, ["merge-base", target, head(branch)]);
+      if (base.code !== 0) continue;
+      const squash = yield* git(repo, [
+        "-c",
+        "user.name=mshape",
+        "-c",
+        "user.email=mshape@invalid",
+        "commit-tree",
+        `${head(branch)}^{tree}`,
+        "-p",
+        base.stdout.trim(),
+        "-m",
+        "mshape: was this branch squash-merged?",
+      ]);
+      if (squash.code !== 0) continue;
+      const squashed = yield* git(repo, ["cherry", target, squash.stdout.trim()]);
+      if (squashed.code === 0 && squashed.stdout.startsWith("-")) return { ahead, merged: true };
+    }
+    return { ahead, merged: false };
+  });
 
 /**
  * `link` → `target`. Relative when the link's real directory is inside the repo, so it survives
@@ -403,9 +449,9 @@ export const trackList = (cwd: string) =>
           problems: parsed !== undefined && "problems" in parsed ? parsed.problems : undefined,
           beads:
             beads.integration.state === "ok" ? (beads.byTrack.get(track)?.length ?? 0) : undefined,
-          ahead: branches.includes(track)
-            ? yield* unmergedCount(repo, trackBranch(track), targets)
-            : undefined,
+          ...(branches.includes(track)
+            ? yield* mergeState(repo, trackBranch(track), targets)
+            : { ahead: undefined, merged: undefined }),
           worktree: worktree === undefined ? undefined : posix.relative(repo, worktree.path),
           worktreeBranch:
             worktree === undefined || worktree.branch === trackBranch(track)
@@ -481,7 +527,12 @@ export const trackRm = (
       changes,
       statusError: status.code === 0 ? undefined : status.stderr || `exit ${status.code}`,
       branchExists: hasBranch,
-      unmerged: hasBranch ? yield* unmergedCount(repo, branch, targets) : 0,
+      ...(hasBranch
+        ? yield* Effect.map(mergeState(repo, branch, targets), (state) => ({
+            unmerged: state.ahead,
+            merged: state.merged,
+          }))
+        : { unmerged: 0, merged: true }),
       mergeTargets: targets.map(shortRef),
       branchCheckedOutAt: registered.filter(
         (candidate) => candidate.branch === branch && candidate.path !== path,

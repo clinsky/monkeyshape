@@ -51,8 +51,8 @@ const USAGE = `mshape ${pkg.version}
       The track of this directory, name only; exit 1, saying why, outside a track.
   mshape track rm <name> [--force] [--keep-handoff]
       Remove a finished track: worktree, branch, handoff. Fetches main's upstream first, then
-      refuses on uncommitted changes or commits in neither main nor origin/main; --force
-      discards them. Also refuses while beads labelled
+      refuses on uncommitted changes or work in neither main nor origin/main (by merge,
+      rebase or squash); --force discards them. Also refuses while beads labelled
       track:<name> aren't closed, which --force doesn't override. Never touches main or other tracks.
   mshape review <n>
       Pull request <n>'s head from origin in a detached worktree .agents/worktrees/<repo>.pr-<n>,
@@ -150,11 +150,7 @@ const track = (root: string, args: ReadonlyArray<string>) =>
             force: flags.includes("--force"),
             keepHandoff: flags.includes("--keep-handoff"),
             // rm fetches main's upstream; with no terminal to answer, a prompt would hang it.
-            fetchEnv: {
-              ...process.env,
-              GIT_TERMINAL_PROMPT: "0",
-              GIT_SSH_COMMAND: process.env["GIT_SSH_COMMAND"] ?? "ssh -o BatchMode=yes",
-            },
+            fetchEnv: { ...process.env, GIT_TERMINAL_PROMPT: "0" },
           },
           (line) => Effect.sync(() => console.error(line)),
         ),
