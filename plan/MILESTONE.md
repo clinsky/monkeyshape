@@ -41,9 +41,9 @@ that every mention of a convention is a defect. It comes before the first real a
 ## Goal, and how we'll know
 
 1. **One owner per machine-checkable convention.** The PR body's sections, the PR size
-   default, the track branch, the commit's bead reference and git authority each have one
-   source in code or in one shipped file. The few copies that restate a value are registered
-   and checked against it; nothing else is policed.
+   default, the track branch and git authority each have one source in code or in one
+   shipped file, and every generated or shipped copy is checked against it. Prose that
+   explains a convention for its reader is not policed.
 2. **Delivered at the moment of need.** What every session needs arrives at session start for
    any agent; what one step needs is in that step's skill or printed by the command used then.
    No skill sends an agent to another doc for a rule.
@@ -64,8 +64,8 @@ that every mention of a convention is a defect. It comes before the first real a
   configures them, then asserts that their output plus AGENTS.md plus the `track` skill state
   the PR size, how to open a PR, that agents push and open PRs, the decision authority, and
   how to message another track. It must fail on today's `main`.
-- **Registered copies agree.** The check passes on this repo and on a born repo, and fails
-  when a registered copy's value changes without its owner.
+- **Shipped copies agree.** PRIME.md and the PR template in a born repo and in this repo
+  match what the package ships, and the check fails when one is edited by hand.
 - **Two real Claude Code sessions, in two tracks** (run by hand by the maintainer, recorded in
   the PR): `mshape msg send` from one makes an **idle** recipient show the subject notice with
   no new user prompt; the recipient defers it, keeps working, and later reads it with
@@ -86,8 +86,8 @@ that every mention of a convention is a defect. It comes before the first real a
   and work. This milestone adds the look-up and an author-side self-check, nothing else.
 - **Changing the PR size default:** this milestone moves it to where agents see it, not what
   it is.
-- **A rendering or templating framework for skills,** and checks that police prose broadly:
-  only registered copies of machine-checkable values are checked.
+- **A rendering or templating framework for skills,** and checks that police prose: shipped
+  and generated copies are checked, not prose that mentions a convention.
 - **Live delivery for agents other than Claude Code.** The transport is replaceable and the
   mailbox readable by any agent, but Claude Code is the only live-delivery harness now.
 
@@ -112,6 +112,8 @@ that every mention of a convention is a defect. It comes before the first real a
   including squash and rebase merges, and `rm` fetches first (#20); `bd init`'s commit is
   folded into `init`'s first commit (`31v`); a track starts with `mshape track new` and
   `/track` (`y0p`).
+- The `milestone` skill derived the number of tracks from a habit ("two to four"); it now
+  derives it from the work, up to about five (this PR). This plan uses four for that reason.
 
 ## Phase 0: the milestone-1 boundary (before the tracks start)
 
@@ -134,9 +136,11 @@ Settled before the tracks start. A change goes to the other tracks by `mshape ms
 exists) and to the maintainer.
 
 - **Ownership of code and files,** so no two tracks edit the same file:
-  - `coordination`: every `mshape track *` command (`track pr` included) and
-    `src/{core,adapters}/tracks.ts`, `mshape msg`, `src/core/handoff.ts`, and the `track` and
-    `handoff` skills.
+  - `messaging`: `mshape msg` and everything under it (the mailbox, the session registry, the
+    `Notifier`), and the hooks that run it.
+  - `tracks`: every `mshape track *` command (`track pr` included),
+    `src/{core,adapters}/tracks.ts`, `src/core/handoff.ts`, the CI PR-body check, the
+    beads-ownership check, and the `track` and `handoff` skills.
   - `conventions`: `src/core/conventions.ts`, `mshape sync`, `init`, the template, PRIME.md,
     the PR template, `docs/workflow.md`, README, AGENTS.md.
   - `review`: the `review-pr`, `milestone` and `roadmap` skills, and the rule-cases and
@@ -145,14 +149,9 @@ exists) and to the maintainer.
     generated from the command table, so additions don't collide.
   - A track that needs a change in another's file sends it as a message or a bead.
 - **`src/core/conventions.ts` owns the machine-checkable values:** `PR_SECTIONS` (name,
-  purpose, required), the PR size default, the bead reference in commit messages (a
-  `Bead: <id>` trailer, one per bead the commit works on), and the track branch (re-exported
-  from `layout.ts`). A value lives here only if code or a check reads it.
-- **Registered copies, not rendering.** A short list in `conventions.ts` names each file that
-  states one of these values for its reader (for example, the `track` skill states the PR
-  size; `docs/workflow.md` explains it to a human). A check verifies that each registered copy
-  contains the owner's value. Docs word the convention for their reader; nothing renders
-  skills, and nothing flags unregistered prose.
+  purpose, required) and the PR size default, which `mshape track pr` prints when it opens a
+  PR; the track branch is re-exported from `layout.ts`. A value lives here only if code or a
+  check reads it. Docs and skills word a convention for their reader; nothing renders them.
 - **Always-loaded files:** what monkeyshape decides goes in `.beads/PRIME.md`; what the repo
   decides goes in AGENTS.md. bd's SessionStart hook stays; PRIME.md (about 60 lines,
   budgeted) replaces its default text, so the hook agrees with AGENTS.md, and bd still
@@ -166,10 +165,12 @@ exists) and to the maintainer.
   hook's PATH).
 - **The PR body:** `.github/pull_request_template.md` is generated from `PR_SECTIONS` in this
   repo and in born repos, and `conventions` exports a function that builds the skeleton.
-  `mshape track pr` (owned by `coordination`) pushes `track/<name>` and creates the track's PR
+  `mshape track pr` (owned by `tracks`) pushes `track/<name>` and creates the track's PR
   from that skeleton, or updates it **without overwriting** the agent's narrative and
   evidence: it fills only machine-known fields, each from a verified fact (the gate's output
-  from a run it just did, changed lines from `git diff`, beads from commit trailers). A CI step
+  from a run it just did, changed lines from `git diff`). The PR's Beads section is the record
+  of which beads a PR works on: the agent lists them, `track pr` checks that each exists, and
+  a bead listed in a merged PR but still open is flagged. A CI step
   checks the body's required headings, and the `track/*` head branch, only on PRs opened by
   `mshape track pr` (marked in the body); other PRs, like this one, are unaffected.
 - **The mailbox is the durable source of truth.** One file per message,
@@ -204,28 +205,30 @@ exists) and to the maintainer.
 
 | Track | Serves | Charter | Acceptance |
 |---|---|---|---|
-| `conventions` | goals 1, 2 | Kept small, so nobody waits on it. `conventions.ts`, registered copies and their check; PRIME.md, `mshape sync` and its checks (shipped copy, hook present, budget); the PR template and the skeleton function; how hooks and skills invoke `mshape`; a born repo ready for the first chat (`init` prints the `gh repo create --source . --push` step, sets `agent.profile`, and its `package.json` doesn't record a machine-specific tarball path); the AGENTS.md split, with a dogfooding section in this repo's; the fresh-agent test; refs scans `plan/` and `notes/`, and the new-repo refs test builds its fixture from `template/` | The fresh-agent test and the registered-copies check pass, and fail on today's `main` |
-| `coordination` | goals 3, 4 | The mailbox first (`send`, `inbox`, `read`, the SessionStart hook showing unread subjects), so the tracks use it early; then a spike that proves native socket delivery into a real idle session and reports; then `register`, the session registry, stale pruning and the `Notifier` with its Claude Code implementation. Every `track *` command: `track pr`; `track list`'s derived done status and handoff hygiene warnings; `track new` from upstream `main`; `track rm` refuses when `.beads/` exists, beads is `optional` and `bd` isn't installed. The handoff format change and migration. A beads-ownership check: open beads with a `Bead:` trailer on `main`, open beads with no `track:` label, deferred beads with one, `TODO(<id>)` on closed beads. The `track` and `handoff` skills | The two-session acceptance above, including the idle recipient; a message to a track with no live session waits and is shown at its next session; `track list` shows finished tracks as done |
-| `review` | goal 5 | First, the test that every rule has must-pass and must-fail cases, and the Markdown reference-parser test, before any track adds a check. `review-pr` reads the milestone (why, non-goals, the track's row), the track's charter and the PR's beads before the diff; every review body has a short "Fit" section: does it serve its beads and goal step, is anything outside them (filed as a bead, as nits already are), is it redundant with existing code or docs, is there prose where a check belongs. The author self-check text for the `track` skill (re-run the reviewer's probes before replying "fixed", try to break the fix with valid input), handed to `coordination`, which owns that file. The `milestone` and `roadmap` skills write the plan sections this plan uses (why, non-goals, how tracks serve, amendments) | The rule-cases test fails when a rule loses its must-pass case; a plan written by `/milestone` has every section above; a manual review of a deliberately out-of-scope PR flags it under "Fit" |
+| `conventions` | goals 1, 2 | Kept small, so nobody waits on it. `conventions.ts`; PRIME.md, `mshape sync` and its checks (shipped copy, hook present, budget); the PR template and the skeleton function; how hooks and skills invoke `mshape`; a born repo ready for the first chat (`init` prints the `gh repo create --source . --push` step, sets `agent.profile`, and its `package.json` doesn't record a machine-specific tarball path); the AGENTS.md split, with a dogfooding section in this repo's; the fresh-agent test; refs scans `plan/` and `notes/`, and the new-repo refs test builds its fixture from `template/` | The fresh-agent test passes, and fails on today's `main`; shipped copies are checked |
+| `messaging` | goal 3 | The mailbox first (`send`, `inbox`, `read`, the SessionStart hook showing unread subjects), so every track uses it early; then a spike that proves native socket delivery into a real idle session and reports; then `register`, the session registry, stale pruning and the `Notifier` with its Claude Code implementation | The two-session acceptance above, including the idle recipient; a message to a track with no live session waits and is shown at its next session |
+| `tracks` | goals 2, 4 | Every `track *` command: `track pr` (prints the PR size, fills verified fields, never overwrites the narrative) and the CI body check; `track list`'s derived done status and handoff hygiene warnings; `track new` from upstream `main`; `track rm` refuses when `.beads/` exists, beads is `optional` and `bd` isn't installed. The handoff format change and migration. A beads-ownership check: open beads listed in a merged PR's Beads section, open beads with no `track:` label, deferred beads with one, `TODO(<id>)` on closed beads. The `track` and `handoff` skills, including the mailbox and the self-check text from `review` | `track list` shows finished tracks as done; `track pr` on a PR with a hand-written narrative keeps it; the beads-ownership check flags each case above |
+| `review` | goal 5 | First, the test that every rule has must-pass and must-fail cases, and the Markdown reference-parser test, before any track adds a check. `review-pr` reads the milestone (why, non-goals, the track's row), the track's charter and the PR's beads before the diff; every review body has a short "Fit" section: does it serve its beads and goal step, is anything outside them (filed as a bead, as nits already are), is it redundant with existing code or docs, is there prose where a check belongs. The author self-check text for the `track` skill (re-run the reviewer's probes before replying "fixed", try to break the fix with valid input), handed to `tracks`, which owns that file. The `milestone` and `roadmap` skills write the plan sections this plan uses (why, non-goals, how tracks serve, amendments) | The rule-cases test fails when a rule loses its must-pass case; a plan written by `/milestone` has every section above; a manual review of a deliberately out-of-scope PR flags it under "Fit" |
 
-**Order:** `review`'s rule-cases test lands before any track adds a check; `coordination`'s
-mailbox lands before its socket work; `conventions.ts` lands in `conventions`' first PR.
-Nothing else waits on another track.
+**Order:** `review`'s rule-cases test lands before any track adds a check; `messaging`'s
+mailbox lands before its socket work, and `tracks`' skills adopt it once it merges;
+`conventions.ts` lands in `conventions`' first PR. Nothing else waits on another track.
 
 ## Proposed beads (filed after approval)
 
-- **conventions:** `conventions.ts` and registered copies with their check; PRIME.md,
-  `mshape sync` (with `skills sync` as its alias) and its checks; how hooks and skills invoke
-  `mshape`, tested from a born repo and a worktree; the PR template and skeleton function;
-  `init` for the first chat (the `gh repo create` step, `agent.profile`, no machine-specific
-  tarball path); the AGENTS.md split and the dogfooding section; the fresh-agent test; refs
-  covering `plan/` and `notes/`, and the new-repo refs test built from `template/`.
-- **coordination:** the mailbox (one file per message; `send`, `inbox`, `read`; SessionStart
+- **conventions:** `conventions.ts`; PRIME.md, `mshape sync` (with `skills sync` as its
+  alias) and its checks; how hooks and skills invoke `mshape`, tested from a born repo and a
+  worktree; the PR template and skeleton function; `init` for the first chat (the
+  `gh repo create` step, `agent.profile`, no machine-specific tarball path); the AGENTS.md
+  split and the dogfooding section; the fresh-agent test; refs covering `plan/` and
+  `notes/`, and the new-repo refs test built from `template/`.
+- **messaging:** the mailbox (one file per message; `send`, `inbox`, `read`; SessionStart
   unread subjects); the native-delivery spike; `register`, the registry and pruning; the
-  `Notifier` and its Claude Code implementation; `track pr` and the CI body check; derived
-  done status and hygiene warnings; `track new` from upstream `main`; `track rm` in the
-  `optional` without `bd` case; the handoff format change and migration; the beads-ownership
-  check; the `track` and `handoff` skills.
+  `Notifier` and its Claude Code implementation.
+- **tracks:** `track pr` and the CI body check; derived done status and hygiene warnings;
+  `track new` from upstream `main`; `track rm` in the `optional` without `bd` case; the
+  handoff format change and migration; the beads-ownership check; the `track` and `handoff`
+  skills (mailbox, self-check).
 - **review:** the rule-cases test; the Markdown reference-parser test; `review-pr`'s look-up
   and Fit section; the self-check text for `track`; the `milestone` and `roadmap` skills.
 - **milestone:** the acceptance run that closes it: the acceptance above passes, a release is
@@ -233,7 +236,7 @@ Nothing else waits on another track.
 
 ## Decision points
 
-- **If native delivery into an idle session can't be made reliable,** `coordination` stops
+- **If native delivery into an idle session can't be made reliable,** `messaging` stops
   and brings the spike's findings to the maintainer. The goal and acceptance stay as written
   unless the maintainer amends them; the mailbox and its SessionStart notices ship either way,
   since they don't depend on the spike.
@@ -245,6 +248,9 @@ Nothing else waits on another track.
 
 - Remaining starter rules (`hh2`), agentic layer (`v56`), `mshape validate` (`97o`),
   adoption (`36f`), policy bundles (`8h4`): unchanged from milestone 1, no consumer yet.
+- A check that files restating a convention for their reader (the `track` skill's PR size,
+  `docs/workflow.md`) still agree with `conventions.ts`: no recurring failure of that kind
+  yet, and `track pr` prints the size where it's needed.
 - Check messages that say how to fix (`unknown-module`, `readme-lines`, where budgets and
   exempt directories are set): small, and none of them blocks the loop.
 - A mailbox address for the maintainer (`to: maintainer`): useful for decisions like `5b4`,
