@@ -25,8 +25,8 @@ mshape check failed: 2 problems
 bunx --package monkeyshape mshape init my-app
 ```
 
-A new repo whose gate (`bun run check`) passes empty: Bun, TypeScript, Effect, beads, the
-configs, CI, and five skills for your coding agent. Then the working loop, one chat each:
+A new repo whose gate (`bun run check`) passes, with one starter test: Bun, TypeScript, Effect,
+beads, the configs, CI, and five skills for your coding agent. Then the working loop, one chat each:
 
 1. `/roadmap` with a brain-dump: the direction, and one deferred epic per goal.
 2. `/milestone` with your priorities: a plan with acceptance on real data, beads, and

@@ -134,10 +134,13 @@ describe("mshape init", () => {
     expect(await Bun.file(join(work, "no-beads", ".beads", "config.yaml")).exists()).toBe(false);
   });
 
-  test("its gate passes empty, with nothing skipped", async () => {
+  test("its gate passes with its one starter test, and nothing skipped or in error", async () => {
     const check = await run(join(work, "demo"), [process.execPath, "run", "check"]);
     expect(check.output).toContain("mshape check passed");
     expect(check.output).not.toContain("note:");
+    // A first run that says "error:" teaches a new user to ignore the gate.
+    expect(check.output).not.toContain("error:");
+    expect(check.output).toContain(" 1 pass");
     expect(check.code).toBe(0);
   }, 60_000);
 

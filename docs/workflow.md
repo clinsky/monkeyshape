@@ -39,7 +39,7 @@ normative may cite.
 
 | Step | Started by | What happens |
 |---|---|---|
-| Init | you: `mshape init <name>` | A new repo whose gate passes empty: template, toolchain, beads, the five skills, the handoffs store. |
+| Init | you: `mshape init <name>` | A new repo whose gate passes, with one starter test: template, toolchain, beads, the five skills, the handoffs store. |
 | Long term | chat: `/roadmap` + a brain-dump | Interview until goals are clear; write docs/roadmap.md; one deferred epic per goal; open a PR. |
 | Mid term | chat: `/milestone` + priorities | Retrospective on the last milestone; agree a goal with acceptance on real data; write plan/MILESTONE.md; groom beads and the roadmap; garden; create the tracks with `mshape track new`; remove finished ones. |
 | Short term | chat in a track's worktree: `/track` | Read the handoff and the track's queue; work; open PRs. |
