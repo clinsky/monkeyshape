@@ -49,8 +49,11 @@ Then write the new one, about 500 lines at most:
 - **Interfaces the tracks share:** every path, command, format or schema two tracks both
   touch, with its owner and consumer, settled before anyone starts. This is the section
   that keeps parallel work from colliding; spend the effort here.
-- **Tracks:** a table of name, charter, beads and acceptance. Split so tracks touch
-  disjoint files and meet only at the interfaces. Two to four tracks is typical; one is fine.
+- **Tracks:** a table of name, charter, beads and acceptance. Split into as many parallel
+  tracks as the work allows: each touches disjoint files and meets the others only at the
+  interfaces. Derive the number from the work, not a habit: up to about five is usual, and
+  one is fine when the work is sequential. When a track ends up holding far more than the
+  others, or the riskiest work alongside everything else, split it.
 - **Decision points**, **spend** for big runs, and **deferred items, each with a reason**.
 
 The plan is frozen once tracks start. Say so at its top.
