@@ -304,4 +304,9 @@ None: no model calls in this milestone's code.
 
 ## Amendments
 
-None yet.
+- **2026-11-03, live notices (#27), approved by the maintainer.** `register` stores the
+  session id and Claude Code's pid, not the socket; the socket and peer token are read from
+  Claude Code's session record at send time. The socket never replies, so a registration is
+  pruned when its session ended, its pid runs another session, or its socket refuses the
+  connection. The version check is Claude Code's `peerProtocol`. Reason: the spike
+  (`notes/2026-11-03-spike-native-delivery.md`).

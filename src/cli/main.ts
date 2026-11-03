@@ -1,5 +1,6 @@
 #!/usr/bin/env bun
 /** The `mshape` executable: the composition root, and the only place effects are run. */
+import { homedir } from "node:os";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { Effect } from "effect";
@@ -8,6 +9,7 @@ import { BASELINE_FILE, readBaseline, writeBaseline } from "../adapters/baseline
 import { loadConfig } from "../adapters/config.ts";
 import { initRepo } from "../adapters/init.ts";
 import { mailInbox, mailRead, mailSend } from "../adapters/mail.ts";
+import { claudeCodeNotifier, notifyRecipient, register } from "../adapters/notices.ts";
 import { reviewNew, reviewRm } from "../adapters/reviews.ts";
 import { installSkills } from "../adapters/skills.ts";
 import { trackCurrent, trackList, trackNew, trackRm } from "../adapters/tracks.ts";
@@ -17,6 +19,7 @@ import { garden } from "../core/garden.ts";
 import { CLAUDE_SKILLS_LINK } from "../core/layout.ts";
 import { formatInbox, formatMessage, formatSent } from "../core/mail.ts";
 import type { CheckName } from "../core/model.ts";
+import { formatDelivery } from "../core/notices.ts";
 import { applyBaseline, count, tighten } from "../core/ratchet.ts";
 import { formatCheck, formatGarden, formatViolation } from "../core/report.ts";
 import { RULES } from "../core/rules/registry.ts";
@@ -175,7 +178,21 @@ const msgSend = (root: string, args: ReadonlyArray<string>) =>
     if (subject === undefined || positional.length < 1 || positional.length > 2) return usage();
     const [to = "", body = ""] = positional;
     const message = yield* mailSend(root, to, subject, body, new Date(), randomHex);
-    return { output: formatSent(message), code: 0 };
+    // Stored first: whatever happens to the notices, the mail waits for them.
+    const delivery = yield* notifyRecipient(
+      root,
+      message,
+      claudeCodeNotifier,
+      claudeDir(),
+      new Date(),
+    ).pipe(
+      Effect.catchTags({
+        TrackError: (error) => Effect.succeed({ notified: 0, pruned: [], skipped: [error.reason] }),
+        WorkspaceError: (error) =>
+          Effect.succeed({ notified: 0, pruned: [], skipped: [error.message] }),
+      }),
+    );
+    return { output: `${formatSent(message)}\n${formatDelivery(to, delivery)}`, code: 0 };
   });
 
 /**
@@ -197,6 +214,32 @@ const msgInbox = (root: string, quiet: boolean) =>
     }),
   );
 
+/** Claude Code's config directory, where it records each session: `~/.claude` by default. */
+const claudeDir = (): string => process.env["CLAUDE_CONFIG_DIR"] ?? `${homedir()}/.claude`;
+
+/**
+ * This session's id: from the hook's JSON on stdin when run as a hook, else from Claude
+ * Code's environment. Never waits on a terminal.
+ */
+const sessionId = async (): Promise<string> => {
+  if (!process.stdin.isTTY) {
+    const input = await Bun.stdin.text();
+    const match = /"session_id"\s*:\s*"([^"]+)"/.exec(input);
+    if (match?.[1] !== undefined) return match[1];
+  }
+  return process.env["CLAUDE_CODE_SESSION_ID"] ?? "";
+};
+
+/** The SessionStart hook's form: silent when done or outside a track, a note otherwise. */
+const msgRegister = (root: string) =>
+  Effect.gen(function* () {
+    const session = yield* Effect.promise(sessionId);
+    const pid = Number(process.env["CLAUDE_PID"] ?? "");
+    const claudePid = Number.isSafeInteger(pid) && pid > 0 ? pid : undefined;
+    const note = yield* register(root, session, claudePid, claudeDir(), new Date());
+    return { output: note ?? "", code: 0 };
+  });
+
 const msg = (root: string, args: ReadonlyArray<string>) =>
   Effect.gen(function* () {
     const [sub, ...rest] = args;
@@ -204,6 +247,7 @@ const msg = (root: string, args: ReadonlyArray<string>) =>
     if (sub === "inbox" && rest.length === 0) return yield* msgInbox(root, false);
     if (sub === "inbox" && rest.length === 1 && rest[0] === "--quiet")
       return yield* msgInbox(root, true);
+    if (sub === "register" && rest.length === 0) return yield* msgRegister(root);
     if (sub === "read" && rest.length === 1) {
       const { message, alreadyRead } = yield* mailRead(root, rest[0] ?? "");
       return { output: formatMessage(message, alreadyRead), code: 0 };
@@ -396,14 +440,18 @@ export const COMMANDS: ReadonlyArray<Command> = [
   {
     name: "msg",
     usage: `  mshape msg send <track> --subject <subject> [body]
-      Leave a message in <track>'s mailbox, from this track (or main, or review-<n>). The
-      subject is one line; it is all a notice shows. Quote the body; put -- before a body
+      Leave a message in <track>'s mailbox, from this track (or main, or review-<n>), then
+      push its subject to the track's live sessions. The subject is one line; it is all a
+      notice shows. Quote the body; put -- before a body
       that starts with --.
   mshape msg inbox [--quiet]
       This track's unread messages, oldest first. --quiet, for hooks: nothing when there are
       none or this isn't a track, and never a failure.
   mshape msg read <id>
-      Print a message and mark it read for the whole track. Nothing else marks one read.`,
+      Print a message and mark it read for the whole track. Nothing else marks one read.
+  mshape msg register
+      Record this Claude Code session against its track, so send notifies it at once: the
+      SessionStart hook runs it. Silent outside a track; never fails.`,
     run: msg,
   },
 ];
