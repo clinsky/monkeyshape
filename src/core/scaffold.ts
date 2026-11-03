@@ -85,7 +85,6 @@ export const scaffold = (
     ...Object.entries(configs(name, toolchain)),
   ]);
 
-/** The last thing `init` prints: what to do now, and where the conventions are. */
 /**
  * Shares a repo's beads through git origin, run once after the first push: the beads go to
  * origin's `refs/dolt/data`, where a second clone's `bd bootstrap` finds them, and the
@@ -95,6 +94,7 @@ export const scaffold = (
 export const SHARE_BEADS =
   "bd dolt push --yes && bd config set dolt.auto-push true && git commit --quiet -m 'Share beads through origin' .beads/config.yaml && git push --quiet origin HEAD";
 
+/** The last thing `init` prints: what to do now, and where the conventions are. */
 export const nextStep = (name: string, workflowUrl: string): string =>
   [
     "Next:",

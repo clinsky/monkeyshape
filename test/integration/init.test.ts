@@ -245,6 +245,19 @@ describe("mshape init", () => {
       const tip = await pushed(shared);
       expect((await run(shared, ["bd", "create", "--title", "made in the clone"])).code).toBe(0);
       expect(await pushed(shared)).not.toBe(tip);
+
+      // Both write while auto-push is throttled in the origin (it just pushed), so the two
+      // diverge; PRIME.md's `bd sync`, run in each, brings both to both beads.
+      expect((await run(origin, ["bd", "create", "--title", "held back in the origin"])).code).toBe(
+        0,
+      );
+      const titles = (clone: string) => run(clone, ["bd", "list"]).then((r) => r.output);
+      expect(await titles(shared)).not.toContain("held back in the origin");
+      for (const clone of [origin, shared]) expect((await run(clone, ["bd", "sync"])).code).toBe(0);
+      for (const clone of [origin, shared]) {
+        expect(await titles(clone)).toContain("held back in the origin");
+        expect(await titles(clone)).toContain("made in the clone");
+      }
     },
     120_000,
   );

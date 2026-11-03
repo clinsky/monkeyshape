@@ -18,6 +18,9 @@ never by hand.
 - `bd remember "..."` keeps a lesson every session needs; memories are printed below this
   and are budgeted, so promote a lasting one to a check or AGENTS.md instead.
 - Never `bd edit`: it opens an editor and blocks.
+- Where beads are shared through origin (`bd config get dolt.auto-push` is true), run
+  `bd sync` when you start and before you stop: it pulls other clones' beads, then pushes
+  what auto-push's five-minute throttle held back.
 
 ## Tracks: parallel work
 
@@ -54,6 +57,6 @@ design, refactors, docs, checks and beads, and explain them in the PR body.
 
 ## Before you stop
 
-Commit and push what is done, update the handoff's State if you are in a track, and say
-what is left. Where beads are shared (`bd config get dolt.auto-push` is true), `bd dolt push`
-sends any that its five-minute throttle held back. Text is a hypothesis: when a doc or bead disagrees with the code, fix the text.
+Commit and push what is done, `bd sync` where beads are shared, update the handoff's State
+if you are in a track, and say what is left. Text is a hypothesis: when a doc or bead
+disagrees with the code, fix the text.
