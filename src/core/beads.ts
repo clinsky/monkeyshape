@@ -7,7 +7,10 @@
  *
  * Outside tracks, a bead is owned by being an epic (it spans tracks), or by a label naming
  * the kind of work no track does: `milestone` (acceptance runs, planning) or `process` (the
- * loop itself). Needs bd: where it can't run, the check is skipped with a notice.
+ * loop itself). Ownership applies only in a repo that works in tracks, one where some bead,
+ * open or closed, has carried a `track:` label: before its first tracks (a repo just born,
+ * or one that doesn't use them) there is no owner to give. Needs bd: where it can't run,
+ * the check is skipped with a notice.
  */
 import type { BeadSummary, Snapshot, Violation } from "./model.ts";
 import { isTsSource, lineAt } from "./model.ts";
@@ -47,9 +50,11 @@ export const checkBeads = (_config: unknown, snapshot: Snapshot): ReadonlyArray<
   const beads = snapshot.beadRows;
   if (beads === undefined) return [];
   const violations: Array<Violation> = [];
+  const inTracks = beads.some((bead) => trackLabels(bead).length > 0);
   for (const bead of beads) {
     const tracks = trackLabels(bead);
     if (
+      inTracks &&
       bead.status !== "closed" &&
       bead.status !== "deferred" &&
       bead.type !== "epic" &&

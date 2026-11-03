@@ -574,7 +574,10 @@ const bead = (
 
 const beadsCases: Record<string, Cases> = {
   "beads/unowned": {
-    fail: { options: { beadRows: [bead("x-1", "in_progress")] } },
+    // A repo that works in tracks: another bead, closed, carried a track label.
+    fail: {
+      options: { beadRows: [bead("x-1", "in_progress"), bead("x-0", "closed", ["track:a"])] },
+    },
     // Owned by a track, by a label for work no track does, by being an epic, or not open.
     pass: {
       options: {

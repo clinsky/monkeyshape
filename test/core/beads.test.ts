@@ -33,6 +33,18 @@ describe("the beads check", () => {
     ]);
   });
 
+  test("a repo that doesn't work in tracks yet, as a born repo, has no owner to give: none unowned", () => {
+    // As CI found on #39: mshape init's repo, its first bead, no tracks yet.
+    const born = repo({}, { beadRows: [bead("demo-1", "open"), bead("demo-2", "closed")] });
+    expect(checkBeads({}, born)).toEqual([]);
+    // Its first track label, even on a closed bead, and the rule applies from then on.
+    const tracked = repo(
+      {},
+      { beadRows: [bead("demo-1", "open"), bead("demo-2", "closed", ["track:a"])] },
+    );
+    expect(checkBeads({}, tracked).map((v) => v.rule)).toEqual(["beads/unowned"]);
+  });
+
   test("a TODO naming a closed bead is reported on its own line, in a block comment too", () => {
     const text = "const a = 1;\n/**\n * Explains a.\n * TODO(x-1): drop this once bd can.\n */\n";
     const [found] = checkBeads(
