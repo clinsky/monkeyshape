@@ -9,12 +9,19 @@ import { BASELINE_FILE, readBaseline, writeBaseline } from "../adapters/baseline
 import { loadConfig } from "../adapters/config.ts";
 import { initRepo } from "../adapters/init.ts";
 import { mailInbox, mailRead, mailSend } from "../adapters/mail.ts";
-import { claudeCodeNotifier, notifyRecipient, register } from "../adapters/notices.ts";
+import {
+  claudeCodeNotifier,
+  liveSessions,
+  notifyRecipient,
+  register,
+  removeSessions,
+} from "../adapters/notices.ts";
 import { reviewNew, reviewRm } from "../adapters/reviews.ts";
 import { installSkills } from "../adapters/skills.ts";
 import {
   type CarryMessages,
   locate,
+  type TrackSessions,
   trackCurrent,
   trackList,
   trackNew,
@@ -149,6 +156,7 @@ const track = (root: string, args: ReadonlyArray<string>) =>
             keepHandoff: flags.includes("--keep-handoff"),
             // rm fetches main's upstream; with no terminal to answer, a prompt would hang it.
             fetchEnv: { ...process.env, GIT_TERMINAL_PROMPT: "0" },
+            sessions: trackSessions(root),
           },
           (line) => Effect.sync(() => console.error(line)),
         ),
@@ -156,6 +164,24 @@ const track = (root: string, args: ReadonlyArray<string>) =>
       };
     return usage();
   });
+
+/** `track rm`'s view of the session registry; a failure is a reason, which rm reports. */
+const trackSessions = (root: string): TrackSessions => {
+  const reason = <A>(
+    effect: Effect.Effect<A, TrackError | WorkspaceError>,
+  ): Effect.Effect<A | { readonly unknown: string }> =>
+    effect.pipe(
+      Effect.catchTags({
+        TrackError: (error) => Effect.succeed({ unknown: error.reason }),
+        WorkspaceError: (error) => Effect.succeed({ unknown: error.message }),
+      }),
+    );
+  return {
+    live: (track) =>
+      reason(Effect.map(liveSessions(root, track, claudeDir(), new Date()), (live) => ({ live }))),
+    remove: (track) => reason(removeSessions(root, track)),
+  };
+};
 
 /**
  * A retired handoff Messages section, mailed to its track from the main checkout (so from

@@ -39,7 +39,8 @@ const mshapeWith = (
 ) => {
   const result = Bun.spawnSync([process.execPath, CLI, "track", ...args], {
     cwd,
-    env: { ...process.env, ...env },
+    // rm reads Claude Code's sessions: a scratch directory, never the real ~/.claude.
+    env: { ...process.env, CLAUDE_CONFIG_DIR: join(base, "no-claude"), ...env },
     stdout: "pipe",
     stderr: "pipe",
   });
@@ -364,6 +365,50 @@ describe("track rm", () => {
     mshape(repo, "new", "docs");
     expect(msg(wt("docs"), "inbox")).not.toContain("second");
     expect(await exists(`${repo}/.git/monkeyshape/mail/docs`)).toBe(false);
+  });
+
+  test("a running Claude Code session refuses rm; --force removes the track and its registry", async () => {
+    await setup();
+    mshape(repo, "new", "docs");
+    // A fake Claude Code: this test's own process, as a session running in the worktree, and
+    // registered for the track. Never the real ~/.claude, whose registry rm would prune.
+    const claude = join(base, "claude");
+    await mkdir(`${claude}/sessions`, { recursive: true });
+    const session = "00000000-0000-4000-8000-000000000001";
+    await writeFile(
+      `${claude}/sessions/${process.pid}.json`,
+      JSON.stringify({
+        pid: process.pid,
+        cwd: wt("docs"),
+        sessionId: session,
+        procStart: "p",
+        peerProtocol: 1,
+        messagingSocketPath: join(base, "none.sock"),
+      }),
+    );
+    const registry = `${repo}/.git/monkeyshape/sessions/docs`;
+    await mkdir(registry, { recursive: true });
+    await writeFile(
+      `${registry}/${session}.json`,
+      JSON.stringify({ session, pid: process.pid, registered: "2026-01-01T00:00:00.000Z" }),
+    );
+    const env = { CLAUDE_CONFIG_DIR: claude };
+
+    const refused = mshapeWith(env, repo, "rm", "docs");
+    expect(refused.code).toBe(1);
+    expect(refused.stderr).toContain(
+      `1 Claude Code session(s) still running in \`docs\` would lose their worktree: ${session}. Quit each one (\`/exit\`), or pass --force`,
+    );
+    expect(await exists(wt("docs"))).toBe(true);
+
+    const forced = mshapeWith(env, repo, "rm", "docs", "--force");
+    expect(forced.code).toBe(0);
+    expect(forced.stderr).toContain(
+      `--force: removing the track from under 1 running Claude Code session(s): ${session}`,
+    );
+    expect(forced.stdout).toContain("removed 1 session registration(s)");
+    expect(await exists(registry)).toBe(false);
+    expect(await exists(wt("docs"))).toBe(false);
   });
 
   test("a failure partway stops, reports what was removed and what remains; a rerun finishes", async () => {

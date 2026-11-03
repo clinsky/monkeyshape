@@ -612,6 +612,18 @@ const mailboxFacts = (common: string, track: string) =>
   });
 
 /** `say` prints at once: what `--force` will discard is said before it happens. */
+/**
+ * The track's Claude Code sessions, from the session registry's adapter, which imports this
+ * one, so the CLI passes them in. `live` is the running session ids or why they can't be read;
+ * `remove` deletes the track's registry and says how many registrations it held.
+ */
+export interface TrackSessions {
+  readonly live: (
+    track: string,
+  ) => Effect.Effect<{ readonly live: ReadonlyArray<string> } | { readonly unknown: string }>;
+  readonly remove: (track: string) => Effect.Effect<number | { readonly unknown: string }>;
+}
+
 export const trackRm = (
   cwd: string,
   track: string,
@@ -620,6 +632,7 @@ export const trackRm = (
     readonly keepHandoff: boolean;
     /** The environment for fetching `main`'s upstream: one where git can't prompt. */
     readonly fetchEnv: Readonly<Record<string, string | undefined>>;
+    readonly sessions: TrackSessions;
   },
   say: (line: string) => Effect.Effect<void>,
 ) =>
@@ -656,6 +669,7 @@ export const trackRm = (
       open: found.byTrack.get(track) ?? [],
     };
     const mailbox = yield* mailboxFacts(common, track);
+    const sessions = yield* options.sessions.live(track);
     const plan = planRm({
       track,
       worktreePath: path,
@@ -678,6 +692,7 @@ export const trackRm = (
       handoffExists: yield* lexists(handoff),
       beads,
       mailbox,
+      sessions,
       force: options.force,
       keepHandoff: options.keepHandoff,
     });
@@ -721,6 +736,11 @@ export const trackRm = (
       removed.push(describeStep(step));
     }
     yield* gitOk(repo, ["worktree", "prune"]);
+    // The registry goes last and always: its sessions ran in the worktree just removed.
+    const registrations = yield* options.sessions.remove(track);
+    if (typeof registrations !== "number")
+      yield* say(`note: the session registry of ${track} wasn't removed: ${registrations.unknown}`);
+    else if (registrations > 0) removed.push(`${registrations} session registration(s)`);
     return [
       ...removed.map((what) => `removed ${what}`),
       ...plan.kept.map((what) => `kept ${what}`),

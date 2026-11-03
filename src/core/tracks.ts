@@ -174,6 +174,8 @@ export interface RmFacts {
   /** Beads labelled `track:<track>` that aren't closed: removing the track would orphan them. */
   readonly beads: BeadsCheck;
   readonly mailbox: MailboxFacts;
+  /** Claude Code sessions running in the track (`liveSessions`), or why that couldn't be read. */
+  readonly sessions: { readonly live: ReadonlyArray<string> } | { readonly unknown: string };
   readonly force: boolean;
   readonly keepHandoff: boolean;
 }
@@ -214,8 +216,8 @@ export const describeStep = (step: RmStep): string =>
 /**
  * Only the track's own worktree, branch, handoff and mailbox are ever candidates, so the main
  * checkout, other tracks and the handoff store are out of reach by construction. `--force`
- * overrides exactly three refusals: uncommitted changes, unmerged commits and unread mail, each
- * as listed. The mailbox goes with the handoff, so a later track of the same name starts with
+ * overrides exactly four refusals: uncommitted changes, unmerged commits, unread mail and
+ * running Claude Code sessions, each as listed (and sessions that couldn't be checked). The mailbox goes with the handoff, so a later track of the same name starts with
  * neither; `--keep-handoff` keeps both, for a track that continues.
  * Changes that can't be read are not changes the user agreed to discard. Open beads are never
  * overridden: closing or moving each one is a single command, and removing the track would
@@ -330,6 +332,27 @@ export const planRm = (facts: RmFacts): RmPlan => {
             ? `the track has no worktree to read them from (\`msg read\` runs only in one): each is a JSON file in ${mailbox.path}, so look at them there, then pass --force to delete them`
             : `read each from the track's worktree (\`bun run --silent mshape msg read <id>\`), or pass --force to delete them`,
         ].join("\n    "),
+      );
+  }
+
+  if ("unknown" in facts.sessions) {
+    if (facts.force)
+      warnings.push(
+        `removing without knowing whether a Claude Code session runs in the track: ${facts.sessions.unknown}`,
+      );
+    else
+      refusals.push(
+        `can't tell whether a Claude Code session is running in \`${facts.track}\` (${facts.sessions.unknown}): check by hand, then pass --force`,
+      );
+  } else if (facts.sessions.live.length > 0) {
+    const ids = facts.sessions.live.join(", ");
+    if (facts.force)
+      warnings.push(
+        `removing the track from under ${facts.sessions.live.length} running Claude Code session(s): ${ids}`,
+      );
+    else
+      refusals.push(
+        `${facts.sessions.live.length} Claude Code session(s) still running in \`${facts.track}\` would lose their worktree: ${ids}. Quit each one (\`/exit\`), or pass --force`,
       );
   }
 

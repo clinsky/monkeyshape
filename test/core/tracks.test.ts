@@ -60,12 +60,38 @@ describe("what track rm may do", () => {
     handoffExists: true,
     beads: { integration: { state: "ok" }, setting: "optional", open: [] },
     mailbox: { path: "/r/.git/monkeyshape/mail/docs", exists: false, unread: [], read: 0 },
+    sessions: { live: [] },
     force: false,
     keepHandoff: false,
   };
 
   test("worktree, then branch, then handoff", () => {
     expect(planRm(facts).steps.map((step) => step.kind)).toEqual(["worktree", "branch", "handoff"]);
+  });
+
+  test("a running Claude Code session refuses, naming it; --force goes ahead, saying so", () => {
+    const sessions = { live: ["681a4ec1", "9f00ab12"] };
+    const refused = planRm({ ...facts, sessions });
+    expect(refused.steps).toEqual([]);
+    expect(refused.refusals).toEqual([
+      "2 Claude Code session(s) still running in `docs` would lose their worktree: 681a4ec1, 9f00ab12. Quit each one (`/exit`), or pass --force",
+    ]);
+    const forced = planRm({ ...facts, sessions, force: true });
+    expect(forced.refusals).toEqual([]);
+    expect(forced.warnings).toEqual([
+      "removing the track from under 2 running Claude Code session(s): 681a4ec1, 9f00ab12",
+    ]);
+    expect(forced.steps.map((step) => step.kind)).toEqual(["worktree", "branch", "handoff"]);
+  });
+
+  test("sessions that can't be checked refuse, and --force goes ahead, saying so", () => {
+    const sessions = { unknown: "can't read ~/.claude/sessions" };
+    expect(planRm({ ...facts, sessions }).refusals).toEqual([
+      "can't tell whether a Claude Code session is running in `docs` (can't read ~/.claude/sessions): check by hand, then pass --force",
+    ]);
+    expect(planRm({ ...facts, sessions, force: true }).warnings).toEqual([
+      "removing without knowing whether a Claude Code session runs in the track: can't read ~/.claude/sessions",
+    ]);
   });
 
   describe("the mailbox", () => {
