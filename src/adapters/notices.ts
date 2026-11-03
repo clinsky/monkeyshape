@@ -7,7 +7,7 @@
  * note. The decisions are in `src/core/notices.ts`.
  */
 
-import { mkdir, readdir, readFile, rename, unlink, writeFile } from "node:fs/promises";
+import { mkdir, readdir, readFile, rename, rm, unlink, writeFile } from "node:fs/promises";
 import { connect } from "node:net";
 import { Effect } from "effect";
 import { sessionPath, trackSessionsDir } from "../core/layout.ts";
@@ -24,6 +24,7 @@ import {
   planNotice,
   type Registration,
   SESSION_ID,
+  sessionStatus,
   socketPayload,
   type Target,
 } from "../core/notices.ts";
@@ -152,6 +153,51 @@ export const claudeCodeNotifier: Notifier = {
     ),
 };
 
+/** Every registration file of a track, decoded; undefined for a file that isn't one. */
+const registrations = (dir: string) =>
+  Effect.gen(function* () {
+    const found: Array<{ file: string; registration: Registration | undefined }> = [];
+    for (const file of yield* list(dir)) {
+      if (!file.endsWith(".json") || file.startsWith(".")) continue;
+      const raw = yield* text(`${dir}/${file}`);
+      found.push({ file, registration: raw === undefined ? undefined : decodeRegistration(raw) });
+    }
+    return found;
+  });
+
+/**
+ * The session ids of `track`'s registrations that are still running (live, or registered
+ * just now ahead of Claude Code's record), by the same rule `send` uses; no socket is
+ * touched. Registrations whose session is gone, and files that aren't registrations, are
+ * removed on the way. For `track rm`, which refuses while a session runs in the worktree.
+ */
+export const liveSessions = (cwd: string, track: string, claudeDir: string, now: Date) =>
+  Effect.gen(function* () {
+    const { common } = yield* locate(cwd);
+    const dir = trackSessionsDir(common, track);
+    const live: Array<string> = [];
+    for (const { file, registration } of yield* registrations(dir)) {
+      const { session } =
+        registration === undefined
+          ? { session: undefined }
+          : yield* claudeRecord(claudeDir, registration.pid);
+      if (registration !== undefined && sessionStatus(registration, session, now).kind !== "gone")
+        live.push(registration.session);
+      else yield* Effect.promise(() => unlink(`${dir}/${file}`).catch(() => undefined));
+    }
+    return live.sort();
+  });
+
+/** Deletes `track`'s session registry; how many registrations it held. For `track rm`. */
+export const removeSessions = (cwd: string, track: string) =>
+  Effect.gen(function* () {
+    const { common } = yield* locate(cwd);
+    const dir = trackSessionsDir(common, track);
+    const count = (yield* registrations(dir)).length;
+    yield* fs("remove", dir, () => rm(dir, { recursive: true, force: true }));
+    return count;
+  });
+
 /**
  * Tells every live session registered for `track`, and prunes registrations whose session is
  * gone. Never fails: whatever goes wrong is in the returned delivery's notes.
@@ -176,10 +222,7 @@ export const notifyTrack = (
           pruned.push(reason);
         },
       );
-    for (const file of yield* list(dir)) {
-      if (!file.endsWith(".json") || file.startsWith(".")) continue;
-      const raw = yield* text(`${dir}/${file}`);
-      const registration = raw === undefined ? undefined : decodeRegistration(raw);
+    for (const { file, registration } of yield* registrations(dir)) {
       if (registration === undefined) {
         yield* prune(file, `${file} is not a registration`);
         continue;

@@ -122,28 +122,43 @@ export type Plan =
  */
 export const REGISTRATION_GRACE_MS = 30_000;
 
+/**
+ * Whether a registration's session is still running, from Claude Code's current record of
+ * its process: `live`, `pending` (it registered just now, ahead of the record, so it counts
+ * as running), or `gone` with the reason. The one rule `send` and `track rm` both use.
+ */
+export type SessionStatus =
+  | { readonly kind: "live" | "pending" }
+  | { readonly kind: "gone"; readonly reason: string };
+
+export const sessionStatus = (
+  registration: Registration,
+  session: ClaudeSession | undefined,
+  now: Date,
+): SessionStatus => {
+  // A /clear starts a new session id in the same process; a reused pid runs another one.
+  if (session !== undefined && session.sessionId === registration.session) return { kind: "live" };
+  const age = now.getTime() - Date.parse(registration.registered);
+  if (age >= 0 && age < REGISTRATION_GRACE_MS) return { kind: "pending" };
+  return {
+    kind: "gone",
+    reason:
+      session === undefined
+        ? "its Claude Code session has ended"
+        : "its process now runs another session",
+  };
+};
+
 export const planNotice = (
   registration: Registration,
   session: ClaudeSession | undefined,
   keys: ReadonlyArray<ClaudeKey>,
   now: Date,
 ): Plan => {
-  // A /clear starts a new session id in the same process; a reused pid runs another one.
-  if (session === undefined || session.sessionId !== registration.session) {
-    const age = now.getTime() - Date.parse(registration.registered);
-    if (age >= 0 && age < REGISTRATION_GRACE_MS)
-      return {
-        kind: "skip",
-        reason: "it registered just now, before Claude Code recorded it; kept",
-      };
-    return {
-      kind: "prune",
-      reason:
-        session === undefined
-          ? "its Claude Code session has ended"
-          : "its process now runs another session",
-    };
-  }
+  const status = sessionStatus(registration, session, now);
+  if (status.kind === "gone") return { kind: "prune", reason: status.reason };
+  if (status.kind === "pending" || session === undefined)
+    return { kind: "skip", reason: "it registered just now, before Claude Code recorded it; kept" };
   if (session.peerProtocol !== PEER_PROTOCOL)
     return {
       kind: "skip",

@@ -11,6 +11,7 @@ import {
   planNotice,
   REGISTRATION_GRACE_MS,
   type Registration,
+  sessionStatus,
   socketPayload,
 } from "../../src/core/notices.ts";
 
@@ -52,6 +53,17 @@ describe("notices", () => {
       });
       expect(planNotice(registration, record, [key], at(REGISTRATION_GRACE_MS)).kind).toBe("prune");
     }
+  });
+
+  test("sessionStatus: live, pending inside the grace, gone after it with the reason", () => {
+    const other = { ...session, sessionId: "00000000-0000-0000-0000-000000000000" };
+    const soon = new Date(Date.parse(registration.registered) + 1_000);
+    expect(sessionStatus(registration, session, NOW)).toEqual({ kind: "live" });
+    expect(sessionStatus(registration, undefined, soon)).toEqual({ kind: "pending" });
+    expect(sessionStatus(registration, other, NOW)).toEqual({
+      kind: "gone",
+      reason: "its process now runs another session",
+    });
   });
 
   test("an unknown protocol or a missing or stale key is skipped, not pruned", () => {
