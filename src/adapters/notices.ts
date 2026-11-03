@@ -162,6 +162,7 @@ export const notifyTrack = (
   line: string,
   notifier: Notifier,
   claudeDir: string,
+  now: Date,
 ) =>
   Effect.gen(function* () {
     const dir = trackSessionsDir(common, track);
@@ -184,7 +185,7 @@ export const notifyTrack = (
         continue;
       }
       const { session, keys } = yield* claudeRecord(claudeDir, registration.pid);
-      const plan = planNotice(registration, session, keys);
+      const plan = planNotice(registration, session, keys, now);
       if (plan.kind === "prune")
         yield* prune(file, `session ${registration.session}: ${plan.reason}`);
       else if (plan.kind === "skip")
@@ -205,7 +206,8 @@ export const notifyRecipient = (
   message: Message,
   notifier: Notifier,
   claudeDir: string,
+  now: Date,
 ) =>
   Effect.flatMap(locate(cwd), ({ common }) =>
-    notifyTrack(common, message.to, noticeLine(message), notifier, claudeDir),
+    notifyTrack(common, message.to, noticeLine(message), notifier, claudeDir, now),
   );

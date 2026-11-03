@@ -115,15 +115,35 @@ export type Plan =
   | { readonly kind: "prune"; readonly reason: string }
   | { readonly kind: "skip"; readonly reason: string };
 
+/**
+ * How long a new registration may run ahead of Claude Code's record. The hook can register
+ * before Claude Code writes its record (at start) or updates it (after /clear); a send in that
+ * window must not prune a registration that is about to be right.
+ */
+export const REGISTRATION_GRACE_MS = 30_000;
+
 export const planNotice = (
   registration: Registration,
   session: ClaudeSession | undefined,
   keys: ReadonlyArray<ClaudeKey>,
+  now: Date,
 ): Plan => {
-  if (session === undefined) return { kind: "prune", reason: "its Claude Code session has ended" };
   // A /clear starts a new session id in the same process; a reused pid runs another one.
-  if (session.sessionId !== registration.session)
-    return { kind: "prune", reason: "its process now runs another session" };
+  if (session === undefined || session.sessionId !== registration.session) {
+    const age = now.getTime() - Date.parse(registration.registered);
+    if (age >= 0 && age < REGISTRATION_GRACE_MS)
+      return {
+        kind: "skip",
+        reason: "it registered just now, before Claude Code recorded it; kept",
+      };
+    return {
+      kind: "prune",
+      reason:
+        session === undefined
+          ? "its Claude Code session has ended"
+          : "its process now runs another session",
+    };
+  }
   if (session.peerProtocol !== PEER_PROTOCOL)
     return {
       kind: "skip",

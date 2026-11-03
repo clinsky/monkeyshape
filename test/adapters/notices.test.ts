@@ -87,6 +87,18 @@ const claudeSession = async (n: number, options: { listen?: boolean; protocol?: 
   return received;
 };
 
+/** Backdates every registration of `track`, as if each session had registered long ago. */
+const age = async (track: string) => {
+  for (const file of await readdir(registry(track))) {
+    const path = `${registry(track)}/${file}`;
+    const registration = await Bun.file(path).json();
+    await writeFile(
+      path,
+      JSON.stringify({ ...registration, registered: "2026-01-01T00:00:00.000Z" }),
+    );
+  }
+};
+
 const hookInput = (n: number) =>
   JSON.stringify({ session_id: uuid(n), hook_event_name: "SessionStart", source: "startup" });
 
@@ -162,6 +174,7 @@ describe("live notices", () => {
     await claudeSession(2);
     await claudeSession(4);
     for (const n of [1, 2, 4]) await mshape(wt("tracks"), ["msg", "register"], hookInput(n));
+    await age("tracks");
     await rm(`${claude}/sessions/1002.json`);
     await writeFile(
       `${claude}/sessions/1004.json`,
@@ -212,6 +225,35 @@ describe("live notices", () => {
     const sent = await mshape(wt("docs"), ["msg", "send", "tracks", "--subject", "s"]);
     expect(sent.stdout).toContain("Notified 1 live session of tracks.");
     expect(received).toHaveLength(1);
+  });
+
+  test("a send between the hook registering and Claude Code's record catching up keeps the registration", async () => {
+    // The /clear order: the record still names the session before it; then a send lands.
+    await claudeSession(1);
+    await mshape(wt("tracks"), ["msg", "register"], hookInput(1));
+    await age("tracks");
+    await mshape(wt("tracks"), ["msg", "register"], hookInput(2), { CLAUDE_PID: "1001" });
+    const sent = await mshape(wt("docs"), ["msg", "send", "tracks", "--subject", "in the window"]);
+    expect(sent.code).toBe(0);
+    expect(sent.stdout).toContain(
+      `session ${uuid(2)}: it registered just now, before Claude Code recorded it; kept`,
+    );
+    // Until the record catches up, the process is still reached through the old session id.
+    expect(sent.stdout).toContain("Notified 1 live session of tracks.");
+    expect((await readdir(registry("tracks"))).sort()).toEqual([
+      `${uuid(1)}.json`,
+      `${uuid(2)}.json`,
+    ]);
+    // Then the record names the new session: the old registration goes, the new one is told.
+    const record = `${claude}/sessions/1001.json`;
+    await writeFile(
+      record,
+      JSON.stringify({ ...(await Bun.file(record).json()), sessionId: uuid(2) }),
+    );
+    const after = await mshape(wt("docs"), ["msg", "send", "tracks", "--subject", "after"]);
+    expect(after.stdout).toContain("Notified 1 live session of tracks.");
+    expect(after.stdout).toContain(`session ${uuid(1)}: its process now runs another session`);
+    expect(await readdir(registry("tracks"))).toEqual([`${uuid(2)}.json`]);
   });
 
   test("a session on another protocol is skipped with a note and kept", async () => {

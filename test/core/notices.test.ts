@@ -9,12 +9,15 @@ import {
   formatDelivery,
   noticeLine,
   planNotice,
+  REGISTRATION_GRACE_MS,
   type Registration,
   socketPayload,
 } from "../../src/core/notices.ts";
 
 const ID = "eb83488f-048b-46d7-8379-6b651938a992";
-const registration: Registration = { session: ID, pid: 42, registered: "t" };
+const registration: Registration = { session: ID, pid: 42, registered: "2026-11-03T14:00:00.000Z" };
+/** An hour after registering: long past the grace a new registration gets. */
+const NOW = new Date("2026-11-03T15:00:00.000Z");
 const session: ClaudeSession = {
   pid: 42,
   sessionId: ID,
@@ -27,26 +30,38 @@ const leftover = { peerToken: "old", procStart: "7" };
 
 describe("notices", () => {
   test("a live session of the registered process is notified, with its own socket and key", () => {
-    expect(planNotice(registration, session, [leftover, key, leftover])).toEqual({
+    expect(planNotice(registration, session, [leftover, key, leftover], NOW)).toEqual({
       kind: "notify",
       target: { session: ID, socket: "/run/s.sock", token: "secret" },
     });
   });
 
   test("a gone session, or another session in the pid (a /clear, a reused pid), is pruned", () => {
-    expect(planNotice(registration, undefined, [key]).kind).toBe("prune");
+    expect(planNotice(registration, undefined, [key], NOW).kind).toBe("prune");
     const other = { ...session, sessionId: "00000000-0000-0000-0000-000000000000" };
-    expect(planNotice(registration, other, [key]).kind).toBe("prune");
+    expect(planNotice(registration, other, [key], NOW).kind).toBe("prune");
+  });
+
+  test("a registration ahead of Claude Code's record is kept for a grace period, then pruned", () => {
+    const other = { ...session, sessionId: "00000000-0000-0000-0000-000000000000" };
+    const at = (ms: number) => new Date(Date.parse(registration.registered) + ms);
+    for (const record of [undefined, other]) {
+      expect(planNotice(registration, record, [key], at(5_000))).toEqual({
+        kind: "skip",
+        reason: "it registered just now, before Claude Code recorded it; kept",
+      });
+      expect(planNotice(registration, record, [key], at(REGISTRATION_GRACE_MS)).kind).toBe("prune");
+    }
   });
 
   test("an unknown protocol or a missing or stale key is skipped, not pruned", () => {
-    const newer = planNotice(registration, { ...session, peerProtocol: 2 }, [key]);
+    const newer = planNotice(registration, { ...session, peerProtocol: 2 }, [key], NOW);
     expect(newer).toEqual({
       kind: "skip",
       reason: "Claude Code speaks messaging protocol 2; this mshape knows 1",
     });
-    expect(planNotice(registration, session, []).kind).toBe("skip");
-    expect(planNotice(registration, session, [leftover]).kind).toBe("skip");
+    expect(planNotice(registration, session, [], NOW).kind).toBe("skip");
+    expect(planNotice(registration, session, [leftover], NOW).kind).toBe("skip");
   });
 
   test("records decode strictly enough that a notice can't go to a half-read session", () => {

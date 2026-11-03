@@ -179,7 +179,13 @@ const msgSend = (root: string, args: ReadonlyArray<string>) =>
     const [to = "", body = ""] = positional;
     const message = yield* mailSend(root, to, subject, body, new Date(), randomHex);
     // Stored first: whatever happens to the notices, the mail waits for them.
-    const delivery = yield* notifyRecipient(root, message, claudeCodeNotifier, claudeDir()).pipe(
+    const delivery = yield* notifyRecipient(
+      root,
+      message,
+      claudeCodeNotifier,
+      claudeDir(),
+      new Date(),
+    ).pipe(
       Effect.catchTags({
         TrackError: (error) => Effect.succeed({ notified: 0, pruned: [], skipped: [error.reason] }),
         WorkspaceError: (error) =>
