@@ -51,6 +51,42 @@ describe("mshape init", () => {
     expect(created.code).toBe(0);
   });
 
+  test("a --from tarball is vendored: package.json and bun.lock name no path on this machine", async () => {
+    const repo = join(work, "demo");
+    const pkg = await Bun.file(join(repo, "package.json")).json();
+    const name = tarball.split("/").at(-1) ?? "";
+    expect(pkg.devDependencies.monkeyshape).toBe(`file:./vendor/${name}`);
+    expect(await tracked(repo)).toContain(`vendor/${name}`);
+    for (const file of ["package.json", "bun.lock"])
+      expect(await Bun.file(join(repo, file)).text()).not.toContain(work);
+    expect(created.output).toContain(`note: monkeyshape is installed from vendor/${name}`);
+  });
+
+  test("--from vendors any file it names, whatever its extension", async () => {
+    const renamed = tarball.replace(/\.tgz$/, ".tar.gz");
+    await Bun.write(renamed, Bun.file(tarball));
+    const made = await fromSource(["named", "--from", renamed]);
+    expect(unexpectedNotes(made.output)).toEqual([]);
+    const pkg = await Bun.file(join(work, "named", "package.json")).json();
+    expect(pkg.devDependencies.monkeyshape).toBe(`file:./vendor/${renamed.split("/").at(-1)}`);
+  }, 120_000);
+
+  test("node_modules is ignored even as a symlink, the way agents share an install", async () => {
+    const repo = join(work, "demo");
+    // The born repo's .gitignore, and this repo's own.
+    for (const [index, source] of [join(repo, ".gitignore"), join(ROOT, ".gitignore")].entries()) {
+      const scratch = join(work, `scratch-${index}`);
+      await mkdir(scratch, { recursive: true });
+      await run(scratch, ["git", "init", "--quiet"]);
+      await Bun.write(join(scratch, ".gitignore"), await Bun.file(source).text());
+      await symlink(join(repo, "node_modules"), join(scratch, "node_modules"));
+      expect((await run(scratch, ["git", "check-ignore", "node_modules"])).code).toBe(0);
+      expect((await run(scratch, ["git", "status", "--porcelain"])).output).not.toContain(
+        "node_modules",
+      );
+    }
+  });
+
   test("the new repo is one clean commit, lockfile included", async () => {
     const repo = join(work, "demo");
     expect((await run(repo, ["git", "status", "--porcelain"])).output).toBe("");
@@ -146,6 +182,63 @@ describe("mshape init", () => {
         "team-maintainer",
       );
     },
+  );
+
+  test.skipIf(!HAS_BD)(
+    "a fresh clone has no beads database: check passes with a note whose fix works there",
+    async () => {
+      const origin = join(work, "demo");
+      // A bead in the origin, which a clone can't see until the beads are pushed.
+      const made = await run(origin, ["bd", "create", "--title", "seen only here", "--json"]);
+      expect(made.code).toBe(0);
+      const remote = join(work, "remote.git");
+      await run(work, ["git", "init", "--quiet", "--bare", "--initial-branch=main", remote]);
+      await run(origin, ["git", "remote", "add", "origin", remote]);
+      await run(origin, ["git", "push", "--quiet", "origin", "main"]);
+
+      /** A clone of `remote` sharing the origin's install, as agents do. */
+      const cloneOf = async (name: string) => {
+        const clone = join(work, name);
+        await run(work, ["git", "clone", "--quiet", remote, clone]);
+        await symlink(join(origin, "node_modules"), join(clone, "node_modules"));
+        return clone;
+      };
+      const note = async (clone: string) => {
+        const mshape = [process.execPath, join(clone, "node_modules", ".bin", "mshape")];
+        const checked = await run(clone, [...mshape, "check", "--only", "budgets"]);
+        expect(checked.code).toBe(0);
+        expect(checked.output).not.toContain("prerequisites/beads-failed");
+        return checked.output;
+      };
+      const pushed = (clone: string) =>
+        run(clone, ["git", "ls-remote", "origin", "refs/dolt/data"]).then((r) => r.output.trim());
+      const sees = (clone: string) =>
+        run(clone, ["bd", "list"]).then((r) => r.output.includes("seen only here"));
+      const ifPushed = "If `git ls-remote origin refs/dolt/data` prints a line";
+
+      // Nothing pushed: the note's test says don't bootstrap, and bootstrap would hide the bead.
+      const before = await cloneOf("clone-before");
+      expect(await note(before)).toContain(ifPushed);
+      expect(await pushed(before)).toBe("");
+      expect((await run(before, ["bd", "bootstrap", "--yes"])).code).toBe(0);
+      expect(await sees(before)).toBe(false);
+
+      // Pushed as the note says: the same note, its test now says bootstrap, and that works.
+      expect((await run(origin, ["bd", "dolt", "push", "--yes"])).code).toBe(0);
+      const after = await cloneOf("clone-after");
+      expect(await note(after)).toContain(ifPushed);
+      expect(await pushed(after)).not.toBe("");
+      expect((await run(after, ["bd", "bootstrap", "--yes"])).code).toBe(0);
+      expect(await sees(after)).toBe(true);
+
+      // With sync.remote committed, the note names bootstrap and the remote outright.
+      const configured = await cloneOf("clone-configured");
+      await run(configured, ["bd", "config", "set", "sync.remote", `git+file://${remote}`]);
+      expect(await note(configured)).toContain(
+        `run \`bd bootstrap\`, which fetches the beads from git+file://${remote}`,
+      );
+    },
+    120_000,
   );
 
   test.skipIf(!HAS_BD)(

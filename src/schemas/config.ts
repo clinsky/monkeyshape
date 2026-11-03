@@ -84,6 +84,12 @@ export const ShapeConfig = Schema.Struct({
       docs: Schema.optionalKey(Globs),
       /** Docs that are not normative (may link into notes/, plan/, handoffs). */
       narrativeDocs: Schema.optionalKey(Globs),
+      /**
+       * Docs held to form only (one-line code spans, no `§N` citations, no `forbidden` text), never to whether a
+       * path, script or decision exists: plans describe what doesn't exist yet, notes are
+       * history. Wins over `docs`.
+       */
+      formOnlyDocs: Schema.optionalKey(Globs),
       forbidden: Schema.optionalKey(Schema.Array(ForbiddenPattern)),
     }),
   ),
@@ -134,6 +140,7 @@ export interface ResolvedConfig {
   readonly refs: {
     readonly docs: ReadonlyArray<string>;
     readonly narrativeDocs: ReadonlyArray<string>;
+    readonly formOnlyDocs: ReadonlyArray<string>;
     readonly forbidden: ReadonlyArray<{ readonly pattern: string; readonly reason: string }>;
   };
   readonly budgets: {
@@ -192,6 +199,7 @@ export const resolveConfig = (config: ShapeConfig): ResolvedConfig => ({
   refs: {
     docs: config.refs?.docs ?? DEFAULT_DOCS,
     narrativeDocs: config.refs?.narrativeDocs ?? ["README.md"],
+    formOnlyDocs: config.refs?.formOnlyDocs ?? ["plan/**/*.md", "notes/**/*.md"],
     forbidden: config.refs?.forbidden ?? [],
   },
   budgets: {

@@ -60,6 +60,22 @@ const jsonRows = (stdout: string): ReadonlyArray<unknown> | undefined => {
   return Array.isArray(rows) ? rows : undefined;
 };
 
+/**
+ * Why a clone without a beads database can't read its beads, and the fix that works here.
+ * `bd bootstrap` recovers beads only from where they were pushed: `sync.remote`, committed in
+ * `.beads/config.yaml` so a clone can read it, or `refs/dolt/data` on git origin, which
+ * `bd dolt push` writes without committing anything, so only the remote can say. Checks stay
+ * offline, so the message holds that test; without either source bootstrap makes an empty
+ * database that hides the beads.
+ */
+const noDatabase = (root: string) =>
+  Effect.map(runTool(root, ["bd", "config", "get", "sync.remote"]), (got) => {
+    const remote = got.code === 0 ? (got.stdout.trim().split("\n").at(-1)?.trim() ?? "") : "";
+    return remote !== "" && !remote.includes("not set")
+      ? `this clone has no beads database yet; run \`bd bootstrap\`, which fetches the beads from ${remote}`
+      : "this clone has no beads database yet. If `git ls-remote origin refs/dolt/data` prints a line, the beads were pushed: run `bd bootstrap` to fetch them. If it prints nothing, they are only on the machine that made them: don't run `bd bootstrap`, which would create an empty database and hide them; push them from a clone that has them with `bd dolt push --yes`, or work from that clone";
+  });
+
 /** Whether bd can be asked: absent without `.beads/config.yaml`, unavailable without bd. */
 const beadsUnreachable = (root: string) =>
   Effect.gen(function* () {
@@ -67,6 +83,17 @@ const beadsUnreachable = (root: string) =>
       return { state: "absent" } satisfies Integration;
     if (Bun.which("bd") === null)
       return { state: "unavailable", reason: "bd is not on PATH" } satisfies Integration;
+    // A fresh clone has .beads/ but no database: bd knows where it would be, but has none.
+    // Its beads exist and can't be read here; that is unavailable, not bd failing.
+    const where = yield* runTool(root, ["bd", "where", "--json"]);
+    const located = where.code === 0 ? parseJsonc(where.stdout) : undefined;
+    if (
+      typeof located === "object" &&
+      located !== null &&
+      "path" in located &&
+      !("database_path" in located)
+    )
+      return { state: "unavailable", reason: yield* noDatabase(root) } satisfies Integration;
     return undefined;
   });
 

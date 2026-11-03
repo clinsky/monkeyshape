@@ -1,6 +1,6 @@
 /** `mshape init`: writes a new repo from the package's template, installs it and commits it. */
-import { mkdir, readdir, realpath, symlink } from "node:fs/promises";
-import { dirname, relative } from "node:path";
+import { copyFile, mkdir, readdir, realpath, symlink } from "node:fs/promises";
+import { basename, dirname, relative } from "node:path";
 import { Effect } from "effect";
 import { HANDOFFS_LINK, handoffsLink, handoffsStore } from "../core/layout.ts";
 import { scaffold, type Toolchain } from "../core/scaffold.ts";
@@ -99,8 +99,34 @@ const beads = (target: string, name: string) =>
     return undefined;
   });
 
-/** `packageRoot` is the installed monkeyshape: its `template/` and `skills/` are copied. */
-export const initRepo = (target: string, name: string, packageRoot: string, toolchain: Toolchain) =>
+/**
+ * bd's anonymous usage metrics are a per-user setting (`bd config set metrics.disabled` writes
+ * the user's config even from inside a repo), so init never changes them: it says how, once,
+ * when they are on.
+ */
+const metricsNote = (target: string) =>
+  Effect.gen(function* () {
+    if (Bun.which("bd") === null) return undefined;
+    const got = yield* run(target, ["bd", "config", "get", "metrics.disabled"]);
+    if (got.code === 0 && got.output.split("\n").at(-1)?.trim() === "true") return undefined;
+    return "bd sends anonymous usage metrics from this machine. That is a setting of your user, not of the repo, so init leaves it alone; to turn it off for every repo, run `bd metrics off`";
+  });
+
+/** Where init puts a tarball given to `--from`, so the dependency resolves in every clone. */
+export const vendoredSpec = (tarball: string): string => `file:./vendor/${basename(tarball)}`;
+
+/**
+ * `packageRoot` is the installed monkeyshape: its `template/` and `skills/` are copied.
+ * `tarball`, from `--from`, is copied into `vendor/` and `toolchain.monkeyshape` should be its
+ * `vendoredSpec`: a path relative to the repo, never one that resolves only on this machine.
+ */
+export const initRepo = (
+  target: string,
+  name: string,
+  packageRoot: string,
+  toolchain: Toolchain,
+  tarball?: string,
+) =>
   Effect.gen(function* () {
     if (!(yield* isEmptyOrMissing(target)))
       return yield* Effect.fail(fail(target, "exists and is not empty; init only creates repos"));
@@ -127,6 +153,20 @@ export const initRepo = (target: string, name: string, packageRoot: string, tool
     });
     const done = [`wrote ${files.size} files`];
     const notes: Array<string> = [];
+    if (tarball !== undefined) {
+      const vendored = `${target}/vendor/${basename(tarball)}`;
+      yield* Effect.tryPromise({
+        try: async () => {
+          await mkdir(dirname(vendored), { recursive: true });
+          await copyFile(tarball, vendored);
+        },
+        catch: (cause) => partial(`cannot copy ${tarball} into vendor/: ${String(cause)}`),
+      });
+      done.push(`monkeyshape from vendor/${basename(tarball)}`);
+      notes.push(
+        `monkeyshape is installed from vendor/${basename(tarball)}, which is committed so every clone and CI resolve it. Once that version is on npm, run \`bun add -d monkeyshape@<version>\`, delete vendor/ and commit`,
+      );
+    }
     const skills = yield* installSkills(`${packageRoot}/skills`, target).pipe(
       Effect.mapError((error) => partial(`cannot install the skills: ${error.reason}`)),
     );
@@ -143,6 +183,8 @@ export const initRepo = (target: string, name: string, packageRoot: string, tool
     const beadsNote = yield* beads(target, name);
     if (beadsNote === undefined) done.push("bd init");
     else notes.push(beadsNote);
+    const metrics = yield* metricsNote(target);
+    if (metrics !== undefined) notes.push(metrics);
 
     // The current bun, not `bun` from PATH: it is the one running mshape, so it exists.
     const install = yield* run(target, [process.execPath, "install"]);
