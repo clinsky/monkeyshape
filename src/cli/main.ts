@@ -7,6 +7,7 @@ import pkg from "../../package.json" with { type: "json" };
 import { BASELINE_FILE, readBaseline, writeBaseline } from "../adapters/baseline.ts";
 import { loadConfig } from "../adapters/config.ts";
 import { initRepo } from "../adapters/init.ts";
+import { mailInbox, mailRead, mailSend } from "../adapters/mail.ts";
 import { reviewNew, reviewRm } from "../adapters/reviews.ts";
 import { installSkills } from "../adapters/skills.ts";
 import { trackCurrent, trackList, trackNew, trackRm } from "../adapters/tracks.ts";
@@ -14,6 +15,7 @@ import { loadSnapshot } from "../adapters/workspace.ts";
 import { CHECKS, notices, prerequisites, runChecks, unevaluated } from "../core/check.ts";
 import { garden } from "../core/garden.ts";
 import { CLAUDE_SKILLS_LINK } from "../core/layout.ts";
+import { formatInbox, formatMessage, formatSent } from "../core/mail.ts";
 import type { CheckName } from "../core/model.ts";
 import { applyBaseline, count, tighten } from "../core/ratchet.ts";
 import { formatCheck, formatGarden, formatViolation } from "../core/report.ts";
@@ -142,6 +144,57 @@ const track = (root: string, args: ReadonlyArray<string>) =>
         ),
         code: 0,
       };
+    return usage();
+  });
+
+/** Four hex digits for a message id: unique within a second among a handful of senders. */
+const randomHex = (): string =>
+  [...crypto.getRandomValues(new Uint8Array(2))]
+    .map((b) => b.toString(16).padStart(2, "0"))
+    .join("");
+
+const msgSend = (root: string, args: ReadonlyArray<string>) =>
+  Effect.gen(function* () {
+    const flag = args.indexOf("--subject");
+    const subject = flag === -1 ? undefined : args[flag + 1];
+    const positional = args.filter((_, i) => flag === -1 || (i !== flag && i !== flag + 1));
+    if (subject === undefined || positional.length < 1 || positional.length > 2) return usage();
+    if (positional.some((arg) => arg.startsWith("--"))) return usage();
+    const [to = "", body = ""] = positional;
+    const message = yield* mailSend(root, to, subject, body, new Date(), randomHex);
+    return { output: formatSent(message), code: 0 };
+  });
+
+/**
+ * `--quiet` is the hooks' form: nothing when there's nothing to read or this isn't a track,
+ * and never a failure, since a hook that fails would interrupt the session it serves. A
+ * mailbox that can't be read is still said, as a note.
+ */
+const msgInbox = (root: string, quiet: boolean) =>
+  Effect.map(mailInbox(root), ({ track, messages, unreadable }) => ({
+    output: formatInbox(track, messages, unreadable, quiet),
+    code: 0,
+  })).pipe(
+    Effect.catchTags({
+      TrackError: (error) => (quiet ? Effect.succeed({ output: "", code: 0 }) : Effect.fail(error)),
+      WorkspaceError: (error) =>
+        quiet
+          ? Effect.succeed({ output: `note: mshape msg inbox: ${error.message}`, code: 0 })
+          : Effect.fail(error),
+    }),
+  );
+
+const msg = (root: string, args: ReadonlyArray<string>) =>
+  Effect.gen(function* () {
+    const [sub, ...rest] = args;
+    if (sub === "send") return yield* msgSend(root, rest);
+    if (sub === "inbox" && rest.length === 0) return yield* msgInbox(root, false);
+    if (sub === "inbox" && rest.length === 1 && rest[0] === "--quiet")
+      return yield* msgInbox(root, true);
+    if (sub === "read" && rest.length === 1) {
+      const { message, alreadyRead } = yield* mailRead(root, rest[0] ?? "");
+      return { output: formatMessage(message, alreadyRead), code: 0 };
+    }
     return usage();
   });
 
@@ -327,6 +380,18 @@ export const COMMANDS: ReadonlyArray<Command> = [
       Remove that worktree, listing what it discards, and its fetched ref. Never the shared data.`,
     run: review,
   },
+  {
+    name: "msg",
+    usage: `  mshape msg send <track> --subject <subject> [body]
+      Leave a message in <track>'s mailbox, from this track (or main, or review-<n>). The
+      subject is one line; it is all a notice shows. Quote the body.
+  mshape msg inbox [--quiet]
+      This track's unread messages, oldest first. --quiet, for hooks: nothing when there are
+      none or this isn't a track, and never a failure.
+  mshape msg read <id>
+      Print a message and mark it read for the whole track. Nothing else marks one read.`,
+    run: msg,
+  },
 ];
 
 const HELP: ReadonlyArray<string | undefined> = [undefined, "help", "--help"];
@@ -353,7 +418,9 @@ if (import.meta.main) {
       }),
     ),
   );
-  if (outcome.code === 0) console.log(outcome.output);
-  else console.error(outcome.output);
+  // An empty output prints nothing: a quiet hook adds not even a blank line to the session.
+  if (outcome.code === 0) {
+    if (outcome.output !== "") console.log(outcome.output);
+  } else console.error(outcome.output);
   process.exitCode = outcome.code;
 }
