@@ -27,9 +27,14 @@ Plan in detail only what is near. Each horizon has one home and one way of stayi
   decision points and what is deferred. When a track diverges from it, the track says so in
   its handoff; a divergence that changes another track's work is a conversation with the
   human, not an edit to the plan. Only handoffs and beads cite it.
-- **A handoff** is what a fresh chat reads to continue a track, and what the human reads to
-  decide what to relay. Handoffs live inside git's directory and are linked into every
-  checkout as `.handoffs`; they are never committed, so there is one live copy.
+- **A handoff** is what a fresh chat reads to continue a track: its charter (`Serves:`,
+  `Out of scope:`, `Done means:`), its dated State, lessons not yet promoted, and traps.
+  Handoffs live inside git's directory and are linked into every checkout as `.handoffs`;
+  they are never committed, so there is one live copy. Whether a track is done is derived by
+  `mshape track list`, never written in the handoff.
+- **Messages between tracks** go through `mshape msg`, never into another track's handoff.
+  A message waits in the recipient track's mailbox, and its subject reaches that track's
+  running sessions at once, even idle ones; nobody relays them by hand.
 
 What a change did and what it showed goes in the **PR body**, which is the narrative the
 human actually reads. Long investigations go in a dated note under `notes/`, which nothing
@@ -88,13 +93,13 @@ The track is done when `mshape track list` shows it with 0 open beads and `merge
 
 **Ad-hoc tracks.** For work that didn't come from a milestone, run `mshape track new <name>`
 yourself, open a chat in the worktree it prints and run `/track`. The handoff starts as a
-stub, so `/track` interviews you about the work and writes the charter and its beads.
+stub (its charter is empty), so `/track` interviews you about the work and writes the
+charter and its beads.
 `mshape track rm <name>` when it's merged.
 
 **When to hand off.** At a natural break, around 75% of the context window. A handoff
-records state, lessons not yet promoted, traps and messages for other tracks; you relay
-those messages by pasting them where they belong, or by asking the track's next chat to read
-the other handoff.
+records state, lessons not yet promoted and traps; anything another track needs to know
+was already sent with `mshape msg`.
 
 ## Pull requests and review
 

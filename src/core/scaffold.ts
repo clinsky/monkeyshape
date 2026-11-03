@@ -88,7 +88,10 @@ export const scaffold = (
 /** The last thing `init` prints: what to do now, and where the conventions are. */
 export const nextStep = (name: string, workflowUrl: string): string =>
   [
-    `Next: open a chat with your coding agent in ${name}/ and run /roadmap with a brain-dump of`,
-    "what you want to build. It writes docs/roadmap.md and the first epics.",
+    "Next:",
+    `1. Give it a GitHub remote, since agents push and open PRs: in ${name}/ run`,
+    `   \`gh repo create ${name} --private --source . --push\` (or add a remote and push main).`,
+    `2. Open a chat with your coding agent in ${name}/ and run /roadmap with a brain-dump of`,
+    "   what you want to build. It writes docs/roadmap.md and the first epics, and opens a PR.",
     `The working loop, in full: ${workflowUrl}`,
   ].join("\n");

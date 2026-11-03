@@ -2,6 +2,10 @@
 
 What this repo is, in two sentences. `/roadmap` fills this in from the first brain-dump.
 
+`.beads/PRIME.md`, printed at every session start, is the working loop monkeyshape decides:
+beads, tracks and messages, pull requests. This file is what this repo decides, and wins
+where the two differ.
+
 ## Commands
 
 | Command | What |
@@ -33,5 +37,3 @@ beyond a PR. Agents decide everything else and explain it in the PR body.
 - Written text is a hypothesis; code and tests are the truth. When a doc, decision or bead
   disagrees with the code, fix the text and carry on.
 - One fact, one home. Link to `DECISIONS.md` entries by slug; never restate them.
-- Agents commit, push and open PRs; the maintainer merges. The PR body is the narrative.
-- Work is tracked in beads (`bd ready`). A bead is a pointer to intent, not a spec.

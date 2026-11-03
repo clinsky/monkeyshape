@@ -51,6 +51,33 @@ describe("mshape init", () => {
     expect(created.code).toBe(0);
   });
 
+  test("a --from tarball is vendored: package.json and bun.lock name no path on this machine", async () => {
+    const repo = join(work, "demo");
+    const pkg = await Bun.file(join(repo, "package.json")).json();
+    const name = tarball.split("/").at(-1) ?? "";
+    expect(pkg.devDependencies.monkeyshape).toBe(`file:./vendor/${name}`);
+    expect(await tracked(repo)).toContain(`vendor/${name}`);
+    for (const file of ["package.json", "bun.lock"])
+      expect(await Bun.file(join(repo, file)).text()).not.toContain(work);
+    expect(created.output).toContain(`note: monkeyshape is installed from vendor/${name}`);
+  });
+
+  test("node_modules is ignored even as a symlink, the way agents share an install", async () => {
+    const repo = join(work, "demo");
+    // The born repo's .gitignore, and this repo's own.
+    for (const [index, source] of [join(repo, ".gitignore"), join(ROOT, ".gitignore")].entries()) {
+      const scratch = join(work, `scratch-${index}`);
+      await mkdir(scratch, { recursive: true });
+      await run(scratch, ["git", "init", "--quiet"]);
+      await Bun.write(join(scratch, ".gitignore"), await Bun.file(source).text());
+      await symlink(join(repo, "node_modules"), join(scratch, "node_modules"));
+      expect((await run(scratch, ["git", "check-ignore", "node_modules"])).code).toBe(0);
+      expect((await run(scratch, ["git", "status", "--porcelain"])).output).not.toContain(
+        "node_modules",
+      );
+    }
+  });
+
   test("the new repo is one clean commit, lockfile included", async () => {
     const repo = join(work, "demo");
     expect((await run(repo, ["git", "status", "--porcelain"])).output).toBe("");
