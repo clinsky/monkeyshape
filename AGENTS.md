@@ -5,6 +5,10 @@ TypeScript, Effect and beads: checks over prose, real data over polish, small bu
 anything loaded automatically. This repo is the package (`mshape`) and is held to its own
 gate: if a check is too strict for this repo, fix the check, not the repo.
 
+`.beads/PRIME.md`, printed at every session start, is the working loop monkeyshape decides:
+beads, tracks and messages, pull requests. This file is what this repo decides, and wins
+where the two differ.
+
 ## Commands
 
 | Command | What |
@@ -19,6 +23,8 @@ gate: if a check is too strict for this repo, fix the check, not the repo.
 
 - `shape.config.ts`: the module map. It is the layout; nothing else restates it.
 - `src/core/check.ts`: runs every check over a `Snapshot`. Checks are pure; `src/adapters/` loads.
+- `src/core/conventions.ts`: the loop's machine-checkable values (the PR body's sections, the
+  gate, the PR size). The PR template is rendered from it; PRIME.md words them for a reader.
 - `src/core/rules/registry.ts`: the custom rules. `src/core/rules/engine.ts` owns scope,
   allowances and `shape-ignore` comments, so rules only report offsets.
 - `plan/MILESTONE.md`: the current milestone, its tracks and the interfaces between them.
@@ -74,7 +80,10 @@ explain it in the PR body.
 - Written text is a hypothesis; code and tests are the truth. When a doc, decision or bead
   disagrees with the code or with common sense, fix the text and carry on.
 - One fact, one home. Link to `DECISIONS.md` entries by slug; never restate them.
-- Agents commit, push and open PRs; the maintainer merges. The PR body is the narrative,
-  in the sections of `.github/pull_request_template.md` (rendered from `PR_SECTIONS` in
-  `src/core/conventions.ts`, which owns the loop's machine-checkable values).
-- Work is tracked in beads (`bd ready`). A bead is a pointer to intent, not a spec.
+
+## Dogfooding
+
+This repo runs the loop it ships: the same PRIME.md, PR template, skills, `mshape track` and
+`mshape msg`. When the loop gets in the way here, that is a bug in the product. File it
+(`bd create --labels process`), and fix it as part of the work: a skill, a check or the CLI,
+in a file your track owns, or by `mshape msg` to the track that owns it.

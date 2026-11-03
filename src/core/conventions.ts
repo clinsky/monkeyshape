@@ -55,7 +55,8 @@ export const PR_SECTIONS = [
   },
   {
     name: "Beads",
-    purpose: "The beads this PR works on, by id, and any it filed.",
+    purpose:
+      "Each bead this PR works on, and any it filed, as a list item starting with its id: `- <id> what it is`.",
     required: true,
   },
 ] as const satisfies ReadonlyArray<PrSection>;

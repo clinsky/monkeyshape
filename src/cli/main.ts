@@ -7,7 +7,7 @@ import { Effect } from "effect";
 import pkg from "../../package.json" with { type: "json" };
 import { BASELINE_FILE, readBaseline, writeBaseline } from "../adapters/baseline.ts";
 import { loadConfig } from "../adapters/config.ts";
-import { initRepo } from "../adapters/init.ts";
+import { initRepo, vendoredSpec } from "../adapters/init.ts";
 import { mailInbox, mailRead, mailSend } from "../adapters/mail.ts";
 import {
   claudeCodeNotifier,
@@ -108,17 +108,36 @@ const init = (root: string, args: ReadonlyArray<string>) =>
         output: `mshape init: give the new repo's name in lowercase words joined by hyphens, e.g. \`mshape init my-app\` (got ${positional.length === 0 ? "nothing" : positional.map((arg) => `'${arg}'`).join(" ")})`,
         code: 2,
       };
-    // A bare path is a tarball; bun would resolve it from the new repo, not from here.
-    const spec = from === undefined || from.includes(":") ? from : `file:${resolve(root, from)}`;
+    // A file, as a bare path or a file: spec, is the package tarball: vendored, since an
+    // absolute path in package.json would resolve only on this machine. Another bare path (a
+    // directory) is resolved from here, as bun would resolve it from the new repo; any other
+    // spec (a registry version, github:) is passed on as given.
+    const path = from?.startsWith("file:") ? from.slice("file:".length) : from;
+    const local =
+      path === undefined || (path.includes(":") && !from?.startsWith("file:"))
+        ? undefined
+        : resolve(root, path);
+    const tarball =
+      local !== undefined && (yield* Effect.promise(() => Bun.file(local).exists()))
+        ? local
+        : undefined;
+    const spec =
+      tarball !== undefined ? vendoredSpec(tarball) : local !== undefined ? `file:${local}` : from;
     const dev = pkg.devDependencies;
-    const result = yield* initRepo(`${root}/${name}`, name, PACKAGE_ROOT, {
-      bun: Bun.version,
-      monkeyshape: spec ?? pkg.version,
-      effect: dev.effect,
-      biome: dev["@biomejs/biome"],
-      typescript: dev.typescript,
-      typesBun: dev["@types/bun"],
-    });
+    const result = yield* initRepo(
+      `${root}/${name}`,
+      name,
+      PACKAGE_ROOT,
+      {
+        bun: Bun.version,
+        monkeyshape: spec ?? pkg.version,
+        effect: dev.effect,
+        biome: dev["@biomejs/biome"],
+        typescript: dev.typescript,
+        typesBun: dev["@types/bun"],
+      },
+      tarball,
+    );
     return {
       output: [
         `Created ${name}/: ${result.done.join(", ")}.`,

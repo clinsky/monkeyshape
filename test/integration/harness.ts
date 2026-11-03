@@ -46,11 +46,14 @@ export const initFromSource = (
 ) => run(cwd, [process.execPath, join(ROOT, "src", "cli", "main.ts"), "init", ...args], env);
 
 /**
- * Notes init printed that this machine doesn't explain. Without bd (as in CI) the one expected
- * note is bd's; anything else, a failed install or format, fails everywhere.
+ * Notes init printed that this machine doesn't explain. Without bd (as in CI) bd's is
+ * expected; so is the one for a vendored `--from` tarball, and bd's metrics notice, which
+ * depends on the user's own bd config. Anything else, a failed install or format, fails.
  */
 export const unexpectedNotes = (output: string): ReadonlyArray<string> =>
   output
     .split("\n")
     .filter((line) => line.startsWith("note:"))
-    .filter((line) => HAS_BD || !line.startsWith("note: bd is not on PATH"));
+    .filter((line) => HAS_BD || !line.startsWith("note: bd is not on PATH"))
+    .filter((line) => !line.startsWith("note: monkeyshape is installed from vendor/"))
+    .filter((line) => !line.startsWith("note: bd sends anonymous usage metrics"));

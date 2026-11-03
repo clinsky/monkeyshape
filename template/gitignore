@@ -1,4 +1,4 @@
-node_modules/
+node_modules
 .private/
 
 # Tracks and reviews: worktrees, and links to the handoffs store under .git (no trailing slash on links)

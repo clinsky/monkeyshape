@@ -2,7 +2,7 @@
 .handoffs
 .agents/worktrees/
 .agents/handoffs
-node_modules/
+node_modules
 out/
 
 # Beads / Dolt files (added by bd init)

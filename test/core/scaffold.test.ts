@@ -62,5 +62,9 @@ describe("scaffold", () => {
     expect(text).toContain("/roadmap");
     expect(text).toContain("my-app/");
     expect(text).toContain("https://example.com/docs/workflow.md");
+    // Agents push and open PRs from the first /roadmap: a remote comes first, and init never
+    // creates one itself (it is public beyond a PR).
+    expect(text).toContain("gh repo create my-app --private --source . --push");
+    expect(text.indexOf("gh repo create")).toBeLessThan(text.indexOf("/roadmap"));
   });
 });
