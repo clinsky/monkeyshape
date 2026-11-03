@@ -26,7 +26,10 @@ never by hand.
 - Message another track with
   `bun run --silent mshape msg send <track> --subject "<one line>" "<body>"`. Your unread
   mail is listed at session start and at each prompt; `bun run --silent mshape msg read <id>`
-  reads one and marks it read. Never edit another track's handoff.
+  reads one and marks it read. Put `--` before a body that starts with `--`. Never edit
+  another track's handoff.
+- A `[mshape] Message from <track>: <subject>` notice can arrive at any time, even while
+  idle. It marks nothing read: finish what you are doing if it can wait, then read it.
 
 ## Pull requests
 
