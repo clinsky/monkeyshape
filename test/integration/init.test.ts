@@ -16,7 +16,7 @@ import {
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { HAS_BD, initFromSource, pack, run, unexpectedNotes } from "./harness.ts";
+import { HAS_BD, initFromSource, pack, ROOT, run, unexpectedNotes } from "./harness.ts";
 
 let work = "";
 let tarball = "";
@@ -92,6 +92,31 @@ describe("mshape init", () => {
     expect((await run(repo, [...mshape, "check", "--only", "skills"])).code).toBe(0);
   });
 
+  test("check and sync agree on an ignored settings.json: both name the real fix", async () => {
+    const repo = join(work, "demo");
+    const mshape = [process.execPath, join(repo, "node_modules", ".bin", "mshape")];
+    const exclude = join(repo, ".git", "info", "exclude");
+    const before = await Bun.file(exclude).text();
+    let check = { code: 0, output: "" };
+    let sync = { code: 0, output: "" };
+    try {
+      await Bun.write(exclude, `${before}\n.claude/\n`);
+      await run(repo, ["git", "rm", "--quiet", "--cached", ".claude/settings.json"]);
+      check = await run(repo, [...mshape, "check", "--only", "sync"]);
+      sync = await run(repo, [...mshape, "sync"]);
+    } finally {
+      await Bun.write(exclude, before);
+      await run(repo, ["git", "add", ".claude/settings.json"]);
+    }
+    expect(check.code).toBe(1);
+    expect(check.output).toContain("sync/ignored");
+    expect(check.output).not.toContain("sync/hook-missing");
+    expect(sync.code).toBe(1);
+    expect(sync.output).toContain("git check-ignore -v .claude/settings.json");
+    expect((await run(repo, [...mshape, "check", "--only", "sync"])).code).toBe(0);
+    expect((await run(repo, [...mshape, "sync"])).code).toBe(0);
+  });
+
   test("the handoffs store is under .git, behind relative, ignored links", async () => {
     const repo = join(work, "demo");
     const store = join(await realpath(repo), ".git", "monkeyshape", "handoffs");
@@ -117,6 +142,19 @@ describe("mshape init", () => {
       ).toBe("6144");
       expect(await tracked(repo)).toContain(".beads/config.yaml");
       expect(await Bun.file(join(repo, "AGENTS.md")).text()).not.toContain("BEGIN BEADS");
+      expect((await run(repo, ["bd", "config", "get", "agent.profile"])).output.trim()).toBe(
+        "team-maintainer",
+      );
+    },
+  );
+
+  test.skipIf(!HAS_BD)(
+    "bd prime prints the shipped PRIME.md first, as the SessionStart hook does",
+    async () => {
+      const repo = join(work, "demo");
+      const shipped = await Bun.file(join(ROOT, "template", ".beads", "PRIME.md")).text();
+      expect(await tracked(repo)).toContain(".beads/PRIME.md");
+      expect((await run(repo, ["bd", "prime"])).output).toStartWith(shipped.trim());
     },
   );
 

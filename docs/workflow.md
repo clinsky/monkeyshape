@@ -57,6 +57,11 @@ Everything else has one home too:
 | Short term | chat in a track's worktree: `/track` | Read the handoff and the track's queue; work; open PRs. |
 | Hand off | you, near 75% of a chat's context: `/handoff` | The handoff is rewritten so a fresh chat can continue; open one in the same worktree and run `/track`. |
 | Review | chat: `/review-pr <number>` | Review against real data in a scratch worktree (`mshape review <n>`); findings go on the PR; you merge. |
+| Bump | you: update `monkeyshape`, then `bun run --silent mshape sync` | Brings what the package ships up to date: the shared skills, `.beads/PRIME.md`, the PR template and monkeyshape's hooks. `mshape check` fails until it has run. |
+
+Every session starts with `.beads/PRIME.md`, which bd's SessionStart hook prints: what
+monkeyshape decides for every repo (beads, tracks, PRs, who decides by default). AGENTS.md is
+what your repo decides, and wins where they differ.
 
 A first repo goes: `mshape init`, then `/roadmap`, then `/milestone`, then one chat per track
 running `/track`. The first milestone of a new repo is "a first result on a real target".

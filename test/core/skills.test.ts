@@ -196,13 +196,13 @@ describe("checkSkills", () => {
     const [found, ...rest] = check({ link: { kind: "missing" } });
     expect(rest).toEqual([]);
     expect(found).toStartWith("skills/link .claude/skills: is missing");
-    expect(found).toContain("mshape skills sync");
+    expect(found).toContain("bun run --silent mshape sync");
   });
 
   test("an absolute link is refused, with the relative fix", () => {
     const [found] = check({ link: { kind: "link", target: "/home/me/repo/.agents/skills" } });
     expect(found).toContain("absolute path /home/me/repo/.agents/skills");
-    expect(found).toContain("rm -r .claude/skills && mshape skills sync");
+    expect(found).toContain("rm -r .claude/skills && bun run --silent mshape sync");
   });
 
   test("a link elsewhere is refused; spellings of the right target are not", () => {
@@ -279,7 +279,7 @@ describe("checkSkills", () => {
     const [found, ...rest] = check({ shipped: { ...SHIPPED, "track/SKILL.md": "t v2" } });
     expect(rest).toEqual([]);
     expect(found).toStartWith("skills/sync-due .agents/skills/track: differs");
-    expect(found).toContain("mshape skills sync");
+    expect(found).toContain("bun run --silent mshape sync");
   });
 
   test("a shared skill not yet installed says a sync is due", () => {

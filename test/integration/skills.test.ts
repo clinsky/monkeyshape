@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-import { PR_TEMPLATE_FILE, prTemplate } from "../../src/core/conventions.ts";
+import { PR_TEMPLATE_FILE, PRIME_FILE, prTemplate } from "../../src/core/conventions.ts";
 import { checkRefs } from "../../src/core/refs.ts";
 import { DEFAULT_DOCS } from "../../src/schemas/config.ts";
 import { config, repo } from "../support.ts";
@@ -36,6 +36,7 @@ describe("the shipped skills", () => {
         "shape.config.ts": "",
         "docs/workflow.md": workflow,
         [PR_TEMPLATE_FILE]: prTemplate(),
+        [PRIME_FILE]: readFileSync(join(import.meta.dir, "../../template", PRIME_FILE), "utf8"),
         ...files,
       },
       // The scripts skills run in a born repo: the gate, and mshape itself (D-run-mshape).
