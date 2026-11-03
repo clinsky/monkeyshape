@@ -20,7 +20,8 @@ track from outside its worktree.
 
 Then bring the branch up to date: `git fetch`, and `git merge --ff-only origin/main` when
 `git log --oneline origin/main..HEAD` is empty (a plain merge otherwise). The hooks that show
-your mail come with `main`.
+your mail come with `main`; if this session started before they were there, run
+`mshape msg register` once so live notices reach it.
 
 ## 2. Read
 
@@ -64,10 +65,14 @@ outcome, not a spec. Show the human the charter and the beads; start once they a
 ## 4. Work
 
 - Claim a bead (`bd update <id> --claim`) before starting it, and commit as you go.
-- **Batch beads into PRs** of one theme, typically 1k to 2.5k changed lines: many small PRs
-  cost more review than a few large ones. That is a batching default, not a gate: a small PR
-  is fine when it unblocks work or keeps docs in step with code. Gate green, its body as
-  AGENTS.md says. Close the beads when it merges.
+- **Batch beads into PRs** of one theme: many small PRs cost more review than a few large
+  ones. Open and refresh the PR with `mshape track pr`: it prints the size against the
+  batching default (a default, not a gate), runs the gate fresh and fills the Gate section.
+  Write the rest of the body in a file with the sections of .github/pull_request_template.md,
+  each bead as a list item starting with its id. The first time, pass both
+  `--title "<title>"` and `--body-file <path>`; after that `mshape track pr` alone keeps the
+  body as it stands.
+  Close the beads when it merges.
 - **One open PR at a time**, from `track/<name>`: the branch is the PR's head, so a commit
   pushed while it is in review joins it. While it waits, answer its review and prepare the
   next beads without committing. If waiting would stall the track, tell the human.

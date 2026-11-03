@@ -18,6 +18,7 @@ import {
 } from "../adapters/notices.ts";
 import { reviewNew, reviewRm } from "../adapters/reviews.ts";
 import { installSkills } from "../adapters/skills.ts";
+import { trackPr } from "../adapters/trackPr.ts";
 import {
   type CarryMessages,
   locate,
@@ -29,6 +30,7 @@ import {
 } from "../adapters/tracks.ts";
 import { loadSnapshot } from "../adapters/workspace.ts";
 import { CHECKS, notices, prerequisites, runChecks, unevaluated } from "../core/check.ts";
+import { missingPrSections } from "../core/conventions.ts";
 import { garden } from "../core/garden.ts";
 import { CLAUDE_SKILLS_LINK } from "../core/layout.ts";
 import { formatInbox, formatMessage, formatSent } from "../core/mail.ts";
@@ -39,7 +41,8 @@ import { formatCheck, formatGarden, formatViolation } from "../core/report.ts";
 import { RULES } from "../core/rules/registry.ts";
 import { nextStep, REPO_NAME } from "../core/scaffold.ts";
 import { formatCollisions, formatSync } from "../core/skills.ts";
-import type { ConfigError, TrackError, WorkspaceError } from "../schemas/errors.ts";
+import { missingSectionsProblem } from "../core/trackPr.ts";
+import { type ConfigError, type TrackError, WorkspaceError } from "../schemas/errors.ts";
 
 /** What a command returns: the text to print, and the exit code (0 prints to stdout). */
 interface Outcome {
@@ -133,9 +136,47 @@ const today = (): string => {
   return `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
 };
 
+/**
+ * `track pr [--title <title>] [--body-file <path>]`, and `track pr --check-body`, which reads
+ * a PR body on stdin and fails listing the required sections it lacks (CI's pr.yml).
+ */
+const trackPrCommand = (root: string, args: ReadonlyArray<string>) =>
+  Effect.gen(function* () {
+    if (args.length === 1 && args[0] === "--check-body") {
+      const missing = missingPrSections(yield* Effect.promise(() => Bun.stdin.text()));
+      return missing.length === 0
+        ? { output: "the PR body has every required section", code: 0 }
+        : { output: `mshape: ${missingSectionsProblem(missing)}`, code: 1 };
+    }
+    const value = (flag: string) => {
+      const at = args.indexOf(flag);
+      return at === -1 ? undefined : args[at + 1];
+    };
+    const known = new Set(["--title", "--body-file"]);
+    const pairs = args.length % 2 === 0 && args.every((arg, i) => i % 2 === 1 || known.has(arg));
+    if (!pairs) return usage();
+    const title = value("--title");
+    const bodyFile = value("--body-file");
+    const body =
+      bodyFile === undefined
+        ? undefined
+        : yield* Effect.tryPromise({
+            try: () => Bun.file(bodyFile).text(),
+            catch: (cause) =>
+              new WorkspaceError({ operation: "read", path: bodyFile, reason: String(cause) }),
+          });
+    const output = yield* trackPr(
+      root,
+      { title, body, fetchEnv: { ...process.env, GIT_TERMINAL_PROMPT: "0" } },
+      (line) => Effect.sync(() => console.error(line)),
+    );
+    return { output, code: 0 };
+  });
+
 const track = (root: string, args: ReadonlyArray<string>) =>
   Effect.gen(function* () {
     const [sub, ...rest] = args;
+    if (sub === "pr") return yield* trackPrCommand(root, rest);
     const flags = rest.filter((arg) => arg.startsWith("--"));
     const names = rest.filter((arg) => !arg.startsWith("--"));
     const allowed = sub === "rm" ? ["--force", "--keep-handoff"] : [];
@@ -478,6 +519,14 @@ export const COMMANDS: ReadonlyArray<Command> = [
       left is listed too. Offline: run git fetch to see merges done on the remote.
   mshape track current
       The track of this directory, name only; exit 1, saying why, outside a track.
+  mshape track pr [--title <title>] [--body-file <path>]
+      From a track's worktree: prints the PR's size against the batching default, runs the
+      gate fresh, pushes track/<name> and opens its PR (--title and --body-file needed) or
+      updates it. Writes only the Gate section, from that run; the rest of the body is
+      --body-file's, or the PR's as it stands. Refuses, posting nothing, on uncommitted
+      changes, a failing gate, a missing required section or a bead bd doesn't know.
+  mshape track pr --check-body
+      Read a PR body on stdin; exit 1 naming the required sections it lacks (CI's pr.yml).
   mshape track rm <name> [--force] [--keep-handoff]
       Remove a finished track: worktree, branch, handoff, mailbox. Fetches main's upstream
       first, then refuses on uncommitted changes, work in neither main nor origin/main (by

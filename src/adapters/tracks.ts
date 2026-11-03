@@ -169,7 +169,7 @@ const requireMain = (repo: string) =>
  * What counts as merged: `main`, and its upstream (`origin/main`) when that ref exists, so a PR
  * merged on the remote counts before anyone pulls `main`. Full refs, for the reason `head` gives.
  */
-const mergeTargets = (repo: string) =>
+export const mergeTargets = (repo: string) =>
   Effect.gen(function* () {
     const found = yield* git(repo, ["for-each-ref", "--format=%(upstream)", head(MAIN_BRANCH)]);
     const upstream = found.code === 0 ? found.stdout.trim() : "";
@@ -191,7 +191,7 @@ const FETCH_TIMEOUT_MS = 30_000;
  * gives up after a while (git is killed; an ssh it started may outlive it briefly). A failure is a note, and the
  * judgement falls back to the refs already here.
  */
-const fetchUpstream = (repo: string, env: Readonly<Record<string, string | undefined>>) =>
+export const fetchUpstream = (repo: string, env: Readonly<Record<string, string | undefined>>) =>
   Effect.gen(function* () {
     const remote = (yield* git(repo, ["config", `branch.${MAIN_BRANCH}.remote`])).stdout.trim();
     const merge = (yield* git(repo, ["config", `branch.${MAIN_BRANCH}.merge`])).stdout.trim();
