@@ -169,7 +169,7 @@ const requireMain = (repo: string) =>
  * What counts as merged: `main`, and its upstream (`origin/main`) when that ref exists, so a PR
  * merged on the remote counts before anyone pulls `main`. Full refs, for the reason `head` gives.
  */
-const mergeTargets = (repo: string) =>
+export const mergeTargets = (repo: string) =>
   Effect.gen(function* () {
     const found = yield* git(repo, ["for-each-ref", "--format=%(upstream)", head(MAIN_BRANCH)]);
     const upstream = found.code === 0 ? found.stdout.trim() : "";
@@ -191,7 +191,7 @@ const FETCH_TIMEOUT_MS = 30_000;
  * gives up after a while (git is killed; an ssh it started may outlive it briefly). A failure is a note, and the
  * judgement falls back to the refs already here.
  */
-const fetchUpstream = (repo: string, env: Readonly<Record<string, string | undefined>>) =>
+export const fetchUpstream = (repo: string, env: Readonly<Record<string, string | undefined>>) =>
   Effect.gen(function* () {
     const remote = (yield* git(repo, ["config", `branch.${MAIN_BRANCH}.remote`])).stdout.trim();
     const merge = (yield* git(repo, ["config", `branch.${MAIN_BRANCH}.merge`])).stdout.trim();
@@ -365,7 +365,41 @@ const trackedInMain = (repo: string, path: string) =>
  * Shared paths come from the main checkout's `shape.config.ts`: they name the main checkout's
  * data, whichever checkout the command runs from.
  */
-export const trackNew = (cwd: string, track: string, date: string) =>
+/**
+ * Where a new track branches: upstream `main` when it has commits local `main` lacks (merges
+ * done on GitHub since the last pull), so the track starts from what will be its PR's base;
+ * local `main` otherwise, which also covers no upstream and local commits not pushed yet.
+ * Fetches first; a fetch that fails is said, and the refs as they are decide.
+ */
+const startPoint = (repo: string, fetchEnv: Readonly<Record<string, string | undefined>>) =>
+  Effect.gen(function* () {
+    const notes: Array<string> = [];
+    const unfetched = yield* fetchUpstream(repo, fetchEnv);
+    if (unfetched !== undefined) notes.push(`note: ${unfetched}`);
+    const [local, upstream] = yield* mergeTargets(repo);
+    const main = { ref: local ?? head(MAIN_BRANCH), name: MAIN_BRANCH, notes };
+    if (upstream === undefined) return main;
+    const count = (range: string) =>
+      Effect.map(gitOk(repo, ["rev-list", "--count", range]), (out) => Number(out));
+    const behind = yield* count(`${main.ref}..${upstream}`);
+    const ahead = yield* count(`${upstream}..${main.ref}`);
+    if (behind === 0) return main;
+    if (ahead > 0) {
+      notes.push(
+        `note: \`${MAIN_BRANCH}\` and \`${shortRef(upstream)}\` have diverged (${ahead} and ${behind} commits of their own), so the track starts from \`${MAIN_BRANCH}\`: pull before starting tracks`,
+      );
+      return main;
+    }
+    return { ref: upstream, name: shortRef(upstream), notes };
+  });
+
+export const trackNew = (
+  cwd: string,
+  track: string,
+  date: string,
+  /** The environment for fetching `main`'s upstream: one where git can't prompt. */
+  fetchEnv: Readonly<Record<string, string | undefined>>,
+) =>
   Effect.gen(function* () {
     const invalid = nameProblem(track);
     if (invalid !== undefined) return yield* refuse(invalid);
@@ -378,7 +412,8 @@ export const trackNew = (cwd: string, track: string, date: string) =>
 
     const path = worktreePath(repo, track);
     const branch = trackBranch(track);
-    const stub = stubHandoff(track, date, path);
+    const start = yield* startPoint(repo, fetchEnv);
+    const stub = stubHandoff(track, date, path, start.name);
     if ("problems" in stub) return yield* refuse(stub.problems.join("\n"));
     if (yield* lexists(path)) return yield* refuse(`track \`${track}\` exists: ${path} is there`);
     if ((yield* worktrees(repo)).some((worktree) => worktree.path === path))
@@ -406,8 +441,8 @@ export const trackNew = (cwd: string, track: string, date: string) =>
       if (!(yield* ignored(repo, at)))
         notes.push(`note: ${what} (\`${at}\`) is not gitignored; add it to .gitignore`);
 
-    yield* gitOk(repo, ["worktree", "add", "--quiet", "-b", branch, path, head(MAIN_BRANCH)]);
-    const said = [`created ${path} on \`${branch}\` from \`${MAIN_BRANCH}\``];
+    yield* gitOk(repo, ["worktree", "add", "--quiet", "--no-track", "-b", branch, path, start.ref]);
+    const said = [...start.notes, `created ${path} on \`${branch}\` from \`${start.name}\``];
     // From here the track exists: a failure must say what was done and how to undo it.
     const finish = Effect.gen(function* () {
       said.push(...(yield* ensureHandoffLinks(common, repo, [path])));
@@ -612,6 +647,18 @@ const mailboxFacts = (common: string, track: string) =>
   });
 
 /** `say` prints at once: what `--force` will discard is said before it happens. */
+/**
+ * The track's Claude Code sessions, from the session registry's adapter, which imports this
+ * one, so the CLI passes them in. `live` is the running session ids or why they can't be read;
+ * `remove` deletes the track's registry and says how many registrations it held.
+ */
+export interface TrackSessions {
+  readonly live: (
+    track: string,
+  ) => Effect.Effect<{ readonly live: ReadonlyArray<string> } | { readonly unknown: string }>;
+  readonly remove: (track: string) => Effect.Effect<number | { readonly unknown: string }>;
+}
+
 export const trackRm = (
   cwd: string,
   track: string,
@@ -620,6 +667,7 @@ export const trackRm = (
     readonly keepHandoff: boolean;
     /** The environment for fetching `main`'s upstream: one where git can't prompt. */
     readonly fetchEnv: Readonly<Record<string, string | undefined>>;
+    readonly sessions: TrackSessions;
   },
   say: (line: string) => Effect.Effect<void>,
 ) =>
@@ -656,6 +704,7 @@ export const trackRm = (
       open: found.byTrack.get(track) ?? [],
     };
     const mailbox = yield* mailboxFacts(common, track);
+    const sessions = yield* options.sessions.live(track);
     const plan = planRm({
       track,
       worktreePath: path,
@@ -678,6 +727,7 @@ export const trackRm = (
       handoffExists: yield* lexists(handoff),
       beads,
       mailbox,
+      sessions,
       force: options.force,
       keepHandoff: options.keepHandoff,
     });
@@ -721,6 +771,11 @@ export const trackRm = (
       removed.push(describeStep(step));
     }
     yield* gitOk(repo, ["worktree", "prune"]);
+    // The registry goes last and always: its sessions ran in the worktree just removed.
+    const registrations = yield* options.sessions.remove(track);
+    if (typeof registrations !== "number")
+      yield* say(`note: the session registry of ${track} wasn't removed: ${registrations.unknown}`);
+    else if (registrations > 0) removed.push(`${registrations} session registration(s)`);
     return [
       ...removed.map((what) => `removed ${what}`),
       ...plan.kept.map((what) => `kept ${what}`),

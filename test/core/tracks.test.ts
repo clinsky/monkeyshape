@@ -60,12 +60,38 @@ describe("what track rm may do", () => {
     handoffExists: true,
     beads: { integration: { state: "ok" }, setting: "optional", open: [] },
     mailbox: { path: "/r/.git/monkeyshape/mail/docs", exists: false, unread: [], read: 0 },
+    sessions: { live: [] },
     force: false,
     keepHandoff: false,
   };
 
   test("worktree, then branch, then handoff", () => {
     expect(planRm(facts).steps.map((step) => step.kind)).toEqual(["worktree", "branch", "handoff"]);
+  });
+
+  test("a running Claude Code session refuses, naming it; --force goes ahead, saying so", () => {
+    const sessions = { live: ["681a4ec1", "9f00ab12"] };
+    const refused = planRm({ ...facts, sessions });
+    expect(refused.steps).toEqual([]);
+    expect(refused.refusals).toEqual([
+      "2 Claude Code session(s) still running in `docs` would lose their worktree: 681a4ec1, 9f00ab12. Quit each one (`/exit`), or pass --force",
+    ]);
+    const forced = planRm({ ...facts, sessions, force: true });
+    expect(forced.refusals).toEqual([]);
+    expect(forced.warnings).toEqual([
+      "removing the track from under 2 running Claude Code session(s): 681a4ec1, 9f00ab12",
+    ]);
+    expect(forced.steps.map((step) => step.kind)).toEqual(["worktree", "branch", "handoff"]);
+  });
+
+  test("sessions that can't be checked refuse, and --force goes ahead, saying so", () => {
+    const sessions = { unknown: "can't read ~/.claude/sessions" };
+    expect(planRm({ ...facts, sessions }).refusals).toEqual([
+      "can't tell whether a Claude Code session is running in `docs` (can't read ~/.claude/sessions): check by hand, then pass --force",
+    ]);
+    expect(planRm({ ...facts, sessions, force: true }).warnings).toEqual([
+      "removing without knowing whether a Claude Code session runs in the track: can't read ~/.claude/sessions",
+    ]);
   });
 
   describe("the mailbox", () => {
@@ -195,7 +221,7 @@ describe("what track rm may do", () => {
     }
   });
 
-  test("beads that can't answer: refusals and notes as `mshape check` decides them", () => {
+  test("beads that can't answer: rm refuses wherever the beads can't be seen", () => {
     const plan = (integration: Integration, setting: "optional" | "required", force = false) =>
       planRm({ ...facts, force, beads: { integration, setting, open: [] } });
     const failed: Integration = { state: "failed", reason: "database is locked" };
@@ -216,10 +242,14 @@ describe("what track rm may do", () => {
     );
     expect(plan(absent, "required").refusals[0]).toContain("the repo has no .beads/config.yaml");
 
-    const noted = plan(unavailable, "optional");
-    expect(noted.refusals).toEqual([]);
-    expect(noted.notes[0]).toContain("open beads were not checked: bd is not on PATH");
-    expect(noted.steps).toHaveLength(3);
+    // Beads exist but bd can't run: check only notes it, but rm refuses, --force or not.
+    for (const force of [false, true]) {
+      const refused = plan(unavailable, "optional", force);
+      expect(refused.refusals).toEqual([
+        "this repo has beads (.beads/), but bd is not on PATH, so the beads labelled `track:docs` can't be seen and removing the track might orphan them: get `bd` working (then `bd list --label track:docs --status open,in_progress,blocked,deferred` shows them), and retry; --force doesn't override this",
+      ]);
+      expect(refused.steps).toEqual([]);
+    }
     const quiet = plan(absent, "optional");
     expect(quiet.notes).toEqual([
       "this repo has no beads (no .beads/), so open beads were not checked",

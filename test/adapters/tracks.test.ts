@@ -39,7 +39,8 @@ const mshapeWith = (
 ) => {
   const result = Bun.spawnSync([process.execPath, CLI, "track", ...args], {
     cwd,
-    env: { ...process.env, ...env },
+    // rm reads Claude Code's sessions: a scratch directory, never the real ~/.claude.
+    env: { ...process.env, CLAUDE_CONFIG_DIR: join(base, "no-claude"), ...env },
     stdout: "pipe",
     stderr: "pipe",
   });
@@ -263,6 +264,41 @@ describe("track list", () => {
   });
 });
 
+describe("track new from upstream main", () => {
+  test("starts from origin/main when it has merges main lacks; from main when they diverged", async () => {
+    await setup();
+    sh(base, "init", "-q", "--bare", "-b", "main", "remote.git");
+    sh(repo, "remote", "add", "origin", join(base, "remote.git"));
+    sh(repo, "push", "-q", "-u", "origin", "main");
+    // A merge done on GitHub: a commit on the remote that local main hasn't pulled.
+    sh(base, "clone", "-q", join(base, "remote.git"), "other");
+    for (const key of ["user.name", "user.email"]) sh(join(base, "other"), "config", key, "x");
+    sh(join(base, "other"), "commit", "-q", "--allow-empty", "-m", "merged on GitHub");
+    sh(join(base, "other"), "push", "-q", "origin", "main");
+
+    const made = mshape(repo, "new", "docs");
+    expect(made.code).toBe(0);
+    expect(made.stdout).toContain("on `track/docs` from `origin/main`");
+    expect(sh(wt("docs"), "log", "-1", "--format=%s")).toBe("merged on GitHub");
+    expect(await Bun.file(handoff("docs")).text()).toContain("branched from `origin/main`.");
+    // No upstream set on the track branch: its PR, not origin/main, is where it goes.
+    const upstream = Bun.spawnSync(["git", "config", "--get", "branch.track/docs.merge"], {
+      cwd: repo,
+    });
+    expect(upstream.exitCode).toBe(1);
+
+    // A local commit too: diverged, so local main, and a note saying why.
+    sh(repo, "commit", "-q", "--allow-empty", "-m", "local only");
+    sh(join(base, "other"), "commit", "-q", "--allow-empty", "-m", "another merge");
+    sh(join(base, "other"), "push", "-q", "origin", "main");
+    const diverged = mshape(repo, "new", "init");
+    expect(diverged.stdout).toContain(
+      "note: `main` and `origin/main` have diverged (1 and 2 commits of their own), so the track starts from `main`",
+    );
+    expect(sh(wt("init"), "log", "-1", "--format=%s")).toBe("local only");
+  });
+});
+
 describe("track rm", () => {
   test("a clean, merged track: worktree, branch and handoff go; main, others and shared data stay", async () => {
     await setup(["data"]);
@@ -364,6 +400,50 @@ describe("track rm", () => {
     mshape(repo, "new", "docs");
     expect(msg(wt("docs"), "inbox")).not.toContain("second");
     expect(await exists(`${repo}/.git/monkeyshape/mail/docs`)).toBe(false);
+  });
+
+  test("a running Claude Code session refuses rm; --force removes the track and its registry", async () => {
+    await setup();
+    mshape(repo, "new", "docs");
+    // A fake Claude Code: this test's own process, as a session running in the worktree, and
+    // registered for the track. Never the real ~/.claude, whose registry rm would prune.
+    const claude = join(base, "claude");
+    await mkdir(`${claude}/sessions`, { recursive: true });
+    const session = "00000000-0000-4000-8000-000000000001";
+    await writeFile(
+      `${claude}/sessions/${process.pid}.json`,
+      JSON.stringify({
+        pid: process.pid,
+        cwd: wt("docs"),
+        sessionId: session,
+        procStart: "p",
+        peerProtocol: 1,
+        messagingSocketPath: join(base, "none.sock"),
+      }),
+    );
+    const registry = `${repo}/.git/monkeyshape/sessions/docs`;
+    await mkdir(registry, { recursive: true });
+    await writeFile(
+      `${registry}/${session}.json`,
+      JSON.stringify({ session, pid: process.pid, registered: "2026-01-01T00:00:00.000Z" }),
+    );
+    const env = { CLAUDE_CONFIG_DIR: claude };
+
+    const refused = mshapeWith(env, repo, "rm", "docs");
+    expect(refused.code).toBe(1);
+    expect(refused.stderr).toContain(
+      `1 Claude Code session(s) still running in \`docs\` would lose their worktree: ${session}. Quit each one (\`/exit\`), or pass --force`,
+    );
+    expect(await exists(wt("docs"))).toBe(true);
+
+    const forced = mshapeWith(env, repo, "rm", "docs", "--force");
+    expect(forced.code).toBe(0);
+    expect(forced.stderr).toContain(
+      `--force: removing the track from under 1 running Claude Code session(s): ${session}`,
+    );
+    expect(forced.stdout).toContain("removed 1 session registration(s)");
+    expect(await exists(registry)).toBe(false);
+    expect(await exists(wt("docs"))).toBe(false);
   });
 
   test("a failure partway stops, reports what was removed and what remains; a rerun finishes", async () => {
@@ -549,7 +629,7 @@ describe("track rm and list with beads", () => {
     expect(mshapeWith(broken, repo, "list").stdout).toContain("note: open beads not counted");
   });
 
-  test("bd not installed: a note when beads is optional, a refusal when required", async () => {
+  test("bd not installed: rm refuses whether beads is optional or required; list notes it", async () => {
     await setup();
     mshape(repo, "new", "docs");
     await fakeBd([]);
@@ -564,10 +644,15 @@ describe("track rm and list with beads", () => {
     expect(refused.stderr).toContain("requires beads, but bd is not on PATH");
     expect(await exists(wt("docs"))).toBe(true);
 
+    // Optional too: check would only note it, but rm can't be undone, so it refuses.
     await writeFile(join(repo, "shape.config.ts"), "export default {};\n");
-    const noted = mshapeWith(noBd, repo, "rm", "docs");
-    expect(noted.code).toBe(0);
-    expect(noted.stderr).toContain("note: open beads were not checked: bd is not on PATH");
+    const optional = mshapeWith(noBd, repo, "rm", "docs");
+    expect(optional.code).toBe(1);
+    expect(optional.stderr).toContain(
+      "this repo has beads (.beads/), but bd is not on PATH, so the beads labelled `track:docs` can't be seen",
+    );
+    expect(await exists(wt("docs"))).toBe(true);
+    expect(mshapeWith(noBd, repo, "list").stdout).toContain("note: open beads not counted");
   });
 
   test("a repo without beads says it didn't check", async () => {
