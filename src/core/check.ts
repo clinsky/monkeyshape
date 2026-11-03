@@ -69,19 +69,28 @@ export const notices = (config: ResolvedConfig, snapshot: Snapshot): ReadonlyArr
 const PREREQUISITE_RULES = ["beads-failed", "beads-required"] as const;
 
 /**
+ * The kinds each check reports, as its `violation` helper types them. Total over the checks,
+ * so a new check doesn't compile until its kinds are listed here; registry rules add theirs
+ * under `rules` in `ruleIds`.
+ */
+const KINDS: { readonly [C in Violation["check"]]: ReadonlyArray<string> } = {
+  arch: ARCH_RULES,
+  refs: REFS_RULES,
+  budgets: BUDGETS_RULES,
+  coverage: COVERAGE_RULES,
+  rules: ENGINE_RULES,
+  skills: SKILLS_RULES,
+  prerequisites: PREREQUISITE_RULES,
+};
+
+/**
  * Every rule id `mshape check` can report, namespaced as violations carry it: each check's own
- * kinds, the engine's, and one per registry rule. test/core/ruleCases.test.ts holds a case
- * that must fail and one that must pass for each, so a new id can't land without both.
+ * kinds and one per registry rule. test/core/ruleCases.test.ts holds a case that must fail and
+ * one that must pass for each, so a new id can't land without both.
  */
 export const ruleIds = (rules: ReadonlyArray<Rule> = RULES): ReadonlyArray<string> => [
-  ...ARCH_RULES.map((kind) => `arch/${kind}`),
-  ...REFS_RULES.map((kind) => `refs/${kind}`),
-  ...BUDGETS_RULES.map((kind) => `budgets/${kind}`),
-  ...COVERAGE_RULES.map((kind) => `coverage/${kind}`),
-  ...ENGINE_RULES.map((kind) => `rules/${kind}`),
+  ...Object.entries(KINDS).flatMap(([check, kinds]) => kinds.map((kind) => `${check}/${kind}`)),
   ...rules.map((rule) => `rules/${rule.id}`),
-  ...SKILLS_RULES.map((kind) => `skills/${kind}`),
-  ...PREREQUISITE_RULES.map((kind) => `prerequisites/${kind}`),
 ];
 
 const prerequisite = (rule: (typeof PREREQUISITE_RULES)[number], message: string): Violation => ({

@@ -2,12 +2,9 @@ import { describe, expect, test } from "bun:test";
 import type { Violation } from "../../src/core/model.ts";
 import { applyBaseline, count, tighten } from "../../src/core/ratchet.ts";
 
-const v = (file: string, rule = "rules/no-throw"): Violation => ({
-  check: "rules",
-  rule,
-  file,
-  message: "m",
-});
+/** The ratchet keys on rule and file; `check` is the rule's own namespace, as checks set it. */
+const v = (file: string, rule: Violation["rule"] = "rules/no-throw"): Violation =>
+  ({ check: rule.slice(0, rule.indexOf("/")), rule, file, message: "m" }) as Violation;
 
 describe("ratchet", () => {
   test("violations within the baseline are grandfathered", () => {

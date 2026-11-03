@@ -8,7 +8,7 @@
  * both cases below.
  */
 import { describe, expect, test } from "bun:test";
-import { prerequisites, ruleIds, runChecks } from "../../src/core/check.ts";
+import { CHECKS, prerequisites, ruleIds, runChecks } from "../../src/core/check.ts";
 import type { CheckName, SkillFiles, Snapshot, Violation } from "../../src/core/model.ts";
 import type { ShapeConfig } from "../../src/schemas/config.ts";
 import { config, repo } from "../support.ts";
@@ -516,9 +516,16 @@ describe("rule cases", () => {
     expect(Object.keys(CASES).filter((id) => !ids.includes(id))).toEqual([]);
   });
 
+  test("every check lists the kinds it reports, so none escapes the cases above", () => {
+    const ids = ruleIds();
+    expect(
+      [...CHECKS, "prerequisites"].filter((check) => !ids.some((id) => id.startsWith(`${check}/`))),
+    ).toEqual([]);
+  });
+
   for (const [id, cases] of Object.entries(CASES)) {
     test(`${id} fires on its must-fail case`, () => {
-      expect(evaluate(id, cases.fail).map((v) => v.rule)).toContain(id);
+      expect(evaluate(id, cases.fail).map((v): string => v.rule)).toContain(id);
     });
     test(`${id}'s check is clean on its must-pass case`, () => {
       expect(evaluate(id, cases.pass).map((v) => `${v.rule} ${v.file}: ${v.message}`)).toEqual([]);

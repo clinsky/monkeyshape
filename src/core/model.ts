@@ -2,19 +2,24 @@
 
 export type CheckName = "arch" | "refs" | "budgets" | "coverage" | "rules" | "skills";
 
-export interface Violation {
+type ViolationOf<C extends CheckName | "prerequisites"> = {
   /**
    * `prerequisites` are failures of the environment a check needs (a required integration
    * that can't run). They are never baselined and never skipped by `--only`.
    */
-  readonly check: CheckName | "prerequisites";
-  /** Namespaced, e.g. `rules/no-throw`. Baselines and reports key on it. */
-  readonly rule: string;
+  readonly check: C;
+  /** Namespaced by its check, e.g. `rules/no-throw`. Baselines and reports key on it. */
+  readonly rule: `${C}/${string}`;
   /** Repo-relative path, `/`-separated. */
   readonly file: string;
   readonly line?: number;
   readonly message: string;
-}
+};
+
+/** One finding; its `rule` always starts with its own `check`. */
+export type Violation = { [C in CheckName | "prerequisites"]: ViolationOf<C> }[
+  | CheckName
+  | "prerequisites"];
 
 /** What the checks see of the repo, loaded once by the workspace adapter. */
 export interface Snapshot {
