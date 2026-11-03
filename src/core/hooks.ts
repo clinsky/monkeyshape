@@ -33,6 +33,9 @@ const quote = (arg: string): string =>
 export const HOOKS: ReadonlyArray<Hook> = [
   // bd's own: the beads primer, as hook JSON.
   { event: "SessionStart", matcher: "", command: "bd prime --hook-json" },
+  // The track's unread mail, at session start and at every prompt, until it is read.
+  { event: "SessionStart", matcher: "", command: mshapeCommand(["msg", "inbox", "--quiet"]) },
+  { event: "UserPromptSubmit", matcher: "", command: mshapeCommand(["msg", "inbox", "--quiet"]) },
 ];
 
 /** The `hooks` key of `.claude/settings.json`: each hook under its event, in list order. */

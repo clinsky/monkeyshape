@@ -9,6 +9,26 @@
             "command": "bd prime --hook-json"
           }
         ]
+      },
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bun run --silent mshape msg inbox --quiet"
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bun run --silent mshape msg inbox --quiet"
+          }
+        ]
       }
     ]
   }
