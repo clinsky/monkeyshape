@@ -15,6 +15,15 @@
         "hooks": [
           {
             "type": "command",
+            "command": "bun run --silent mshape msg register"
+          }
+        ]
+      },
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
             "command": "bun run --silent mshape msg inbox --quiet"
           }
         ]
