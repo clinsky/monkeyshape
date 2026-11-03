@@ -1,12 +1,13 @@
 /**
  * `mshape review <n>` and `mshape review rm <n>`: a pull request's head in a detached worktree
- * beside the tracks, with `tracks.sharedPaths` linked in, for the `review-pr` skill. A review is
- * not a track: no branch, no handoff, no label. Its state lives on the pull request, and the
+ * beside the tracks, with `tracks.sharedPaths` and the handoffs linked in, for the `review-pr`
+ * skill, which reads the charter of the track a PR comes from. A review is not a track: no
+ * branch, no handoff of its own, no label. Its state lives on the pull request, and the
  * worktree is scratch, removed when the review ends. Paths come from `src/core/layout.ts`.
  */
 import { posix } from "node:path";
 import { Effect } from "effect";
-import { PR_NUMBER, reviewPath, reviewRef } from "../core/layout.ts";
+import { HANDOFFS_LINK, handoffsStore, PR_NUMBER, reviewPath, reviewRef } from "../core/layout.ts";
 import { sharedPathProblems } from "../core/tracks.ts";
 import { loadConfig } from "./config.ts";
 import { git, gitOk, ignored, lexists, linkTo, locate, refuse, worktrees } from "./tracks.ts";
@@ -62,6 +63,19 @@ const linkShared = (repo: string, path: string, pr: string, shared: ReadonlyArra
   });
 
 /**
+ * The handoffs linked in as `.handoffs`, as in every checkout, so a review reads the charter of
+ * the track the PR comes from. A repo with no handoffs store yet has none to read.
+ */
+const linkHandoffs = (common: string, repo: string, path: string) =>
+  Effect.gen(function* () {
+    const link = `${path}/${HANDOFFS_LINK}`;
+    const store = handoffsStore(common);
+    if ((yield* lexists(link)) || !(yield* lexists(store))) return [];
+    yield* linkTo(repo, link, store);
+    return [`linked ${link} -> ${store}`];
+  });
+
+/**
  * Puts an existing review worktree exactly at `head`. It is scratch, so edits to tracked files
  * are discarded, after `say` lists them; untracked probes stay, unless `head` tracks the same
  * path. Never git's "commit or stash" advice: the stash is shared by every worktree.
@@ -85,7 +99,7 @@ const resetTo = (path: string, head: string, say: (line: string) => Effect.Effec
 export const reviewNew = (cwd: string, pr: string, say: (line: string) => Effect.Effect<void>) =>
   Effect.gen(function* () {
     yield* numberProblem(pr);
-    const { repo } = yield* locate(cwd);
+    const { common, repo } = yield* locate(cwd);
     const shared = (yield* loadConfig(repo)).tracks.sharedPaths;
     const problems = sharedPathProblems(shared);
     if (problems.length > 0) return yield* refuse(problems.join("\n"));
@@ -105,7 +119,10 @@ export const reviewNew = (cwd: string, pr: string, say: (line: string) => Effect
     if (registered) {
       const before = yield* gitOk(path, ["rev-parse", "HEAD"]);
       yield* resetTo(path, head, say);
-      const linked = yield* linkShared(repo, path, pr, shared);
+      const linked = [
+        ...(yield* linkShared(repo, path, pr, shared)),
+        ...(yield* linkHandoffs(common, repo, path)),
+      ];
       return [
         ...(before === head
           ? [`${path} is at the head of #${pr}: ${head}`]
@@ -122,7 +139,10 @@ export const reviewNew = (cwd: string, pr: string, say: (line: string) => Effect
       );
     yield* gitOk(repo, ["worktree", "add", "--quiet", "--detach", path, head]);
     const created = `created ${path} at the head of #${pr}: ${head}`;
-    const linked = yield* linkShared(repo, path, pr, shared).pipe(
+    const linked = yield* Effect.map(
+      Effect.zip(linkShared(repo, path, pr, shared), linkHandoffs(common, repo, path)),
+      ([sharedLinks, handoffLinks]) => [...sharedLinks, ...handoffLinks],
+    ).pipe(
       Effect.catch((error) =>
         refuse(
           [

@@ -1,13 +1,14 @@
 ---
 name: review-pr
-description: Use when asked to review a pull request (a number or URL), to re-review one after its author replied or pushed fixes, or to review a follow-up PR that answers an earlier review's findings. Runs the change on real data in a scratch worktree, probes what it claims to enforce, posts every finding on the PR with a severity, and re-reviews until it can say "LGTM".
+description: Use when asked to review a pull request (a number or URL), to re-review one after its author replied or pushed fixes, or to review a follow-up PR that answers an earlier review's findings. Reads what the PR is for (its beads, the milestone, its track's charter), runs the change on real data in a scratch worktree, probes what it claims to enforce, posts every finding on the PR with a severity and whether the PR fits, and re-reviews until it can say "LGTM".
 ---
 
 # Review a pull request
 
 A review is judged by what it **ran and read**, not by what it guessed from the diff. Every
 finding carries its evidence: the input that breaks it, a real-data output, or the line of
-code it rests on. Read AGENTS.md first: it holds the rules the PR is reviewed against.
+code it rests on. Read AGENTS.md first: it holds the rules the PR is reviewed against. Then
+read what the PR is for, before its diff: a correct change can still be the wrong one.
 
 **Ground rules**
 - **The PR is the review's only home.** Findings, evidence, replies and what is still open
@@ -31,7 +32,7 @@ code it rests on. Read AGENTS.md first: it holds the rules the PR is reviewed ag
 N=<pr number>
 gh pr view $N --json title,body,files,commits
 gh api repos/{owner}/{repo}/pulls/$N -q .head.sha   # the head you review and anchor to
-mshape review $N         # detached worktree at that head, shared data linked; prints its path
+mshape review $N         # detached worktree at that head, shared data and handoffs linked; prints its path
 cd <that path> && bun install --frozen-lockfile
 ```
 
@@ -39,15 +40,31 @@ Never review in your own checkout. If the review's head and the API's differ, th
 pushed meanwhile: run `mshape review $N` again.
 
 **A follow-up PR** that answers an earlier review: read that PR's thread first
-(`gh pr view <earlier> --comments`, and its inline comments as in step 5). Each finding it
-claims to answer is a re-review item (step 5), on top of reviewing its own diff.
+(`gh pr view <earlier> --comments`, and its inline comments as in step 6). Each finding it
+claims to answer is a re-review item (step 6), on top of reviewing its own diff.
 
-## 2. Read the diff
+## 2. Read what it is for
+
+Before the diff, so the diff is read against its purpose:
+
+- **Its beads:** the body's Beads section, then `bd show <id>` for each: the intent, and the
+  acceptance the PR should meet.
+- **The milestone:** plan/MILESTONE.md, if there is one: its Why, its Non-goals, the PR's
+  track's row under Tracks, and the interfaces that track owns or consumes, which say whose
+  files are whose.
+- **The track's charter:** `gh pr view $N --json headRefName` names the branch; for
+  `track/<name>`, read the Charter in `.handoffs/<name>.md` (the review worktree links the
+  handoffs in): what the track serves, what is out of its scope, what done means.
+
+A PR from no track, without beads or with no milestone plan has less to read: say so under
+Fit, and judge it against what it does have.
+
+## 3. Read the diff
 
 Read the PR body and every changed file. Then go through it for:
 
 - **The invariants it claims.** If a schema, check or test says it enforces something, list
-  the inputs that should fail. Those are your probes in step 3.
+  the inputs that should fail. Those are your probes in step 4.
 - **Docs it touches, or should have.** Do AGENTS.md, DECISIONS.md, the skills and the
   handoffs still agree with the change? Grep for prose it made stale.
 - **The usual misses.** New code outside the gate (a tsconfig `include`, a test glob)? A
@@ -55,7 +72,7 @@ Read the PR body and every changed file. Then go through it for:
   that breaks in a worktree, a symlink or a fresh clone? An error message that doesn't say
   what to do?
 
-## 3. Run it
+## 4. Run it
 
 From cheapest to most expensive:
 
@@ -65,7 +82,7 @@ From cheapest to most expensive:
    rejected, one variation each, from a real artifact where there is one. **A bad input
    that passes is a finding**, and the probe's input and output are its evidence on the PR.
    Probes are scratch and are never committed or kept: one worth keeping is a regression
-   test, and that is the author's to add (step 4). **When the PR adds a check**, also probe
+   test, and that is the author's to add (step 5). **When the PR adds a check**, also probe
    it with valid input it must pass: a false failure reaches everyone who runs the check,
    and is a blocker.
 3. **Run the real workflow** when the claim is about what it produces end to end.
@@ -73,7 +90,7 @@ From cheapest to most expensive:
 Don't rerun the gate on the first pass if the PR body shows it green; do on a re-review whose
 fix touched code.
 
-## 4. Post on the PR
+## 5. Post on the PR
 
 Post **one review**, inline comments anchored to the head commit, built as a JSON file so
 the quoting survives:
@@ -93,12 +110,22 @@ severity (blocker or nit), then the evidence, then a suggested fix.
 - **If a check could rule out the whole class**, say so: the PR body's "Class closed by"
   line is where the author answers it.
 
-The body says what was run and what came out, the blockers, the nits with no line, and what
-looked good. Use `COMMENT`: GitHub refuses approve and request-changes on your own
+The body opens with **Fit**, a few lines that answer, each with its evidence (the bead's
+acceptance, the plan's row or non-goal, the file it duplicates):
+
+- Does it serve its beads, and the goal its track serves?
+- Is anything in it outside them? That is a nit, settled like any other: split out, or filed
+  by the author as a bead. Work against a non-goal, or in a file the plan gives another
+  track, is a priority call: say so, and tell the human.
+- Is it redundant with code or docs that already exist?
+- Is there prose where a check belongs: a rule a machine could check, written as a sentence?
+
+Then what was run and what came out, the blockers, the nits with no line, and what looked
+good. Use `COMMENT`: GitHub refuses approve and request-changes on your own
 account's PR. Then tell the human in a few lines: what you ran, each finding and its
 severity, the review link. **Stop and wait** for the author.
 
-## 5. Re-review
+## 6. Re-review
 
 When told the author responded, read the thread: every reply, the new commits and the fix
 diff (`gh pr view $N --comments`, `gh api repos/{owner}/{repo}/pulls/$N/comments`). The head
@@ -121,7 +148,8 @@ worktree to the new head; it prints the previous one too.
    and fixtures it imports too, and rerun `bun install` if the dependencies changed. A test
    that passes on the old head doesn't test the bug: that is a finding. For a prose
    blocker, read the fix. Rerun the real-data runs the findings rested on.
-2. Look for what the fix opened: a new unchecked field, the mirror case of a new check.
+2. Look for what the fix opened: a new unchecked field, the mirror case of a new check. If
+   the fix changed what the PR does, answer Fit again.
 3. **Pushback is an argument, not a refusal.** If it holds, say so and drop the point; if it
    doesn't, answer with evidence.
 4. Reply in the threads, then post a short summary review: what was re-verified, what is

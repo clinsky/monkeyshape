@@ -431,10 +431,12 @@ export const COMMANDS: ReadonlyArray<Command> = [
     name: "review",
     usage: `  mshape review <n>
       Pull request <n>'s head from origin in a detached worktree .agents/worktrees/<repo>.pr-<n>,
-      tracks.sharedPaths linked in. Again later: put it exactly at the new head, printing the
-      old one; edits to tracked files there are listed, then discarded.
+      tracks.sharedPaths and the shared handoffs (.handoffs) linked in. Again later: put it
+      exactly at the new head, printing the old one; edits to tracked files there are listed,
+      then discarded.
   mshape review rm <n>
-      Remove that worktree, listing what it discards, and its fetched ref. Never the shared data.`,
+      Remove that worktree, listing what it discards, and its fetched ref. Never the shared data
+      or the handoffs.`,
     run: review,
   },
   {
