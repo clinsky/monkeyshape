@@ -19,6 +19,7 @@ export const repo = (
     readonly typechecked?: ReadonlyArray<string>;
     readonly linted?: ReadonlyArray<string>;
     readonly skills?: SkillsSnapshot;
+    readonly shippedPrime?: string;
   } = {},
 ): Snapshot => {
   const beadsOk = options.memories !== undefined || options.beadIds !== undefined;
@@ -45,6 +46,7 @@ export const repo = (
       claudeDirectory: new Map(),
       shipped: new Map(),
     },
+    shippedPrime: options.shippedPrime,
   };
 };
 

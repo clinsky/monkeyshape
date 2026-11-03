@@ -1,6 +1,6 @@
 /** The data every check reads and the findings it returns. Pure: no I/O lives here. */
 
-export type CheckName = "arch" | "refs" | "budgets" | "coverage" | "rules" | "skills";
+export type CheckName = "arch" | "refs" | "budgets" | "coverage" | "rules" | "skills" | "sync";
 
 type ViolationOf<C extends CheckName | "prerequisites"> = {
   /**
@@ -38,6 +38,8 @@ export interface Snapshot {
   readonly linted: ReadonlySet<string> | undefined;
   readonly integrations: Integrations;
   readonly skills: SkillsSnapshot;
+  /** The `.beads/PRIME.md` the running monkeyshape ships, when it has one. */
+  readonly shippedPrime: string | undefined;
 }
 
 /** File bytes keyed by path relative to a skills directory: `<skill>/SKILL.md`. Bytes, so a

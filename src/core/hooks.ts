@@ -25,6 +25,9 @@ export interface Hook {
 export const mshapeCommand = (args: ReadonlyArray<string>): string =>
   ["bun", "run", "--silent", "mshape", ...args.map(quote)].join(" ");
 
+/** What a check's message tells an agent to run to refresh what the package ships. */
+export const SYNC_COMMAND = "bun run --silent mshape sync";
+
 /** POSIX single quotes, only when needed: hook commands stay readable. */
 const quote = (arg: string): string =>
   /^[\w@%+=:,./-]+$/.test(arg) ? arg : `'${arg.replaceAll("'", `'\\''`)}'`;
@@ -63,3 +66,55 @@ export const renderSettings = (
 
 /** Where Claude Code reads the project's hooks, repo-relative. */
 export const SETTINGS_FILE = ".claude/settings.json";
+
+const hookEntries = (
+  settings: Readonly<Record<string, unknown>>,
+  event: string,
+): Array<unknown> => {
+  const { hooks } = settings;
+  if (typeof hooks !== "object" || hooks === null || Array.isArray(hooks)) return [];
+  const entries = (hooks as Record<string, unknown>)[event];
+  return Array.isArray(entries) ? entries : [];
+};
+
+/** Whether `settings` already runs `hook`: an entry of its event with its matcher and command. */
+const runs = (settings: Readonly<Record<string, unknown>>, hook: Hook): boolean =>
+  hookEntries(settings, hook.event).some((entry) => {
+    if (typeof entry !== "object" || entry === null) return false;
+    const { matcher, hooks } = entry as { matcher?: unknown; hooks?: unknown };
+    return (
+      (matcher ?? "") === hook.matcher &&
+      Array.isArray(hooks) &&
+      hooks.some(
+        (inner) =>
+          typeof inner === "object" &&
+          inner !== null &&
+          (inner as { command?: unknown }).command === hook.command,
+      )
+    );
+  });
+
+/** The hooks of `hooks` that `settings` (a parsed settings.json) doesn't run. */
+export const missingHooks = (
+  settings: Readonly<Record<string, unknown>>,
+  hooks: ReadonlyArray<Hook>,
+): ReadonlyArray<Hook> => hooks.filter((hook) => !runs(settings, hook));
+
+/**
+ * `settings` with each missing hook appended under its event, and everything else, the repo's
+ * own hooks included, kept: for a repo whose settings.json monkeyshape doesn't own whole.
+ */
+export const addHooks = (
+  settings: Readonly<Record<string, unknown>>,
+  hooks: ReadonlyArray<Hook>,
+): string => {
+  const { hooks: existing } = settings;
+  const current =
+    typeof existing === "object" && existing !== null && !Array.isArray(existing)
+      ? (existing as Record<string, unknown>)
+      : {};
+  const added: Record<string, unknown> = { ...current };
+  for (const [event, entries] of Object.entries(settingsHooks(missingHooks(settings, hooks))))
+    added[event] = [...hookEntries(settings, event), ...entries];
+  return `${JSON.stringify({ ...settings, hooks: added }, null, 2)}\n`;
+};

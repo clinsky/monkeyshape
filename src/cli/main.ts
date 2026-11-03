@@ -12,6 +12,7 @@ import { mailInbox, mailRead, mailSend } from "../adapters/mail.ts";
 import { claudeCodeNotifier, notifyRecipient, register } from "../adapters/notices.ts";
 import { reviewNew, reviewRm } from "../adapters/reviews.ts";
 import { installSkills } from "../adapters/skills.ts";
+import { syncRepo } from "../adapters/sync.ts";
 import { trackCurrent, trackList, trackNew, trackRm } from "../adapters/tracks.ts";
 import { loadSnapshot } from "../adapters/workspace.ts";
 import { CHECKS, notices, prerequisites, runChecks, unevaluated } from "../core/check.ts";
@@ -25,6 +26,7 @@ import { formatCheck, formatGarden, formatViolation } from "../core/report.ts";
 import { RULES } from "../core/rules/registry.ts";
 import { nextStep, REPO_NAME } from "../core/scaffold.ts";
 import { formatCollisions, formatSync } from "../core/skills.ts";
+import { formatSyncPlan } from "../core/sync.ts";
 import type { ConfigError, TrackError, WorkspaceError } from "../schemas/errors.ts";
 
 /** What a command returns: the text to print, and the exit code (0 prints to stdout). */
@@ -274,19 +276,26 @@ const review = (root: string, args: ReadonlyArray<string>) =>
     return usage();
   });
 
-const skills = (root: string, args: ReadonlyArray<string>) =>
+const sync = (root: string, args: ReadonlyArray<string>) =>
   Effect.gen(function* () {
-    if (args[0] !== "sync") return usage();
-    const { sync, linked } = yield* installSkills(`${PACKAGE_ROOT}/skills`, root);
+    if (args.length > 0) return usage();
+    const { sync: skillSync, linked } = yield* installSkills(`${PACKAGE_ROOT}/skills`, root);
+    const plan = yield* syncRepo(root, PACKAGE_ROOT);
+    const files = formatSyncPlan(plan);
     return {
       output: [
-        formatSync(sync),
+        formatSync(skillSync),
         ...(linked ? [`${CLAUDE_SKILLS_LINK}: linked`] : []),
-        ...formatCollisions(sync),
+        ...(files.length === 0 ? ["PRIME.md, PR template, hooks: up to date"] : files),
+        ...formatCollisions(skillSync),
       ].join("\n"),
-      code: sync.collisions.length > 0 ? 1 : 0,
+      code: skillSync.collisions.length > 0 ? 1 : 0,
     };
   });
+
+/** `mshape skills sync`, from before sync covered more than skills: the same command. */
+const skills = (root: string, args: ReadonlyArray<string>) =>
+  args.length === 1 && args[0] === "sync" ? sync(root, []) : Effect.succeed(usage());
 
 /** What `check`, `baseline` and `garden` all read: the config, the snapshot, the baseline. */
 const load = (root: string, args: ReadonlyArray<string>) =>
@@ -301,7 +310,7 @@ const load = (root: string, args: ReadonlyArray<string>) =>
           ? configPath
           : `${root}/${configPath}`,
     );
-    const snapshot = yield* loadSnapshot(root, config, `${PACKAGE_ROOT}/skills`);
+    const snapshot = yield* loadSnapshot(root, config, PACKAGE_ROOT);
     const baseline = yield* readBaseline(root);
     return { config, snapshot, baseline };
   });
@@ -376,15 +385,22 @@ export const COMMANDS: ReadonlyArray<Command> = [
     run: init,
   },
   {
+    name: "sync",
+    usage: `  mshape sync
+      After a bump, bring what the installed package ships up to date: the shared skills in
+      .agents/skills, .beads/PRIME.md, the PR template, and monkeyshape's hooks in
+      .claude/settings.json. Skills and hooks the package doesn't ship are left alone.`,
+    run: sync,
+  },
+  {
     name: "skills",
     usage: `  mshape skills sync
-      Refresh the shared skills in .agents/skills from the installed package, after a bump.
-      Skills the package doesn't ship are the repo's own and are left alone.`,
+      The same as mshape sync.`,
     run: skills,
   },
   {
     name: "check",
-    usage: `  mshape check [--only arch,refs,budgets,coverage,rules,skills]
+    usage: `  mshape check [--only arch,refs,budgets,coverage,rules,skills,sync]
       Run the checks; violations above .shape/baseline.json fail.`,
     run: check,
   },
