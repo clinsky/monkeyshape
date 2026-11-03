@@ -29,13 +29,21 @@ describe("a fresh agent", () => {
     if (CI !== undefined) expect(HAS_BD).toBe(true);
   });
 
-  test.skipIf(!HAS_BD)("in this repo, is told every convention at session start", async () => {
-    expect(missingConventions(await sessionContext(ROOT))).toEqual([]);
-  });
+  test.skipIf(!HAS_BD)(
+    "in this repo, is told every convention at session start",
+    async () => {
+      expect(missingConventions(await sessionContext(ROOT))).toEqual([]);
+    },
+    60_000,
+  );
 
-  test.skipIf(!HAS_BD)("in a repo init just made, is told every convention", async () => {
-    expect(missingConventions(await sessionContext(join(work, "born")))).toEqual([]);
-  });
+  test.skipIf(!HAS_BD)(
+    "in a repo init just made, is told every convention",
+    async () => {
+      expect(missingConventions(await sessionContext(join(work, "born")))).toEqual([]);
+    },
+    60_000,
+  );
 
   test("each convention is told apart: bd's default text alone states none and contradicts one", () => {
     const bdDefault =

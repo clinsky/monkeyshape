@@ -38,8 +38,11 @@ never by hand.
 - Batch beads of one theme into a PR of about 1000 to 2500 changed lines. That is a default
   for batching, not a gate: a smaller PR is fine when it unblocks work.
 - `bun run check` is the gate, the same locally and in CI: green before every PR.
-- The body has the sections of `.github/pull_request_template.md`. Write it to a file and
-  open the PR with `gh pr create --body-file <file>`, which skips GitHub's template.
+- The body has the sections of `.github/pull_request_template.md`, each bead a list item
+  starting with its id. Write it to a file. In a track, open and refresh the PR with
+  `bun run --silent mshape track pr --title "<title>" --body-file <file>` (after the first
+  time, `track pr` alone): it runs the gate fresh, pushes, and fills the Gate section.
+  Outside a track, `gh pr create --body-file <file>`, which skips GitHub's template.
 - Review runs in its own chat with `/review-pr <n>`. Answer every finding on the PR; before
   replying "fixed", rerun the reviewer's probes and try to break the fix with valid input.
 

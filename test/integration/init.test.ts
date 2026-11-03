@@ -188,36 +188,57 @@ describe("mshape init", () => {
     "a fresh clone has no beads database: check passes with a note whose fix works there",
     async () => {
       const origin = join(work, "demo");
-      // A bead in the origin, which a clone can't see: a born repo pushes no beads data.
+      // A bead in the origin, which a clone can't see until the beads are pushed.
       const made = await run(origin, ["bd", "create", "--title", "seen only here", "--json"]);
       expect(made.code).toBe(0);
-      const clone = join(work, "demo-clone");
-      await run(work, ["git", "clone", "--quiet", origin, clone]);
-      // Share the install, as agents do; node_modules is ignored even as a link.
-      await symlink(join(origin, "node_modules"), join(clone, "node_modules"));
-      const mshape = [process.execPath, join(clone, "node_modules", ".bin", "mshape")];
-      const check = () => run(clone, [...mshape, "check", "--only", "budgets"]);
+      const remote = join(work, "remote.git");
+      await run(work, ["git", "init", "--quiet", "--bare", "--initial-branch=main", remote]);
+      await run(origin, ["git", "remote", "add", "origin", remote]);
+      await run(origin, ["git", "push", "--quiet", "origin", "main"]);
 
-      const noRemote = await check();
-      expect(noRemote.code).toBe(0);
-      expect(noRemote.output).not.toContain("prerequisites/beads-failed");
-      expect(noRemote.output).toContain("no `sync.remote`");
-      expect(noRemote.output).toContain("Don't run `bd bootstrap` here");
+      /** A clone of `remote` sharing the origin's install, as agents do. */
+      const cloneOf = async (name: string) => {
+        const clone = join(work, name);
+        await run(work, ["git", "clone", "--quiet", remote, clone]);
+        await symlink(join(origin, "node_modules"), join(clone, "node_modules"));
+        return clone;
+      };
+      const note = async (clone: string) => {
+        const mshape = [process.execPath, join(clone, "node_modules", ".bin", "mshape")];
+        const checked = await run(clone, [...mshape, "check", "--only", "budgets"]);
+        expect(checked.code).toBe(0);
+        expect(checked.output).not.toContain("prerequisites/beads-failed");
+        return checked.output;
+      };
+      const pushed = (clone: string) =>
+        run(clone, ["git", "ls-remote", "origin", "refs/dolt/data"]).then((r) => r.output.trim());
+      const sees = (clone: string) =>
+        run(clone, ["bd", "list"]).then((r) => r.output.includes("seen only here"));
+      const ifPushed = "If `git ls-remote origin refs/dolt/data` prints a line";
 
-      // The note's claim, followed through: bootstrap here makes an empty database.
-      const scratch = join(work, "demo-bootstrapped");
-      await run(work, ["git", "clone", "--quiet", origin, scratch]);
-      expect((await run(scratch, ["bd", "bootstrap", "--yes"])).code).toBe(0);
-      expect((await run(origin, ["bd", "list"])).output).toContain("seen only here");
-      expect((await run(scratch, ["bd", "list"])).output).not.toContain("seen only here");
+      // Nothing pushed: the note's test says don't bootstrap, and bootstrap would hide the bead.
+      const before = await cloneOf("clone-before");
+      expect(await note(before)).toContain(ifPushed);
+      expect(await pushed(before)).toBe("");
+      expect((await run(before, ["bd", "bootstrap", "--yes"])).code).toBe(0);
+      expect(await sees(before)).toBe(false);
 
-      // Where beads were pushed, bootstrap is the fix, and the note says where from.
-      await run(clone, ["bd", "config", "set", "sync.remote", "git+https://example.com/demo.git"]);
-      const withRemote = await check();
-      expect(withRemote.output).toContain(
-        "run `bd bootstrap`, which fetches the beads from git+https://example.com/demo.git",
+      // Pushed as the note says: the same note, its test now says bootstrap, and that works.
+      expect((await run(origin, ["bd", "dolt", "push", "--yes"])).code).toBe(0);
+      const after = await cloneOf("clone-after");
+      expect(await note(after)).toContain(ifPushed);
+      expect(await pushed(after)).not.toBe("");
+      expect((await run(after, ["bd", "bootstrap", "--yes"])).code).toBe(0);
+      expect(await sees(after)).toBe(true);
+
+      // With sync.remote committed, the note names bootstrap and the remote outright.
+      const configured = await cloneOf("clone-configured");
+      await run(configured, ["bd", "config", "set", "sync.remote", `git+file://${remote}`]);
+      expect(await note(configured)).toContain(
+        `run \`bd bootstrap\`, which fetches the beads from git+file://${remote}`,
       );
     },
+    120_000,
   );
 
   test.skipIf(!HAS_BD)(

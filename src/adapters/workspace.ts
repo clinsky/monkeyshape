@@ -60,21 +60,23 @@ const jsonRows = (stdout: string): ReadonlyArray<unknown> | undefined => {
   return Array.isArray(rows) ? rows : undefined;
 };
 
-/** Whether bd can be asked: absent without `.beads/config.yaml`, unavailable without bd. */
 /**
  * Why a clone without a beads database can't read its beads, and the fix that works here.
- * `bd bootstrap` recovers beads only from somewhere they were pushed: `sync.remote` (committed
- * in `.beads/config.yaml`, so a clone can tell). Without one it creates an empty database, the
- * beads stay on the machine that made them, and nothing would say so any more.
+ * `bd bootstrap` recovers beads only from where they were pushed: `sync.remote`, committed in
+ * `.beads/config.yaml` so a clone can read it, or `refs/dolt/data` on git origin, which
+ * `bd dolt push` writes without committing anything, so only the remote can say. Checks stay
+ * offline, so the message holds that test; without either source bootstrap makes an empty
+ * database that hides the beads.
  */
 const noDatabase = (root: string) =>
   Effect.map(runTool(root, ["bd", "config", "get", "sync.remote"]), (got) => {
     const remote = got.code === 0 ? (got.stdout.trim().split("\n").at(-1)?.trim() ?? "") : "";
     return remote !== "" && !remote.includes("not set")
       ? `this clone has no beads database yet; run \`bd bootstrap\`, which fetches the beads from ${remote}`
-      : "this clone has no beads database, and no `sync.remote` to fetch one from, so its beads are only on the machine that made them. Don't run `bd bootstrap` here: it would create an empty database and hide them. Push them first from a clone that has them (see `bd dolt push --help`), or work from that clone";
+      : "this clone has no beads database yet. If `git ls-remote origin refs/dolt/data` prints a line, the beads were pushed: run `bd bootstrap` to fetch them. If it prints nothing, they are only on the machine that made them: don't run `bd bootstrap`, which would create an empty database and hide them; push them from a clone that has them with `bd dolt push --yes`, or work from that clone";
   });
 
+/** Whether bd can be asked: absent without `.beads/config.yaml`, unavailable without bd. */
 const beadsUnreachable = (root: string) =>
   Effect.gen(function* () {
     if (!(yield* exists(root, ".beads/config.yaml")))
