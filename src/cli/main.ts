@@ -99,16 +99,21 @@ const init = (root: string, args: ReadonlyArray<string>) =>
         output: `mshape init: give the new repo's name in lowercase words joined by hyphens, e.g. \`mshape init my-app\` (got ${positional.length === 0 ? "nothing" : positional.map((arg) => `'${arg}'`).join(" ")})`,
         code: 2,
       };
-    // A tarball, as a bare path or a file: spec, is vendored: an absolute path in package.json
-    // would resolve only on this machine. Other specs (a registry version, github:) are kept.
+    // A file, as a bare path or a file: spec, is the package tarball: vendored, since an
+    // absolute path in package.json would resolve only on this machine. Another bare path (a
+    // directory) is resolved from here, as bun would resolve it from the new repo; any other
+    // spec (a registry version, github:) is passed on as given.
     const path = from?.startsWith("file:") ? from.slice("file:".length) : from;
+    const local =
+      path === undefined || (path.includes(":") && !from?.startsWith("file:"))
+        ? undefined
+        : resolve(root, path);
     const tarball =
-      path !== undefined &&
-      (!path.includes(":") || from?.startsWith("file:")) &&
-      path.endsWith(".tgz")
-        ? resolve(root, path)
+      local !== undefined && (yield* Effect.promise(() => Bun.file(local).exists()))
+        ? local
         : undefined;
-    const spec = tarball === undefined ? from : vendoredSpec(tarball);
+    const spec =
+      tarball !== undefined ? vendoredSpec(tarball) : local !== undefined ? `file:${local}` : from;
     const dev = pkg.devDependencies;
     const result = yield* initRepo(
       `${root}/${name}`,

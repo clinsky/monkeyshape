@@ -62,6 +62,15 @@ describe("mshape init", () => {
     expect(created.output).toContain(`note: monkeyshape is installed from vendor/${name}`);
   });
 
+  test("--from vendors any file it names, whatever its extension", async () => {
+    const renamed = tarball.replace(/\.tgz$/, ".tar.gz");
+    await Bun.write(renamed, Bun.file(tarball));
+    const made = await fromSource(["named", "--from", renamed]);
+    expect(unexpectedNotes(made.output)).toEqual([]);
+    const pkg = await Bun.file(join(work, "named", "package.json")).json();
+    expect(pkg.devDependencies.monkeyshape).toBe(`file:./vendor/${renamed.split("/").at(-1)}`);
+  }, 120_000);
+
   test("node_modules is ignored even as a symlink, the way agents share an install", async () => {
     const repo = join(work, "demo");
     // The born repo's .gitignore, and this repo's own.
@@ -176,17 +185,38 @@ describe("mshape init", () => {
   );
 
   test.skipIf(!HAS_BD)(
-    "a fresh clone has no beads database: check notes how to set it up, and doesn't fail",
+    "a fresh clone has no beads database: check passes with a note whose fix works there",
     async () => {
+      const origin = join(work, "demo");
+      // A bead in the origin, which a clone can't see: a born repo pushes no beads data.
+      const made = await run(origin, ["bd", "create", "--title", "seen only here", "--json"]);
+      expect(made.code).toBe(0);
       const clone = join(work, "demo-clone");
-      await run(work, ["git", "clone", "--quiet", join(work, "demo"), clone]);
+      await run(work, ["git", "clone", "--quiet", origin, clone]);
       // Share the install, as agents do; node_modules is ignored even as a link.
-      await symlink(join(work, "demo", "node_modules"), join(clone, "node_modules"));
+      await symlink(join(origin, "node_modules"), join(clone, "node_modules"));
       const mshape = [process.execPath, join(clone, "node_modules", ".bin", "mshape")];
-      const checked = await run(clone, [...mshape, "check", "--only", "budgets"]);
-      expect(checked.output).not.toContain("prerequisites/beads-failed");
-      expect(checked.output).toContain("bd bootstrap");
-      expect(checked.code).toBe(0);
+      const check = () => run(clone, [...mshape, "check", "--only", "budgets"]);
+
+      const noRemote = await check();
+      expect(noRemote.code).toBe(0);
+      expect(noRemote.output).not.toContain("prerequisites/beads-failed");
+      expect(noRemote.output).toContain("no `sync.remote`");
+      expect(noRemote.output).toContain("Don't run `bd bootstrap` here");
+
+      // The note's claim, followed through: bootstrap here makes an empty database.
+      const scratch = join(work, "demo-bootstrapped");
+      await run(work, ["git", "clone", "--quiet", origin, scratch]);
+      expect((await run(scratch, ["bd", "bootstrap", "--yes"])).code).toBe(0);
+      expect((await run(origin, ["bd", "list"])).output).toContain("seen only here");
+      expect((await run(scratch, ["bd", "list"])).output).not.toContain("seen only here");
+
+      // Where beads were pushed, bootstrap is the fix, and the note says where from.
+      await run(clone, ["bd", "config", "set", "sync.remote", "git+https://example.com/demo.git"]);
+      const withRemote = await check();
+      expect(withRemote.output).toContain(
+        "run `bd bootstrap`, which fetches the beads from git+https://example.com/demo.git",
+      );
     },
   );
 

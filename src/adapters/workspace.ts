@@ -61,6 +61,20 @@ const jsonRows = (stdout: string): ReadonlyArray<unknown> | undefined => {
 };
 
 /** Whether bd can be asked: absent without `.beads/config.yaml`, unavailable without bd. */
+/**
+ * Why a clone without a beads database can't read its beads, and the fix that works here.
+ * `bd bootstrap` recovers beads only from somewhere they were pushed: `sync.remote` (committed
+ * in `.beads/config.yaml`, so a clone can tell). Without one it creates an empty database, the
+ * beads stay on the machine that made them, and nothing would say so any more.
+ */
+const noDatabase = (root: string) =>
+  Effect.map(runTool(root, ["bd", "config", "get", "sync.remote"]), (got) => {
+    const remote = got.code === 0 ? (got.stdout.trim().split("\n").at(-1)?.trim() ?? "") : "";
+    return remote !== "" && !remote.includes("not set")
+      ? `this clone has no beads database yet; run \`bd bootstrap\`, which fetches the beads from ${remote}`
+      : "this clone has no beads database, and no `sync.remote` to fetch one from, so its beads are only on the machine that made them. Don't run `bd bootstrap` here: it would create an empty database and hide them. Push them first from a clone that has them (see `bd dolt push --help`), or work from that clone";
+  });
+
 const beadsUnreachable = (root: string) =>
   Effect.gen(function* () {
     if (!(yield* exists(root, ".beads/config.yaml")))
@@ -77,11 +91,7 @@ const beadsUnreachable = (root: string) =>
       "path" in located &&
       !("database_path" in located)
     )
-      return {
-        state: "unavailable",
-        reason:
-          "this clone has no beads database yet; run `bd bootstrap` to set it up (it never deletes issues)",
-      } satisfies Integration;
+      return { state: "unavailable", reason: yield* noDatabase(root) } satisfies Integration;
     return undefined;
   });
 
