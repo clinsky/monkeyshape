@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import type { Integration } from "../../src/core/model.ts";
 import {
+  describeStep,
   openBeadsByTrack,
   parseWorktrees,
   planRm,
@@ -58,12 +59,87 @@ describe("what track rm may do", () => {
     handoffPath: "/r/.git/monkeyshape/handoffs/docs.md",
     handoffExists: true,
     beads: { integration: { state: "ok" }, setting: "optional", open: [] },
+    mailbox: { path: "/r/.git/monkeyshape/mail/docs", exists: false, unread: [], read: 0 },
     force: false,
     keepHandoff: false,
   };
 
   test("worktree, then branch, then handoff", () => {
     expect(planRm(facts).steps.map((step) => step.kind)).toEqual(["worktree", "branch", "handoff"]);
+  });
+
+  describe("the mailbox", () => {
+    const unread = [
+      { id: "20261103-134704-e7e3", about: "from review: the format" },
+      { id: "20261103-134704-dfff", about: "unreadable: not JSON" },
+    ];
+    const withMail = (mailbox: Partial<RmFacts["mailbox"]>, more: Partial<RmFacts> = {}) =>
+      planRm({ ...facts, ...more, mailbox: { ...facts.mailbox, exists: true, ...mailbox } });
+
+    test("read mail goes last, with the handoff, and says what it held", () => {
+      const plan = withMail({ read: 3 });
+      expect(plan.refusals).toEqual([]);
+      expect(plan.steps.map(describeStep).at(-1)).toBe(
+        "mailbox /r/.git/monkeyshape/mail/docs (0 unread, 3 read)",
+      );
+    });
+
+    test("unread mail refuses, listing each; --force deletes it, saying so", () => {
+      const refused = withMail({ unread });
+      expect(refused.steps).toEqual([]);
+      expect(refused.refusals).toEqual([
+        [
+          "2 message(s) to `docs` are unread, and removing the track would delete them:",
+          "  20261103-134704-e7e3 from review: the format",
+          "  20261103-134704-dfff unreadable: not JSON",
+          "read each from the track's worktree (`bun run --silent mshape msg read <id>`), or pass --force to delete them",
+        ].join("\n    "),
+      ]);
+      const forced = withMail({ unread, read: 1 }, { force: true });
+      expect(forced.refusals).toEqual([]);
+      expect(forced.warnings).toEqual([
+        [
+          "deleting 2 unread message(s):",
+          "20261103-134704-e7e3 from review: the format",
+          "20261103-134704-dfff unreadable: not JSON",
+        ].join("\n    "),
+      ]);
+      expect(forced.steps.at(-1)).toEqual({
+        kind: "mailbox",
+        path: "/r/.git/monkeyshape/mail/docs",
+        unread: 2,
+        read: 1,
+      });
+    });
+
+    test("--keep-handoff keeps the mailbox too, unread or not, and doesn't refuse", () => {
+      const plan = withMail({ unread }, { keepHandoff: true });
+      expect(plan.refusals).toEqual([]);
+      expect(plan.steps.map((step) => step.kind)).toEqual(["worktree", "branch"]);
+      expect(plan.kept).toEqual([
+        "handoff /r/.git/monkeyshape/handoffs/docs.md (--keep-handoff)",
+        "mailbox /r/.git/monkeyshape/mail/docs (--keep-handoff)",
+      ]);
+    });
+
+    test("with no worktree to read it from, unread mail's refusal says where it is instead", () => {
+      const plan = withMail(
+        { unread: unread.slice(0, 1) },
+        { worktree: undefined, pathExists: false, branchExists: false, handoffExists: false },
+      );
+      expect(plan.refusals[0]).toEndWith(
+        "the track has no worktree to read them from (`msg read` runs only in one): each is a JSON file in /r/.git/monkeyshape/mail/docs, so look at them there, then pass --force to delete them",
+      );
+    });
+
+    test("a mailbox left alone is still a track to remove", () => {
+      const plan = withMail(
+        { read: 1 },
+        { worktree: undefined, pathExists: false, branchExists: false, handoffExists: false },
+      );
+      expect(plan.refusals).toEqual([]);
+      expect(plan.steps.map((step) => step.kind)).toEqual(["mailbox"]);
+    });
   });
 
   test("any refusal means no steps, even alongside what --force would allow", () => {

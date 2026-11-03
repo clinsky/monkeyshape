@@ -39,6 +39,7 @@ describe("the shipped skills", () => {
         [PRIME_FILE]: readFileSync(join(import.meta.dir, "../../template", PRIME_FILE), "utf8"),
         ...files,
       },
+      // The scripts skills run in a born repo: the gate, and mshape itself (D-run-mshape).
       { scripts: ["check", "mshape"] },
     );
     const checked = config({ refs: { docs: [...DEFAULT_DOCS, "docs/workflow.md"] } });

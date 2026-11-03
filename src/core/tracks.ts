@@ -137,6 +137,17 @@ export interface BeadsCheck {
   readonly open: ReadonlyArray<OpenBead>;
 }
 
+/**
+ * The track's mailbox (`mshape msg`): each unread message, by id and a line saying what it is
+ * (its sender and subject, or why its file can't be read), and how many were read.
+ */
+export interface MailboxFacts {
+  readonly path: string;
+  readonly exists: boolean;
+  readonly unread: ReadonlyArray<{ readonly id: string; readonly about: string }>;
+  readonly read: number;
+}
+
 /** What `track rm` found, before touching anything. */
 export interface RmFacts {
   readonly track: string;
@@ -162,6 +173,7 @@ export interface RmFacts {
   readonly handoffExists: boolean;
   /** Beads labelled `track:<track>` that aren't closed: removing the track would orphan them. */
   readonly beads: BeadsCheck;
+  readonly mailbox: MailboxFacts;
   readonly force: boolean;
   readonly keepHandoff: boolean;
 }
@@ -169,14 +181,20 @@ export interface RmFacts {
 export type RmStep =
   | { readonly kind: "worktree"; readonly path: string; readonly force: boolean }
   | { readonly kind: "branch"; readonly name: string }
-  | { readonly kind: "handoff"; readonly path: string };
+  | { readonly kind: "handoff"; readonly path: string }
+  | {
+      readonly kind: "mailbox";
+      readonly path: string;
+      readonly unread: number;
+      readonly read: number;
+    };
 
 export interface RmPlan {
   /** Any refusal means nothing is touched. */
   readonly refusals: ReadonlyArray<string>;
   /** Said before the steps run: what `--force` is about to discard. */
   readonly warnings: ReadonlyArray<string>;
-  /** In order: worktree, branch, handoff. `git worktree prune` follows them. */
+  /** In order: worktree, branch, handoff, mailbox. `git worktree prune` follows them. */
   readonly steps: ReadonlyArray<RmStep>;
   /** What stays, and why, when nothing is wrong with keeping it. */
   readonly kept: ReadonlyArray<string>;
@@ -189,12 +207,16 @@ export const describeStep = (step: RmStep): string =>
     ? `worktree ${step.path}`
     : step.kind === "branch"
       ? `branch \`${step.name}\``
-      : `handoff ${step.path}`;
+      : step.kind === "handoff"
+        ? `handoff ${step.path}`
+        : `mailbox ${step.path} (${step.unread} unread, ${step.read} read)`;
 
 /**
- * Only the track's own worktree, branch and handoff are ever candidates, so the main
+ * Only the track's own worktree, branch, handoff and mailbox are ever candidates, so the main
  * checkout, other tracks and the handoff store are out of reach by construction. `--force`
- * overrides exactly two refusals: uncommitted changes and unmerged commits, both as listed.
+ * overrides exactly three refusals: uncommitted changes, unmerged commits and unread mail, each
+ * as listed. The mailbox goes with the handoff, so a later track of the same name starts with
+ * neither; `--keep-handoff` keeps both, for a track that continues.
  * Changes that can't be read are not changes the user agreed to discard. Open beads are never
  * overridden: closing or moving each one is a single command, and removing the track would
  * leave them with no one to do them.
@@ -221,7 +243,8 @@ export const planRm = (facts: RmFacts): RmPlan => {
     facts.worktree === undefined &&
     !facts.pathExists &&
     !facts.branchExists &&
-    !facts.handoffExists
+    !facts.handoffExists &&
+    !facts.mailbox.exists
   )
     return {
       refusals: [
@@ -291,12 +314,41 @@ export const planRm = (facts: RmFacts): RmPlan => {
       );
   }
 
+  const { mailbox } = facts;
+  if (mailbox.exists && !facts.keepHandoff && mailbox.unread.length > 0) {
+    const listed = mailbox.unread.map((message) => `${message.id} ${message.about}`);
+    if (facts.force)
+      warnings.push(
+        [`deleting ${mailbox.unread.length} unread message(s):`, ...listed].join("\n    "),
+      );
+    else
+      refusals.push(
+        [
+          `${mailbox.unread.length} message(s) to \`${facts.track}\` are unread, and removing the track would delete them:`,
+          ...listed.map((line) => `  ${line}`),
+          facts.worktree === undefined
+            ? `the track has no worktree to read them from (\`msg read\` runs only in one): each is a JSON file in ${mailbox.path}, so look at them there, then pass --force to delete them`
+            : `read each from the track's worktree (\`bun run --silent mshape msg read <id>\`), or pass --force to delete them`,
+        ].join("\n    "),
+      );
+  }
+
   if (facts.worktree !== undefined)
     steps.push({ kind: "worktree", path: facts.worktreePath, force: facts.force });
   if (facts.branchExists) steps.push({ kind: "branch", name: branch });
   if (facts.handoffExists) {
     if (facts.keepHandoff) kept.push(`handoff ${facts.handoffPath} (--keep-handoff)`);
     else steps.push({ kind: "handoff", path: facts.handoffPath });
+  }
+  if (mailbox.exists) {
+    if (facts.keepHandoff) kept.push(`mailbox ${mailbox.path} (--keep-handoff)`);
+    else
+      steps.push({
+        kind: "mailbox",
+        path: mailbox.path,
+        unread: mailbox.unread.length,
+        read: mailbox.read,
+      });
   }
   return refusals.length > 0
     ? { refusals, warnings: [], steps: [], kept: [], notes }

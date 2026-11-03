@@ -3,36 +3,34 @@
  * kept by the `track` and `handoff` skills. The shape, which `parseHandoff` enforces:
  *
  *   # Track: <name>
- *   Status: stub | active
  *   Queue: bd ready --label track:<name>
  *
  *   ## Charter                     what the track is for; empty in a stub
  *   ## State (<YYYY-MM-DD>)        where the work stands; overwritten, not appended
  *   ## Lessons not yet promoted    learned here, not yet moved into a check, a doc or a decision
  *   ## Traps                       what will bite the next session
- *   ## Messages                    to and from other tracks
  *
- * A stub has no charter: the next `/track` session interviews the human for one, writes it,
- * and sets `Status: active`. Sections are in this order, each exactly once; their bodies are
- * free Markdown, with `###` for headings inside a section (`## ` in a fenced block is fine).
+ * A stub is a handoff with an empty charter: the next `/track` session interviews the human
+ * for one and writes it. Nothing else records status, since done is derived from git, PRs and
+ * beads. A charter opens with `Serves: ..., because ...`, then `Out of scope:` and
+ * `Done means:`, each free to wrap onto the lines after it; anything below them is free.
+ * Sections are in this order, each exactly once; their bodies are free Markdown, with `###`
+ * for headings inside a section (`## ` in a fenced block is fine). Messages between tracks go
+ * through `mshape msg`, not the handoff; `migrateHandoff` upgrades the older format.
  */
 import { MAIN_BRANCH, TRACK_NAME, trackBranch, trackLabel } from "./layout.ts";
 import { fencedLines } from "./markdown.ts";
 
-export type HandoffStatus = "stub" | "active";
-
-export const HANDOFF_SECTIONS = [
-  "Charter",
-  "State",
-  "Lessons not yet promoted",
-  "Traps",
-  "Messages",
-] as const;
+export const HANDOFF_SECTIONS = ["Charter", "State", "Lessons not yet promoted", "Traps"] as const;
 export type HandoffSection = (typeof HANDOFF_SECTIONS)[number];
+
+/** The lines a charter opens with, in this order. */
+export const CHARTER_LINES = ["Serves:", "Out of scope:", "Done means:"] as const;
 
 export interface Handoff {
   readonly track: string;
-  readonly status: HandoffStatus;
+  /** No charter yet: nobody has said what the track is for. */
+  readonly stub: boolean;
   readonly queue: string;
   /** The date in the State heading. */
   readonly stateDate: string;
@@ -69,14 +67,13 @@ export const stubHandoff = (
 ): { readonly text: string } | Problems => {
   const bodies: Record<HandoffSection, string> = {
     Charter: "",
-    State: `No charter yet: the next \`/track\` session interviews the human for one, writes it above and
-sets \`Status: active\`. Worktree \`${worktree}\` on \`${trackBranch(track)}\`, branched from \`${MAIN_BRANCH}\`.`,
+    State: `No charter yet: the next \`/track\` session interviews the human for one and writes it above,
+opening with ${CHARTER_LINES.map((line) => `\`${line}\``).join(", ")}. Worktree \`${worktree}\` on \`${trackBranch(track)}\`, branched from \`${MAIN_BRANCH}\`.`,
     "Lessons not yet promoted": "None yet.",
     Traps: "None yet.",
-    Messages: "None yet.",
   };
   const text = [
-    `# Track: ${track}\nStatus: stub\nQueue: ${handoffQueue(track)}`,
+    `# Track: ${track}\nQueue: ${handoffQueue(track)}`,
     ...HANDOFF_SECTIONS.map((section) =>
       bodies[section] === ""
         ? heading(section, date)
@@ -94,6 +91,100 @@ const headingsOf = (lines: ReadonlyArray<string>) => {
     !fenced[index] && line.startsWith("## ") ? [{ name: line.slice(3).trim(), line: index }] : [],
   );
   return { headings, unclosedFence: unclosed };
+};
+
+/**
+ * A charter is empty (a stub) or opens with `CHARTER_LINES` in order, each with a value, and
+ * `Serves:` says why with `because`. A label starts a line; its value may wrap onto the next.
+ */
+const charterProblems = (charter: string): ReadonlyArray<string> => {
+  if (charter === "") return [];
+  const lines = charter.split("\n");
+  const opening = CHARTER_LINES.map((label) => `\`${label} ...\``).join(", ");
+  if (!lines[0]?.startsWith("Serves:"))
+    return [
+      `a charter opens with ${opening}, in that order; its first line is \`${lines[0]}\`: start it with \`Serves: <goal steps>, because <why this track, now>\``,
+    ];
+  const starts = CHARTER_LINES.map((label) => lines.findIndex((line) => line.startsWith(label)));
+  const missing = CHARTER_LINES.filter((_, index) => (starts[index] ?? -1) < 0);
+  if (missing.length > 0)
+    return [
+      `a charter opens with ${opening}; add ${missing.map((label) => `\`${label}\``).join(" and ")} after \`Serves:\``,
+    ];
+  if (starts.some((start, index) => index > 0 && start <= (starts[index - 1] ?? 0)))
+    return [`a charter opens with ${opening}, in that order: reorder them`];
+  const problems: Array<string> = [];
+  CHARTER_LINES.forEach((label, index) => {
+    const from = starts[index] ?? 0;
+    // A value runs to the next label, or for the last one to the first blank line.
+    const to = starts[index + 1] ?? lines.findIndex((line, at) => at > from && line.trim() === "");
+    const value = lines
+      .slice(from, to < 0 ? lines.length : to)
+      .join(" ")
+      .slice(label.length)
+      .trim();
+    if (value === "") problems.push(`the charter's \`${label}\` line is empty: say it`);
+    else if (label === "Serves:" && !/\bbecause\b/.test(value))
+      problems.push(
+        "the charter's `Serves:` line says which goal steps and why, as `Serves: <goal steps>, because <why this track, now>`",
+      );
+  });
+  return problems;
+};
+
+/**
+ * A carried-over Messages body that says nothing: empty, or one paragraph opening with `None`
+ * (`None yet.`, `None open. ...`). Anything more, such as a message added under `None yet.`,
+ * is carried: an extra message costs less than one lost by a migration that runs once.
+ */
+const saysNothing = (body: string): boolean =>
+  body === "" ||
+  (/^none\b/i.test(body) &&
+    body.split("\n").every((line) => line.trim() !== "" && !/^\s*([-*+]|\d+[.)]|#|>)/.test(line)));
+
+/**
+ * The older format, upgraded: the `Status:` line dropped, and the `## Messages` section
+ * removed, its body returned as `carried` unless it said nothing, so the caller can mail it to
+ * the track before writing `text`. Undefined when the text has neither, so a handoff is
+ * migrated once. The result is not checked here: `parseHandoff` says what is still wrong.
+ */
+export const migrateHandoff = (
+  text: string,
+):
+  | { readonly text: string; readonly changes: ReadonlyArray<string>; readonly carried?: string }
+  | undefined => {
+  const lines = text.replace(/\r\n/g, "\n").split("\n");
+  const { headings } = headingsOf(lines);
+  const firstHeading = headings[0]?.line ?? lines.length;
+  const status = lines.findIndex(
+    (line, index) => index < firstHeading && /^Status:/.test(line.trim()),
+  );
+  const messages = headings.findIndex(({ name }) => name === "Messages");
+  if (status < 0 && messages < 0) return undefined;
+  const changes: Array<string> = [];
+  let carried: string | undefined;
+  let kept = lines;
+  if (messages >= 0) {
+    const from = headings[messages]?.line ?? 0;
+    const to = headings[messages + 1]?.line ?? lines.length;
+    const body = lines
+      .slice(from + 1, to)
+      .join("\n")
+      .trim();
+    if (!saysNothing(body)) carried = body;
+    changes.push(
+      carried === undefined
+        ? "removed `## Messages`, which held nothing"
+        : "moved `## Messages` into the track's mailbox",
+    );
+    kept = [...lines.slice(0, from), ...lines.slice(to)];
+  }
+  if (status >= 0) {
+    changes.push(`removed \`${lines[status]?.trim()}\``);
+    kept = kept.filter((_, index) => index !== status);
+  }
+  const migrated = `${kept.join("\n").trimEnd()}\n`;
+  return carried === undefined ? { text: migrated, changes } : { text: migrated, changes, carried };
 };
 
 /** The handoff, or every way the text departs from the format. */
@@ -125,18 +216,19 @@ export const parseHandoff = (text: string): Handoff | Problems => {
     if (found.length > 1) problems.push(`\`${name}:\` appears ${found.length} times; keep one`);
     return found[0]?.slice(name.length + 1).trim();
   };
-  const status = field("Status");
-  if (status !== "stub" && status !== "active")
-    problems.push(`\`Status:\` must be \`stub\` or \`active\`, found \`${status ?? "(missing)"}\``);
   const queue = field("Queue");
   if (title !== null && queue !== handoffQueue(track))
     problems.push(
       `the queue must be \`Queue: ${handoffQueue(track)}\`, found \`${queue ?? "(missing)"}\``,
     );
-  const extra = header.slice(1).filter((line) => !/^(Status|Queue):/.test(line));
-  if (extra.length > 0)
+  const extra = header.slice(1).filter((line) => !line.startsWith("Queue:"));
+  if (extra.some((line) => line.startsWith("Status:")))
     problems.push(
-      `only \`Status:\` and \`Queue:\` go between the title and \`## Charter\`; found \`${extra[0]}\``,
+      "`Status:` is gone: a stub is a handoff with an empty charter, and done is derived. Run `mshape track list`, which migrates the old format",
+    );
+  else if (extra.length > 0)
+    problems.push(
+      `only \`Queue:\` goes between the title and \`## Charter\`; found \`${extra[0]}\``,
     );
 
   let stateDate: string | undefined;
@@ -147,7 +239,11 @@ export const parseHandoff = (text: string): Handoff | Problems => {
     return "State";
   });
   const sections: Partial<Record<HandoffSection, string>> = {};
-  if (names.join("\n") !== HANDOFF_SECTIONS.join("\n"))
+  if (names.includes("Messages"))
+    problems.push(
+      "`## Messages` is gone: tracks message each other with `mshape msg send`. Run `mshape track list`, which moves the section into the track's mailbox",
+    );
+  else if (names.join("\n") !== HANDOFF_SECTIONS.join("\n"))
     problems.push(
       `sections must be exactly ${HANDOFF_SECTIONS.map((s) => `\`${heading(s, "YYYY-MM-DD")}\``).join(", ")}, in that order (use \`###\` for headings inside a section); found ${names.map((s) => `\`## ${s}\``).join(", ") || "none"}`,
     );
@@ -165,17 +261,13 @@ export const parseHandoff = (text: string): Handoff | Problems => {
         .join("\n")
         .trim();
     });
-    const charter = sections.Charter ?? "";
-    if (status === "stub" && charter !== "")
-      problems.push("a stub has an empty charter: write the charter and set `Status: active`");
-    if (status === "active" && charter === "")
-      problems.push("an active track needs a charter; until it has one, its status is `stub`");
+    problems.push(...charterProblems(sections.Charter ?? ""));
   }
 
   if (problems.length > 0) return { problems };
   return {
     track,
-    status: status as HandoffStatus,
+    stub: (sections.Charter ?? "") === "",
     queue: queue ?? "",
     stateDate: stateDate ?? "",
     sections: sections as Record<HandoffSection, string>,

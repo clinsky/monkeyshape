@@ -13,7 +13,14 @@ import { claudeCodeNotifier, notifyRecipient, register } from "../adapters/notic
 import { reviewNew, reviewRm } from "../adapters/reviews.ts";
 import { installSkills } from "../adapters/skills.ts";
 import { syncRepo } from "../adapters/sync.ts";
-import { trackCurrent, trackList, trackNew, trackRm } from "../adapters/tracks.ts";
+import {
+  type CarryMessages,
+  locate,
+  trackCurrent,
+  trackList,
+  trackNew,
+  trackRm,
+} from "../adapters/tracks.ts";
 import { loadSnapshot } from "../adapters/workspace.ts";
 import { CHECKS, notices, prerequisites, runChecks, unevaluated } from "../core/check.ts";
 import { garden } from "../core/garden.ts";
@@ -132,7 +139,7 @@ const track = (root: string, args: ReadonlyArray<string>) =>
     if (names.length !== (takesName ? 1 : 0)) return usage();
     const name = names[0] ?? "";
     if (sub === "new") return { output: yield* trackNew(root, name, today()), code: 0 };
-    if (sub === "list") return { output: yield* trackList(root), code: 0 };
+    if (sub === "list") return { output: yield* trackList(root, carryMessages(root)), code: 0 };
     if (sub === "current") return { output: yield* trackCurrent(root), code: 0 };
     if (sub === "rm")
       return {
@@ -151,6 +158,31 @@ const track = (root: string, args: ReadonlyArray<string>) =>
       };
     return usage();
   });
+
+/**
+ * A retired handoff Messages section, mailed to its track from the main checkout (so from
+ * `main`) by `track list`'s migration. No live notice: it shows at the track's next prompt.
+ */
+const carryMessages =
+  (root: string): CarryMessages =>
+  (track, body) =>
+    Effect.gen(function* () {
+      const { repo } = yield* locate(root);
+      const message = yield* mailSend(
+        repo,
+        track,
+        "Messages carried over from your handoff",
+        `${body}\n\nMoved here by \`mshape track list\` when handoffs stopped having a Messages section.`,
+        new Date(),
+        randomHex,
+      );
+      return { id: message.id };
+    }).pipe(
+      Effect.catchTags({
+        TrackError: (error) => Effect.succeed({ reason: error.reason }),
+        WorkspaceError: (error) => Effect.succeed({ reason: error.message }),
+      }),
+    );
 
 /** Four hex digits for a message id: unique within a second among a handful of senders. */
 const randomHex = (): string =>
@@ -437,10 +469,11 @@ export const COMMANDS: ReadonlyArray<Command> = [
   mshape track current
       The track of this directory, name only; exit 1, saying why, outside a track.
   mshape track rm <name> [--force] [--keep-handoff]
-      Remove a finished track: worktree, branch, handoff. Fetches main's upstream first, then
-      refuses on uncommitted changes or work in neither main nor origin/main (by merge,
-      rebase or squash); --force discards them. Also refuses while beads labelled
-      track:<name> aren't closed, which --force doesn't override. Never touches main or other tracks.`,
+      Remove a finished track: worktree, branch, handoff, mailbox. Fetches main's upstream
+      first, then refuses on uncommitted changes, work in neither main nor origin/main (by
+      merge, rebase or squash), or unread mail; --force discards them. Also refuses while beads
+      labelled track:<name> aren't closed, which --force doesn't override. --keep-handoff keeps
+      the handoff and mailbox, for a track that continues. Never touches main or other tracks.`,
     run: track,
   },
   {
