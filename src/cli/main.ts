@@ -453,10 +453,11 @@ export const COMMANDS: ReadonlyArray<Command> = [
   mshape track current
       The track of this directory, name only; exit 1, saying why, outside a track.
   mshape track rm <name> [--force] [--keep-handoff]
-      Remove a finished track: worktree, branch, handoff. Fetches main's upstream first, then
-      refuses on uncommitted changes or work in neither main nor origin/main (by merge,
-      rebase or squash); --force discards them. Also refuses while beads labelled
-      track:<name> aren't closed, which --force doesn't override. Never touches main or other tracks.`,
+      Remove a finished track: worktree, branch, handoff, mailbox. Fetches main's upstream
+      first, then refuses on uncommitted changes, work in neither main nor origin/main (by
+      merge, rebase or squash), or unread mail; --force discards them. Also refuses while beads
+      labelled track:<name> aren't closed, which --force doesn't override. --keep-handoff keeps
+      the handoff and mailbox, for a track that continues. Never touches main or other tracks.`,
     run: track,
   },
   {

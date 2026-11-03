@@ -327,6 +327,45 @@ describe("track rm", () => {
     expect(forced.stdout).toContain("kept handoff");
   });
 
+  test("unread mail refuses rm; read or forced, the mailbox goes, so a new track of the name starts empty", async () => {
+    await setup();
+    mshape(repo, "new", "docs");
+    const msg = (cwd: string, ...args: ReadonlyArray<string>) => {
+      const result = Bun.spawnSync([process.execPath, CLI, "msg", ...args], {
+        cwd,
+        stdout: "pipe",
+        stderr: "pipe",
+      });
+      return result.stdout.toString();
+    };
+    const id = (sent: string) => /^Sent (\S+)/.exec(sent)?.[1] ?? "";
+    const first = id(msg(repo, "send", "docs", "--subject", "first", "body"));
+    const second = id(msg(repo, "send", "docs", "--subject", "second", "body"));
+    msg(wt("docs"), "read", first);
+
+    const refused = mshape(repo, "rm", "docs");
+    expect(refused.code).toBe(1);
+    expect(refused.stderr).toContain(
+      "1 message(s) to `docs` are unread, and removing the track would delete them:",
+    );
+    expect(refused.stderr).toContain(`${second} from main: second`);
+    expect(await exists(wt("docs"))).toBe(true);
+
+    const forced = mshape(repo, "rm", "docs", "--force");
+    expect(forced.code).toBe(0);
+    expect(forced.stderr).toContain(
+      `--force: deleting 1 unread message(s):\n    ${second} from main: second`,
+    );
+    expect(forced.stdout).toContain(
+      `removed mailbox ${repo}/.git/monkeyshape/mail/docs (1 unread, 1 read)`,
+    );
+    expect(await exists(`${repo}/.git/monkeyshape/mail/docs`)).toBe(false);
+
+    mshape(repo, "new", "docs");
+    expect(msg(wt("docs"), "inbox")).not.toContain("second");
+    expect(await exists(`${repo}/.git/monkeyshape/mail/docs`)).toBe(false);
+  });
+
   test("a failure partway stops, reports what was removed and what remains; a rerun finishes", async () => {
     await setup();
     mshape(repo, "new", "docs");

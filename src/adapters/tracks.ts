@@ -8,9 +8,11 @@ import {
   lstat,
   mkdir,
   readdir,
+  readFile,
   readlink,
   realpath,
   rename,
+  rm,
   symlink,
   unlink,
   writeFile,
@@ -24,6 +26,8 @@ import {
   handoffsLink,
   handoffsStore,
   MAIN_BRANCH,
+  mailboxDir,
+  mailboxReadDir,
   mainCheckout,
   TRACK_NAME,
   trackBranch,
@@ -31,11 +35,13 @@ import {
   worktreePath,
   worktreesDir,
 } from "../core/layout.ts";
+import { decodeMessage } from "../core/mail.ts";
 import {
   type BeadsCheck,
   currentTrack,
   describeStep,
   formatTracks,
+  type MailboxFacts,
   nameProblem,
   openBeadsByTrack,
   parseWorktrees,
@@ -567,6 +573,44 @@ export const trackCurrent = (cwd: string) =>
     return "track" in found ? found.track : yield* refuse(found.reason);
   });
 
+/** `*.json` in a directory, or none when it doesn't exist; `.<id>.tmp` files are a send in flight. */
+const messageFiles = (dir: string) =>
+  Effect.promise(() =>
+    readdir(dir).then(
+      (files) => files.filter((file) => file.endsWith(".json") && !file.startsWith(".")),
+      () => [] as Array<string>,
+    ),
+  );
+
+/**
+ * What `rm` would delete with the track's mailbox. Read here rather than through the mailbox's
+ * adapter, which imports this one: the files and their format are `src/core/mail.ts`'s.
+ */
+const mailboxFacts = (common: string, track: string) =>
+  Effect.gen(function* () {
+    const path = mailboxDir(common, track);
+    const unread = yield* Effect.forEach(yield* messageFiles(path), (file) =>
+      Effect.promise(() =>
+        readFile(`${path}/${file}`, "utf8").then(
+          (text) => {
+            const message = decodeMessage(text);
+            return typeof message === "string"
+              ? `unreadable: ${message}`
+              : `from ${message.from}: ${message.subject}`;
+          },
+          (error) => `unreadable: ${String(error)}`,
+        ),
+      ).pipe(Effect.map((about) => ({ id: file.slice(0, -".json".length), about }))),
+    );
+    const facts: MailboxFacts = {
+      path,
+      exists: yield* lexists(path),
+      unread,
+      read: (yield* messageFiles(mailboxReadDir(common, track))).length,
+    };
+    return facts;
+  });
+
 /** `say` prints at once: what `--force` will discard is said before it happens. */
 export const trackRm = (
   cwd: string,
@@ -611,6 +655,7 @@ export const trackRm = (
       setting,
       open: found.byTrack.get(track) ?? [],
     };
+    const mailbox = yield* mailboxFacts(common, track);
     const plan = planRm({
       track,
       worktreePath: path,
@@ -632,6 +677,7 @@ export const trackRm = (
       handoffPath: handoff,
       handoffExists: yield* lexists(handoff),
       beads,
+      mailbox,
       force: options.force,
       keepHandoff: options.keepHandoff,
     });
@@ -648,10 +694,15 @@ export const trackRm = (
         : step.kind === "branch"
           ? // Merged into `main` was checked above; `-d` would check against HEAD instead.
             gitOk(repo, ["branch", "-D", step.name])
-          : Effect.mapError(
-              fs("unlink", step.path, () => unlink(step.path)),
-              (error) => new TrackError({ reason: error.message }),
-            );
+          : step.kind === "handoff"
+            ? Effect.mapError(
+                fs("unlink", step.path, () => unlink(step.path)),
+                (error) => new TrackError({ reason: error.message }),
+              )
+            : Effect.mapError(
+                fs("remove", step.path, () => rm(step.path, { recursive: true, force: true })),
+                (error) => new TrackError({ reason: error.message }),
+              );
     const removed: Array<string> = [];
     for (const [index, step] of plan.steps.entries()) {
       const failed = yield* Effect.flip(run(step)).pipe(
