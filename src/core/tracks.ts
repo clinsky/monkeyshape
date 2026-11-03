@@ -16,6 +16,7 @@ import {
   worktreePath,
 } from "./layout.ts";
 import type { Integration } from "./model.ts";
+import { listedBeads } from "./trackPr.ts";
 
 /** A worktree as `git worktree list --porcelain` reports it. */
 export interface Worktree {
@@ -380,6 +381,105 @@ export const planRm = (facts: RmFacts): RmPlan => {
     : { refusals, warnings, steps, kept, notes };
 };
 
+/** A PR from a track's branch, as `gh pr list --json number,state,headRefName,body` gives it. */
+export interface TrackPr {
+  readonly number: number;
+  readonly state: string;
+  readonly headRefName: string;
+  readonly body: string;
+}
+
+/** The PRs `gh` printed, or undefined when they aren't PRs: never a guess. */
+export const parseTrackPrs = (json: string): ReadonlyArray<TrackPr> | undefined => {
+  let value: unknown;
+  try {
+    value = JSON.parse(json);
+  } catch {
+    return undefined;
+  }
+  if (!Array.isArray(value)) return undefined;
+  const prs = value.filter(
+    (pr): pr is TrackPr =>
+      typeof pr === "object" &&
+      pr !== null &&
+      typeof pr.number === "number" &&
+      typeof pr.state === "string" &&
+      typeof pr.headRefName === "string" &&
+      typeof pr.body === "string",
+  );
+  return prs.length === value.length ? prs : undefined;
+};
+
+export type Done = "yes" | "no" | "unknown";
+
+/**
+ * A track is done when no open bead carries its label, its branch's work is in upstream
+ * `main` (or the branch is gone), and no PR from `track/<name>` is open. Any fact that says
+ * otherwise makes it `no`; a fact that couldn't be read, with none saying no, makes it
+ * `unknown`. Never `yes` on a guess.
+ */
+export const trackDone = (facts: {
+  /** Open beads with the label; undefined when bd couldn't say. */
+  readonly beads: number | undefined;
+  readonly branchExists: boolean;
+  readonly merged: boolean | undefined;
+  /** This track's PRs; undefined when gh couldn't say. */
+  readonly prs: ReadonlyArray<TrackPr> | undefined;
+}): Done => {
+  const says = [
+    facts.beads === undefined ? undefined : facts.beads === 0,
+    facts.branchExists ? facts.merged : true,
+    facts.prs === undefined ? undefined : !facts.prs.some((pr) => pr.state === "OPEN"),
+  ];
+  return says.includes(false) ? "no" : says.includes(undefined) ? "unknown" : "yes";
+};
+
+/**
+ * Beads a merged PR of the track lists in its Beads section but that are still open: the
+ * work merged, so each is either done and needs closing, or needs a line saying what is left.
+ * A listed id bd doesn't know is skipped, since `track pr` checked ids when it posted.
+ */
+export const openAfterMerge = (
+  prs: ReadonlyArray<TrackPr>,
+  statusById: ReadonlyMap<string, string>,
+): ReadonlyArray<string> =>
+  prs
+    .filter((pr) => pr.state === "MERGED")
+    .flatMap((pr) =>
+      listedBeads(pr.body).flatMap((id) => {
+        const status = statusById.get(id);
+        return status === undefined || status === "closed"
+          ? []
+          : [
+              `${id} (${status}) is listed in merged PR #${pr.number} but still open: close it (\`bd close ${id}\`), or say in its notes what is left`,
+            ];
+      }),
+    );
+
+/**
+ * What a track's handoff and worktree should say and don't: a State older than the branch's
+ * last commit, and a done track still on disk.
+ */
+export const hygieneWarnings = (facts: {
+  readonly track: string;
+  readonly done: Done;
+  readonly stateDate: string | undefined;
+  /** `YYYY-MM-DD` of the branch's last commit, when it has commits of its own. */
+  readonly lastCommit: string | undefined;
+  readonly hasWorktree: boolean;
+}): ReadonlyArray<string> => [
+  ...(facts.stateDate !== undefined &&
+  facts.lastCommit !== undefined &&
+  facts.stateDate < facts.lastCommit
+    ? [
+        `its handoff's State (${facts.stateDate}) is older than \`${trackBranch(facts.track)}\`'s last commit (${facts.lastCommit}): rewrite State (\`/handoff\`)`,
+      ]
+    : []),
+  ...(facts.done === "yes" && facts.hasWorktree
+    ? [`done: remove it with \`mshape track rm ${facts.track}\``]
+    : []),
+];
+
 /** One line per track in `track list`. */
 export interface TrackRow {
   readonly track: string;
@@ -396,18 +496,23 @@ export interface TrackRow {
   readonly worktreeBranch?: string | undefined;
   /** Why the handoff is `invalid`: `parseHandoff`'s problems, printed under the row. */
   readonly problems?: ReadonlyArray<string> | undefined;
+  /** Derived by `trackDone`; undefined in rows built before it was read. */
+  readonly done?: Done | undefined;
+  /** `openAfterMerge` and `hygieneWarnings`, printed under the row. */
+  readonly warnings?: ReadonlyArray<string> | undefined;
 }
 
 export const formatTracks = (rows: ReadonlyArray<TrackRow>): string => {
   if (rows.length === 0) return "no tracks: start one with `mshape track new <name>`";
   const table = [
-    ["track", "status", "beads", "ahead", "merged", "worktree"],
+    ["track", "status", "beads", "ahead", "merged", "done", "worktree"],
     ...rows.map((row) => [
       row.track,
       row.status,
       row.beads === undefined ? "-" : String(row.beads),
       row.ahead === undefined ? "-" : String(row.ahead),
       row.merged === undefined ? "-" : row.merged ? "yes" : "no",
+      row.done ?? "-",
       row.worktree === undefined
         ? "-"
         : row.worktreeBranch === undefined
@@ -430,6 +535,7 @@ export const formatTracks = (rows: ReadonlyArray<TrackRow>): string => {
     ...rows.flatMap((row, index) => [
       line(table[index + 1] ?? []),
       ...(row.problems ?? []).map((problem) => `  ${HANDOFFS_LINK}/${row.track}.md: ${problem}`),
+      ...(row.warnings ?? []).map((warning) => `  ${row.track}: ${warning}`),
     ]),
   ].join("\n");
 };

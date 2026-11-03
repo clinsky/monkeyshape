@@ -41,14 +41,18 @@ import {
   currentTrack,
   describeStep,
   formatTracks,
+  hygieneWarnings,
   type MailboxFacts,
   nameProblem,
+  openAfterMerge,
   openBeadsByTrack,
+  parseTrackPrs,
   parseWorktrees,
   planRm,
   type RmStep,
   sharedPathProblems,
   type TrackRow,
+  trackDone,
   type Worktree,
 } from "../core/tracks.ts";
 import { TrackError, WorkspaceError } from "../schemas/errors.ts";
@@ -339,11 +343,56 @@ const ensureHandoffLinks = (common: string, repo: string, checkouts: ReadonlyArr
  * Every bead with a `track:` label that isn't closed, by track, in the beads state `mshape
  * check` uses: one loader, so the two can't disagree about what a beads failure means.
  */
+/** Every bead, once: the open ones by track label, and each one's status by id. */
 const trackBeads = (repo: string) =>
-  Effect.map(beadRows(repo, ["--label-pattern", "track:*", "--brief"]), (loaded) => ({
+  Effect.map(beadRows(repo, ["--brief"]), (loaded) => ({
     integration: loaded.integration,
     byTrack: openBeadsByTrack(loaded.value ?? []),
+    statusById: new Map(
+      (loaded.value ?? []).flatMap((row) => {
+        const { id, status } = (row ?? {}) as Record<string, unknown>;
+        return typeof id === "string" && typeof status === "string" ? [[id, status] as const] : [];
+      }),
+    ),
   }));
+
+const GH_TIMEOUT_MS = 30_000;
+
+/**
+ * Every PR from a `track/*` branch, in one `gh` call, or why gh couldn't say: then done is
+ * `unknown`, never `yes`.
+ */
+const trackPrs = (repo: string) =>
+  Effect.try({
+    try: () =>
+      Bun.spawnSync(
+        [
+          "gh",
+          "pr",
+          "list",
+          "--state",
+          "all",
+          "--limit",
+          "1000",
+          "--json",
+          "number,state,headRefName,body",
+        ],
+        { cwd: repo, stdout: "pipe", stderr: "pipe", timeout: GH_TIMEOUT_MS },
+      ),
+    catch: (cause) => cause,
+  }).pipe(
+    Effect.map((child) => {
+      if (child.exitCode !== 0)
+        return {
+          reason: `\`gh pr list\` failed: ${child.stderr.toString().trim() || (child.exitCode === null ? `timed out after ${GH_TIMEOUT_MS / 1000}s` : `exit ${child.exitCode}`)}`,
+        };
+      const prs = parseTrackPrs(child.stdout.toString());
+      return prs === undefined
+        ? { reason: "`gh pr list` printed something that isn't a list of PRs" }
+        : { prs: prs.filter((pr) => pr.headRefName.startsWith("track/")) };
+    }),
+    Effect.orElseSucceed(() => ({ reason: "`gh` is not on PATH" })),
+  );
 
 export const ignored = (repo: string, path: string) =>
   Effect.map(git(repo, ["check-ignore", "-q", path]), (result) => result.code === 0);
@@ -542,7 +591,7 @@ export const trackList = (cwd: string, carry: CarryMessages) =>
       ),
     );
     const beads = yield* trackBeads(repo);
-    // No fetch here: list stays offline and fast, and rm fetches before it decides.
+    // No git fetch here, so list stays fast (rm fetches before it decides); PRs come from gh.
     const targets = yield* mergeTargets(repo);
     // A label with open beads is a track too, even after its worktree is gone: that work is orphaned.
     const labelled = [...beads.byTrack.keys()];
@@ -556,6 +605,9 @@ export const trackList = (cwd: string, carry: CarryMessages) =>
     // list reports, it doesn't gate: a failing bd is a note here, and a refusal in rm.
     if (beads.integration.state === "unavailable" || beads.integration.state === "failed")
       notes.push(`note: open beads not counted: ${beads.integration.reason}`);
+    const prs = yield* trackPrs(repo);
+    if ("reason" in prs)
+      notes.push(`note: PRs not read, so done is unknown where they decide it: ${prs.reason}`);
 
     const rows = yield* Effect.forEach(tracks, (track) =>
       Effect.gen(function* () {
@@ -569,6 +621,20 @@ export const trackList = (cwd: string, carry: CarryMessages) =>
         const text = migrated?.text;
         const parsed = text === undefined ? undefined : parseHandoff(text);
         const worktree = byTrack.get(track);
+        const branchExists = branches.includes(track);
+        const merge = branchExists
+          ? yield* mergeState(repo, trackBranch(track), targets)
+          : { ahead: undefined, merged: undefined };
+        const own =
+          "prs" in prs ? prs.prs.filter((pr) => pr.headRefName === trackBranch(track)) : undefined;
+        const open =
+          beads.integration.state === "ok" ? (beads.byTrack.get(track)?.length ?? 0) : undefined;
+        const done = trackDone({ beads: open, branchExists, merged: merge.merged, prs: own });
+        const lastCommit =
+          branchExists && (merge.ahead ?? 0) > 0
+            ? (yield* gitOk(repo, ["log", "-1", "--format=%cs", head(trackBranch(track))])) ||
+              undefined
+            : undefined;
         const row: TrackRow = {
           track,
           status:
@@ -580,11 +646,22 @@ export const trackList = (cwd: string, carry: CarryMessages) =>
                   ? "stub"
                   : "active",
           problems: parsed !== undefined && "problems" in parsed ? parsed.problems : undefined,
-          beads:
-            beads.integration.state === "ok" ? (beads.byTrack.get(track)?.length ?? 0) : undefined,
-          ...(branches.includes(track)
-            ? yield* mergeState(repo, trackBranch(track), targets)
-            : { ahead: undefined, merged: undefined }),
+          beads: open,
+          ...merge,
+          done,
+          warnings: [
+            ...(own === undefined || beads.integration.state !== "ok"
+              ? []
+              : openAfterMerge(own, beads.statusById)),
+            ...hygieneWarnings({
+              track,
+              done,
+              stateDate:
+                parsed !== undefined && !("problems" in parsed) ? parsed.stateDate : undefined,
+              lastCommit,
+              hasWorktree: worktree !== undefined,
+            }),
+          ],
           worktree: worktree === undefined ? undefined : posix.relative(repo, worktree.path),
           worktreeBranch:
             worktree === undefined || worktree.branch === trackBranch(track)

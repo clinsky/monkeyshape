@@ -97,11 +97,12 @@ outcome, not a spec. Show the human the charter and the beads; start once they a
 - **The process got in the way:** `bd create --labels process` saying what broke.
 
 Update the handoff's State when a PR opens or merges, so a crash loses nothing. When the
-human says the context is running out, run `/handoff`. When this track's `beads` column
-in `mshape track list` shows 0 and the PRs are merged, tell the human the track is done (an
-empty `bd ready` is not enough: it hides beads in progress or blocked). A `-` there means
-beads weren't counted: act on the note `track list` prints, and don't call the track done.
-Removing it is the human's or `/milestone`'s.
+human says the context is running out, run `/handoff`. After each merge, run
+`mshape track list` and act on what it prints under this track's row (a bead still open
+though its PR merged: close it or say what is left). When its `done` column says `yes`, tell
+the human the track is done; an empty `bd ready` is not enough, since it hides beads in
+progress or blocked. `unknown` means bd or gh couldn't say: act on the note it prints, and
+don't call the track done. Removing it is the human's or `/milestone`'s.
 
 Review this skill when a fresh chat running it had to ask the human something the handoff
 should have said.
