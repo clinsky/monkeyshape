@@ -221,7 +221,7 @@ describe("what track rm may do", () => {
     }
   });
 
-  test("beads that can't answer: refusals and notes as `mshape check` decides them", () => {
+  test("beads that can't answer: rm refuses wherever the beads can't be seen", () => {
     const plan = (integration: Integration, setting: "optional" | "required", force = false) =>
       planRm({ ...facts, force, beads: { integration, setting, open: [] } });
     const failed: Integration = { state: "failed", reason: "database is locked" };
@@ -242,10 +242,14 @@ describe("what track rm may do", () => {
     );
     expect(plan(absent, "required").refusals[0]).toContain("the repo has no .beads/config.yaml");
 
-    const noted = plan(unavailable, "optional");
-    expect(noted.refusals).toEqual([]);
-    expect(noted.notes[0]).toContain("open beads were not checked: bd is not on PATH");
-    expect(noted.steps).toHaveLength(3);
+    // Beads exist but bd can't run: check only notes it, but rm refuses, --force or not.
+    for (const force of [false, true]) {
+      const refused = plan(unavailable, "optional", force);
+      expect(refused.refusals).toEqual([
+        "this repo has beads (.beads/), but bd is not on PATH, so the beads labelled `track:docs` can't be seen and removing the track might orphan them: get `bd` working (then `bd list --label track:docs --status open,in_progress,blocked,deferred` shows them), and retry; --force doesn't override this",
+      ]);
+      expect(refused.steps).toEqual([]);
+    }
     const quiet = plan(absent, "optional");
     expect(quiet.notes).toEqual([
       "this repo has no beads (no .beads/), so open beads were not checked",

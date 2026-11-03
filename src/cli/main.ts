@@ -184,7 +184,11 @@ const track = (root: string, args: ReadonlyArray<string>) =>
     if (flags.some((flag) => !allowed.includes(flag))) return usage();
     if (names.length !== (takesName ? 1 : 0)) return usage();
     const name = names[0] ?? "";
-    if (sub === "new") return { output: yield* trackNew(root, name, today()), code: 0 };
+    if (sub === "new")
+      return {
+        output: yield* trackNew(root, name, today(), { ...process.env, GIT_TERMINAL_PROMPT: "0" }),
+        code: 0,
+      };
     if (sub === "list") return { output: yield* trackList(root, carryMessages(root)), code: 0 };
     if (sub === "current") return { output: yield* trackCurrent(root), code: 0 };
     if (sub === "rm")
@@ -510,7 +514,8 @@ export const COMMANDS: ReadonlyArray<Command> = [
   {
     name: "track",
     usage: `  mshape track new <name>
-      Start a track: worktree .agents/worktrees/<repo>@<name> on track/<name> from main,
+      Start a track: worktree .agents/worktrees/<repo>@<name> on track/<name> from main (or
+      from main's upstream, after fetching it, when that has commits main lacks),
       the shared handoffs and tracks.sharedPaths linked in, and a stub handoff. Shared paths
       come from the main checkout's shape.config.ts, from whichever checkout this runs.
   mshape track list

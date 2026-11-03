@@ -365,7 +365,41 @@ const trackedInMain = (repo: string, path: string) =>
  * Shared paths come from the main checkout's `shape.config.ts`: they name the main checkout's
  * data, whichever checkout the command runs from.
  */
-export const trackNew = (cwd: string, track: string, date: string) =>
+/**
+ * Where a new track branches: upstream `main` when it has commits local `main` lacks (merges
+ * done on GitHub since the last pull), so the track starts from what will be its PR's base;
+ * local `main` otherwise, which also covers no upstream and local commits not pushed yet.
+ * Fetches first; a fetch that fails is said, and the refs as they are decide.
+ */
+const startPoint = (repo: string, fetchEnv: Readonly<Record<string, string | undefined>>) =>
+  Effect.gen(function* () {
+    const notes: Array<string> = [];
+    const unfetched = yield* fetchUpstream(repo, fetchEnv);
+    if (unfetched !== undefined) notes.push(`note: ${unfetched}`);
+    const [local, upstream] = yield* mergeTargets(repo);
+    const main = { ref: local ?? head(MAIN_BRANCH), name: MAIN_BRANCH, notes };
+    if (upstream === undefined) return main;
+    const count = (range: string) =>
+      Effect.map(gitOk(repo, ["rev-list", "--count", range]), (out) => Number(out));
+    const behind = yield* count(`${main.ref}..${upstream}`);
+    const ahead = yield* count(`${upstream}..${main.ref}`);
+    if (behind === 0) return main;
+    if (ahead > 0) {
+      notes.push(
+        `note: \`${MAIN_BRANCH}\` and \`${shortRef(upstream)}\` have diverged (${ahead} and ${behind} commits of their own), so the track starts from \`${MAIN_BRANCH}\`: pull before starting tracks`,
+      );
+      return main;
+    }
+    return { ref: upstream, name: shortRef(upstream), notes };
+  });
+
+export const trackNew = (
+  cwd: string,
+  track: string,
+  date: string,
+  /** The environment for fetching `main`'s upstream: one where git can't prompt. */
+  fetchEnv: Readonly<Record<string, string | undefined>>,
+) =>
   Effect.gen(function* () {
     const invalid = nameProblem(track);
     if (invalid !== undefined) return yield* refuse(invalid);
@@ -378,7 +412,8 @@ export const trackNew = (cwd: string, track: string, date: string) =>
 
     const path = worktreePath(repo, track);
     const branch = trackBranch(track);
-    const stub = stubHandoff(track, date, path);
+    const start = yield* startPoint(repo, fetchEnv);
+    const stub = stubHandoff(track, date, path, start.name);
     if ("problems" in stub) return yield* refuse(stub.problems.join("\n"));
     if (yield* lexists(path)) return yield* refuse(`track \`${track}\` exists: ${path} is there`);
     if ((yield* worktrees(repo)).some((worktree) => worktree.path === path))
@@ -406,8 +441,8 @@ export const trackNew = (cwd: string, track: string, date: string) =>
       if (!(yield* ignored(repo, at)))
         notes.push(`note: ${what} (\`${at}\`) is not gitignored; add it to .gitignore`);
 
-    yield* gitOk(repo, ["worktree", "add", "--quiet", "-b", branch, path, head(MAIN_BRANCH)]);
-    const said = [`created ${path} on \`${branch}\` from \`${MAIN_BRANCH}\``];
+    yield* gitOk(repo, ["worktree", "add", "--quiet", "--no-track", "-b", branch, path, start.ref]);
+    const said = [...start.notes, `created ${path} on \`${branch}\` from \`${start.name}\``];
     // From here the track exists: a failure must say what was done and how to undo it.
     const finish = Effect.gen(function* () {
       said.push(...(yield* ensureHandoffLinks(common, repo, [path])));

@@ -236,10 +236,6 @@ export const planRm = (facts: RmFacts): RmPlan => {
   const blocker = beadsBlocker(setting, integration);
   if (blocker === undefined && integration.state === "absent")
     notes.push("this repo has no beads (no .beads/), so open beads were not checked");
-  if (blocker === undefined && integration.state === "unavailable")
-    notes.push(
-      `open beads were not checked: ${integration.reason}. Check by hand with \`${listBeads}\``,
-    );
 
   if (
     facts.worktree === undefined &&
@@ -279,6 +275,12 @@ export const planRm = (facts: RmFacts): RmPlan => {
         ...open.map((bead) => `  ${bead.id} (${bead.status}) ${bead.title}`),
         `close each one that's done (\`bd close <id>\`), or move it to the track that will do it (\`bd update <id> --remove-label ${label} --add-label track:<other>\`). --force doesn't override this`,
       ].join("\n    "),
+    );
+  // The repo has beads but bd can't run: `check` notes it and goes on, but removal can't be
+  // undone, so rm refuses until the beads can be seen. --force has nothing to agree to.
+  if (blocker === undefined && integration.state === "unavailable")
+    refusals.push(
+      `this repo has beads (.beads/), but ${integration.reason}, so the beads labelled \`${label}\` can't be seen and removing the track might orphan them: get \`bd\` working (then \`${listBeads}\` shows them), and retry; --force doesn't override this`,
     );
   // A failing bd hides the beads, so there is nothing for --force to agree to discard.
   if (blocker === "failed" && integration.state === "failed")
