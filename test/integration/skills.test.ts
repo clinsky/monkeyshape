@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
+import { PR_TEMPLATE_FILE, prTemplate } from "../../src/core/conventions.ts";
 import { checkRefs } from "../../src/core/refs.ts";
 import { DEFAULT_DOCS } from "../../src/schemas/config.ts";
 import { config, repo } from "../support.ts";
@@ -30,7 +31,13 @@ describe("the shipped skills", () => {
     );
     const workflow = readFileSync(join(import.meta.dir, "../../docs/workflow.md"), "utf8");
     const born = repo(
-      { "AGENTS.md": "# x\n", "shape.config.ts": "", "docs/workflow.md": workflow, ...files },
+      {
+        "AGENTS.md": "# x\n",
+        "shape.config.ts": "",
+        "docs/workflow.md": workflow,
+        [PR_TEMPLATE_FILE]: prTemplate(),
+        ...files,
+      },
       { scripts: ["check"] },
     );
     const checked = config({ refs: { docs: [...DEFAULT_DOCS, "docs/workflow.md"] } });
