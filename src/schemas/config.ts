@@ -195,7 +195,7 @@ export const resolveConfig = (config: ShapeConfig): ResolvedConfig => ({
     forbidden: config.refs?.forbidden ?? [],
   },
   budgets: {
-    agentsLines: config.budgets?.agentsLines ?? 150,
+    agentsLines: config.budgets?.agentsLines ?? 200,
     readmeLines: config.budgets?.readmeLines ?? 80,
     decisions: config.budgets?.decisions ?? 15,
     decisionWords: config.budgets?.decisionWords ?? 150,

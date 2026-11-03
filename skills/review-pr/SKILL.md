@@ -57,7 +57,8 @@ Before the diff, so the diff is read against its purpose:
   handoffs in): what the track serves, what is out of its scope, what done means.
 
 A PR from no track, without beads or with no milestone plan has less to read: say so under
-Fit, and judge it against what it does have.
+Fit, and judge it against what it does have. Keep Fit to a few lines: it frames the review, it
+isn't the review.
 
 ## 3. Read the diff
 

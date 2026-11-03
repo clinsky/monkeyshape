@@ -36,7 +36,7 @@ describe("budgets", () => {
 
   test("AGENTS.md is required and capped", () => {
     expect(checkBudgets(config(), repo({})).map((v) => v.rule)).toEqual(["budgets/agents-missing"]);
-    expect(rules({ "AGENTS.md": lines(151) })).toEqual(["budgets/agents-lines"]);
+    expect(rules({ "AGENTS.md": lines(201) })).toEqual(["budgets/agents-lines"]);
   });
 
   test("CLAUDE.md only points at AGENTS.md", () => {
