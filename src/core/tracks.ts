@@ -4,7 +4,7 @@
  * are read by `src/adapters/tracks.ts`, which hands the facts here.
  */
 import type { ResolvedConfig } from "../schemas/config.ts";
-import { ownedWithoutTrack } from "./beads.ts";
+import { ownedWithoutTrack, setAside } from "./beads.ts";
 import { beadsBlocker } from "./check.ts";
 import {
   AGENTS_HANDOFFS_LINK,
@@ -438,8 +438,8 @@ export type Done = "yes" | "no" | "unknown";
 
 /**
  * A track is done when no open bead carries its label, its branch's work is in upstream
- * `main` (or the branch is gone), no PR from `track/<name>` is open, at least one has
- * merged, and no bead of its own that a merged PR lists is still open. That last fact is what separates finished from not started: a branch `track new`
+ * `main` (or the branch is gone), no PR from `track/<name>` is open, and at least one has
+ * merged. `openAfterMerge`'s findings are advice beside it, not part of it. That last fact is what separates finished from not started: a branch `track new`
  * just made sits at `main`, so it is "merged" with no PR and no beads yet. Any fact that says
  * otherwise makes it `no`; a fact that couldn't be read, with none saying no, makes it
  * `unknown`. Never `yes` on a guess.
@@ -451,15 +451,12 @@ export const trackDone = (facts: {
   readonly merged: boolean | undefined;
   /** This track's PRs; undefined when gh couldn't say. */
   readonly prs: ReadonlyArray<TrackPr> | undefined;
-  /** Its own beads still open though a merged PR of its lists them (`openAfterMerge`). */
-  readonly unsettled?: number | undefined;
 }): Done => {
   const says = [
     facts.beads === undefined ? undefined : facts.beads === 0,
     facts.branchExists ? facts.merged : true,
     facts.prs === undefined ? undefined : !facts.prs.some((pr) => pr.state === "OPEN"),
     facts.prs === undefined ? undefined : facts.prs.some((pr) => pr.state === "MERGED"),
-    (facts.unsettled ?? 0) === 0,
   ];
   return says.includes(false) ? "no" : says.includes(undefined) ? "unknown" : "yes";
 };
@@ -472,7 +469,8 @@ export type BeadsById = ReadonlyMap<
 
 /**
  * Beads a merged PR of the track lists in its Beads section but that are still open: the
- * work merged, so each is either done and needs closing, or needs a line saying what is left.
+ * work merged, so each is either done and needs closing, or has work left, which deferring
+ * with a note sets aside (a deferred or pinned bead isn't flagged).
  * Only the track's own (its label) or nobody's (no track label, and not owned without one, as
  * `ownedWithoutTrack` says): another track's bead is in that track's count and is its to
  * settle, and an epic, a milestone or process work is no track's to close. A listed id bd doesn't know is skipped,
@@ -488,12 +486,12 @@ export const openAfterMerge = (
     .flatMap((pr) =>
       listedBeads(pr.body).flatMap((id) => {
         const bead = beads.get(id);
-        if (bead === undefined || bead.status === "closed") return [];
+        if (bead === undefined || bead.status === "closed" || setAside(bead.status)) return [];
         const tracks = bead.labels.filter((label) => label.startsWith("track:"));
         if (tracks.length > 0 ? !tracks.includes(trackLabel(track)) : ownedWithoutTrack(bead))
           return [];
         return [
-          `${id} (${bead.status}) is listed in merged PR #${pr.number} but still open: close it (\`bd close ${id}\`), or say in its notes what is left`,
+          `${id} (${bead.status}) is listed in merged PR #${pr.number} but still open: close it if its work is done (\`bd close ${id}\`), or write what is left in its notes and defer it (\`bd defer ${id}\`)`,
         ];
       }),
     );

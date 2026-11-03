@@ -342,8 +342,11 @@ describe("whether a track is done", () => {
       ["x-abc.7", task("open", [], "milestone")],
       ["x-abc.8", task("open", ["milestone"])],
       ["x-abc.9", task("open", ["process"])],
+      // Set aside with what is left in its notes, as the warning advises (#39's round 4).
+      ["x-abc.10", task("deferred")],
+      ["x-abc.11", task("pinned")],
     ]);
-    const body = `## Beads\n\n${["x-abc.1 one", "x-abc.2 two", "x-abc.4", "x-abc.5", "x-abc.6", "x-abc.7", "x-abc.8", "x-abc.9", "x-zzz.9 unknown to bd"].map((item) => `- ${item}`).join("\n")}\n`;
+    const body = `## Beads\n\n${["x-abc.1 one", "x-abc.2 two", "x-abc.4", "x-abc.5", "x-abc.6", "x-abc.7", "x-abc.8", "x-abc.9", "x-abc.10", "x-abc.11", "x-zzz.9 unknown to bd"].map((item) => `- ${item}`).join("\n")}\n`;
     expect(
       openAfterMerge(
         [pr(5, "MERGED", body), pr(6, "OPEN", "## Beads\n\n- x-abc.3\n")],
@@ -351,14 +354,9 @@ describe("whether a track is done", () => {
         "docs",
       ),
     ).toEqual([
-      "x-abc.1 (open) is listed in merged PR #5 but still open: close it (`bd close x-abc.1`), or say in its notes what is left",
-      "x-abc.4 (in_progress) is listed in merged PR #5 but still open: close it (`bd close x-abc.4`), or say in its notes what is left",
+      "x-abc.1 (open) is listed in merged PR #5 but still open: close it if its work is done (`bd close x-abc.1`), or write what is left in its notes and defer it (`bd defer x-abc.1`)",
+      "x-abc.4 (in_progress) is listed in merged PR #5 but still open: close it if its work is done (`bd close x-abc.4`), or write what is left in its notes and defer it (`bd defer x-abc.4`)",
     ]);
-  });
-
-  test("a track isn't done while a bead of its own that a merged PR lists is still open", () => {
-    expect(trackDone({ ...facts, unsettled: 1 })).toBe("no");
-    expect(trackDone({ ...facts, unsettled: 0 })).toBe("yes");
   });
 
   test("hygiene: a State older than the branch's last commit; a done track still on disk", () => {

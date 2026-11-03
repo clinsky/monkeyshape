@@ -29,6 +29,9 @@ export const OWNER_LABELS = ["milestone", "process"] as const;
  */
 const FROZEN: ReadonlyArray<string> = ["deferred", "pinned"];
 
+/** Set aside (deferred or pinned): settled for now, so no track must close it. */
+export const setAside = (status: string): boolean => FROZEN.includes(status);
+
 /** bd's types that hold no work of their own: `epic` (spans tracks) and `milestone`. */
 const UNOWNED_TYPES: ReadonlyArray<string> = ["epic", "milestone"];
 

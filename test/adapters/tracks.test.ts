@@ -614,6 +614,30 @@ describe("track rm and list with beads", () => {
     expect(listed).not.toContain("remove it with");
   });
 
+  test("a merged PR's bead deferred with what is left is settled: no warning, and done", async () => {
+    // The probe from #39's round 4: the agent follows the advice, defers the bead and drops
+    // the track's label, as beads/deferred-in-track asks. Nothing may keep the track at no.
+    await setup();
+    mshape(repo, "new", "fresh");
+    const merged = {
+      number: 9,
+      state: "MERGED",
+      headRefName: "track/fresh",
+      body: "## Beads\n\n- x-1 part of it\n",
+      createdAt: new Date().toISOString(),
+    };
+    await fakeGh([merged]);
+    const open = await fakeBd([bead("x-1", "in_progress", ["track:fresh"])]);
+    expect(mshapeWith(open, repo, "list").stdout).toContain(
+      "x-1 (in_progress) is listed in merged PR #9",
+    );
+
+    const deferred = await fakeBd([bead("x-1", "deferred", [])]);
+    const listed = mshapeWith(deferred, repo, "list").stdout;
+    expect(listed).not.toContain("merged PR #9");
+    expect(listed).toMatch(/^fresh\s+stub\s+0\s+0\s+yes\s+yes\s/m);
+  });
+
   test("a reused name doesn't inherit the earlier track's PRs: not done, no warnings of theirs", async () => {
     // The probe from #39's re-review: rm, then new with the same name, while gh still lists
     // the first track's merged PR, whose bead is open.
@@ -692,7 +716,7 @@ describe("track rm and list with beads", () => {
     expect(cells(listed, "init")?.[5]).toBe("no");
     expect(cells(listed, "wip")?.[5]).toBe("no");
     expect(listed).toContain(
-      "  docs: x-2 (in_progress) is listed in merged PR #1 but still open: close it (`bd close x-2`), or say in its notes what is left",
+      "  docs: x-2 (in_progress) is listed in merged PR #1 but still open: close it if its work is done (`bd close x-2`), or write what is left in its notes and defer it (`bd defer x-2`)",
     );
     expect(listed).toContain("  init: x-1 (open) is listed in merged PR #3 but still open");
     // PR #4 isn't a track's: its bead is nobody's here.

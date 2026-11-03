@@ -676,13 +676,7 @@ export const trackList = (cwd: string, carry: CarryMessages) =>
           own === undefined || beads.integration.state !== "ok"
             ? []
             : openAfterMerge(own, beads.byId, track);
-        const done = trackDone({
-          beads: open,
-          branchExists,
-          merged: merge.merged,
-          prs: own,
-          unsettled: afterMerge.length,
-        });
+        const done = trackDone({ beads: open, branchExists, merged: merge.merged, prs: own });
         const lastCommit =
           branchExists && (merge.ahead ?? 0) > 0
             ? (yield* gitOk(repo, ["log", "-1", "--format=%cs", head(trackBranch(track))])) ||
