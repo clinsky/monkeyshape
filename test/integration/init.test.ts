@@ -16,6 +16,7 @@ import {
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { SHARE_BEADS } from "../../src/core/scaffold.ts";
 import { HAS_BD, initFromSource, pack, ROOT, run, unexpectedNotes } from "./harness.ts";
 
 let work = "";
@@ -223,20 +224,40 @@ describe("mshape init", () => {
       expect((await run(before, ["bd", "bootstrap", "--yes"])).code).toBe(0);
       expect(await sees(before)).toBe(false);
 
-      // Pushed as the note says: the same note, its test now says bootstrap, and that works.
+      // Pushed by hand, its config change not committed: the clone's note tests origin and
+      // says bootstrap, and that recovers the bead.
       expect((await run(origin, ["bd", "dolt", "push", "--yes"])).code).toBe(0);
-      const after = await cloneOf("clone-after");
-      expect(await note(after)).toContain(ifPushed);
-      expect(await pushed(after)).not.toBe("");
-      expect((await run(after, ["bd", "bootstrap", "--yes"])).code).toBe(0);
-      expect(await sees(after)).toBe(true);
+      const pushedOnly = await cloneOf("clone-pushed");
+      expect(await note(pushedOnly)).toContain(ifPushed);
+      expect(await pushed(pushedOnly)).not.toBe("");
+      expect((await run(pushedOnly, ["bd", "bootstrap", "--yes"])).code).toBe(0);
+      expect(await sees(pushedOnly)).toBe(true);
 
-      // With sync.remote committed, the note names bootstrap and the remote outright.
-      const configured = await cloneOf("clone-configured");
-      await run(configured, ["bd", "config", "set", "sync.remote", `git+file://${remote}`]);
-      expect(await note(configured)).toContain(
-        `run \`bd bootstrap\`, which fetches the beads from git+file://${remote}`,
+      // Shared as init's next steps say, by that exact command: its config (sync.remote,
+      // dolt.auto-push) is committed and pushed, so a clone's note names bootstrap and the
+      // remote outright, bootstrap recovers the bead, and the clone pushes its own writes.
+      expect((await run(origin, ["sh", "-c", SHARE_BEADS])).code).toBe(0);
+      expect((await run(origin, ["git", "status", "--porcelain"])).output).toBe("");
+      const shared = await cloneOf("clone-shared");
+      expect(await note(shared)).toContain("run `bd bootstrap`, which fetches the beads from");
+      expect((await run(shared, ["bd", "bootstrap", "--yes"])).code).toBe(0);
+      expect(await sees(shared)).toBe(true);
+      const tip = await pushed(shared);
+      expect((await run(shared, ["bd", "create", "--title", "made in the clone"])).code).toBe(0);
+      expect(await pushed(shared)).not.toBe(tip);
+
+      // Both write while auto-push is throttled in the origin (it just pushed), so the two
+      // diverge; PRIME.md's `bd sync`, run in each, brings both to both beads.
+      expect((await run(origin, ["bd", "create", "--title", "held back in the origin"])).code).toBe(
+        0,
       );
+      const titles = (clone: string) => run(clone, ["bd", "list"]).then((r) => r.output);
+      expect(await titles(shared)).not.toContain("held back in the origin");
+      for (const clone of [origin, shared]) expect((await run(clone, ["bd", "sync"])).code).toBe(0);
+      for (const clone of [origin, shared]) {
+        expect(await titles(clone)).toContain("held back in the origin");
+        expect(await titles(clone)).toContain("made in the clone");
+      }
     },
     120_000,
   );

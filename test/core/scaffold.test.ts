@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { nextStep, REPO_NAME, scaffold, targetPath } from "../../src/core/scaffold.ts";
+import { nextStep, REPO_NAME, SHARE_BEADS, scaffold, targetPath } from "../../src/core/scaffold.ts";
 
 const toolchain = {
   bun: "1.4.2",
@@ -66,5 +66,8 @@ describe("scaffold", () => {
     // creates one itself (it is public beyond a PR).
     expect(text).toContain("gh repo create my-app --private --source . --push");
     expect(text.indexOf("gh repo create")).toBeLessThan(text.indexOf("/roadmap"));
+    // Then the beads, so a second clone can bootstrap them; printed, since it publishes them.
+    expect(text).toContain(SHARE_BEADS);
+    expect(text.indexOf("gh repo create")).toBeLessThan(text.indexOf(SHARE_BEADS));
   });
 });
