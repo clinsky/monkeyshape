@@ -35,6 +35,8 @@ const REGRESSIONS: Readonly<Record<string, string>> = {
   htmlBlock: "<details>\nrun `scripts/\nnope.sh` here\n</details>\n",
   htmlInterrupts: "Use a lone ` here\n<details>\n<summary>`x</summary>\n",
   linkTitle: '[x]: /url "a `b"\nc` d\n',
+  // From its re-review: a `[label]:` line that isn't a whole definition is a paragraph.
+  notADefinition: "[Note]: a ` b ` c `\nd ` e\nf ` g\n",
 };
 
 const EXAMPLES: ReadonlyArray<{ readonly name: string; readonly markdown: string }> = [

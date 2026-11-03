@@ -151,8 +151,13 @@ const HTML_BLOCKS: ReadonlyArray<{
   },
 ];
 
-/** A link reference definition's label: `[x]: /url "title"` is not a paragraph. */
-const LINK_DEFINITION = /^ {0,3}\[(?:[^\]\\]|\\.)+\]:/;
+/**
+ * A whole-line link reference definition, `[x]: /url "title"`, which is not a paragraph. Only
+ * the whole line counts: `[Note]: a b c` has text after its destination that isn't a title, so
+ * it is a paragraph. A title continued on the next line isn't matched, which is a miss.
+ */
+const LINK_DEFINITION =
+  /^ {0,3}\[(?:[^\]\\]|\\.)+\]:\s*(?:<[^>]*>|\S+)(?:\s+(?:"[^"]*"|'[^']*'|\([^)]*\)))?\s*$/;
 
 /** A line that starts a new block, so a code span can't continue onto it from the line above. */
 const BLOCK_START = /^ {0,3}(?:[-*+]\s|\d{1,9}[.)]\s|#{1,6}(?:\s|$)|>)/;
