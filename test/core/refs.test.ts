@@ -150,6 +150,40 @@ describe("refs in docs", () => {
   });
 });
 
+describe("refs in plans and notes: form only", () => {
+  const rules = (files: Record<string, string>, input = {}) =>
+    checkRefs(config(input), repo(files)).map((v) => `${v.file}:${v.line} ${v.rule}`);
+
+  test("a split code span or a section citation in plan/ or notes/ fails", () => {
+    expect(
+      rules({
+        "plan/MILESTONE.md": "A `split\nspan` here.\n",
+        "notes/2026-01-01-x.md": "As \u00a7 2 says.\n",
+      }),
+    ).toEqual([
+      "plan/MILESTONE.md:1 refs/split-code-span",
+      "notes/2026-01-01-x.md:1 refs/section-citation",
+    ]);
+  });
+
+  test("a path, script or decision that doesn't exist (yet, or any more) doesn't", () => {
+    expect(
+      rules({
+        "plan/MILESTONE.md": "Add `src/core/next.ts` and `bun run later`, per D-to-come.\n",
+        "notes/2026-01-01-x.md": "We removed `src/core/old.ts`; see [the old doc](gone.md).\n",
+      }),
+    ).toEqual([]);
+  });
+
+  test("form only wins over refs.docs, and is configurable", () => {
+    const files = { "plan/MILESTONE.md": "Add `src/core/next.ts`.\n" };
+    expect(rules(files, { refs: { docs: ["plan/**/*.md"] } })).toEqual([]);
+    expect(rules(files, { refs: { docs: ["plan/**/*.md"], formOnlyDocs: [] } })).toEqual([
+      "plan/MILESTONE.md:1 refs/missing-path",
+    ]);
+  });
+});
+
 describe("refs in code comments", () => {
   const withBeads = (files: Record<string, string>, beadIds: ReadonlyArray<string> | undefined) =>
     checkRefs(config(), repo(files, beadIds === undefined ? {} : { beadIds })).map((v) => v.rule);
