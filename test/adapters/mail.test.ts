@@ -194,7 +194,9 @@ describe("msg", () => {
       const lines = all.stdout.split("\n");
       expect(lines[0]).toBe("docs: 1 unread");
       expect(lines[1]).toContain("from tracks, ");
-      expect(lines[2]).toBe("gone (no such track: its worktree and handoff are gone): 1 unread");
+      expect(lines[2]).toBe(
+        `gone: 1 unread (no such track: its worktree and handoff are gone; recreate it with \`bun run --silent mshape track new gone\` to read this, or delete ${mailbox("gone")} if it is no longer wanted)`,
+      );
       expect(lines[4]).toBe("tracks: 1 unread");
       expect(lines.at(-1)).toStartWith("3 unread in 3 tracks.");
     }

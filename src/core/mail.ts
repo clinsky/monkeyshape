@@ -150,6 +150,8 @@ export interface Mailbox {
   readonly track: string;
   /** False for a mailbox whose track is gone: mail nobody will read unless someone acts. */
   readonly known: boolean;
+  /** Where it is on disk: a gone track's mail can only be dealt with there. */
+  readonly dir: string;
   readonly messages: ReadonlyArray<Message>;
   readonly unreadable: ReadonlyArray<Unreadable>;
 }
@@ -159,14 +161,18 @@ export interface Mailbox {
  * first, then a summary line. Reading stays the track's own act, so it says where to read.
  */
 export const formatAllInboxes = (mailboxes: ReadonlyArray<Mailbox>): string => {
-  const waiting = [...mailboxes]
+  const listed = [...mailboxes]
     .filter((box) => box.messages.length > 0 || box.unreadable.length > 0)
     .sort((a, b) => a.track.localeCompare(b.track));
-  const total = waiting.reduce((sum, box) => sum + box.messages.length, 0);
-  if (waiting.length === 0) return "No unread mail in any track.";
+  if (listed.length === 0) return "No unread mail in any track.";
+  const unread = listed.reduce((sum, box) => sum + box.messages.length, 0);
+  const tracks = listed.filter((box) => box.messages.length > 0).length;
+  const junk = listed.reduce((sum, box) => sum + box.unreadable.length, 0);
+  const gone = (box: Mailbox): string =>
+    ` (no such track: its worktree and handoff are gone; recreate it with \`${mshapeCommand(["track", "new", box.track])}\` to read this, or delete ${box.dir} if it is no longer wanted)`;
   return [
-    ...waiting.flatMap((box) => [
-      `${box.track}${box.known ? "" : " (no such track: its worktree and handoff are gone)"}: ${box.messages.length} unread`,
+    ...listed.flatMap((box) => [
+      `${box.track}: ${box.messages.length} unread${box.known ? "" : gone(box)}`,
       ...[...box.messages]
         .sort(byCreated)
         .map(
@@ -175,7 +181,7 @@ export const formatAllInboxes = (mailboxes: ReadonlyArray<Mailbox>): string => {
         ),
       ...box.unreadable.map((entry) => `  note: ${entry.file} is not a message (${entry.reason})`),
     ]),
-    `${total} unread in ${waiting.length} track${waiting.length === 1 ? "" : "s"}. A track reads its own from its worktree with \`${mshapeCommand(["msg", "read"])} <id>\`; this marks nothing read.`,
+    `${unread} unread in ${tracks} track${tracks === 1 ? "" : "s"}${junk === 0 ? "" : `, and ${junk} file${junk === 1 ? "" : "s"} that ${junk === 1 ? "isn't a message" : "aren't messages"}`}. A track reads its own from its worktree with \`${mshapeCommand(["msg", "read"])} <id>\`; this marks nothing read.`,
   ].join("\n");
 };
 

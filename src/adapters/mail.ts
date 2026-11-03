@@ -172,6 +172,7 @@ export const mailInboxAll = (cwd: string) =>
       mailboxes.push({
         track,
         known: known.includes(track),
+        dir: mailboxDir(common, track),
         ...(yield* readMessages(mailboxDir(common, track))),
       });
     return mailboxes;
