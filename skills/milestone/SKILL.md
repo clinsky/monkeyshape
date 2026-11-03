@@ -109,14 +109,14 @@ Once the PR is merged (or the human says to start):
   owns it. Drop mail unread only with the human's yes. A mailbox whose track is gone is
   flagged: read its messages, one JSON file each in the directory the note names, and treat
   them like the rest; delete that directory only with the human's yes.
-- `mshape track rm <name>` for each finished track whose `beads` column in
-  `mshape track list` shows 0. A `-` means beads weren't counted, and `rm` may then remove
-  the track with only a note. So first get `bd` working, or check by hand that
-  `bd list --label track:<name> --limit 0` lists nothing (it hides only closed beads).
-  If `rm` refuses, report the reason; never reach for `--force` without the human. If the
-  reason is open beads, `--force` won't help, and grooming has already decided each one:
-  move it to the track the new plan gives it, or close it if it's done, and list what you
-  did in your report. Ask the human only when the plan doesn't say.
+- `mshape track rm <name>` for each track whose `done` column in `mshape track list` says
+  `yes`, and for no other. `unknown` means `bd` or `gh` couldn't say: act on the note
+  `track list` prints, then list again; never remove on it. `no` on a track the new plan
+  doesn't continue: an open bead is grooming's, already decided, so move it to the track
+  the plan gives it or close it if it's done, and list what you did in your report. An open
+  PR, unmerged commits, or no merged PR since the track started are the human's to decide.
+  Ask the human only when the plan doesn't say. If `rm` refuses, report the reason; never reach for `--force` without the
+  human.
 - `mshape track new <name>` for each new track. Fill its handoff (`.handoffs/<name>.md`):
   the charter, the state ("not started", and how to start) with today's date in its
   heading, and the traps you already know. Change nothing else: there is no status line
