@@ -13,7 +13,14 @@ import { stripJsonc } from "./jsonc.ts";
 import { isTsSource, type Snapshot, type Violation } from "./model.ts";
 import { dirname } from "./paths.ts";
 
-const violation = (rule: string, file: string, message: string): Violation => ({
+/** Every rule this check reports, as `coverage/<kind>`; test/core/ruleCases.test.ts covers each. */
+export const COVERAGE_RULES = ["config", "typecheck", "lint"] as const;
+
+const violation = (
+  rule: (typeof COVERAGE_RULES)[number],
+  file: string,
+  message: string,
+): Violation => ({
   check: "coverage",
   rule: `coverage/${rule}`,
   file,

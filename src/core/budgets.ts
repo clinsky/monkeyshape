@@ -7,7 +7,27 @@ import { EVIDENCE_KINDS, FIELDS, parseDecisions, SLUG } from "./decisions.ts";
 import { matchesAny } from "./glob.ts";
 import { isTsSource, lineCount, pathIndex, type Snapshot, type Violation } from "./model.ts";
 
-const violation = (rule: string, file: string, message: string, line?: number): Violation => ({
+/** Every rule this check reports, as `budgets/<kind>`; test/core/ruleCases.test.ts covers each. */
+export const BUDGETS_RULES = [
+  "agents-missing",
+  "agents-lines",
+  "claude-md",
+  "readme-lines",
+  "decisions-count",
+  "decision-slug",
+  "decision-duplicate",
+  "decision-words",
+  "decision-field",
+  "decision-evidence",
+  "decision-unenforced",
+  "memories-count",
+  "memories-bytes",
+  "file-lines",
+  "unused-allowance",
+] as const;
+type BudgetsRule = (typeof BUDGETS_RULES)[number];
+
+const violation = (rule: BudgetsRule, file: string, message: string, line?: number): Violation => ({
   check: "budgets",
   rule: `budgets/${rule}`,
   file,
@@ -103,7 +123,7 @@ export const checkBudgets = (
   const index = pathIndex(snapshot.files);
   const seen = new Set<string>();
   for (const decision of decisions) {
-    const at = (rule: string, message: string) =>
+    const at = (rule: BudgetsRule, message: string) =>
       violations.push(
         violation(rule, "DECISIONS.md", `${decision.slug} ${message}`, decision.line),
       );

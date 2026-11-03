@@ -1,0 +1,527 @@
+/**
+ * Every rule id `mshape check` can report has a case that must fail and one that must pass.
+ * The must-fail case proves the rule can fire; the must-pass case is valid input close to it,
+ * on which the whole check must be clean, so a rule that fires on valid input (a false
+ * failure) breaks here before it breaks an adopter's gate.
+ *
+ * A new rule id, from the registry or a check's own kinds, fails the first test until it has
+ * both cases below.
+ */
+import { describe, expect, test } from "bun:test";
+import { prerequisites, ruleIds, runChecks } from "../../src/core/check.ts";
+import type { CheckName, SkillFiles, Snapshot, Violation } from "../../src/core/model.ts";
+import type { ShapeConfig } from "../../src/schemas/config.ts";
+import { config, repo } from "../support.ts";
+
+interface Case {
+  readonly files?: Readonly<Record<string, string>>;
+  readonly config?: ShapeConfig;
+  readonly options?: Parameters<typeof repo>[1];
+}
+
+interface Cases {
+  readonly fail: Case;
+  readonly pass: Case;
+}
+
+const lines = (n: number): string =>
+  `${Array.from({ length: n }, (_, i) => `line ${i}`).join("\n")}\n`;
+
+const REASON = "a reason a later agent can weigh";
+
+// arch
+
+const ARCH: ShapeConfig = {
+  arch: {
+    modules: {
+      core: { description: "pure" },
+      adapters: { description: "host", mayImport: ["core"], hostAccess: true },
+    },
+  },
+};
+
+const arch: Record<string, Cases> = {
+  "arch/no-module-map": {
+    fail: { config: {} },
+    pass: { config: ARCH },
+  },
+  "arch/config": {
+    fail: { config: { arch: { modules: { core: { description: "x", mayImport: ["nope"] } } } } },
+    pass: { config: ARCH },
+  },
+  "arch/unknown-module": {
+    fail: { files: { "src/misc/a.ts": "" } },
+    pass: { files: { "src/core/a.ts": "" } },
+  },
+  "arch/host-access": {
+    fail: { files: { "src/core/a.ts": "process.cwd();\n" } },
+    pass: {
+      files: {
+        "src/core/a.ts":
+          'const process = { cwd: () => "/" };\nprocess.cwd();\nnew Bun.Glob("*");\n',
+        "src/adapters/b.ts": 'import { readFile } from "node:fs/promises";\nprocess.cwd();\n',
+      },
+    },
+  },
+  "arch/forbidden-package": {
+    fail: { files: { "src/core/a.ts": 'import _ from "lodash";\n' } },
+    pass: { files: { "src/core/a.ts": 'import { Effect } from "effect";\n' } },
+  },
+  "arch/manifest": {
+    fail: { files: { "src/core/a.ts": 'import pkg from "../../package.json";\n' } },
+    pass: {
+      config: { arch: { modules: { core: { description: "x", manifest: true } } } },
+      files: { "src/core/a.ts": 'import pkg from "../../package.json";\n' },
+    },
+  },
+  "arch/unresolved-import": {
+    fail: { files: { "src/core/a.ts": 'import { b } from "./b";\n', "src/core/b.ts": "" } },
+    pass: { files: { "src/core/a.ts": 'import { b } from "./b.ts";\n', "src/core/b.ts": "" } },
+  },
+  "arch/forbidden-import": {
+    fail: {
+      files: {
+        "src/core/a.ts": 'import { b } from "../adapters/b.ts";\n',
+        "src/adapters/b.ts": "",
+      },
+    },
+    pass: {
+      files: { "src/adapters/b.ts": 'import { a } from "../core/a.ts";\n', "src/core/a.ts": "" },
+    },
+  },
+  "arch/cycle": {
+    fail: {
+      files: {
+        "src/core/a.ts": 'import { b } from "./b.ts";\n',
+        "src/core/b.ts": 'import { a } from "./a.ts";\n',
+      },
+    },
+    pass: { files: { "src/core/a.ts": 'import { b } from "./b.ts";\n', "src/core/b.ts": "" } },
+  },
+};
+
+// refs
+
+const DECISIONS = "# Decisions\n\n## D-real-one: A decision\nDecision: x\n";
+
+const refs: Record<string, Cases> = {
+  "refs/section-citation": {
+    fail: { files: { "AGENTS.md": "As the plan says in §3.\n" } },
+    pass: { files: { "AGENTS.md": "As the plan's Commands section says.\n" } },
+  },
+  "refs/forbidden": {
+    fail: {
+      config: { refs: { forbidden: [{ pattern: "acme-internal", reason: REASON }] } },
+      files: { "AGENTS.md": "Ask acme-internal.\n" },
+    },
+    pass: {
+      config: { refs: { forbidden: [{ pattern: "acme-internal", reason: REASON }] } },
+      files: { "AGENTS.md": "Ask the maintainer.\n" },
+    },
+  },
+  "refs/unknown-decision": {
+    fail: { files: { "DECISIONS.md": DECISIONS, "AGENTS.md": "Per D-made-up.\n" } },
+    pass: { files: { "DECISIONS.md": DECISIONS, "AGENTS.md": "Per D-real-one.\n" } },
+  },
+  "refs/split-code-span": {
+    fail: { files: { "AGENTS.md": "Run `scripts/\nsetup.sh` first.\n" } },
+    pass: {
+      files: {
+        "AGENTS.md": "Start a span with `` ` `` and close it.\n```\nfenced ` stray\n```\n",
+      },
+    },
+  },
+  "refs/normative-link": {
+    fail: { files: { "AGENTS.md": "See notes/old.md.\n", "notes/old.md": "" } },
+    pass: { files: { "AGENTS.md": "History lives in `notes/`.\n", "notes/old.md": "" } },
+  },
+  "refs/unknown-script": {
+    fail: { files: { "AGENTS.md": "Run `bun run nope`.\n" }, options: { scripts: ["check"] } },
+    pass: {
+      files: { "AGENTS.md": "Run `bun run --silent check`.\n" },
+      options: { scripts: ["check"] },
+    },
+  },
+  "refs/missing-path": {
+    fail: { files: { "AGENTS.md": "See `src/gone.ts` and [it](src/gone.ts).\n", "src/a.ts": "" } },
+    pass: { files: { "AGENTS.md": "See `src/a.ts` and [it](src/a.ts).\n", "src/a.ts": "" } },
+  },
+  "refs/bead-in-code": {
+    fail: {
+      files: { "src/a.ts": "// see mshape-abc.1\n" },
+      options: { beadIds: ["mshape-abc.1"] },
+    },
+    pass: {
+      files: { "src/a.ts": "// TODO(mshape-abc.1): later\n" },
+      options: { beadIds: ["mshape-abc.1"] },
+    },
+  },
+};
+
+// budgets
+
+const AGENTS = { "AGENTS.md": "# Agents\n" };
+
+const entry = (slug: string, overrides: Record<string, string> = {}): string => {
+  const fields: Record<string, string> = {
+    Decision: "Do the thing.",
+    "Tempting wrong fix": "The other thing.",
+    Evidence: "measured: it broke twice",
+    "Enforced by": "test/a.test.ts",
+    "Revisit when": "it stops being true",
+    ...overrides,
+  };
+  return `## ${slug}: Title\n${Object.entries(fields)
+    .filter(([, v]) => v !== "")
+    .map(([k, v]) => `${k}: ${v}`)
+    .join("\n")}\n`;
+};
+
+/** A repo whose DECISIONS.md holds `entries`, with the file they're enforced by. */
+const decisions = (...entries: ReadonlyArray<string>): Case => ({
+  files: {
+    ...AGENTS,
+    "test/a.test.ts": "",
+    "DECISIONS.md": `# Decisions\n\n${entries.join("\n")}`,
+  },
+});
+
+const budgets: Record<string, Cases> = {
+  "budgets/agents-missing": {
+    fail: { files: {} },
+    pass: { files: AGENTS },
+  },
+  "budgets/agents-lines": {
+    fail: { config: { budgets: { agentsLines: 3 } }, files: { "AGENTS.md": lines(4) } },
+    pass: { config: { budgets: { agentsLines: 3 } }, files: { "AGENTS.md": lines(3) } },
+  },
+  "budgets/claude-md": {
+    fail: { files: { ...AGENTS, "CLAUDE.md": "@AGENTS.md\nAlso read this.\n" } },
+    pass: { files: { ...AGENTS, "CLAUDE.md": "@AGENTS.md\n" } },
+  },
+  "budgets/readme-lines": {
+    fail: { config: { budgets: { readmeLines: 2 } }, files: { ...AGENTS, "README.md": lines(3) } },
+    pass: { config: { budgets: { readmeLines: 2 } }, files: { ...AGENTS, "README.md": lines(2) } },
+  },
+  "budgets/decisions-count": {
+    fail: { ...decisions(entry("D-one"), entry("D-two")), config: { budgets: { decisions: 1 } } },
+    pass: { ...decisions(entry("D-one")), config: { budgets: { decisions: 1 } } },
+  },
+  "budgets/decision-slug": {
+    fail: decisions(entry("D-Not_a-slug")),
+    pass: decisions(entry("D-a-slug")),
+  },
+  "budgets/decision-duplicate": {
+    fail: decisions(entry("D-one"), entry("D-one")),
+    pass: decisions(entry("D-one"), entry("D-two")),
+  },
+  "budgets/decision-words": {
+    fail: decisions(entry("D-one", { Decision: "word ".repeat(150) })),
+    pass: decisions(entry("D-one", { Decision: "word ".repeat(100) })),
+  },
+  "budgets/decision-field": {
+    fail: decisions(entry("D-one", { "Revisit when": "" })),
+    pass: decisions(entry("D-one")),
+  },
+  "budgets/decision-evidence": {
+    fail: decisions(entry("D-one", { Evidence: "vibes" })),
+    pass: decisions(entry("D-one", { Evidence: "verified: by hand" })),
+  },
+  "budgets/decision-unenforced": {
+    fail: decisions(entry("D-one", { "Enforced by": "test/gone.test.ts" })),
+    pass: decisions(
+      entry("D-one", { "Enforced by": "`test/a.test.ts` (its second case)" }),
+      entry("D-two", { "Enforced by": "none", Evidence: "policy" }),
+    ),
+  },
+  "budgets/memories-count": {
+    fail: {
+      config: { budgets: { memories: 1 } },
+      files: AGENTS,
+      options: { memories: { a: "x", b: "y" } },
+    },
+    pass: {
+      config: { budgets: { memories: 1 } },
+      files: AGENTS,
+      options: { memories: { a: "x" } },
+    },
+  },
+  "budgets/memories-bytes": {
+    fail: {
+      config: { budgets: { memoryBytes: 4 } },
+      files: AGENTS,
+      options: { memories: { a: "12345" } },
+    },
+    pass: {
+      config: { budgets: { memoryBytes: 4 } },
+      files: AGENTS,
+      options: { memories: { a: "1234" } },
+    },
+  },
+  "budgets/file-lines": {
+    fail: {
+      config: { budgets: { fileWarnLines: 2, fileFailLines: 3 } },
+      files: { ...AGENTS, "src/a.ts": lines(4) },
+    },
+    pass: {
+      config: { budgets: { fileWarnLines: 2, fileFailLines: 3 } },
+      files: { ...AGENTS, "src/a.ts": lines(3) },
+    },
+  },
+  "budgets/unused-allowance": {
+    fail: {
+      config: {
+        budgets: {
+          fileWarnLines: 2,
+          fileFailLines: 3,
+          largeFiles: [{ path: "src/a.ts", reason: REASON }],
+        },
+      },
+      files: { ...AGENTS, "src/a.ts": lines(3) },
+    },
+    pass: {
+      config: {
+        budgets: {
+          fileWarnLines: 2,
+          fileFailLines: 3,
+          largeFiles: [{ path: "src/a.ts", reason: REASON }],
+        },
+      },
+      files: { ...AGENTS, "src/a.ts": lines(4) },
+    },
+  },
+};
+
+// coverage
+
+const TOOLS = { "tsconfig.json": '{ "include": ["src"] }', "biome.json": "{}" };
+
+const coverage: Record<string, Cases> = {
+  "coverage/config": {
+    fail: { files: { "biome.json": "{}", "tsconfig.json": "{ not json" } },
+    pass: { files: { "biome.json": "{}", "tsconfig.json": "// a comment\n{}" } },
+  },
+  "coverage/typecheck": {
+    fail: { files: { ...TOOLS, "scripts/a.ts": "" } },
+    pass: { files: { ...TOOLS, "src/a.ts": "", "generated/b.ts": "" } },
+  },
+  "coverage/lint": {
+    fail: {
+      files: {
+        ...TOOLS,
+        "biome.json": '{ "files": { "includes": ["**", "!src/a.ts"] } }',
+        "src/a.ts": "",
+      },
+    },
+    pass: {
+      files: {
+        ...TOOLS,
+        "biome.json": '{ "files": { "includes": ["**", "!src/b.ts"] } }',
+        "src/a.ts": "",
+      },
+    },
+  },
+};
+
+// rules: the engine's own kinds, then one per registry rule
+
+const ALLOW_LEGACY: ShapeConfig = {
+  rules: { "no-throw": { allow: [{ path: "src/legacy/**", reason: REASON }] } },
+};
+
+const rules: Record<string, Cases> = {
+  "rules/config": {
+    fail: { config: { rules: { "no-such-rule": {} } } },
+    pass: { config: { rules: { "no-throw": { off: "this repo is a plain library" } } } },
+  },
+  "rules/syntax": {
+    fail: { files: { "src/a.ts": "const = ;\n" } },
+    pass: { files: { "src/a.ts": "const x = 1;\n" } },
+  },
+  "rules/ignore-without-reason": {
+    fail: { files: { "src/a.ts": "// shape-ignore no-throw\nthrow x;\n" } },
+    pass: { files: { "src/a.ts": `// shape-ignore no-throw: ${REASON}\nthrow x;\n` } },
+  },
+  "rules/unused-ignore": {
+    fail: { files: { "src/a.ts": `// shape-ignore no-throw: ${REASON}\nconst x = 1;\n` } },
+    pass: { files: { "src/a.ts": `throw x; // shape-ignore no-throw: ${REASON}\n` } },
+  },
+  "rules/unused-allowance": {
+    fail: { config: ALLOW_LEGACY, files: { "src/a.ts": "" } },
+    pass: { config: ALLOW_LEGACY, files: { "src/legacy/a.ts": "throw x;\n" } },
+  },
+  "rules/decode-strict": {
+    fail: {
+      files: {
+        "src/a.ts": 'import { Schema } from "effect";\nSchema.decodeUnknownSync(User)(input);\n',
+      },
+    },
+    pass: {
+      files: {
+        "src/a.ts":
+          'import { Schema } from "effect";\nSchema.decodeUnknownSync(User, { errors: "all", onExcessProperty: "error" })(input);\n',
+      },
+    },
+  },
+  "rules/no-nondeterminism": {
+    fail: { files: { "src/a.ts": "Date.now();\n" } },
+    pass: { files: { "src/a.ts": 'new Date("2026-01-01");\nEffect.all(effects);\n' } },
+  },
+  "rules/no-throw": {
+    fail: { files: { "src/a.ts": 'throw new Error("x");\n' } },
+    pass: {
+      files: { "src/a.ts": "Effect.try({ try: () => JSON.parse(input), catch: (e) => e });\n" },
+    },
+  },
+  "rules/effect-run-at-edge": {
+    fail: {
+      files: { "src/core/a.ts": 'import { Effect } from "effect";\nEffect.runPromise(p);\n' },
+    },
+    pass: {
+      files: { "src/cli/main.ts": 'import { Effect } from "effect";\nEffect.runPromise(p);\n' },
+    },
+  },
+  "rules/no-error-spread": {
+    fail: { files: { "src/a.ts": "const copy = { ...err, extra: 1 };\n" } },
+    pass: { files: { "src/a.ts": "const copy = { ...defaults, cause: err };\n" } },
+  },
+};
+
+// skills
+
+const bytes = (entries: Record<string, string>): SkillFiles =>
+  new Map(Object.entries(entries).map(([path, text]) => [path, new TextEncoder().encode(text)]));
+
+const MANIFEST = (...shared: ReadonlyArray<string>) => JSON.stringify({ shared });
+
+/** A repo with its own skill `own` and the shared skill `track`, linked, committed and in sync. */
+const SYNCED = {
+  files: {
+    ".claude/skills": "",
+    ".agents/skills/monkeyshape.json": "",
+    ".agents/skills/own/SKILL.md": "",
+    ".agents/skills/track/SKILL.md": "",
+  },
+  installed: { "monkeyshape.json": MANIFEST("track"), "own/SKILL.md": "o", "track/SKILL.md": "t" },
+  shipped: { "track/SKILL.md": "t" },
+};
+
+const skillsCase = (
+  overrides: {
+    readonly files?: Record<string, string>;
+    readonly link?: Snapshot["skills"]["link"];
+    readonly installed?: Record<string, string>;
+    readonly claudeDirectory?: Record<string, string>;
+    readonly shipped?: Record<string, string>;
+  } = {},
+): Case => ({
+  files: overrides.files ?? SYNCED.files,
+  options: {
+    skills: {
+      link: overrides.link ?? { kind: "link", target: "../.agents/skills" },
+      installed: bytes(overrides.installed ?? SYNCED.installed),
+      claudeDirectory: bytes(overrides.claudeDirectory ?? {}),
+      shipped: bytes(overrides.shipped ?? SYNCED.shipped),
+    },
+  },
+});
+
+const { ".claude/skills": _link, ...UNLINKED_FILES } = SYNCED.files;
+
+const skills: Record<string, Cases> = {
+  "skills/link": {
+    fail: skillsCase({ link: { kind: "link", target: "/home/someone/repo/.agents/skills" } }),
+    pass: skillsCase({ link: { kind: "link", target: "./../.agents/skills/" } }),
+  },
+  "skills/untracked": {
+    fail: skillsCase({ files: UNLINKED_FILES }),
+    pass: skillsCase(),
+  },
+  "skills/unlinked": {
+    fail: skillsCase({ link: { kind: "directory" }, claudeDirectory: { "mine/SKILL.md": "m" } }),
+    pass: skillsCase(),
+  },
+  "skills/diverged": {
+    fail: skillsCase({ link: { kind: "directory" }, claudeDirectory: { "own/SKILL.md": "x" } }),
+    pass: skillsCase(),
+  },
+  "skills/skill-md": {
+    fail: skillsCase({
+      files: { ...SYNCED.files, ".agents/skills/notes/a.md": "" },
+      installed: { ...SYNCED.installed, "notes/a.md": "n" },
+    }),
+    pass: skillsCase({
+      files: { ...SYNCED.files, ".agents/skills/own/notes.md": "" },
+      installed: { ...SYNCED.installed, "own/notes.md": "n" },
+    }),
+  },
+  "skills/manifest": {
+    fail: skillsCase({ installed: { ...SYNCED.installed, "monkeyshape.json": "{ not json" } }),
+    pass: skillsCase(),
+  },
+  "skills/sync-due": {
+    fail: skillsCase({ shipped: { "track/SKILL.md": "t, updated" } }),
+    pass: skillsCase(),
+  },
+  "skills/collision": {
+    fail: skillsCase({ shipped: { ...SYNCED.shipped, "own/SKILL.md": "o" } }),
+    pass: skillsCase(),
+  },
+};
+
+// prerequisites
+
+const prerequisitesCases: Record<string, Cases> = {
+  "prerequisites/beads-failed": {
+    fail: { options: { beads: { state: "failed", reason: "bd crashed" } } },
+    pass: { options: { beads: { state: "unavailable", reason: "bd is not installed" } } },
+  },
+  "prerequisites/beads-required": {
+    fail: { config: { beads: "required" }, options: { beads: { state: "absent" } } },
+    pass: { config: { beads: "required" }, options: { beads: { state: "ok" } } },
+  },
+};
+
+const CASES: Record<string, Cases> = {
+  ...arch,
+  ...refs,
+  ...budgets,
+  ...coverage,
+  ...rules,
+  ...skills,
+  ...prerequisitesCases,
+};
+
+/** Configs default to the check's own: every arch case needs a module map. */
+const DEFAULT_CONFIG: Partial<Record<string, ShapeConfig>> = { arch: ARCH };
+
+/** What the rule's own check reports on a case; prerequisites run whatever is selected. */
+const evaluate = (id: string, input: Case): ReadonlyArray<Violation> => {
+  const check = id.slice(0, id.indexOf("/"));
+  const resolved = config(input.config ?? DEFAULT_CONFIG[check] ?? {});
+  const snapshot = repo(input.files ?? {}, input.options);
+  return check === "prerequisites"
+    ? prerequisites(resolved, snapshot)
+    : runChecks(resolved, snapshot, [check as CheckName]);
+};
+
+describe("rule cases", () => {
+  test("every rule id has a must-fail and a must-pass case, and no case names a rule that's gone", () => {
+    const ids = ruleIds();
+    expect(new Set(ids).size).toBe(ids.length);
+    const missing = ids.filter(
+      (id) => CASES[id]?.fail === undefined || CASES[id]?.pass === undefined,
+    );
+    expect(missing).toEqual([]);
+    expect(Object.keys(CASES).filter((id) => !ids.includes(id))).toEqual([]);
+  });
+
+  for (const [id, cases] of Object.entries(CASES)) {
+    test(`${id} fires on its must-fail case`, () => {
+      expect(evaluate(id, cases.fail).map((v) => v.rule)).toContain(id);
+    });
+    test(`${id}'s check is clean on its must-pass case`, () => {
+      expect(evaluate(id, cases.pass).map((v) => `${v.rule} ${v.file}: ${v.message}`)).toEqual([]);
+    });
+  }
+});

@@ -21,7 +21,25 @@ type Arch = NonNullable<ResolvedConfig["arch"]>;
 
 const MANIFEST = "package.json";
 
-const violation = (rule: string, file: string, message: string, line?: number): Violation => ({
+/** Every rule this check reports, as `arch/<kind>`; test/core/ruleCases.test.ts covers each. */
+export const ARCH_RULES = [
+  "no-module-map",
+  "config",
+  "unknown-module",
+  "host-access",
+  "forbidden-package",
+  "manifest",
+  "unresolved-import",
+  "forbidden-import",
+  "cycle",
+] as const;
+
+const violation = (
+  rule: (typeof ARCH_RULES)[number],
+  file: string,
+  message: string,
+  line?: number,
+): Violation => ({
   check: "arch",
   rule: `arch/${rule}`,
   file,

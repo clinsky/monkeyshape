@@ -136,7 +136,23 @@ const collision = (name: string): string =>
 export const formatCollisions = (sync: SkillSync): ReadonlyArray<string> =>
   sync.collisions.map((name) => `${SKILLS_DIR}/${name} ${collision(name)}`);
 
-const violation = (rule: string, file: string, message: string): Violation => ({
+/** Every rule this check reports, as `skills/<kind>`; test/core/ruleCases.test.ts covers each. */
+export const SKILLS_RULES = [
+  "link",
+  "untracked",
+  "unlinked",
+  "diverged",
+  "skill-md",
+  "manifest",
+  "sync-due",
+  "collision",
+] as const;
+
+const violation = (
+  rule: (typeof SKILLS_RULES)[number],
+  file: string,
+  message: string,
+): Violation => ({
   check: "skills",
   rule: `skills/${rule}`,
   file,
