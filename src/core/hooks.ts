@@ -1,8 +1,8 @@
 /**
  * The Claude Code hooks a repo runs, and how a hook or a skill invokes `mshape`. `HOOKS` is the
- * one list: `.claude/settings.json`, in this repo and in every repo `mshape init` creates, is
- * `renderSettings(HOOKS)`, and a test fails when either file drifts from it. A new hook is one
- * entry here.
+ * one list: the `hooks` key of `.claude/settings.json`, in this repo and in every repo
+ * `mshape init` creates, is rendered from it, and a test fails when this repo's drifts. The
+ * file's other keys belong to the repo. A new hook is one entry here.
  */
 
 /** The hook events monkeyshape uses; add one when an entry needs it. */
@@ -35,16 +35,26 @@ export const HOOKS: ReadonlyArray<Hook> = [
   { event: "SessionStart", matcher: "", command: "bd prime --hook-json" },
 ];
 
-/** `.claude/settings.json`'s text for these hooks. */
-export const renderSettings = (hooks: ReadonlyArray<Hook>): string => {
+/** The `hooks` key of `.claude/settings.json`: each hook under its event, in list order. */
+export const settingsHooks = (hooks: ReadonlyArray<Hook>): Record<string, Array<unknown>> => {
   const events: Record<string, Array<unknown>> = {};
   for (const hook of hooks)
     events[hook.event] = [
       ...(events[hook.event] ?? []),
       { matcher: hook.matcher, hooks: [{ type: "command", command: hook.command }] },
     ];
-  return `${JSON.stringify({ hooks: events }, null, 2)}\n`;
+  return events;
 };
+
+/**
+ * `.claude/settings.json`'s text: `current` (the parsed file, or nothing for a new repo) with
+ * its `hooks` key replaced. The list owns `hooks` and nothing else, since Claude Code and the
+ * user keep `permissions`, `env` and the rest in the same file.
+ */
+export const renderSettings = (
+  hooks: ReadonlyArray<Hook>,
+  current: Readonly<Record<string, unknown>> = {},
+): string => `${JSON.stringify({ ...current, hooks: settingsHooks(hooks) }, null, 2)}\n`;
 
 /** Where Claude Code reads the project's hooks, repo-relative. */
 export const SETTINGS_FILE = ".claude/settings.json";

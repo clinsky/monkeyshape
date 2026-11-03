@@ -1,6 +1,12 @@
 import { describe, expect, test } from "bun:test";
 import { join } from "node:path";
-import { HOOKS, mshapeCommand, renderSettings, SETTINGS_FILE } from "../../src/core/hooks.ts";
+import {
+  HOOKS,
+  mshapeCommand,
+  renderSettings,
+  SETTINGS_FILE,
+  settingsHooks,
+} from "../../src/core/hooks.ts";
 import { scaffold } from "../../src/core/scaffold.ts";
 
 const ROOT = join(import.meta.dir, "..", "..");
@@ -34,10 +40,24 @@ describe("hooks", () => {
     });
   });
 
-  test("this repo's .claude/settings.json is the rendered hook list", async () => {
-    // To regenerate: bun -e 'import { HOOKS, renderSettings } from "./src/core/hooks.ts";
-    //   await Bun.write(".claude/settings.json", renderSettings(HOOKS))'
-    expect(await Bun.file(join(ROOT, SETTINGS_FILE)).text()).toBe(renderSettings(HOOKS));
+  test("this repo's .claude/settings.json hooks are the rendered hook list", async () => {
+    // To regenerate, keeping the file's other keys: bun -e 'import { HOOKS, renderSettings }
+    //   from "./src/core/hooks.ts"; const f = Bun.file(".claude/settings.json");
+    //   await Bun.write(f, renderSettings(HOOKS, await f.json()))'
+    const settings = await Bun.file(join(ROOT, SETTINGS_FILE)).json();
+    expect(settings.hooks).toEqual(settingsHooks(HOOKS));
+  });
+
+  test("the hook list owns only the hooks key: other settings are kept", () => {
+    const current = {
+      permissions: { allow: ["Bash(bd ready)"] },
+      env: { A: "1" },
+      hooks: { Stop: [] },
+    };
+    const settings = JSON.parse(renderSettings(HOOKS, current));
+    expect(settings.permissions).toEqual(current.permissions);
+    expect(settings.env).toEqual(current.env);
+    expect(settings.hooks).toEqual(settingsHooks(HOOKS));
   });
 
   test("init writes the rendered settings.json, whatever the template carries", async () => {
