@@ -107,6 +107,23 @@ describe("review", () => {
     expect(current.code).toBe(1);
   });
 
+  test("the handoffs are linked in, so the review can read the PR's track charter", async () => {
+    const store = join(repo, ".git", "monkeyshape", "handoffs");
+    await mkdir(store, { recursive: true });
+    await writeFile(join(store, "alpha.md"), "# Track: alpha\n");
+    await publish(7, "src/a.ts");
+    const made = mshape(repo, "review", "7");
+    expect(made.code).toBe(0);
+    expect(await readFile(join(wt(7), ".handoffs", "alpha.md"), "utf8")).toBe("# Track: alpha\n");
+    expect(sh(wt(7), "status", "--porcelain")).toBe("");
+
+    // A move relinks it when the link has gone, as create does.
+    await rm(join(wt(7), ".handoffs"));
+    await publish(7, "src/b.ts");
+    expect(mshape(repo, "review", "7").stdout).toContain(`linked ${wt(7)}/.handoffs`);
+    expect(await readFile(join(wt(7), ".handoffs", "alpha.md"), "utf8")).toBe("# Track: alpha\n");
+  });
+
   test("again after a push: moved to the new head, printing the old one", async () => {
     const first = await publish(7, "src/a.ts");
     mshape(repo, "review", "7");
