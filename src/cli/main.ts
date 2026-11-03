@@ -31,7 +31,6 @@ import {
 } from "../adapters/tracks.ts";
 import { loadSnapshot } from "../adapters/workspace.ts";
 import { CHECKS, notices, prerequisites, runChecks, unevaluated } from "../core/check.ts";
-import { missingPrSections } from "../core/conventions.ts";
 import { garden } from "../core/garden.ts";
 import { CLAUDE_SKILLS_LINK } from "../core/layout.ts";
 import { formatInbox, formatMessage, formatSent } from "../core/mail.ts";
@@ -43,7 +42,7 @@ import { RULES } from "../core/rules/registry.ts";
 import { nextStep, REPO_NAME } from "../core/scaffold.ts";
 import { formatCollisions, formatSync } from "../core/skills.ts";
 import { formatSyncPlan } from "../core/sync.ts";
-import { missingSectionsProblem } from "../core/trackPr.ts";
+import { bodyProblems } from "../core/trackPr.ts";
 import { type ConfigError, type TrackError, WorkspaceError } from "../schemas/errors.ts";
 
 /** What a command returns: the text to print, and the exit code (0 prints to stdout). */
@@ -145,10 +144,10 @@ const today = (): string => {
 const trackPrCommand = (root: string, args: ReadonlyArray<string>) =>
   Effect.gen(function* () {
     if (args.length === 1 && args[0] === "--check-body") {
-      const missing = missingPrSections(yield* Effect.promise(() => Bun.stdin.text()));
-      return missing.length === 0
-        ? { output: "the PR body has every required section", code: 0 }
-        : { output: `mshape: ${missingSectionsProblem(missing)}`, code: 1 };
+      const problems = bodyProblems(yield* Effect.promise(() => Bun.stdin.text()));
+      return problems.length === 0
+        ? { output: "the PR body has every required section and lists its beads", code: 0 }
+        : { output: `mshape: ${problems.join("\nmshape: ")}`, code: 1 };
     }
     const value = (flag: string) => {
       const at = args.indexOf(flag);
@@ -547,7 +546,8 @@ export const COMMANDS: ReadonlyArray<Command> = [
       --body-file's, or the PR's as it stands. Refuses, posting nothing, on uncommitted
       changes, a failing gate, a missing required section or a bead bd doesn't know.
   mshape track pr --check-body
-      Read a PR body on stdin; exit 1 naming the required sections it lacks (CI's pr.yml).
+      Read a PR body on stdin; exit 1 naming the required sections it lacks, or saying it
+      lists no bead: the test track pr runs before posting, here for CI's pr.yml.
   mshape track rm <name> [--force] [--keep-handoff]
       Remove a finished track: worktree, branch, handoff, mailbox. Fetches main's upstream
       first, then refuses on uncommitted changes, work in neither main nor origin/main (by

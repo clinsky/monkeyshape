@@ -11,7 +11,7 @@ import { join } from "node:path";
 import { Effect } from "effect";
 import { GATE_COMMAND, GATE_SCRIPT, prSizeNote } from "../core/conventions.ts";
 import { MAIN_BRANCH, trackBranch } from "../core/layout.ts";
-import { changedLines, gateSection, planPrBody } from "../core/trackPr.ts";
+import { changedLines, gateSection, gateTail, planPrBody } from "../core/trackPr.ts";
 import { WorkspaceError } from "../schemas/errors.ts";
 import { fetchUpstream, git, gitOk, locate, mergeTargets, refuse, trackCurrent } from "./tracks.ts";
 
@@ -129,7 +129,7 @@ export const trackPr = (
     );
     // One stream, as a terminal shows it: the summary lines come from both.
     const gate = yield* spawn(top, ["sh", "-c", `"$0" run ${GATE_SCRIPT} 2>&1`, process.execPath]);
-    const tail = gate.stdout.trimEnd().split("\n").slice(-15).join("\n");
+    const tail = gateTail(gate.stdout);
     if (gate.code !== 0)
       return yield* refuse(
         `the gate failed (exit ${gate.code}), so nothing was pushed or posted. Its last lines:\n${tail}`,
@@ -159,12 +159,19 @@ export const trackPr = (
 
     const remote =
       (yield* git(repo, ["config", `branch.${MAIN_BRANCH}.remote`])).stdout.trim() || "origin";
-    const pushed = yield* git(top, ["push", "--quiet", "-u", remote, `${branch}:${branch}`], {
+    // The commit the gate ran on, not the branch: one made while the gate ran is ungated.
+    const pushed = yield* git(top, ["push", "--quiet", remote, `${commit}:refs/heads/${branch}`], {
       env: { ...options.fetchEnv },
     });
     if (pushed.code !== 0)
       return yield* refuse(
         `\`git push ${remote} ${branch}\` failed, so the PR wasn't touched: ${pushed.stderr || `exit ${pushed.code}`}`,
+      );
+
+    const now = yield* gitOk(top, ["rev-parse", "HEAD"]);
+    if (now !== commit)
+      yield* say(
+        `note: \`${branch}\` moved to ${now.slice(0, 12)} while the gate ran; pushed ${commit.slice(0, 12)}, the commit it gated. Run track pr again to gate and push the rest`,
       );
 
     const dir = yield* Effect.promise(() => mkdtemp(join(tmpdir(), "mshape-pr-")));

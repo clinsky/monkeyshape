@@ -24,32 +24,39 @@ export const changedLines = (shortstat: string): number => {
  * removed, in a fence longer than any backtick run inside, so the output can't close it.
  */
 export const gateSection = (command: string, commit: string, output: string): string => {
-  const lines = output
-    // Terminal colour codes (biome's, say) are noise in a PR body.
-    // biome-ignore lint/suspicious/noControlCharactersInRegex: matching ESC is the point
-    .replace(/\u001b\[[0-9;?]*[A-Za-z]/g, "")
-    .replace(/\r\n/g, "\n")
-    .trimEnd()
-    .split("\n");
-  const tail = lines.slice(-GATE_TAIL_LINES).join("\n");
+  const tail = gateTail(output);
   const longest = Math.max(2, ...[...tail.matchAll(/`+/g)].map((run) => run[0].length));
   const fence = "`".repeat(longest + 1);
   return `${fence}\n$ ${command}   # at ${commit.slice(0, 12)}, run by mshape track pr\n${tail}\n${fence}`;
 };
 
+/** The gate output's last `GATE_TAIL_LINES` lines, without terminal colour codes. */
+export const gateTail = (output: string): string =>
+  output
+    // Terminal colour codes (biome's, say) are noise in a PR body.
+    // biome-ignore lint/suspicious/noControlCharactersInRegex: matching ESC is the point
+    .replace(/\u001b\[[0-9;?]*[A-Za-z]/g, "")
+    .replace(/\r\n/g, "\n")
+    .trimEnd()
+    .split("\n")
+    .slice(-GATE_TAIL_LINES)
+    .join("\n");
+
 /** A bead id as bd writes them: `<prefix>-<hash>`, then `.<n>` per child level. */
 const BEAD_ID = /^[a-z0-9][a-z0-9_]*(?:-[a-z0-9_]+)*-[a-z0-9]+(?:\.\d+)*$/;
 
 /**
- * The bead ids the Beads section lists: the first word of each list item, backticks
- * stripped. Prose around them is free; an id is only ever the start of an item.
+ * The bead ids the Beads section lists: the first word of each list item, with a link's
+ * text for the link and emphasis or backticks stripped. Prose around them is free; an id is
+ * only ever the start of an item.
  */
 export const listedBeads = (body: string): ReadonlyArray<string> => {
   const text = parsePrBody(body).find((section) => section.name === "Beads")?.text ?? "";
   return text.split("\n").flatMap((line) => {
     const word = /^\s*(?:[-*+]|\d+[.)])\s+(\S+)/
-      .exec(line)?.[1]
-      ?.replace(/^`|`[.,:;]?$|[.,:;]$/g, "");
+      .exec(line.replace(/\[([^\]]*)\]\([^)]*\)/g, "$1"))?.[1]
+      // Emphasis and code around the id, and punctuation after it: `id`, **id**, _id_:
+      ?.replace(/^[`*_]+|[`*_]*[.,:;]?$/g, "");
     return word !== undefined && BEAD_ID.test(word) ? [word] : [];
   });
 };
@@ -59,25 +66,32 @@ export type PrBodyPlan =
   | { readonly problems: ReadonlyArray<string> };
 
 /**
- * The body to publish: the agent's (`given`, from --body-file) or the PR's current one, with
- * the Gate section replaced by `gate`. Refused while a required section is missing or no
- * bead is listed, the same test CI's pr.yml runs, so a PR never opens failing it.
+ * Why a PR body isn't ready: a required section missing, or no bead listed. The one test,
+ * run by `track pr` before it posts and by CI's pr.yml (`--check-body`) on every track PR,
+ * however it was opened. Whether a listed bead exists needs `bd`, so only `track pr` asks.
  */
-export const planPrBody = (source: string, gate: string): PrBodyPlan => {
-  const body = setPrSections(source, { Gate: gate } satisfies Partial<
-    Record<PrSectionName, string>
-  >);
+export const bodyProblems = (body: string): ReadonlyArray<string> => {
   const missing = missingPrSections(body);
-  const beads = listedBeads(body);
-  const problems = [
+  return [
     ...(missing.length > 0 ? [missingSectionsProblem(missing)] : []),
-    ...(beads.length === 0 && !missing.includes("Beads")
+    ...(listedBeads(body).length === 0 && !missing.includes("Beads")
       ? [
           "the Beads section lists no bead: put each one this PR works on as a list item that starts with its id (`- <bead id> what it is`)",
         ]
       : []),
   ];
-  return problems.length > 0 ? { problems } : { body, beads };
+};
+
+/**
+ * The body to publish: the agent's (from --body-file) or the PR's current one, with the Gate
+ * section replaced by `gate`, unless `bodyProblems` says it isn't ready.
+ */
+export const planPrBody = (source: string, gate: string): PrBodyPlan => {
+  const body = setPrSections(source, { Gate: gate } satisfies Partial<
+    Record<PrSectionName, string>
+  >);
+  const problems = bodyProblems(body);
+  return problems.length > 0 ? { problems } : { body, beads: listedBeads(body) };
 };
 
 /** What `pr.yml` and `track pr` say about a body that lacks required sections. */

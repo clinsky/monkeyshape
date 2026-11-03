@@ -48,6 +48,12 @@ describe("track pr's body", () => {
       "monkeyshape-f4y.23",
     ]);
     expect(listedBeads("## Other\n\n- x-abc.1\n")).toEqual([]);
+    // Decorated as #35's review tried: bold, a link, emphasis; all found.
+    expect(
+      listedBeads(
+        "## Beads\n\n- **monkeyshape-f4y.11** x\n- [monkeyshape-f4y.12](https://example.test) y\n- _x-abc.3_, z\n",
+      ),
+    ).toEqual(["monkeyshape-f4y.11", "monkeyshape-f4y.12", "x-abc.3"]);
   });
 
   test("the Gate is replaced and every other section kept as written", () => {

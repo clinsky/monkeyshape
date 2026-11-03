@@ -99,10 +99,15 @@ beforeEach(async () => {
   // The gate: passes unless the file `red` exists, and prints a summary to stderr.
   await writeFile(
     join(repo, "package.json"),
-    JSON.stringify({ scripts: { check: "echo gate ran && echo ' 3 pass' >&2 && test ! -e red" } }),
+    JSON.stringify({
+      scripts: {
+        check:
+          "echo gate ran && echo ' 3 pass' >&2 && test ! -e red && { test ! -e late || git commit -q --allow-empty -m late-unreviewed; }",
+      },
+    }),
   );
   await writeFile(join(repo, "shape.config.ts"), "export default {};\n");
-  await writeFile(join(repo, ".gitignore"), ".agents/worktrees/\n.handoffs\nbody.md\n");
+  await writeFile(join(repo, ".gitignore"), ".agents/worktrees/\n.handoffs\nbody.md\nlate\n");
   sh(repo, "add", ".");
   sh(repo, "commit", "-qm", "init");
   sh(repo, "remote", "add", "origin", join(base, "remote.git"));
@@ -192,6 +197,23 @@ describe("track pr", () => {
     expect(await Bun.file(`${gh}/pr.json`).exists()).toBe(false);
   });
 
+  test("a commit made while the gate runs isn't pushed: the remote gets the gated commit", async () => {
+    await writeFile(`${wt()}/body.md`, body("x"));
+    // The probe from #35's review: the gate makes a commit, as a second session might.
+    await writeFile(`${wt()}/late`, "");
+    const gated = sh(wt(), "rev-parse", "HEAD");
+    const opened = mshape(wt(), "pr", "--title", "t", "--body-file", "body.md");
+    expect(opened.code).toBe(0);
+    const late = sh(wt(), "rev-parse", "HEAD");
+    expect(late).not.toBe(gated);
+    const pushed = sh(join(base, "remote.git"), "rev-parse", "refs/heads/track/docs");
+    expect(pushed).toBe(gated);
+    expect((await pr()).body).toContain(`# at ${gated.slice(0, 12)}`);
+    expect(opened.stderr).toContain(
+      `note: \`track/docs\` moved to ${late.slice(0, 12)} while the gate ran; pushed ${gated.slice(0, 12)}, the commit it gated. Run track pr again to gate and push the rest`,
+    );
+  });
+
   test("a create that fails says whether a PR is open now, so nothing is posted twice", async () => {
     await writeFile(`${wt()}/body.md`, body("x"));
     await writeFile(`${gh}/fail`, "");
@@ -218,6 +240,14 @@ describe("track pr", () => {
     const bad = check(prSkeleton());
     expect(bad.code).toBe(1);
     expect(bad.out).toContain("the PR body lacks `## What changed and why`");
+    // The same test track pr runs: every section, but no bead listed.
+    const noBead = check(
+      body("x")
+        .replace("## Not done", "## Gate\n\nran\n\n## Not done")
+        .replace("- x-abc.1 the bead", "none yet"),
+    );
+    expect(noBead.code).toBe(1);
+    expect(noBead.out).toContain("the Beads section lists no bead");
   });
 });
 
