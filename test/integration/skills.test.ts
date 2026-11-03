@@ -38,7 +38,8 @@ describe("the shipped skills", () => {
         [PR_TEMPLATE_FILE]: prTemplate(),
         ...files,
       },
-      { scripts: ["check"] },
+      // The scripts skills run in a born repo: the gate, and mshape itself (D-run-mshape).
+      { scripts: ["check", "mshape"] },
     );
     const checked = config({ refs: { docs: [...DEFAULT_DOCS, "docs/workflow.md"] } });
     expect(checkRefs(checked, born)).toEqual([]);
