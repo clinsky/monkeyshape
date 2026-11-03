@@ -132,8 +132,15 @@ const charterProblems = (charter: string): ReadonlyArray<string> => {
   return problems;
 };
 
-/** A carried-over Messages body that says nothing: `None yet.`, `None open. ...`. */
-const saysNothing = (body: string): boolean => body === "" || /^none\b/i.test(body);
+/**
+ * A carried-over Messages body that says nothing: empty, or one paragraph opening with `None`
+ * (`None yet.`, `None open. ...`). Anything more, such as a message added under `None yet.`,
+ * is carried: an extra message costs less than one lost by a migration that runs once.
+ */
+const saysNothing = (body: string): boolean =>
+  body === "" ||
+  (/^none\b/i.test(body) &&
+    body.split("\n").every((line) => line.trim() !== "" && !/^\s*([-*+]|\d+[.)]|#|>)/.test(line)));
 
 /**
  * The older format, upgraded: the `Status:` line dropped, and the `## Messages` section

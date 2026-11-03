@@ -122,6 +122,16 @@ describe("what track rm may do", () => {
       ]);
     });
 
+    test("with no worktree to read it from, unread mail's refusal says where it is instead", () => {
+      const plan = withMail(
+        { unread: unread.slice(0, 1) },
+        { worktree: undefined, pathExists: false, branchExists: false, handoffExists: false },
+      );
+      expect(plan.refusals[0]).toEndWith(
+        "the track has no worktree to read them from (`msg read` runs only in one): each is a JSON file in /r/.git/monkeyshape/mail/docs, so look at them there, then pass --force to delete them",
+      );
+    });
+
     test("a mailbox left alone is still a track to remove", () => {
       const plan = withMail(
         { read: 1 },

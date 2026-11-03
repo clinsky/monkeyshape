@@ -326,7 +326,9 @@ export const planRm = (facts: RmFacts): RmPlan => {
         [
           `${mailbox.unread.length} message(s) to \`${facts.track}\` are unread, and removing the track would delete them:`,
           ...listed.map((line) => `  ${line}`),
-          `read each from the track's worktree (\`bun run --silent mshape msg read <id>\`), or pass --force to delete them`,
+          facts.worktree === undefined
+            ? `the track has no worktree to read them from (\`msg read\` runs only in one): each is a JSON file in ${mailbox.path}, so look at them there, then pass --force to delete them`
+            : `read each from the track's worktree (\`bun run --silent mshape msg read <id>\`), or pass --force to delete them`,
         ].join("\n    "),
       );
   }

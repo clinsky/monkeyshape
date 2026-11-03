@@ -113,6 +113,18 @@ describe("handoff format", () => {
     const empty = migrateHandoff(`${active}\n## Messages\n\nNone open. Use mshape msg.\n`);
     expect(empty?.text).toBe(active);
     expect(empty?.carried).toBeUndefined();
+    // A message added under the stub's `None yet.` is carried, not dropped with it.
+    for (const body of [
+      "None yet.\n- From conventions (2026-11-02): answer about X by Friday.",
+      "None yet.\n\nFrom conventions: answer about X.",
+      "None yet.\n1. answer about X.",
+    ])
+      expect(migrateHandoff(`${active}\n## Messages\n\n${body}\n`)?.carried).toBe(body);
+    // One paragraph opening with None, even wrapped, still says nothing.
+    const wrapped = migrateHandoff(
+      `${active}\n## Messages\n\nNone open. Other tracks\nuse mshape msg.\n`,
+    );
+    expect(wrapped?.carried).toBeUndefined();
     // A `## Messages` quoted in a fence is not the section.
     const quoting = active.replace("None yet.", "```md\n## Messages\n```");
     expect(migrateHandoff(quoting)).toBeUndefined();
