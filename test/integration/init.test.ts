@@ -176,6 +176,21 @@ describe("mshape init", () => {
   );
 
   test.skipIf(!HAS_BD)(
+    "a fresh clone has no beads database: check notes how to set it up, and doesn't fail",
+    async () => {
+      const clone = join(work, "demo-clone");
+      await run(work, ["git", "clone", "--quiet", join(work, "demo"), clone]);
+      // Share the install, as agents do; node_modules is ignored even as a link.
+      await symlink(join(work, "demo", "node_modules"), join(clone, "node_modules"));
+      const mshape = [process.execPath, join(clone, "node_modules", ".bin", "mshape")];
+      const checked = await run(clone, [...mshape, "check", "--only", "budgets"]);
+      expect(checked.output).not.toContain("prerequisites/beads-failed");
+      expect(checked.output).toContain("bd bootstrap");
+      expect(checked.code).toBe(0);
+    },
+  );
+
+  test.skipIf(!HAS_BD)(
     "bd prime prints the shipped PRIME.md first, as the SessionStart hook does",
     async () => {
       const repo = join(work, "demo");

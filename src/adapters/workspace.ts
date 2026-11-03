@@ -67,6 +67,21 @@ const beadsUnreachable = (root: string) =>
       return { state: "absent" } satisfies Integration;
     if (Bun.which("bd") === null)
       return { state: "unavailable", reason: "bd is not on PATH" } satisfies Integration;
+    // A fresh clone has .beads/ but no database: bd knows where it would be, but has none.
+    // Its beads exist and can't be read here; that is unavailable, not bd failing.
+    const where = yield* runTool(root, ["bd", "where", "--json"]);
+    const located = where.code === 0 ? parseJsonc(where.stdout) : undefined;
+    if (
+      typeof located === "object" &&
+      located !== null &&
+      "path" in located &&
+      !("database_path" in located)
+    )
+      return {
+        state: "unavailable",
+        reason:
+          "this clone has no beads database yet; run `bd bootstrap` to set it up (it never deletes issues)",
+      } satisfies Integration;
     return undefined;
   });
 
