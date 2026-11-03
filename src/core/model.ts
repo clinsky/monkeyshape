@@ -1,6 +1,6 @@
 /** The data every check reads and the findings it returns. Pure: no I/O lives here. */
 
-export type CheckName = "arch" | "refs" | "budgets" | "coverage" | "rules" | "skills";
+export type CheckName = "arch" | "refs" | "budgets" | "coverage" | "rules" | "skills" | "sync";
 
 type ViolationOf<C extends CheckName | "prerequisites"> = {
   /**
@@ -38,6 +38,10 @@ export interface Snapshot {
   readonly linted: ReadonlySet<string> | undefined;
   readonly integrations: Integrations;
   readonly skills: SkillsSnapshot;
+  /** The `.beads/PRIME.md` the running monkeyshape ships, when it has one. */
+  readonly shippedPrime: string | undefined;
+  /** Files `mshape sync` manages that are on disk but not in `files`: git ignores them. */
+  readonly unlisted: ReadonlySet<string>;
 }
 
 /** File bytes keyed by path relative to a skills directory: `<skill>/SKILL.md`. Bytes, so a

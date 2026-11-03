@@ -8,6 +8,7 @@ import { checkRefs, REFS_RULES } from "./refs.ts";
 import { checkRules, ENGINE_RULES, type Rule } from "./rules/engine.ts";
 import { RULES } from "./rules/registry.ts";
 import { checkSkills, SKILLS_RULES } from "./skills.ts";
+import { checkSync, SYNC_RULES } from "./sync.ts";
 
 export const CHECKS: ReadonlyArray<CheckName> = [
   "arch",
@@ -16,6 +17,7 @@ export const CHECKS: ReadonlyArray<CheckName> = [
   "coverage",
   "rules",
   "skills",
+  "sync",
 ];
 
 const run: Record<
@@ -28,6 +30,7 @@ const run: Record<
   coverage: checkCoverage,
   rules: (config, snapshot) => checkRules(config, snapshot, RULES),
   skills: checkSkills,
+  sync: checkSync,
 };
 
 const BEADS_RULES = ["refs/bead-in-code", "budgets/memories-count", "budgets/memories-bytes"];
@@ -80,6 +83,7 @@ const KINDS: { readonly [C in Violation["check"]]: ReadonlyArray<string> } = {
   coverage: COVERAGE_RULES,
   rules: ENGINE_RULES,
   skills: SKILLS_RULES,
+  sync: SYNC_RULES,
   prerequisites: PREREQUISITE_RULES,
 };
 

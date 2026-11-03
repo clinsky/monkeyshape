@@ -6,6 +6,7 @@
  * shared skill is replaced whole, and one the package stops shipping is removed.
  */
 import type { ResolvedConfig } from "../schemas/config.ts";
+import { SYNC_COMMAND } from "./hooks.ts";
 import { CLAUDE_SKILLS_LINK, CLAUDE_SKILLS_TARGET, SKILLS_DIR, SKILLS_MANIFEST } from "./layout.ts";
 import type { SkillFiles, Snapshot, Violation } from "./model.ts";
 import { join } from "./paths.ts";
@@ -130,9 +131,9 @@ export const formatSync = (sync: SkillSync): string => {
 };
 
 const collision = (name: string): string =>
-  `is a skill of this repo's own, but monkeyshape now ships a shared skill named ${name}, so sync leaves yours alone and the shared one uninstalled. Rename yours: move ${SKILLS_DIR}/${name} and change \`name:\` in its SKILL.md, then run \`mshape skills sync\`.`;
+  `is a skill of this repo's own, but monkeyshape now ships a shared skill named ${name}, so sync leaves yours alone and the shared one uninstalled. Rename yours: move ${SKILLS_DIR}/${name} and change \`name:\` in its SKILL.md, then run \`${SYNC_COMMAND}\`.`;
 
-/** What `mshape skills sync` prints about the skills it would not touch. */
+/** What `mshape sync` prints about the skills it would not touch. */
 export const formatCollisions = (sync: SkillSync): ReadonlyArray<string> =>
   sync.collisions.map((name) => `${SKILLS_DIR}/${name} ${collision(name)}`);
 
@@ -159,7 +160,7 @@ const violation = (
   message,
 });
 
-const RELINK = `\`rm -r ${CLAUDE_SKILLS_LINK} && mshape skills sync\``;
+const RELINK = `\`rm -r ${CLAUDE_SKILLS_LINK} && ${SYNC_COMMAND}\``;
 
 /** Whether git lists `path` or an entry above it: a symlinked skill is a single entry. */
 const listed = (files: ReadonlySet<string>, path: string): boolean =>
@@ -172,7 +173,7 @@ const linkViolations = (snapshot: Snapshot, files: ReadonlySet<string>): Array<V
       violation(
         "link",
         CLAUDE_SKILLS_LINK,
-        `is missing, so Claude Code can't see the skills in ${SKILLS_DIR}. Run \`mshape skills sync\` to create the link, and commit it.`,
+        `is missing, so Claude Code can't see the skills in ${SKILLS_DIR}. Run \`${SYNC_COMMAND}\` to create the link, and commit it.`,
       ),
     ];
   if (link.kind === "link") {
@@ -276,7 +277,7 @@ export const checkSkills = (
       violation(
         "manifest",
         `${SKILLS_DIR}/${SKILLS_MANIFEST}`,
-        `is not the list \`mshape skills sync\` writes (a JSON \`shared\` array of skill directory names), so shared skills can't be told from this repo's own, and sync refuses to run. Restore it with \`git checkout -- ${SKILLS_DIR}/${SKILLS_MANIFEST}\`.`,
+        `is not the list \`${SYNC_COMMAND}\` writes (a JSON \`shared\` array of skill directory names), so shared skills can't be told from this repo's own, and sync refuses to run. Restore it with \`git checkout -- ${SKILLS_DIR}/${SKILLS_MANIFEST}\`.`,
       ),
     );
 
@@ -286,7 +287,7 @@ export const checkSkills = (
       violation(
         "sync-due",
         `${SKILLS_DIR}/${name}`,
-        `${why} Run \`mshape skills sync\` and commit the result.`,
+        `${why} Run \`${SYNC_COMMAND}\` and commit the result.`,
       ),
     );
   for (const name of sync.added)

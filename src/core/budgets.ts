@@ -3,6 +3,7 @@
  * every session, so these fail the gate rather than warn.
  */
 import type { ResolvedConfig } from "../schemas/config.ts";
+import { PRIME_FILE, PRIME_LINES } from "./conventions.ts";
 import { EVIDENCE_KINDS, FIELDS, parseDecisions, SLUG } from "./decisions.ts";
 import { matchesAny } from "./glob.ts";
 import { isTsSource, lineCount, pathIndex, type Snapshot, type Violation } from "./model.ts";
@@ -20,6 +21,7 @@ export const BUDGETS_RULES = [
   "decision-field",
   "decision-evidence",
   "decision-unenforced",
+  "prime-lines",
   "memories-count",
   "memories-bytes",
   "file-lines",
@@ -89,6 +91,16 @@ export const checkBudgets = (
         "agents-lines",
         "AGENTS.md",
         `has ${metrics.agentsLines} lines (budget ${budgets.agentsLines}). Turn a rule into a check, or delete what a check already enforces.`,
+      ),
+    );
+
+  const prime = snapshot.texts.get(PRIME_FILE);
+  if (prime !== undefined && lineCount(prime) > PRIME_LINES)
+    violations.push(
+      violation(
+        "prime-lines",
+        PRIME_FILE,
+        `has ${lineCount(prime)} lines (budget ${PRIME_LINES}). bd prints it at every session start; move what only one step needs into that step's skill.`,
       ),
     );
 

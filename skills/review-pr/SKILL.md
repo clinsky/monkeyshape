@@ -107,8 +107,8 @@ severity (blocker or nit), then the evidence, then a suggested fix.
 - **A blocker in code asks for a regression test** in the PR: one that fails on this head
   and passes once fixed. A blocker in prose (two docs that disagree, a wrong instruction)
   asks for the fix; there is nothing to test.
-- **If a check could rule out the whole class**, say so: the PR body's "Class closed by"
-  line is where the author answers it.
+- **If a check could rule out the whole class**, say so: the PR body's "Bug class closed"
+  section is where the author answers it.
 
 The body opens with **Fit**, a few lines that answer, each with its evidence (the bead's
 acceptance, the plan's row or non-goal, the file it duplicates):

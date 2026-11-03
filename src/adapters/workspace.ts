@@ -2,8 +2,11 @@
 import { realpath, stat } from "node:fs/promises";
 import { posix } from "node:path";
 import { Effect } from "effect";
+import { PRIME_FILE } from "../core/conventions.ts";
 import { parseJsonc } from "../core/coverage.ts";
+import { SETTINGS_FILE } from "../core/hooks.ts";
 import { type Integration, isTsSource, type Snapshot } from "../core/model.ts";
+import { SYNCED_FILES } from "../core/sync.ts";
 import type { ResolvedConfig } from "../schemas/config.ts";
 import { WorkspaceError } from "../schemas/errors.ts";
 import { run, runTool } from "./process.ts";
@@ -229,14 +232,22 @@ const linted = (root: string) =>
     return { integration: { state: "ok" }, value: files } satisfies Loaded<ReadonlySet<string>>;
   });
 
-/** `shippedSkills` is the running monkeyshape's `skills/`, to tell whether a sync is due. */
-export const loadSnapshot = (root: string, config: ResolvedConfig, shippedSkills: string) =>
+/**
+ * `packageRoot` is the running monkeyshape: its `skills/` and `template/.beads/PRIME.md` are
+ * what a synced repo is compared with.
+ */
+export const loadSnapshot = (root: string, config: ResolvedConfig, packageRoot: string) =>
   Effect.gen(function* () {
     const listed = yield* listFiles(root);
     // A file deleted but not yet staged is still listed; it isn't part of the repo now.
     const found = yield* Effect.forEach(listed, (file) => exists(root, file), { concurrency: 32 });
     const present = listed.filter((_, i) => found[i] === true);
-    const configs = new Set([...config.coverage.tsconfigs, config.coverage.biome, "package.json"]);
+    const configs = new Set([
+      ...config.coverage.tsconfigs,
+      config.coverage.biome,
+      "package.json",
+      SETTINGS_FILE,
+    ]);
     const wanted = present.filter(
       (file) => isTsSource(file) || file.endsWith(".md") || configs.has(file),
     );
@@ -261,7 +272,16 @@ export const loadSnapshot = (root: string, config: ResolvedConfig, shippedSkills
     const loadedBeads = yield* beads(root);
     const loadedTsc = yield* typechecked(root, realRoot, config.coverage.tsconfigs);
     const loadedBiome = yield* linted(root);
-    const skills = yield* loadSkills(shippedSkills, root);
+    const skills = yield* loadSkills(`${packageRoot}/skills`, root);
+    const shippedPrime = yield* Effect.promise(() =>
+      Bun.file(`${packageRoot}/template/${PRIME_FILE}`)
+        .text()
+        .catch(() => undefined),
+    );
+    const listedNow = new Set(present);
+    const unlisted = new Set<string>();
+    for (const file of SYNCED_FILES)
+      if (!listedNow.has(file) && (yield* exists(root, file))) unlisted.add(file);
     const snapshot: Snapshot = {
       files: present,
       texts,
@@ -276,6 +296,8 @@ export const loadSnapshot = (root: string, config: ResolvedConfig, shippedSkills
         biome: loadedBiome.integration,
       },
       skills,
+      shippedPrime,
+      unlisted,
     };
     return snapshot;
   });

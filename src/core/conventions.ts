@@ -176,3 +176,13 @@ export const setPrSections = (
     )
     .join("\n\n")}\n`;
 };
+
+/**
+ * What monkeyshape decides for every repo, loaded at each session start: bd's SessionStart
+ * hook prints this file in place of its own default text, then the repo's memories. The
+ * package ships it as `template/.beads/PRIME.md`; `mshape sync` installs it and the `sync`
+ * check holds it to the shipped copy.
+ */
+export const PRIME_FILE = ".beads/PRIME.md";
+/** PRIME.md's budget: it costs every session. */
+export const PRIME_LINES = 70;

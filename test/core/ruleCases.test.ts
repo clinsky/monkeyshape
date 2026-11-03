@@ -9,6 +9,13 @@
  */
 import { describe, expect, test } from "bun:test";
 import { CHECKS, prerequisites, ruleIds, runChecks } from "../../src/core/check.ts";
+import {
+  PR_TEMPLATE_FILE,
+  PRIME_FILE,
+  PRIME_LINES,
+  prTemplate,
+} from "../../src/core/conventions.ts";
+import { HOOKS, renderSettings, SETTINGS_FILE } from "../../src/core/hooks.ts";
 import type { CheckName, SkillFiles, Snapshot, Violation } from "../../src/core/model.ts";
 import type { ShapeConfig } from "../../src/schemas/config.ts";
 import { config, repo } from "../support.ts";
@@ -233,6 +240,10 @@ const budgets: Record<string, Cases> = {
       entry("D-one", { "Enforced by": "`test/a.test.ts` (its second case)" }),
       entry("D-two", { "Enforced by": "none", Evidence: "policy" }),
     ),
+  },
+  "budgets/prime-lines": {
+    fail: { files: { ...AGENTS, [PRIME_FILE]: lines(PRIME_LINES + 1) } },
+    pass: { files: { ...AGENTS, [PRIME_FILE]: lines(PRIME_LINES) } },
   },
   "budgets/memories-count": {
     fail: {
@@ -469,6 +480,83 @@ const skills: Record<string, Cases> = {
   },
 };
 
+// sync
+
+const PRIME = "# The working loop\n";
+const HOOKED = renderSettings(HOOKS);
+/** A synced repo using beads: manifest, PRIME.md, PR template and every hook in place. */
+const SYNCED_REPO: Record<string, string> = {
+  ".agents/skills/monkeyshape.json": "",
+  ".beads/config.yaml": "",
+  [PRIME_FILE]: PRIME,
+  [PR_TEMPLATE_FILE]: prTemplate(),
+  [SETTINGS_FILE]: HOOKED,
+};
+
+const syncCase = (
+  files: Record<string, string | undefined> = {},
+  unlisted: ReadonlyArray<string> = [],
+): Case => {
+  const merged = Object.fromEntries(
+    Object.entries({ ...SYNCED_REPO, ...files }).filter(
+      (entry): entry is [string, string] => entry[1] !== undefined,
+    ),
+  );
+  return {
+    files: merged,
+    options: {
+      shippedPrime: PRIME,
+      unlisted,
+      skills: {
+        link: { kind: "link", target: "../.agents/skills" },
+        installed: bytes({ "monkeyshape.json": MANIFEST() }),
+        claudeDirectory: new Map(),
+        shipped: new Map(),
+      },
+    },
+  };
+};
+
+const ownHook = JSON.parse(HOOKED);
+ownHook.hooks.SessionStart.push({
+  matcher: "",
+  hooks: [{ type: "command", command: "echo mine" }],
+});
+
+const syncCases: Record<string, Cases> = {
+  "sync/prime-missing": {
+    fail: syncCase({ [PRIME_FILE]: undefined }),
+    // No .beads/: a repo without beads has nothing for bd prime to print.
+    pass: syncCase({ [PRIME_FILE]: undefined, ".beads/config.yaml": undefined }),
+  },
+  "sync/prime-diverged": {
+    fail: syncCase({ [PRIME_FILE]: `${PRIME}A local rule.\n` }),
+    pass: syncCase(),
+  },
+  "sync/pr-template-missing": {
+    fail: syncCase({ [PR_TEMPLATE_FILE]: undefined }),
+    pass: syncCase(),
+  },
+  "sync/pr-template-diverged": {
+    fail: syncCase({ [PR_TEMPLATE_FILE]: "## What changed, and why\n\n## Gate\n" }),
+    pass: syncCase(),
+  },
+  "sync/hook-missing": {
+    fail: syncCase({ [SETTINGS_FILE]: renderSettings(HOOKS.slice(1)) }),
+    // The repo's own hooks and keys beside monkeyshape's are its business.
+    pass: syncCase({ [SETTINGS_FILE]: JSON.stringify({ ...ownHook, permissions: { allow: [] } }) }),
+  },
+  "sync/ignored": {
+    // On disk but not listed by git: the snapshot has no text for it.
+    fail: syncCase({ [SETTINGS_FILE]: undefined }, [SETTINGS_FILE]),
+    pass: syncCase(),
+  },
+  "sync/settings-invalid": {
+    fail: syncCase({ [SETTINGS_FILE]: "{ hooks: " }),
+    pass: syncCase(),
+  },
+};
+
 // prerequisites
 
 const prerequisitesCases: Record<string, Cases> = {
@@ -489,6 +577,7 @@ const CASES: Record<string, Cases> = {
   ...coverage,
   ...rules,
   ...skills,
+  ...syncCases,
   ...prerequisitesCases,
 };
 

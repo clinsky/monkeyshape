@@ -72,6 +72,9 @@ const stateDirectory = (target: string, name: string) =>
 
 /**
  * `bd init` without its AGENTS.md block, and prime capped at the budgets `mshape check` holds.
+ * `bd init` keeps the template's `.beads/PRIME.md`, which `bd prime` prints in place of bd's
+ * default text; `agent.profile team-maintainer` makes that default agree with AGENTS.md on
+ * git authority (agents commit and push) for whenever PRIME.md is missing.
  * prime caps characters and the budget counts UTF-8 bytes, so the character cap is only a
  * backstop: while the check passes, memories are within the byte budget, hence also within
  * the same number of characters, and prime never truncates them.
@@ -83,6 +86,7 @@ const beads = (target: string, name: string) =>
       ["bd", "init", "--skip-agents", "--non-interactive", "--quiet", "--prefix", name],
       ["bd", "config", "set", "prime.max-memories", String(memories)],
       ["bd", "config", "set", "prime.max-memory-chars", String(memoryBytes)],
+      ["bd", "config", "set", "agent.profile", "team-maintainer"],
     ];
     const later = steps.map((step) => step.join(" ")).join(" && ");
     if (Bun.which("bd") === null)
