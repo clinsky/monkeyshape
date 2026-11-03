@@ -4,10 +4,20 @@
  * command works the same from the main checkout and from any worktree. The decisions are in
  * `src/core/tracks.ts`.
  */
-import { lstat, mkdir, readdir, readlink, realpath, symlink, unlink } from "node:fs/promises";
+import {
+  lstat,
+  mkdir,
+  readdir,
+  readlink,
+  realpath,
+  rename,
+  symlink,
+  unlink,
+  writeFile,
+} from "node:fs/promises";
 import { posix } from "node:path";
 import { Effect } from "effect";
-import { parseHandoff, stubHandoff } from "../core/handoff.ts";
+import { migrateHandoff, parseHandoff, stubHandoff } from "../core/handoff.ts";
 import {
   HANDOFFS_LINK,
   handoffPath,
@@ -425,7 +435,47 @@ export const trackNew = (cwd: string, track: string, date: string) =>
     return [...notes, ...said, `next: cd ${path}, then run /track`].join("\n");
   });
 
-export const trackList = (cwd: string) =>
+/**
+ * Mails a retired handoff Messages section to its track and returns the message id, or the
+ * reason it couldn't. Passed in by the CLI, since the mailbox's adapter imports this one.
+ */
+export type CarryMessages = (
+  track: string,
+  body: string,
+) => Effect.Effect<{ readonly id: string } | { readonly reason: string }>;
+
+/**
+ * `handoff` in the older format, upgraded in place (`migrateHandoff`): its Messages go to the
+ * track's mailbox first, so nothing is lost if writing fails. Returns the text to parse and
+ * what to tell the human; a Messages section that can't be mailed stays, and is said.
+ */
+const migrate = (track: string, handoff: string, text: string, carry: CarryMessages) =>
+  Effect.gen(function* () {
+    const migration = migrateHandoff(text);
+    if (migration === undefined) return { text, notes: [] };
+    const shown = `${HANDOFFS_LINK}/${track}.md`;
+    let mailed = "";
+    if (migration.carried !== undefined) {
+      const sent = yield* carry(track, migration.carried);
+      if ("reason" in sent)
+        return {
+          text,
+          notes: [
+            `note: ${shown} is in the older format and wasn't migrated: its Messages couldn't be mailed to ${track} (${sent.reason})`,
+          ],
+        };
+      mailed = ` (message ${sent.id})`;
+    }
+    const temporary = `${handoff}.${process.pid}.tmp`;
+    yield* fs("write", temporary, () => writeFile(temporary, migration.text));
+    yield* fs("write", handoff, () => rename(temporary, handoff));
+    return {
+      text: migration.text,
+      notes: [`migrated ${shown}: ${migration.changes.join("; ")}${mailed}`],
+    };
+  });
+
+export const trackList = (cwd: string, carry: CarryMessages) =>
   Effect.gen(function* () {
     const { common, repo } = yield* locate(cwd);
     yield* requireMain(repo);
@@ -469,14 +519,25 @@ export const trackList = (cwd: string) =>
     const rows = yield* Effect.forEach(tracks, (track) =>
       Effect.gen(function* () {
         const handoff = handoffPath(common, track);
-        const text = (yield* lexists(handoff))
+        const found = (yield* lexists(handoff))
           ? yield* fs("read", handoff, () => Bun.file(handoff).text())
           : undefined;
+        const migrated =
+          found === undefined ? undefined : yield* migrate(track, handoff, found, carry);
+        notes.push(...(migrated?.notes ?? []));
+        const text = migrated?.text;
         const parsed = text === undefined ? undefined : parseHandoff(text);
         const worktree = byTrack.get(track);
         const row: TrackRow = {
           track,
-          status: parsed === undefined ? "none" : "problems" in parsed ? "invalid" : parsed.status,
+          status:
+            parsed === undefined
+              ? "none"
+              : "problems" in parsed
+                ? "invalid"
+                : parsed.stub
+                  ? "stub"
+                  : "active",
           problems: parsed !== undefined && "problems" in parsed ? parsed.problems : undefined,
           beads:
             beads.integration.state === "ok" ? (beads.byTrack.get(track)?.length ?? 0) : undefined,

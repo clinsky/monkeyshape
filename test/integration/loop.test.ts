@@ -57,7 +57,9 @@ describe("init, then tracks", () => {
       expect(created.code).toBe(0);
       expect(await exists(join(worktree(track), "AGENTS.md"))).toBe(true);
       const handoff = await Bun.file(join(repo, ".handoffs", `${track}.md`)).text();
-      expect(handoff).toStartWith(`# Track: ${track}\nStatus: stub\n`);
+      expect(handoff).toStartWith(
+        `# Track: ${track}\nQueue: bd ready --label track:${track}\n\n## Charter\n\n## State`,
+      );
       // The worktree reads the same store as the main checkout.
       expect(await realpath(join(worktree(track), ".handoffs", `${track}.md`))).toBe(
         await realpath(join(repo, ".handoffs", `${track}.md`)),

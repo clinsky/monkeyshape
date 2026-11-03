@@ -8,6 +8,7 @@ import {
   lstat,
   mkdir,
   mkdtemp,
+  readdir,
   readlink,
   realpath,
   rename,
@@ -103,7 +104,7 @@ describe("track new", () => {
     for (const link of [`${wt("docs")}/.handoffs`, `${repo}/.handoffs`, `${repo}/.agents/handoffs`])
       expect(await realpath(link)).toBe(`${repo}/.git/monkeyshape/handoffs`);
     const stub = parseHandoff(await Bun.file(handoff("docs")).text());
-    expect("problems" in stub ? stub.problems : stub.status).toBe("stub");
+    expect("problems" in stub ? stub.problems : stub.stub).toBe(true);
 
     const again = mshape(repo, "new", "docs");
     expect(again.code).toBe(1);
@@ -208,17 +209,57 @@ describe("track list", () => {
     const text = await Bun.file(handoff("docs")).text();
     await writeFile(
       handoff("docs"),
-      text.replace("Status: stub", "Status: done").replace("## Traps", "## Pitfalls"),
+      text.replace("Queue:", "Owner: me\nQueue:").replace("## Traps", "## Pitfalls"),
     );
 
     const lines = mshape(repo, "list").stdout.split("\n");
     const row = lines.findIndex((line) => line.startsWith("docs "));
     expect(lines[row]?.split(/\s+/)[1]).toBe("invalid");
     expect(lines[row + 1]).toBe(
-      "  .handoffs/docs.md: `Status:` must be `stub` or `active`, found `done`",
+      "  .handoffs/docs.md: only `Queue:` goes between the title and `## Charter`; found `Owner: me`",
     );
     expect(lines[row + 2]).toStartWith("  .handoffs/docs.md: sections must be exactly");
     expect(lines[row + 3]).toMatch(/^init\s+stub/);
+  });
+
+  test("an older handoff is migrated once, its Messages mailed to the track from main", async () => {
+    await setup();
+    mshape(repo, "new", "docs");
+    mshape(repo, "new", "init");
+    const text = await Bun.file(handoff("docs")).text();
+    const charter = "Serves: goal 2, because x.\nOut of scope: y.\nDone means: z.";
+    const current = text.replace("## Charter", `## Charter\n\n${charter}`);
+    await writeFile(
+      handoff("docs"),
+      `${current.replace("Queue:", "Status: active\nQueue:")}\n## Messages\n\n- From init: hello.\n`,
+    );
+    const initText = await Bun.file(handoff("init")).text();
+    await writeFile(handoff("init"), `${initText}\n## Messages\n\nNone yet.\n`);
+
+    const first = mshape(repo, "list").stdout;
+    expect(first).toMatch(
+      /^migrated \.handoffs\/docs\.md: moved `## Messages` into the track's mailbox; removed `Status: active` \(message \d{8}-\d{6}-[0-9a-f]{4}\)$/m,
+    );
+    expect(first).toContain(
+      "migrated .handoffs/init.md: removed `## Messages`, which held nothing\n",
+    );
+    expect(first).toMatch(/^docs\s+active\s/m);
+    expect(first).toMatch(/^init\s+stub\s/m);
+    expect(await Bun.file(handoff("docs")).text()).toBe(current);
+    expect(await Bun.file(handoff("init")).text()).toBe(initText);
+
+    const mail = await readdir(`${repo}/.git/monkeyshape/mail/docs`);
+    const files = mail.filter((file) => file.endsWith(".json"));
+    expect(files).toHaveLength(1);
+    const message = JSON.parse(
+      await Bun.file(`${repo}/.git/monkeyshape/mail/docs/${files[0]}`).text(),
+    );
+    expect(message.from).toBe("main");
+    expect(message.subject).toBe("Messages carried over from your handoff");
+    expect(message.body).toStartWith("- From init: hello.\n\n");
+
+    const second = mshape(repo, "list").stdout;
+    expect(second).not.toContain("migrated");
   });
 });
 
