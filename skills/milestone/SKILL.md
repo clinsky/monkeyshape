@@ -107,7 +107,8 @@ Once the PR is merged (or the human says to start):
   read it from that track's worktree (`mshape msg read <id>` there marks it read). Anything
   the new plan doesn't already answer becomes a bead or a message to the track that now
   owns it. Drop mail unread only with the human's yes. A mailbox whose track is gone is
-  flagged with what to do; do it.
+  flagged: read its messages, one JSON file each in the directory the note names, and treat
+  them like the rest; delete that directory only with the human's yes.
 - `mshape track rm <name>` for each finished track whose `beads` column in
   `mshape track list` shows 0. A `-` means beads weren't counted, and `rm` may then remove
   the track with only a note. So first get `bd` working, or check by hand that
