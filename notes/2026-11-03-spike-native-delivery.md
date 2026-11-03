@@ -39,7 +39,6 @@ The server sends **nothing back**: no acknowledgement for the auth line or the m
 | Idle recipient, own `CLAUDE_CODE_MESSAGING_TOKEN` | Delivered within seconds as a turn of its own, with no user prompt |
 | Idle recipient, the published `peerToken` (how a separate `mshape` must send) | Delivered, the same way |
 | Busy recipient (mid-turn) | Delivered as a reminder inside the running turn, not dropped |
-| Wrong token | **Delivered**: auth isn't enforced here (the binary says auth is optional on this platform). Send the real `peerToken` anyway, for platforms that enforce it |
 | Socket path that doesn't exist | `connect ENOENT` in about 10 ms: pruning a stale registration costs nothing |
 
 Claude Code wraps a delivered message as "Another Claude session sent a message", with
@@ -58,6 +57,8 @@ unread, and later read it with `mshape msg read`. The notice marked nothing read
   each live session to its `cwd` and socket; `mshape msg register` adds the track and a
   version check, and keeps `mshape` from scanning Claude Code's private directory. Decide in
   `f4y.10`; the plan's interface (register at SessionStart) still works.
+- **Always send the recipient's real `peerToken`;** whether the socket checks it can vary
+  by platform and version, so never rely on either.
 - **Read `peerToken` from the recipient's `.key` file at send time,** never store it in the
   mailbox or the registry, and never log it.
 - **Gate on `peerProtocol === 1`.** Anything else skips the notice with a note; the mail still

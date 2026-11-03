@@ -12,13 +12,16 @@
 import { mshapeCommand } from "./hooks.ts";
 import type { Message } from "./mail.ts";
 
-/** One live session of a track, as `register` records it under the session registry. */
+/**
+ * One live session of a track, as `register` records it under the session registry. Only
+ * what the session knows of itself when its SessionStart hook runs: nothing here depends on
+ * Claude Code having written its own record yet. Everything else is read at send time.
+ */
 export interface Registration {
+  /** A UUID per session: a reused pid or a `/clear` runs a different one. */
   readonly session: string;
   /** Claude Code's process: its session file is `<pid>.json`. */
   readonly pid: number;
-  /** Tells a reused pid apart: a different process has a different start. */
-  readonly procStart: string;
   readonly registered: string;
 }
 
@@ -31,7 +34,10 @@ export interface ClaudeSession {
   readonly messagingSocketPath: string;
 }
 
-/** The fields of the session's published key file (`<pid>.<hash>.key`) a sender uses. */
+/**
+ * The fields of a published key file (`<pid>.<hash>.key`) a sender uses. Keys of earlier
+ * processes with the same pid can linger, so `procStart` says which process published it.
+ */
 export interface ClaudeKey {
   readonly peerToken: string;
   readonly procStart: string;
@@ -57,13 +63,12 @@ const object = (text: string): Record<string, unknown> | undefined => {
 export const decodeRegistration = (text: string): Registration | undefined => {
   const value = object(text);
   if (value === undefined) return undefined;
-  const { session, pid, procStart, registered } = value;
+  const { session, pid, registered } = value;
   return typeof session === "string" &&
     SESSION_ID.test(session) &&
     typeof pid === "number" &&
-    typeof procStart === "string" &&
     typeof registered === "string"
-    ? { session, pid, procStart, registered }
+    ? { session, pid, registered }
     : undefined;
 };
 
@@ -113,19 +118,20 @@ export type Plan =
 export const planNotice = (
   registration: Registration,
   session: ClaudeSession | undefined,
-  key: ClaudeKey | undefined,
+  keys: ReadonlyArray<ClaudeKey>,
 ): Plan => {
   if (session === undefined) return { kind: "prune", reason: "its Claude Code session has ended" };
-  // A /clear starts a new session id in the same process; a reused pid is another process.
-  if (session.sessionId !== registration.session || session.procStart !== registration.procStart)
+  // A /clear starts a new session id in the same process; a reused pid runs another one.
+  if (session.sessionId !== registration.session)
     return { kind: "prune", reason: "its process now runs another session" };
   if (session.peerProtocol !== PEER_PROTOCOL)
     return {
       kind: "skip",
       reason: `Claude Code speaks messaging protocol ${session.peerProtocol}; this mshape knows ${PEER_PROTOCOL}`,
     };
-  if (key === undefined || key.procStart !== registration.procStart)
-    return { kind: "skip", reason: "Claude Code published no key for it" };
+  // The live process's key, whatever order the directory lists leftovers in.
+  const key = keys.find((candidate) => candidate.procStart === session.procStart);
+  if (key === undefined) return { kind: "skip", reason: "Claude Code published no key for it" };
   return {
     kind: "notify",
     target: {

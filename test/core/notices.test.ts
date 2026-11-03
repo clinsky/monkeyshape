@@ -14,7 +14,7 @@ import {
 } from "../../src/core/notices.ts";
 
 const ID = "eb83488f-048b-46d7-8379-6b651938a992";
-const registration: Registration = { session: ID, pid: 42, procStart: "100", registered: "t" };
+const registration: Registration = { session: ID, pid: 42, registered: "t" };
 const session: ClaudeSession = {
   pid: 42,
   sessionId: ID,
@@ -23,30 +23,30 @@ const session: ClaudeSession = {
   messagingSocketPath: "/run/s.sock",
 };
 const key = { peerToken: "secret", procStart: "100" };
+const leftover = { peerToken: "old", procStart: "7" };
 
 describe("notices", () => {
   test("a live session of the registered process is notified, with its own socket and key", () => {
-    expect(planNotice(registration, session, key)).toEqual({
+    expect(planNotice(registration, session, [leftover, key, leftover])).toEqual({
       kind: "notify",
       target: { session: ID, socket: "/run/s.sock", token: "secret" },
     });
   });
 
-  test("a gone session, a new session in the process, or a reused pid is pruned", () => {
-    expect(planNotice(registration, undefined, key).kind).toBe("prune");
-    const cleared = { ...session, sessionId: "00000000-0000-0000-0000-000000000000" };
-    expect(planNotice(registration, cleared, key).kind).toBe("prune");
-    expect(planNotice(registration, { ...session, procStart: "999" }, key).kind).toBe("prune");
+  test("a gone session, or another session in the pid (a /clear, a reused pid), is pruned", () => {
+    expect(planNotice(registration, undefined, [key]).kind).toBe("prune");
+    const other = { ...session, sessionId: "00000000-0000-0000-0000-000000000000" };
+    expect(planNotice(registration, other, [key]).kind).toBe("prune");
   });
 
   test("an unknown protocol or a missing or stale key is skipped, not pruned", () => {
-    const newer = planNotice(registration, { ...session, peerProtocol: 2 }, key);
+    const newer = planNotice(registration, { ...session, peerProtocol: 2 }, [key]);
     expect(newer).toEqual({
       kind: "skip",
       reason: "Claude Code speaks messaging protocol 2; this mshape knows 1",
     });
-    expect(planNotice(registration, session, undefined).kind).toBe("skip");
-    expect(planNotice(registration, session, { ...key, procStart: "1" }).kind).toBe("skip");
+    expect(planNotice(registration, session, []).kind).toBe("skip");
+    expect(planNotice(registration, session, [leftover]).kind).toBe("skip");
   });
 
   test("records decode strictly enough that a notice can't go to a half-read session", () => {

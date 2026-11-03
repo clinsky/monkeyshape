@@ -228,7 +228,9 @@ const sessionId = async (): Promise<string> => {
 const msgRegister = (root: string) =>
   Effect.gen(function* () {
     const session = yield* Effect.promise(sessionId);
-    const note = yield* register(root, session, claudeDir(), new Date());
+    const pid = Number(process.env["CLAUDE_PID"] ?? "");
+    const claudePid = Number.isSafeInteger(pid) && pid > 0 ? pid : undefined;
+    const note = yield* register(root, session, claudePid, claudeDir(), new Date());
     return { output: note ?? "", code: 0 };
   });
 

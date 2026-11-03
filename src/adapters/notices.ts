@@ -13,6 +13,7 @@ import { Effect } from "effect";
 import { sessionPath, trackSessionsDir } from "../core/layout.ts";
 import type { Message } from "../core/mail.ts";
 import {
+  type ClaudeKey,
   type ClaudeSession,
   type Delivery,
   decodeClaudeKey,
@@ -39,11 +40,14 @@ const claudeRecord = (claudeDir: string, pid: number) =>
     const dir = `${claudeDir}/sessions`;
     const raw = yield* text(`${dir}/${pid}.json`);
     const session = raw === undefined ? undefined : decodeClaudeSession(raw);
-    const keyFile = (yield* list(dir)).find(
-      (file) => file.startsWith(`${pid}.`) && file.endsWith(".key"),
-    );
-    const keyText = keyFile === undefined ? undefined : yield* text(`${dir}/${keyFile}`);
-    return { session, key: keyText === undefined ? undefined : decodeClaudeKey(keyText) };
+    const keys: Array<ClaudeKey> = [];
+    for (const file of yield* list(dir)) {
+      if (!file.startsWith(`${pid}.`) || !file.endsWith(".key")) continue;
+      const raw = yield* text(`${dir}/${file}`);
+      const key = raw === undefined ? undefined : decodeClaudeKey(raw);
+      if (key !== undefined) keys.push(key);
+    }
+    return { session, keys };
   });
 
 /** Claude Code's session with this id, found by its own record. */
@@ -56,15 +60,23 @@ const claudeSession = (claudeDir: string, id: string) =>
       const session = raw === undefined ? undefined : decodeClaudeSession(raw);
       if (session?.sessionId === id) return session;
     }
-    return undefined;
+    return undefined as ClaudeSession | undefined;
   });
 
 /**
  * Records this session against its track, so `send` can reach it. Outside a track it does
  * nothing (undefined); a problem is returned as a note, never a failure, since it runs as a
- * SessionStart hook.
+ * SessionStart hook. The pid comes from Claude Code's environment (`claudePid`) when it is
+ * there, so the hook doesn't depend on Claude Code having written or updated its record
+ * first; else from that record. `send` checks the session against the record anyway.
  */
-export const register = (cwd: string, session: string, claudeDir: string, now: Date) =>
+export const register = (
+  cwd: string,
+  session: string,
+  claudePid: number | undefined,
+  claudeDir: string,
+  now: Date,
+) =>
   Effect.gen(function* () {
     if (!SESSION_ID.test(session))
       return `note: mshape msg register: \`${session}\` is not a Claude Code session id; this session gets no live notices`;
@@ -72,16 +84,11 @@ export const register = (cwd: string, session: string, claudeDir: string, now: D
       Effect.catchTag("TrackError", () => Effect.succeed(undefined)),
     );
     if (track === undefined) return undefined;
-    const found: ClaudeSession | undefined = yield* claudeSession(claudeDir, session);
-    if (found === undefined)
-      return `note: mshape msg register: Claude Code has no record of session ${session} in ${claudeDir}/sessions; this session gets no live notices, only the unread subjects at each prompt`;
+    const pid = claudePid ?? (yield* claudeSession(claudeDir, session))?.pid;
+    if (pid === undefined)
+      return `note: mshape msg register: Claude Code gave no CLAUDE_PID and has no record of session ${session} in ${claudeDir}/sessions; this session gets no live notices, only the unread subjects at each prompt`;
     const { common } = yield* locate(cwd);
-    const registration: Registration = {
-      session,
-      pid: found.pid,
-      procStart: found.procStart,
-      registered: now.toISOString(),
-    };
+    const registration: Registration = { session, pid, registered: now.toISOString() };
     const dir = trackSessionsDir(common, track);
     const path = sessionPath(common, track, session);
     const temporary = `${dir}/.${session}.${process.pid}.tmp`;
@@ -176,8 +183,8 @@ export const notifyTrack = (
         yield* prune(file, `${file} is not a registration`);
         continue;
       }
-      const { session, key } = yield* claudeRecord(claudeDir, registration.pid);
-      const plan = planNotice(registration, session, key);
+      const { session, keys } = yield* claudeRecord(claudeDir, registration.pid);
+      const plan = planNotice(registration, session, keys);
       if (plan.kind === "prune")
         yield* prune(file, `session ${registration.session}: ${plan.reason}`);
       else if (plan.kind === "skip")

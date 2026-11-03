@@ -22,10 +22,22 @@ const sh = (cwd: string, ...args: ReadonlyArray<string>) => {
   return result.stdout.toString().trim();
 };
 
-const mshape = async (cwd: string, args: ReadonlyArray<string>, stdin = "") => {
+const mshape = async (
+  cwd: string,
+  args: ReadonlyArray<string>,
+  stdin = "",
+  env: Readonly<Record<string, string>> = {},
+) => {
   const child = Bun.spawn([process.execPath, CLI, ...args], {
     cwd,
-    env: { ...process.env, CLAUDE_CONFIG_DIR: claude, CLAUDE_CODE_SESSION_ID: "" },
+    // Pinned: these tests may run inside a Claude Code session, whose own ids must not leak in.
+    env: {
+      ...process.env,
+      CLAUDE_CONFIG_DIR: claude,
+      CLAUDE_CODE_SESSION_ID: "",
+      CLAUDE_PID: "",
+      ...env,
+    },
     stdin: new Blob([stdin]),
     stdout: "pipe",
     stderr: "pipe",
@@ -145,6 +157,7 @@ describe("live notices", () => {
   });
 
   test("an ended session, a cleared one and a dead socket are pruned; the mail still waits", async () => {
+    // 1: socket gone. 2: record gone. 4: its pid now runs another session (a /clear, a reuse).
     await claudeSession(1, { listen: false });
     await claudeSession(2);
     await claudeSession(4);
@@ -170,6 +183,37 @@ describe("live notices", () => {
     expect((await mshape(wt("tracks"), ["msg", "inbox", "--quiet"])).stdout).toContain(": s");
   });
 
+  test("a leftover key of an earlier process with the same pid never hides the live one", async () => {
+    // Directory order must not matter: leftovers named to sort on either side of the live key.
+    for (const name of ["0000", "zzzz"])
+      await writeFile(
+        `${claude}/sessions/1001.${name}.key`,
+        JSON.stringify({ peerToken: "stale", procStart: "OLD", pidDomain: "x" }),
+      );
+    const received = await claudeSession(1);
+    await mshape(wt("tracks"), ["msg", "register"], hookInput(1));
+    const sent = await mshape(wt("docs"), ["msg", "send", "tracks", "--subject", "s"]);
+    expect(sent.stdout).toContain("Notified 1 live session of tracks.");
+    expect(JSON.parse((received[0] ?? "").split("\n")[0] ?? "")).toEqual({
+      type: "auth",
+      token: "token-1",
+    });
+  });
+
+  test("register needs no record from Claude Code yet: the pid comes from CLAUDE_PID", async () => {
+    // The hook may run before Claude Code writes or updates its record (at start, after /clear).
+    const registered = await mshape(wt("tracks"), ["msg", "register"], hookInput(1), {
+      CLAUDE_PID: "1001",
+    });
+    expect(registered).toEqual({ code: 0, stdout: "", stderr: "" });
+    expect(await readdir(registry("tracks"))).toEqual([`${uuid(1)}.json`]);
+    // By send time the record exists, and the session is notified.
+    const received = await claudeSession(1);
+    const sent = await mshape(wt("docs"), ["msg", "send", "tracks", "--subject", "s"]);
+    expect(sent.stdout).toContain("Notified 1 live session of tracks.");
+    expect(received).toHaveLength(1);
+  });
+
   test("a session on another protocol is skipped with a note and kept", async () => {
     const received = await claudeSession(1, { protocol: 2 });
     await mshape(wt("tracks"), ["msg", "register"], hookInput(1));
@@ -188,7 +232,7 @@ describe("live notices", () => {
     });
     const unknown = await mshape(wt("tracks"), ["msg", "register"], hookInput(9));
     expect(unknown.code).toBe(0);
-    expect(unknown.stdout).toContain(`Claude Code has no record of session ${uuid(9)}`);
+    expect(unknown.stdout).toContain(`no record of session ${uuid(9)}`);
     const bad = await mshape(wt("tracks"), ["msg", "register"], '{"session_id":"../x"}');
     expect(bad.code).toBe(0);
     expect(bad.stdout).toContain("is not a Claude Code session id");
