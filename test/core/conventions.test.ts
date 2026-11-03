@@ -60,11 +60,11 @@ describe("gate", () => {
 
 describe("prSkeleton", () => {
   test("fills given sections and leaves placeholders under the rest", () => {
-    const body = prSkeleton({ Gate: "  394 pass\n 0 fail  " });
+    const body = prSkeleton({ Gate: "\n\n  394 pass\n 0 fail  \n\n" });
     const gate = parsePrBody(body).find((section) => section.name === "Gate");
-    expect(gate?.text).toBe("394 pass\n 0 fail");
+    expect(gate?.text).toBe("  394 pass\n 0 fail");
     expect(body).toContain("<!-- The narrative:");
-    expect(missingPrSections(body)).toEqual([]);
+    expect(missingPrSections(body)).not.toContain("Gate");
   });
 });
 
@@ -97,8 +97,15 @@ describe("missingPrSections", () => {
   });
 
   test("a heading only inside a code block doesn't count", () => {
-    expect(missingPrSections(prSkeleton()).length).toBe(0);
     expect(missingPrSections("```\n## Gate\n```")).toContain("Gate");
+  });
+
+  test("a heading left empty, or with only its placeholder, is missing", () => {
+    const required = PR_SECTIONS.filter((s) => s.required).map((s) => s.name);
+    expect(missingPrSections(prTemplate())).toEqual(required);
+    expect(missingPrSections(required.map((name) => `## ${name}\n`).join(""))).toEqual(required);
+    const filled = Object.fromEntries(required.map((name) => [name, "x <!-- note -->"]));
+    expect(missingPrSections(prSkeleton(filled))).toEqual([]);
   });
 });
 
@@ -142,6 +149,28 @@ describe("setPrSections", () => {
 
   test("a body with no sections gets the given ones in order", () => {
     expect(setPrSections("", { Beads: "b", Gate: "g" })).toBe("## Gate\n\ng\n\n## Beads\n\nb\n");
+  });
+
+  test("keeps an untouched section's leading indentation byte for byte", () => {
+    const indented = [
+      "## Evidence",
+      "",
+      "    $ mshape check",
+      "    ok",
+      "",
+      "## Not done",
+      "",
+      "  - nested item",
+      "",
+      "## Gate",
+      "",
+      "stale",
+      "",
+    ].join("\n");
+    expect(setPrSections(indented, { Gate: "411 pass" })).toBe(
+      indented.replace("stale", "411 pass"),
+    );
+    expect(parsePrBody(indented)[0]?.text).toBe("    $ mshape check\n    ok");
   });
 
   test("is idempotent", () => {

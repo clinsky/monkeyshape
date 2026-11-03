@@ -82,7 +82,15 @@ export const prSizeNote = (changedLines: number): string => {
 };
 
 const heading = (name: string): string => `## ${name}`;
+
+/**
+ * Text without its blank first and last lines. Not `trim()`: a first line's indentation is
+ * Markdown (an indented code block, a nested list item), and must survive a round trip.
+ */
+const trimLines = (text: string): string => text.replace(/^(?:[ \t]*\n)+/, "").trimEnd();
 const placeholder = (section: PrSection): string => `<!-- ${section.purpose} -->`;
+const fill = (value: string | undefined, section: PrSection): string =>
+  value === undefined ? placeholder(section) : trimLines(value);
 
 /**
  * A PR body with every section in order: the given text under its heading, the section's
@@ -90,8 +98,7 @@ const placeholder = (section: PrSection): string => `<!-- ${section.purpose} -->
  */
 export const prSkeleton = (values: Partial<Record<PrSectionName, string>> = {}): string =>
   `${PR_SECTIONS.map(
-    (section) =>
-      `${heading(section.name)}\n\n${values[section.name]?.trim() ?? placeholder(section)}`,
+    (section) => `${heading(section.name)}\n\n${fill(values[section.name], section)}`,
   ).join("\n\n")}\n`;
 
 /** `.github/pull_request_template.md`: the skeleton with nothing filled in. */
@@ -102,7 +109,7 @@ export const PR_TEMPLATE_FILE = ".github/pull_request_template.md";
 
 export interface PrBodySection {
   readonly name: string;
-  /** The text under the heading, trimmed. */
+  /** The text under the heading, without blank lines at either end. */
   readonly text: string;
 }
 
@@ -120,13 +127,20 @@ export const parsePrBody = (body: string): ReadonlyArray<PrBodySection> => {
     else sections[sections.length - 1]?.lines.push(line);
   }
   return sections
-    .map((section) => ({ name: section.name, text: section.lines.join("\n").trim() }))
+    .map((section) => ({ name: section.name, text: trimLines(section.lines.join("\n")) }))
     .filter((section) => section.name !== "" || section.text !== "");
 };
 
-/** The required sections `body` lacks, in order. */
+/**
+ * The required sections `body` lacks, in order. A heading with nothing under it but blank
+ * lines and HTML comments (the template's placeholder) is missing: it was never filled in.
+ */
 export const missingPrSections = (body: string): ReadonlyArray<PrSectionName> => {
-  const present = new Set(parsePrBody(body).map((section) => section.name));
+  const present = new Set(
+    parsePrBody(body)
+      .filter((section) => section.text.replace(/<!--[\s\S]*?-->/g, "").trim() !== "")
+      .map((section) => section.name),
+  );
   return PR_SECTIONS.filter((section) => section.required && !present.has(section.name)).map(
     (section) => section.name,
   );
@@ -143,8 +157,9 @@ export const setPrSections = (
 ): string => {
   const sections = parsePrBody(body).map((section) => ({ ...section }));
   for (const [index, known] of PR_SECTIONS.entries()) {
-    const text = values[known.name]?.trim();
-    if (text === undefined) continue;
+    const value = values[known.name];
+    if (value === undefined) continue;
+    const text = trimLines(value);
     const existing = sections.find((section) => section.name === known.name);
     if (existing !== undefined) {
       existing.text = text;
