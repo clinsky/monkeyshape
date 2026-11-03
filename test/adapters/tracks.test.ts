@@ -40,7 +40,13 @@ const mshapeWith = (
   const result = Bun.spawnSync([process.execPath, CLI, "track", ...args], {
     cwd,
     // rm reads Claude Code's sessions: a scratch directory, never the real ~/.claude.
-    env: { ...process.env, CLAUDE_CONFIG_DIR: join(base, "no-claude"), ...env },
+    // A fake gh (`fakeGh`), never the real one: list reads PRs from GitHub.
+    env: {
+      ...process.env,
+      PATH: `${base}/fake-gh:${process.env["PATH"] ?? ""}`,
+      CLAUDE_CONFIG_DIR: join(base, "no-claude"),
+      ...env,
+    },
     stdout: "pipe",
     stderr: "pipe",
   });
@@ -84,7 +90,20 @@ beforeEach(async () => {
   sh(repo, "config", "user.name", "Test");
   sh(repo, "config", "user.email", "test@example.com");
   sh(repo, "config", "commit.gpgsign", "false");
+  await fakeGh([]);
 });
+
+/** `gh pr list` prints these PRs (JSON); `fakeGh(undefined)` makes gh fail like a repo with no remote. */
+const fakeGh = async (prs: ReadonlyArray<object> | undefined) => {
+  await mkdir(`${base}/fake-gh`, { recursive: true });
+  await writeFile(
+    `${base}/fake-gh/gh`,
+    prs === undefined
+      ? "#!/bin/sh\necho 'no git remotes found' >&2\nexit 1\n"
+      : `#!/bin/sh\ncat <<'EOF'\n${JSON.stringify(prs)}\nEOF\n`,
+  );
+  await chmod(`${base}/fake-gh/gh`, 0o755);
+};
 
 afterEach(async () => {
   await rm(base, { recursive: true, force: true });
@@ -187,8 +206,9 @@ describe("track list", () => {
     expect(listed.stdout).toContain(`linked ${repo}/.agents/handoffs`);
     const rows = listed.stdout.split("\n").filter((line) => /^(docs|init) /.test(line));
     expect(rows.map((row) => row.split(/\s+/))).toEqual([
-      ["docs", "stub", "-", "0", "yes", ".agents/worktrees/repo@docs"],
-      ["init", "stub", "-", "1", "no", ".agents/worktrees/repo@init"],
+      // No PR has merged from either, so neither is done, whatever bd would say.
+      ["docs", "stub", "-", "0", "yes", "no", ".agents/worktrees/repo@docs"],
+      ["init", "stub", "-", "1", "no", "no", ".agents/worktrees/repo@init"],
     ]);
     expect(await realpath(`${repo}/.handoffs`)).toBe(`${repo}/.git/monkeyshape/handoffs`);
 
@@ -581,8 +601,147 @@ describe("track rm and list with beads", () => {
     await writeFile(`${base}/rows.json`, JSON.stringify(rows));
     await writeFile(`${base}/bin/bd`, `#!/bin/sh\ncat "${base}/rows.json"\nexit ${exit}\n`);
     await chmod(`${base}/bin/bd`, 0o755);
-    return { PATH: `${base}/bin:${process.env["PATH"] ?? ""}` };
+    return { PATH: `${base}/bin:${base}/fake-gh:${process.env["PATH"] ?? ""}` };
   };
+
+  test("a track just made is not done, and isn't told to be removed", async () => {
+    // The probe from #39's review: real-looking facts all say yes for a branch at main.
+    await setup();
+    mshape(repo, "new", "fresh");
+    const env = await fakeBd([]);
+    const listed = mshapeWith(env, repo, "list").stdout;
+    expect(listed).toMatch(/^fresh\s+stub\s+0\s+0\s+yes\s+no\s/m);
+    expect(listed).not.toContain("remove it with");
+  });
+
+  test("a merged PR's bead deferred with what is left is settled: no warning, and done", async () => {
+    // The probe from #39's round 4: the agent follows the advice, defers the bead and drops
+    // the track's label, as beads/deferred-in-track asks. Nothing may keep the track at no.
+    await setup();
+    mshape(repo, "new", "fresh");
+    const merged = {
+      number: 9,
+      state: "MERGED",
+      headRefName: "track/fresh",
+      body: "## Beads\n\n- x-1 part of it\n",
+      createdAt: new Date().toISOString(),
+    };
+    await fakeGh([merged]);
+    const open = await fakeBd([bead("x-1", "in_progress", ["track:fresh"])]);
+    expect(mshapeWith(open, repo, "list").stdout).toContain(
+      "x-1 (in_progress) is listed in merged PR #9",
+    );
+
+    const deferred = await fakeBd([bead("x-1", "deferred", [])]);
+    const listed = mshapeWith(deferred, repo, "list").stdout;
+    expect(listed).not.toContain("merged PR #9");
+    expect(listed).toMatch(/^fresh\s+stub\s+0\s+0\s+yes\s+yes\s/m);
+  });
+
+  test("a reused name doesn't inherit the earlier track's PRs: not done, no warnings of theirs", async () => {
+    // The probe from #39's re-review: rm, then new with the same name, while gh still lists
+    // the first track's merged PR, whose bead is open.
+    await setup();
+    mshape(repo, "new", "fresh");
+    const env = await fakeBd([bead("x-1", "open", [])]);
+    const earlier = {
+      number: 3,
+      state: "MERGED",
+      headRefName: "track/fresh",
+      body: "## Beads\n\n- x-1\n",
+      // Opened during the first track's life, which started just above.
+      createdAt: new Date().toISOString(),
+    };
+    await fakeGh([earlier]);
+    expect(mshapeWith(env, repo, "list").stdout).toContain("x-1 (open) is listed in merged PR #3");
+    expect(mshapeWith(env, repo, "rm", "fresh").code).toBe(0);
+    mshape(repo, "new", "fresh");
+
+    const listed = mshapeWith(env, repo, "list").stdout;
+    expect(listed).toMatch(/^fresh\s+stub\s+0\s+0\s+yes\s+no\s/m);
+    expect(listed).not.toContain("merged PR #3");
+    expect(listed).not.toContain("remove it with");
+    expect(sh(repo, "config", "--get", "branch.track/fresh.mshape-started")).toMatch(/^\d{4}-/);
+  });
+
+  test("a branch made before track new recorded its start falls back to its reflog", async () => {
+    await setup();
+    mshape(repo, "new", "old");
+    sh(repo, "config", "--unset", "branch.track/old.mshape-started");
+    const env = await fakeBd([]);
+    const merged = (createdAt: string) => [
+      { number: 1, state: "MERGED", headRefName: "track/old", body: "", createdAt },
+    ];
+    // A PR opened before the branch existed is someone else's; one opened since is its own.
+    await fakeGh(merged("2020-01-01T00:00:00Z"));
+    expect(mshapeWith(env, repo, "list").stdout).toMatch(/^old\s+\S+\s+0\s+0\s+yes\s+no\s/m);
+    await fakeGh(merged(new Date(Date.now() + 60_000).toISOString()));
+    expect(mshapeWith(env, repo, "list").stdout).toMatch(/^old\s+\S+\s+0\s+0\s+yes\s+yes\s/m);
+  });
+
+  test("list derives done from beads, merge and PRs; flags beads open after their PR merged", async () => {
+    await setup();
+    for (const track of ["docs", "init", "wip"]) mshape(repo, "new", track);
+    await writeFile(`${wt("wip")}/page.md`, "page\n");
+    sh(wt("wip"), "add", ".");
+    sh(wt("wip"), "commit", "-qm", "page");
+    const env = await fakeBd([
+      bead("x-1", "open", ["track:init"]),
+      bead("x-2", "in_progress", []),
+      bead("x-3", "closed", ["track:docs"]),
+    ]);
+    // Opened now: after each track started.
+    const pr = (number: number, state: string, head: string, beads: string) => ({
+      number,
+      state,
+      headRefName: head,
+      body: `## Beads\n\n${beads}\n`,
+      createdAt: new Date().toISOString(),
+    });
+    await fakeGh([
+      pr(1, "MERGED", "track/docs", "- x-3 done\n- x-2 left open"),
+      pr(2, "OPEN", "track/docs", "- x-3"),
+      pr(3, "MERGED", "track/init", "- x-1"),
+      pr(4, "MERGED", "other-branch", "- x-2"),
+    ]);
+    const cells = (text: string, track: string) =>
+      text
+        .split("\n")
+        .find((line) => line.startsWith(`${track} `))
+        ?.split(/\s+/);
+
+    const listed = mshapeWith(env, repo, "list").stdout;
+    // docs: merged and no beads, but PR #2 is open. init: an open bead. wip: unmerged.
+    expect(cells(listed, "docs")?.[5]).toBe("no");
+    expect(cells(listed, "init")?.[5]).toBe("no");
+    expect(cells(listed, "wip")?.[5]).toBe("no");
+    expect(listed).toContain(
+      "  docs: x-2 (in_progress) is listed in merged PR #1 but still open: close it if its work is done (`bd close x-2`), or write what is left in its notes and defer it (`bd defer x-2`)",
+    );
+    expect(listed).toContain("  init: x-1 (open) is listed in merged PR #3 but still open");
+    // PR #4 isn't a track's: its bead is nobody's here.
+    expect(listed.match(/merged PR #4/g)).toBeNull();
+    // wip's handoff State is from today, as is its commit: no hygiene warning.
+    expect(listed).not.toContain("wip: its handoff's State");
+
+    // PR #2 merges: docs is done, and says how to remove it.
+    await fakeGh([
+      pr(1, "MERGED", "track/docs", "- x-3 done"),
+      pr(2, "MERGED", "track/docs", "- x-3"),
+    ]);
+    const done = mshapeWith(env, repo, "list").stdout;
+    expect(cells(done, "docs")?.[5]).toBe("yes");
+    expect(done).toContain("  docs: done: remove it with `mshape track rm docs`");
+
+    // gh can't answer: unknown, with a note, never yes.
+    await fakeGh(undefined);
+    const blind = mshapeWith(env, repo, "list").stdout;
+    expect(cells(blind, "docs")?.[5]).toBe("unknown");
+    expect(cells(blind, "wip")?.[5]).toBe("no");
+    expect(blind).toContain(
+      "note: PRs not read, so done is unknown where they decide it: `gh pr list` failed: no git remotes found",
+    );
+  });
 
   test("open beads refuse, even with --force, touching nothing; once closed, rm goes ahead", async () => {
     await setup();
@@ -605,7 +764,7 @@ describe("track rm and list with beads", () => {
     const listed = mshapeWith(env, repo, "list").stdout;
     expect(listed).toMatch(/^docs\s+stub\s+1\s+0\s+yes/m);
     // A label with open beads and nothing else: work filed for a track that doesn't exist.
-    expect(listed).toMatch(/^init\s+none\s+1\s+-\s+-\s+-$/m);
+    expect(listed).toMatch(/^init\s+none\s+1\s+-\s+-\s+no\s+-$/m);
 
     const closed = await fakeBd([bead("x-1", "closed", ["track:docs"])]);
     expect(mshapeWith(closed, repo, "rm", "docs").code).toBe(0);

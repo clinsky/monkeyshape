@@ -4,6 +4,7 @@
  * are read by `src/adapters/tracks.ts`, which hands the facts here.
  */
 import type { ResolvedConfig } from "../schemas/config.ts";
+import { ownedWithoutTrack, setAside } from "./beads.ts";
 import { beadsBlocker } from "./check.ts";
 import {
   AGENTS_HANDOFFS_LINK,
@@ -16,6 +17,7 @@ import {
   worktreePath,
 } from "./layout.ts";
 import type { Integration } from "./model.ts";
+import { listedBeads } from "./trackPr.ts";
 
 /** A worktree as `git worktree list --porcelain` reports it. */
 export interface Worktree {
@@ -380,6 +382,144 @@ export const planRm = (facts: RmFacts): RmPlan => {
     : { refusals, warnings, steps, kept, notes };
 };
 
+/** A PR from a track's branch, as `gh pr list --json number,state,headRefName,body,createdAt` gives it. */
+export interface TrackPr {
+  readonly number: number;
+  readonly state: string;
+  readonly headRefName: string;
+  readonly body: string;
+  /** ISO 8601, as GitHub records it. */
+  readonly createdAt: string;
+}
+
+/** Where `track new` records when a track started: in the branch's config, so it goes with the branch. */
+export const STARTED_KEY = (track: string): string => `branch.${trackBranch(track)}.mshape-started`;
+
+/**
+ * The PRs of this track, not of an earlier one that had its name: from its branch, opened at or
+ * after it started. Undefined when gh couldn't say, or when the start isn't known (the branch is
+ * gone, or has neither the recorded start nor a reflog), since then no PR can be placed.
+ */
+export const ownPrs = (
+  prs: ReadonlyArray<TrackPr> | undefined,
+  track: string,
+  started: Date | undefined,
+): ReadonlyArray<TrackPr> | undefined =>
+  prs === undefined || started === undefined
+    ? undefined
+    : prs.filter(
+        (pr) =>
+          pr.headRefName === trackBranch(track) && Date.parse(pr.createdAt) >= started.getTime(),
+      );
+
+/** The PRs `gh` printed, or undefined when they aren't PRs: never a guess. */
+export const parseTrackPrs = (json: string): ReadonlyArray<TrackPr> | undefined => {
+  let value: unknown;
+  try {
+    value = JSON.parse(json);
+  } catch {
+    return undefined;
+  }
+  if (!Array.isArray(value)) return undefined;
+  const prs = value.filter(
+    (pr): pr is TrackPr =>
+      typeof pr === "object" &&
+      pr !== null &&
+      typeof pr.number === "number" &&
+      typeof pr.state === "string" &&
+      typeof pr.headRefName === "string" &&
+      typeof pr.body === "string" &&
+      typeof pr.createdAt === "string",
+  );
+  return prs.length === value.length ? prs : undefined;
+};
+
+export type Done = "yes" | "no" | "unknown";
+
+/**
+ * A track is done when no open bead carries its label, its branch's work is in upstream
+ * `main` (or the branch is gone), no PR from `track/<name>` is open, and at least one has
+ * merged. `openAfterMerge`'s findings are advice beside it, not part of it. That last fact is what separates finished from not started: a branch `track new`
+ * just made sits at `main`, so it is "merged" with no PR and no beads yet. Any fact that says
+ * otherwise makes it `no`; a fact that couldn't be read, with none saying no, makes it
+ * `unknown`. Never `yes` on a guess.
+ */
+export const trackDone = (facts: {
+  /** Open beads with the label; undefined when bd couldn't say. */
+  readonly beads: number | undefined;
+  readonly branchExists: boolean;
+  readonly merged: boolean | undefined;
+  /** This track's PRs; undefined when gh couldn't say. */
+  readonly prs: ReadonlyArray<TrackPr> | undefined;
+}): Done => {
+  const says = [
+    facts.beads === undefined ? undefined : facts.beads === 0,
+    facts.branchExists ? facts.merged : true,
+    facts.prs === undefined ? undefined : !facts.prs.some((pr) => pr.state === "OPEN"),
+    facts.prs === undefined ? undefined : facts.prs.some((pr) => pr.state === "MERGED"),
+  ];
+  return says.includes(false) ? "no" : says.includes(undefined) ? "unknown" : "yes";
+};
+
+/** A bead's status and labels, by id: what `openAfterMerge` reads. */
+export type BeadsById = ReadonlyMap<
+  string,
+  { readonly status: string; readonly type: string; readonly labels: ReadonlyArray<string> }
+>;
+
+/**
+ * Beads a merged PR of the track lists in its Beads section but that are still open: the
+ * work merged, so each is either done and needs closing, or has work left, which deferring
+ * with a note sets aside (a deferred or pinned bead isn't flagged).
+ * Only the track's own (its label) or nobody's (no track label, and not owned without one, as
+ * `ownedWithoutTrack` says): another track's bead is in that track's count and is its to
+ * settle, and an epic, a milestone or process work is no track's to close. A listed id bd doesn't know is skipped,
+ * since `track pr` checked ids when it posted.
+ */
+export const openAfterMerge = (
+  prs: ReadonlyArray<TrackPr>,
+  beads: BeadsById,
+  track: string,
+): ReadonlyArray<string> =>
+  prs
+    .filter((pr) => pr.state === "MERGED")
+    .flatMap((pr) =>
+      listedBeads(pr.body).flatMap((id) => {
+        const bead = beads.get(id);
+        if (bead === undefined || bead.status === "closed" || setAside(bead.status)) return [];
+        const tracks = bead.labels.filter((label) => label.startsWith("track:"));
+        if (tracks.length > 0 ? !tracks.includes(trackLabel(track)) : ownedWithoutTrack(bead))
+          return [];
+        return [
+          `${id} (${bead.status}) is listed in merged PR #${pr.number} but still open: close it if its work is done (\`bd close ${id}\`), or write what is left in its notes and defer it (\`bd defer ${id}\`)`,
+        ];
+      }),
+    );
+
+/**
+ * What a track's handoff and worktree should say and don't: a State older than the branch's
+ * last commit, and a done track still on disk.
+ */
+export const hygieneWarnings = (facts: {
+  readonly track: string;
+  readonly done: Done;
+  readonly stateDate: string | undefined;
+  /** `YYYY-MM-DD` of the branch's last commit, when it has commits of its own. */
+  readonly lastCommit: string | undefined;
+  readonly hasWorktree: boolean;
+}): ReadonlyArray<string> => [
+  ...(facts.stateDate !== undefined &&
+  facts.lastCommit !== undefined &&
+  facts.stateDate < facts.lastCommit
+    ? [
+        `its handoff's State (${facts.stateDate}) is older than \`${trackBranch(facts.track)}\`'s last commit (${facts.lastCommit}): rewrite State (\`/handoff\`)`,
+      ]
+    : []),
+  ...(facts.done === "yes" && facts.hasWorktree
+    ? [`done: remove it with \`mshape track rm ${facts.track}\``]
+    : []),
+];
+
 /** One line per track in `track list`. */
 export interface TrackRow {
   readonly track: string;
@@ -396,18 +536,23 @@ export interface TrackRow {
   readonly worktreeBranch?: string | undefined;
   /** Why the handoff is `invalid`: `parseHandoff`'s problems, printed under the row. */
   readonly problems?: ReadonlyArray<string> | undefined;
+  /** Derived by `trackDone`; undefined in rows built before it was read. */
+  readonly done?: Done | undefined;
+  /** `openAfterMerge` and `hygieneWarnings`, printed under the row. */
+  readonly warnings?: ReadonlyArray<string> | undefined;
 }
 
 export const formatTracks = (rows: ReadonlyArray<TrackRow>): string => {
   if (rows.length === 0) return "no tracks: start one with `mshape track new <name>`";
   const table = [
-    ["track", "status", "beads", "ahead", "merged", "worktree"],
+    ["track", "status", "beads", "ahead", "merged", "done", "worktree"],
     ...rows.map((row) => [
       row.track,
       row.status,
       row.beads === undefined ? "-" : String(row.beads),
       row.ahead === undefined ? "-" : String(row.ahead),
       row.merged === undefined ? "-" : row.merged ? "yes" : "no",
+      row.done ?? "-",
       row.worktree === undefined
         ? "-"
         : row.worktreeBranch === undefined
@@ -430,6 +575,7 @@ export const formatTracks = (rows: ReadonlyArray<TrackRow>): string => {
     ...rows.flatMap((row, index) => [
       line(table[index + 1] ?? []),
       ...(row.problems ?? []).map((problem) => `  ${HANDOFFS_LINK}/${row.track}.md: ${problem}`),
+      ...(row.warnings ?? []).map((warning) => `  ${row.track}: ${warning}`),
     ]),
   ].join("\n");
 };

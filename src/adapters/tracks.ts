@@ -37,18 +37,25 @@ import {
 } from "../core/layout.ts";
 import { decodeMessage } from "../core/mail.ts";
 import {
+  type BeadsById,
   type BeadsCheck,
   currentTrack,
   describeStep,
   formatTracks,
+  hygieneWarnings,
   type MailboxFacts,
   nameProblem,
+  openAfterMerge,
   openBeadsByTrack,
+  ownPrs,
+  parseTrackPrs,
   parseWorktrees,
   planRm,
   type RmStep,
+  STARTED_KEY,
   sharedPathProblems,
   type TrackRow,
+  trackDone,
   type Worktree,
 } from "../core/tracks.ts";
 import { TrackError, WorkspaceError } from "../schemas/errors.ts";
@@ -336,14 +343,72 @@ const ensureHandoffLinks = (common: string, repo: string, checkouts: ReadonlyArr
   });
 
 /**
- * Every bead with a `track:` label that isn't closed, by track, in the beads state `mshape
- * check` uses: one loader, so the two can't disagree about what a beads failure means.
+ * Every bead, once, in the beads state `mshape check` uses (one loader, so the two can't
+ * disagree about what a beads failure means): the open ones by track label, and each one's
+ * status and labels by id.
  */
 const trackBeads = (repo: string) =>
-  Effect.map(beadRows(repo, ["--label-pattern", "track:*", "--brief"]), (loaded) => ({
+  Effect.map(beadRows(repo, ["--brief"]), (loaded) => ({
     integration: loaded.integration,
     byTrack: openBeadsByTrack(loaded.value ?? []),
+    byId: new Map(
+      (loaded.value ?? []).flatMap((row) => {
+        const { id, status, issue_type, labels } = (row ?? {}) as Record<string, unknown>;
+        return typeof id === "string" && typeof status === "string"
+          ? [
+              [
+                id,
+                {
+                  status,
+                  type: typeof issue_type === "string" ? issue_type : "",
+                  labels: Array.isArray(labels)
+                    ? labels.filter((label): label is string => typeof label === "string")
+                    : [],
+                },
+              ] as const,
+            ]
+          : [];
+      }),
+    ) as BeadsById,
   }));
+
+const GH_TIMEOUT_MS = 30_000;
+
+/**
+ * Every PR from a `track/*` branch, in one `gh` call, or why gh couldn't say: then done is
+ * `unknown`, never `yes`.
+ */
+const trackPrs = (repo: string) =>
+  Effect.try({
+    try: () =>
+      Bun.spawnSync(
+        [
+          "gh",
+          "pr",
+          "list",
+          "--state",
+          "all",
+          "--limit",
+          "1000",
+          "--json",
+          "number,state,headRefName,body,createdAt",
+        ],
+        { cwd: repo, stdout: "pipe", stderr: "pipe", timeout: GH_TIMEOUT_MS },
+      ),
+    catch: (cause) => cause,
+  }).pipe(
+    Effect.map((child) => {
+      if (child.exitCode !== 0)
+        return {
+          reason: `\`gh pr list\` failed: ${child.stderr.toString().trim() || (child.exitCode === null ? `timed out after ${GH_TIMEOUT_MS / 1000}s` : `exit ${child.exitCode}`)}`,
+        };
+      const prs = parseTrackPrs(child.stdout.toString());
+      return prs === undefined
+        ? { reason: "`gh pr list` printed something that isn't a list of PRs" }
+        : { prs: prs.filter((pr) => pr.headRefName.startsWith("track/")) };
+    }),
+    Effect.orElseSucceed(() => ({ reason: "`gh` is not on PATH" })),
+  );
 
 export const ignored = (repo: string, path: string) =>
   Effect.map(git(repo, ["check-ignore", "-q", path]), (result) => result.code === 0);
@@ -365,6 +430,26 @@ const trackedInMain = (repo: string, path: string) =>
  * Shared paths come from the main checkout's `shape.config.ts`: they name the main checkout's
  * data, whichever checkout the command runs from.
  */
+/**
+ * When the track started: as `track new` recorded it, or, for a branch made before it did,
+ * when the branch's reflog says it was created. Both go with the branch, so `track rm` then
+ * `track new` starts a new one. Undefined when neither is there.
+ */
+const trackStarted = (repo: string, track: string) =>
+  Effect.gen(function* () {
+    const recorded = (yield* git(repo, ["config", "--get", STARTED_KEY(track)])).stdout.trim();
+    if (recorded !== "" && !Number.isNaN(Date.parse(recorded))) return new Date(recorded);
+    const reflog = yield* git(repo, [
+      "log",
+      "--walk-reflogs",
+      "--date=unix",
+      "--format=%gd",
+      head(trackBranch(track)),
+    ]);
+    const oldest = /@\{(\d+)\}\s*$/.exec(reflog.stdout.trim())?.[1];
+    return oldest === undefined ? undefined : new Date(Number(oldest) * 1000);
+  });
+
 /**
  * Where a new track branches: upstream `main` when it has commits local `main` lacks (merges
  * done on GitHub since the last pull), so the track starts from what will be its PR's base;
@@ -399,6 +484,8 @@ export const trackNew = (
   date: string,
   /** The environment for fetching `main`'s upstream: one where git can't prompt. */
   fetchEnv: Readonly<Record<string, string | undefined>>,
+  /** When the track starts, recorded so its PRs can be told from an earlier track's of the name. */
+  now: Date,
 ) =>
   Effect.gen(function* () {
     const invalid = nameProblem(track);
@@ -442,6 +529,7 @@ export const trackNew = (
         notes.push(`note: ${what} (\`${at}\`) is not gitignored; add it to .gitignore`);
 
     yield* gitOk(repo, ["worktree", "add", "--quiet", "--no-track", "-b", branch, path, start.ref]);
+    yield* gitOk(repo, ["config", STARTED_KEY(track), now.toISOString()]);
     const said = [...start.notes, `created ${path} on \`${branch}\` from \`${start.name}\``];
     // From here the track exists: a failure must say what was done and how to undo it.
     const finish = Effect.gen(function* () {
@@ -542,7 +630,7 @@ export const trackList = (cwd: string, carry: CarryMessages) =>
       ),
     );
     const beads = yield* trackBeads(repo);
-    // No fetch here: list stays offline and fast, and rm fetches before it decides.
+    // No git fetch here, so list stays fast (rm fetches before it decides); PRs come from gh.
     const targets = yield* mergeTargets(repo);
     // A label with open beads is a track too, even after its worktree is gone: that work is orphaned.
     const labelled = [...beads.byTrack.keys()];
@@ -556,6 +644,9 @@ export const trackList = (cwd: string, carry: CarryMessages) =>
     // list reports, it doesn't gate: a failing bd is a note here, and a refusal in rm.
     if (beads.integration.state === "unavailable" || beads.integration.state === "failed")
       notes.push(`note: open beads not counted: ${beads.integration.reason}`);
+    const prs = yield* trackPrs(repo);
+    if ("reason" in prs)
+      notes.push(`note: PRs not read, so done is unknown where they decide it: ${prs.reason}`);
 
     const rows = yield* Effect.forEach(tracks, (track) =>
       Effect.gen(function* () {
@@ -569,6 +660,28 @@ export const trackList = (cwd: string, carry: CarryMessages) =>
         const text = migrated?.text;
         const parsed = text === undefined ? undefined : parseHandoff(text);
         const worktree = byTrack.get(track);
+        const branchExists = branches.includes(track);
+        const merge = branchExists
+          ? yield* mergeState(repo, trackBranch(track), targets)
+          : { ahead: undefined, merged: undefined };
+        // Only this track's PRs: a reused name mustn't inherit an earlier track's.
+        const own = ownPrs(
+          "prs" in prs ? prs.prs : undefined,
+          track,
+          branchExists ? yield* trackStarted(repo, track) : undefined,
+        );
+        const open =
+          beads.integration.state === "ok" ? (beads.byTrack.get(track)?.length ?? 0) : undefined;
+        const afterMerge =
+          own === undefined || beads.integration.state !== "ok"
+            ? []
+            : openAfterMerge(own, beads.byId, track);
+        const done = trackDone({ beads: open, branchExists, merged: merge.merged, prs: own });
+        const lastCommit =
+          branchExists && (merge.ahead ?? 0) > 0
+            ? (yield* gitOk(repo, ["log", "-1", "--format=%cs", head(trackBranch(track))])) ||
+              undefined
+            : undefined;
         const row: TrackRow = {
           track,
           status:
@@ -580,11 +693,20 @@ export const trackList = (cwd: string, carry: CarryMessages) =>
                   ? "stub"
                   : "active",
           problems: parsed !== undefined && "problems" in parsed ? parsed.problems : undefined,
-          beads:
-            beads.integration.state === "ok" ? (beads.byTrack.get(track)?.length ?? 0) : undefined,
-          ...(branches.includes(track)
-            ? yield* mergeState(repo, trackBranch(track), targets)
-            : { ahead: undefined, merged: undefined }),
+          beads: open,
+          ...merge,
+          done,
+          warnings: [
+            ...afterMerge,
+            ...hygieneWarnings({
+              track,
+              done,
+              stateDate:
+                parsed !== undefined && !("problems" in parsed) ? parsed.stateDate : undefined,
+              lastCommit,
+              hasWorktree: worktree !== undefined,
+            }),
+          ],
           worktree: worktree === undefined ? undefined : posix.relative(repo, worktree.path),
           worktreeBranch:
             worktree === undefined || worktree.branch === trackBranch(track)

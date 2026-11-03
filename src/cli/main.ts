@@ -206,7 +206,13 @@ const track = (root: string, args: ReadonlyArray<string>) =>
     const name = names[0] ?? "";
     if (sub === "new")
       return {
-        output: yield* trackNew(root, name, today(), { ...process.env, GIT_TERMINAL_PROMPT: "0" }),
+        output: yield* trackNew(
+          root,
+          name,
+          today(),
+          { ...process.env, GIT_TERMINAL_PROMPT: "0" },
+          new Date(),
+        ),
         code: 0,
       };
     if (sub === "list") return { output: yield* trackList(root, carryMessages(root)), code: 0 };
@@ -523,7 +529,7 @@ export const COMMANDS: ReadonlyArray<Command> = [
   },
   {
     name: "check",
-    usage: `  mshape check [--only arch,refs,budgets,coverage,rules,skills,sync]
+    usage: `  mshape check [--only arch,refs,budgets,coverage,rules,skills,sync,beads]
       Run the checks; violations above .shape/baseline.json fail.`,
     run: check,
   },
@@ -556,8 +562,11 @@ export const COMMANDS: ReadonlyArray<Command> = [
       come from the main checkout's shape.config.ts, from whichever checkout this runs.
   mshape track list
       Every track: handoff status, open beads, commits in neither main nor origin/main,
-      worktree. Restores missing handoff links; a track label with open beads and no track
-      left is listed too. Offline: run git fetch to see merges done on the remote.
+      whether it is done, worktree. Done is yes only with no open bead, the branch merged and
+      no open PR (from gh); unknown when bd or gh can't say. Under a row: beads still open
+      though a merged PR lists them, a State older than the branch's last commit, and a done
+      track's rm. Restores missing handoff links; a track label with open beads and no track
+      left is listed too. Run git fetch to see merges done on the remote.
   mshape track current
       The track of this directory, name only; exit 1, saying why, outside a track.
   mshape track pr [--title <title>] [--body-file <path>]

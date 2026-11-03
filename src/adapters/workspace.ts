@@ -5,7 +5,7 @@ import { Effect } from "effect";
 import { PRIME_FILE } from "../core/conventions.ts";
 import { parseJsonc } from "../core/coverage.ts";
 import { SETTINGS_FILE } from "../core/hooks.ts";
-import { type Integration, isTsSource, type Snapshot } from "../core/model.ts";
+import { type BeadSummary, type Integration, isTsSource, type Snapshot } from "../core/model.ts";
 import { SYNCED_FILES } from "../core/sync.ts";
 import type { ResolvedConfig } from "../schemas/config.ts";
 import { WorkspaceError } from "../schemas/errors.ts";
@@ -126,7 +126,11 @@ export const beadRows = (root: string, filters: ReadonlyArray<string>) =>
 /** bd memories and every bead id. A repo without `.beads` is absent; bd missing is unavailable. */
 const beads = (root: string) =>
   Effect.gen(function* () {
-    type Value = { memories: ReadonlyMap<string, string>; ids: ReadonlySet<string> };
+    type Value = {
+      memories: ReadonlyMap<string, string>;
+      ids: ReadonlySet<string>;
+      rows: ReadonlyArray<BeadSummary>;
+    };
     const unreachable = yield* beadsUnreachable(root);
     if (unreachable !== undefined)
       return { integration: unreachable, value: undefined } satisfies Loaded<Value>;
@@ -134,7 +138,8 @@ const beads = (root: string) =>
     const parsedMemories = memories.code === 0 ? parseJsonc(memories.stdout) : undefined;
     if (typeof parsedMemories !== "object" || parsedMemories === null)
       return failed<Value>(`\`bd memories --json\` exited ${memories.code} or printed no object`);
-    const list = yield* beadRows(root, ["--brief", "--skip-labels"]);
+    // Labels and types too: the beads check reads who owns each bead.
+    const list = yield* beadRows(root, ["--brief"]);
     const rows = list.value;
     if (rows === undefined)
       return { integration: list.integration, value: undefined } satisfies Loaded<Value>;
@@ -154,6 +159,22 @@ const beads = (root: string) =>
             : [],
         ),
       ),
+      rows: rows.flatMap((issue) => {
+        const { id, title, status, issue_type, labels } = (issue ?? {}) as Record<string, unknown>;
+        return typeof id === "string" && typeof status === "string"
+          ? [
+              {
+                id,
+                title: typeof title === "string" ? title : "",
+                status,
+                type: typeof issue_type === "string" ? issue_type : "",
+                labels: Array.isArray(labels)
+                  ? labels.filter((label): label is string => typeof label === "string")
+                  : [],
+              },
+            ]
+          : [];
+      }),
     };
     return { integration: { state: "ok" }, value } satisfies Loaded<Value>;
   });
@@ -315,6 +336,7 @@ export const loadSnapshot = (root: string, config: ResolvedConfig, packageRoot: 
       packageScripts: new Set(scripts),
       memories: loadedBeads.value?.memories,
       beadIds: loadedBeads.value?.ids,
+      beadRows: loadedBeads.value?.rows,
       typechecked: loadedTsc.value,
       linted: loadedBiome.value,
       integrations: {

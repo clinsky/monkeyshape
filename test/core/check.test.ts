@@ -51,6 +51,9 @@ describe("integrations", () => {
       "refs/bead-in-code",
       "budgets/memories-count",
       "budgets/memories-bytes",
+      "beads/unowned",
+      "beads/deferred-in-track",
+      "beads/todo-closed",
     ]);
     expect(notices(config(), snapshot)[0]).toContain("bd is not on PATH");
   });

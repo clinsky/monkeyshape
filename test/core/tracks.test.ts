@@ -1,12 +1,19 @@
 import { describe, expect, test } from "bun:test";
 import type { Integration } from "../../src/core/model.ts";
 import {
+  type BeadsById,
   describeStep,
+  hygieneWarnings,
+  openAfterMerge,
   openBeadsByTrack,
+  ownPrs,
+  parseTrackPrs,
   parseWorktrees,
   planRm,
   type RmFacts,
   sharedPathProblems,
+  type TrackPr,
+  trackDone,
 } from "../../src/core/tracks.ts";
 
 describe("shared paths as a whole", () => {
@@ -270,4 +277,121 @@ test("open beads by track: closed ones and other labels left out, a bead in two 
   expect([...byTrack.keys()].sort()).toEqual(["docs", "init"]);
   expect(byTrack.get("docs")?.map((bead) => bead.id)).toEqual(["a", "c"]);
   expect(byTrack.get("init")).toEqual([{ id: "c", title: "C", status: "blocked" }]);
+});
+
+describe("whether a track is done", () => {
+  const pr = (
+    number: number,
+    state: string,
+    body = "",
+    createdAt = "2026-11-02T10:00:00Z",
+  ): TrackPr => ({
+    number,
+    state,
+    headRefName: "track/docs",
+    body,
+    createdAt,
+  });
+  const facts = { beads: 0, branchExists: true, merged: true, prs: [pr(1, "MERGED")] };
+
+  test("done only when no open bead, merged (or no branch), no open PR and one merged", () => {
+    expect(trackDone(facts)).toBe("yes");
+    expect(trackDone({ ...facts, branchExists: false, merged: undefined })).toBe("yes");
+    // No PR ever merged: a track that hasn't finished anything, such as one just made.
+    expect(trackDone({ ...facts, prs: [] })).toBe("no");
+    expect(trackDone({ ...facts, prs: [pr(1, "CLOSED")] })).toBe("no");
+    expect(trackDone({ ...facts, beads: 1 })).toBe("no");
+    expect(trackDone({ ...facts, merged: false })).toBe("no");
+    expect(trackDone({ ...facts, prs: [pr(1, "MERGED"), pr(2, "OPEN")] })).toBe("no");
+  });
+
+  test("a track's PRs are its branch's, opened since it started: not an earlier track's of the name", () => {
+    const started = new Date("2026-11-03T12:00:00Z");
+    const old = pr(16, "MERGED", "", "2026-10-31T09:00:00Z");
+    const now = pr(32, "MERGED", "", "2026-11-03T12:30:00Z");
+    const other = { ...pr(33, "MERGED", "", "2026-11-03T13:00:00Z"), headRefName: "track/review" };
+    expect(ownPrs([old, now, other], "docs", started)?.map((p) => p.number)).toEqual([32]);
+    // Only the old one: this track has merged nothing, so it isn't done.
+    expect(trackDone({ ...facts, prs: ownPrs([old], "docs", started) })).toBe("no");
+    // No start known, or no PRs read: which PRs are this track's can't be said.
+    expect(ownPrs([now], "docs", undefined)).toBeUndefined();
+    expect(ownPrs(undefined, "docs", started)).toBeUndefined();
+  });
+
+  test("a fact that can't be read is unknown, never yes; any no still says no", () => {
+    expect(trackDone({ ...facts, beads: undefined })).toBe("unknown");
+    expect(trackDone({ ...facts, prs: undefined })).toBe("unknown");
+    expect(trackDone({ ...facts, prs: undefined, beads: 2 })).toBe("no");
+  });
+
+  test("a bead a merged PR lists but that is still open is flagged; closed, unknown or unmerged ones aren't", () => {
+    const task = (status: string, labels: ReadonlyArray<string> = [], type = "task") => ({
+      status,
+      type,
+      labels,
+    });
+    const beads: BeadsById = new Map([
+      ["x-abc.1", task("open")],
+      ["x-abc.2", task("closed", ["track:docs"])],
+      ["x-abc.3", task("in_progress", ["track:docs"])],
+      ["x-abc.4", task("in_progress", ["track:docs", "track:review"])],
+      // Another track's: listed here because this track's work fed it (#38 and f4y.26).
+      ["x-abc.5", task("in_progress", ["track:review"])],
+      // Owned without a track, as the beads check says (#39's last nit): no track's to close.
+      ["x-abc.6", task("open", [], "epic")],
+      ["x-abc.7", task("open", [], "milestone")],
+      ["x-abc.8", task("open", ["milestone"])],
+      ["x-abc.9", task("open", ["process"])],
+      // Set aside with what is left in its notes, as the warning advises (#39's round 4).
+      ["x-abc.10", task("deferred")],
+      ["x-abc.11", task("pinned")],
+    ]);
+    const body = `## Beads\n\n${["x-abc.1 one", "x-abc.2 two", "x-abc.4", "x-abc.5", "x-abc.6", "x-abc.7", "x-abc.8", "x-abc.9", "x-abc.10", "x-abc.11", "x-zzz.9 unknown to bd"].map((item) => `- ${item}`).join("\n")}\n`;
+    expect(
+      openAfterMerge(
+        [pr(5, "MERGED", body), pr(6, "OPEN", "## Beads\n\n- x-abc.3\n")],
+        beads,
+        "docs",
+      ),
+    ).toEqual([
+      "x-abc.1 (open) is listed in merged PR #5 but still open: close it if its work is done (`bd close x-abc.1`), or write what is left in its notes and defer it (`bd defer x-abc.1`)",
+      "x-abc.4 (in_progress) is listed in merged PR #5 but still open: close it if its work is done (`bd close x-abc.4`), or write what is left in its notes and defer it (`bd defer x-abc.4`)",
+    ]);
+  });
+
+  test("hygiene: a State older than the branch's last commit; a done track still on disk", () => {
+    const base = { track: "docs", done: "no" as const, hasWorktree: true };
+    expect(hygieneWarnings({ ...base, stateDate: "2026-11-02", lastCommit: "2026-11-03" })).toEqual(
+      [
+        "its handoff's State (2026-11-02) is older than `track/docs`'s last commit (2026-11-03): rewrite State (`/handoff`)",
+      ],
+    );
+    expect(hygieneWarnings({ ...base, stateDate: "2026-11-03", lastCommit: "2026-11-03" })).toEqual(
+      [],
+    );
+    expect(hygieneWarnings({ ...base, stateDate: undefined, lastCommit: "2026-11-03" })).toEqual(
+      [],
+    );
+    expect(
+      hygieneWarnings({ ...base, done: "yes", stateDate: undefined, lastCommit: undefined }),
+    ).toEqual(["done: remove it with `mshape track rm docs`"]);
+    expect(
+      hygieneWarnings({ ...base, done: "unknown", stateDate: undefined, lastCommit: undefined }),
+    ).toEqual([]);
+  });
+
+  test("gh's JSON is PRs or nothing: a row that isn't a PR makes the whole answer unknown", () => {
+    expect(
+      parseTrackPrs(
+        '[{"number":1,"state":"OPEN","headRefName":"track/a","body":"","createdAt":"2026-11-03T00:00:00Z"}]',
+      ),
+    ).toHaveLength(1);
+    // Without createdAt a PR can't be placed in a track's life.
+    expect(
+      parseTrackPrs('[{"number":1,"state":"OPEN","headRefName":"track/a","body":""}]'),
+    ).toBeUndefined();
+    expect(parseTrackPrs('[{"number":1}]')).toBeUndefined();
+    expect(parseTrackPrs("not json")).toBeUndefined();
+    expect(parseTrackPrs("{}")).toBeUndefined();
+  });
 });

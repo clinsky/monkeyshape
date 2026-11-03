@@ -18,6 +18,7 @@ convention: rewritten in place at each milestone boundary, and never cited by co
 | `mshape skills sync`, and the five skills: `roadmap`, `milestone`, `track`, `handoff`, `review-pr` | **Shipped** (milestone 1, `monkeyshape-iqf`) |
 | `docs/workflow.md` (the working loop) and `docs/adopting.md` | **Shipped** (milestone 1, `monkeyshape-iqf`) |
 | `mshape sync` (`skills sync` is its alias): shared skills, `.beads/PRIME.md` (what every session loads), the PR template and monkeyshape's hooks, with the `sync` check | **Shipped** (milestone 2, `monkeyshape-f4y`) |
+| `mshape track pr` (a fresh gate, then open or update the PR) and `pr.yml`; `track list`'s derived `done` column; the `beads` check (who owns each bead) | **Shipped** (milestone 2, `monkeyshape-f4y`) |
 | Conventions as code: one owner per checkable convention, delivered when needed, messages between tracks, derived status, review that reads the milestone | **Milestone 2** (in progress): `monkeyshape-f4y`, plan in `plan/MILESTONE.md` |
 | First real adoption: a new repo born through the loop | **After milestone 2**: `monkeyshape-iqf.14` |
 | The remaining starter rules | Later: `monkeyshape-hh2` |
