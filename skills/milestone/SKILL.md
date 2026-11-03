@@ -15,8 +15,8 @@ Run this in the main checkout, on an up-to-date `main`, in a fresh chat.
 
 - plan/MILESTONE.md (the milestone ending), docs/roadmap.md, AGENTS.md.
 - `mshape track list`, and every track's handoff in `.handoffs`: state, lessons not yet
-  promoted. Then each track's unread mail: `mshape msg inbox` in its worktree. A message
-  still unread at the boundary is a question nobody answered.
+  promoted. Then every track's unread mail, in one step: `mshape msg inbox --all`, from
+  here. A message still unread at the boundary is a question nobody answered.
 - The milestone's epic and its children (`bd list --parent <epic> --all`), and
   `bd list --label process` for what got in the way.
 - Merged PRs since the plan was written (`gh pr list --state merged`), and their bodies'
@@ -102,6 +102,13 @@ and why. The human merges.
 
 Once the PR is merged (or the human says to start):
 
+- `mshape msg inbox --all` again, first: `rm` refuses a track with unread mail, and
+  `--force` deletes the mail unread. For each track you will remove that still has some,
+  read it from that track's worktree (`mshape msg read <id>` there marks it read). Anything
+  the new plan doesn't already answer becomes a bead or a message to the track that now
+  owns it. Drop mail unread only with the human's yes. A mailbox whose track is gone is
+  flagged: read its messages, one JSON file each in the directory the note names, and treat
+  them like the rest; delete that directory only with the human's yes.
 - `mshape track rm <name>` for each finished track whose `beads` column in
   `mshape track list` shows 0. A `-` means beads weren't counted, and `rm` may then remove
   the track with only a note. So first get `bd` working, or check by hand that
