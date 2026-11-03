@@ -26,8 +26,9 @@ export const SUBJECT_MAX = 120;
 
 export const subjectProblem = (subject: string): string | undefined => {
   if (subject.trim() === "") return "the subject is empty: say in a few words what the message is";
-  if (/[\r\n]/.test(subject))
-    return "the subject has a line break: keep it to one line and put the rest in the body";
+  // Line breaks, tabs, escapes: the subject is printed into every session's context.
+  if (/\p{Cc}/u.test(subject))
+    return "the subject has a control character (a line break, tab or escape): keep it to one line of plain text and put the rest in the body";
   if (subject.length > SUBJECT_MAX)
     return `the subject is ${subject.length} characters; keep it to ${SUBJECT_MAX} and put the rest in the body`;
   return undefined;

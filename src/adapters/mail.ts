@@ -83,19 +83,19 @@ export const mailSend = (
 ) =>
   Effect.gen(function* () {
     const problem = subjectProblem(subject);
-    if (problem !== undefined) return yield* refuse(`mshape msg send: ${problem}`);
+    if (problem !== undefined) return yield* refuse(`${problem}`);
     const { common, repo } = yield* locate(cwd);
     const registered = yield* worktrees(repo);
     const tracks = knownTracks(repo, registered, yield* entries(handoffsStore(common)));
     const unknown = recipientProblem(to, tracks);
-    if (unknown !== undefined) return yield* refuse(`mshape msg send: ${unknown}`);
+    if (unknown !== undefined) return yield* refuse(`${unknown}`);
     const here = yield* real(yield* gitOk(cwd, ["rev-parse", "--show-toplevel"]));
     // git's path for this checkout, in the layout's terms (worktrees() resolved them alike).
     let toplevel = here;
     for (const worktree of registered)
       if ((yield* real(worktree.path)) === here) toplevel = worktree.path;
     const sender = senderOf(repo, toplevel, registered, yield* currentOrReason(cwd));
-    if ("reason" in sender) return yield* refuse(`mshape msg send: ${sender.reason}`);
+    if ("reason" in sender) return yield* refuse(`${sender.reason}`);
     const dir = mailboxDir(common, to);
     yield* fs("create", dir, () => mkdir(dir, { recursive: true }));
     for (let attempt = 0; attempt < ATTEMPTS; attempt++) {
@@ -118,7 +118,7 @@ export const mailSend = (
       if (linked) return message;
     }
     return yield* refuse(
-      `mshape msg send: ${ATTEMPTS} message ids in a row were taken in ${to}'s mailbox; nothing was sent, so send again`,
+      `${ATTEMPTS} message ids in a row were taken in ${to}'s mailbox; nothing was sent, so send again`,
     );
   });
 
@@ -154,9 +154,7 @@ export const mailInbox = (cwd: string) =>
 export const mailRead = (cwd: string, id: string) =>
   Effect.gen(function* () {
     if (!MESSAGE_ID.test(id))
-      return yield* refuse(
-        `mshape msg read: \`${id}\` is not a message id; \`mshape msg inbox\` lists them`,
-      );
+      return yield* refuse(`\`${id}\` is not a message id; \`mshape msg inbox\` lists them`);
     const track = yield* ownTrack(cwd);
     const { common } = yield* locate(cwd);
     const unread = messagePath(common, track, id);
@@ -170,10 +168,9 @@ export const mailRead = (cwd: string, id: string) =>
     const text = yield* fsUnless("read", read, "ENOENT", undefined, () => readFile(read, "utf8"));
     if (text === undefined)
       return yield* refuse(
-        `mshape msg read: no message ${id} for track ${track}; \`mshape msg inbox\` lists the unread ones`,
+        `no message ${id} for track ${track}; \`mshape msg inbox\` lists the unread ones`,
       );
     const message = decodeMessage(text);
-    if (typeof message === "string")
-      return yield* refuse(`mshape msg read: ${read} is not a message (${message})`);
+    if (typeof message === "string") return yield* refuse(`${read} is not a message (${message})`);
     return { message, alreadyRead: !moved };
   });

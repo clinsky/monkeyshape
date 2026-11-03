@@ -88,6 +88,22 @@ describe("msg", () => {
     expect(mshape(wt("tracks"), "msg", "read", id).stdout).toContain("(already read)");
   });
 
+  test("after --, a body may start with --", () => {
+    const sent = mshape(
+      wt("docs"),
+      "msg",
+      "send",
+      "tracks",
+      "--subject",
+      "s",
+      "--",
+      "--force is gone",
+    );
+    expect(sent.code).toBe(0);
+    const id = /Sent (\S+)/.exec(sent.stdout)?.[1] ?? "";
+    expect(mshape(wt("tracks"), "msg", "read", id).stdout).toEndWith("\n\n--force is gone");
+  });
+
   test("from the main checkout the sender is main; a track can't read another's mail", () => {
     const sent = mshape(repo, "msg", "send", "docs", "--subject", "from main");
     const id = /Sent (\S+)/.exec(sent.stdout)?.[1] ?? "";
@@ -105,7 +121,12 @@ describe("msg", () => {
     expect(typo.code).toBe(1);
     expect(typo.stderr).toContain("no track `track` to send to (tracks: docs, tracks)");
     expect(mshape(wt("docs"), "msg", "send", "tracks", "--subject", "a\nb").stderr).toContain(
-      "line break",
+      "control character",
+    );
+    const flagBody = mshape(wt("docs"), "msg", "send", "tracks", "--subject", "s", "--- notes");
+    expect(flagBody.code).toBe(2);
+    expect(flagBody.stderr).toBe(
+      "mshape msg send: `--- notes` is read as a flag; to send text that starts with --, put -- before it: `mshape msg send <track> --subject <subject> -- <body>`",
     );
     expect(mshape(wt("docs"), "msg", "send", "tracks").code).toBe(2);
     expect(mshape(wt("tracks"), "msg", "read", "../docs/x").stderr).toContain("not a message id");

@@ -153,13 +153,26 @@ const randomHex = (): string =>
     .map((b) => b.toString(16).padStart(2, "0"))
     .join("");
 
+/**
+ * `send <track> --subject <subject> [body]`. Everything after `--` is positional, so a body
+ * about a flag (`--force does ...`) can be sent; without it, such a body is refused with the
+ * reason rather than the whole help.
+ */
 const msgSend = (root: string, args: ReadonlyArray<string>) =>
   Effect.gen(function* () {
-    const flag = args.indexOf("--subject");
-    const subject = flag === -1 ? undefined : args[flag + 1];
-    const positional = args.filter((_, i) => flag === -1 || (i !== flag && i !== flag + 1));
+    const end = args.indexOf("--");
+    const options = end === -1 ? args : args.slice(0, end);
+    const flag = options.indexOf("--subject");
+    const subject = flag === -1 ? undefined : options[flag + 1];
+    const before = options.filter((_, i) => flag === -1 || (i !== flag && i !== flag + 1));
+    const stray = before.find((arg) => arg.startsWith("--"));
+    if (stray !== undefined)
+      return {
+        output: `mshape msg send: \`${stray}\` is read as a flag; to send text that starts with --, put -- before it: \`mshape msg send <track> --subject <subject> -- <body>\``,
+        code: 2,
+      };
+    const positional = [...before, ...(end === -1 ? [] : args.slice(end + 1))];
     if (subject === undefined || positional.length < 1 || positional.length > 2) return usage();
-    if (positional.some((arg) => arg.startsWith("--"))) return usage();
     const [to = "", body = ""] = positional;
     const message = yield* mailSend(root, to, subject, body, new Date(), randomHex);
     return { output: formatSent(message), code: 0 };
@@ -384,7 +397,8 @@ export const COMMANDS: ReadonlyArray<Command> = [
     name: "msg",
     usage: `  mshape msg send <track> --subject <subject> [body]
       Leave a message in <track>'s mailbox, from this track (or main, or review-<n>). The
-      subject is one line; it is all a notice shows. Quote the body.
+      subject is one line; it is all a notice shows. Quote the body; put -- before a body
+      that starts with --.
   mshape msg inbox [--quiet]
       This track's unread messages, oldest first. --quiet, for hooks: nothing when there are
       none or this isn't a track, and never a failure.

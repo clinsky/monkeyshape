@@ -41,7 +41,8 @@ describe("mail", () => {
   test("a subject is one non-empty line that fits a notice", () => {
     expect(subjectProblem("PR #30 changes the handoff parser")).toBeUndefined();
     expect(subjectProblem("  ")).toContain("empty");
-    expect(subjectProblem("one\ntwo")).toContain("line break");
+    for (const control of ["one\ntwo", "a\rb", "tab\there", "red \u001b[31mX\u001b[0m"])
+      expect(subjectProblem(control)).toContain("control character");
     expect(subjectProblem("x".repeat(SUBJECT_MAX + 1))).toContain("put the rest in the body");
   });
 
