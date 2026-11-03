@@ -1,7 +1,7 @@
 /**
  * The Markdown the checks read, held to a reference CommonMark parser (micromark, through
  * mdast-util-from-markdown; dev dependencies used only here) over every example in the
- * CommonMark spec and the inputs that broke the refs check before (#18). The direction that
+ * CommonMark spec and the inputs that broke the refs check before (#18, #26's review). The direction that
  * matters is valid input failing a check: code the reference sees in a fence must not be
  * read as prose, and a split code span must be one the reference sees cross a line break.
  */
@@ -28,6 +28,13 @@ const REGRESSIONS: Readonly<Record<string, string>> = {
   indentedCode: "Text\n\n    echo `date\n",
   tabCode: "Text\n\n\techo `date\n",
   spanAcrossLines: "Run `bun run\ncheck` first, then `a`.\n",
+  // From #26's review: container markers stacked on a fence's line, HTML blocks, link titles.
+  fenceAfterTwoItems: "- - ```sh\n    echo `scripts/\n    other` x\n    ```\n",
+  fenceInOrderedNested: "1. - ```sh\n     echo `scripts/nope.sh`\n     ```\n",
+  fenceInQuoteInItem: "- > ```sh\n  > echo `scripts/nope.sh`\n  > ```\n",
+  htmlBlock: "<details>\nrun `scripts/\nnope.sh` here\n</details>\n",
+  htmlInterrupts: "Use a lone ` here\n<details>\n<summary>`x</summary>\n",
+  linkTitle: '[x]: /url "a `b"\nc` d\n',
 };
 
 const EXAMPLES: ReadonlyArray<{ readonly name: string; readonly markdown: string }> = [
@@ -89,7 +96,7 @@ const splitLines = (markdown: string): ReadonlyArray<number> =>
     .map((v) => v.line ?? 0);
 
 describe("the Markdown the checks read agrees with a reference CommonMark parser", () => {
-  test("the examples are there: every spec example, and #18's regressions", () => {
+  test("the examples are there: every spec example, and the regressions", () => {
     expect(SPEC.length).toBeGreaterThan(600);
   });
 
