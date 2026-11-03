@@ -35,6 +35,18 @@ What a change did and what it showed goes in the **PR body**, which is the narra
 human actually reads. Long investigations go in a dated note under `notes/`, which nothing
 normative may cite.
 
+Everything else has one home too:
+
+- A rule a machine can check is **a check**, whose message gives the reason and the fix. A
+  domain invariant is **a test named after it**. The local reason for some code is **a
+  comment at that code**.
+- **DECISIONS.md** holds only live decisions worth their budget: a surprising external fact
+  that was measured, or a choice between real alternatives that would be expensive to undo.
+  The best entries name the tempting wrong fix. A feature design isn't one; it goes in the
+  code.
+- **Notes** are immutable: write a new one instead of updating an old one. A lesson that
+  should apply going forward is promoted to a check, a test or a decision.
+
 ## The loop
 
 | Step | Started by | What happens |
