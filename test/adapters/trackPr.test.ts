@@ -240,14 +240,16 @@ describe("track pr", () => {
     const bad = check(prSkeleton());
     expect(bad.code).toBe(1);
     expect(bad.out).toContain("the PR body lacks `## What changed and why`");
-    // The same test track pr runs: every section, but no bead listed.
-    const noBead = check(
+    // Headings only: a template-following Beads section in another form passes, as #33's
+    // (a backticked id and a full stop, on one line) failed in re-review of #35. track pr itself still
+    // refuses it, in the core planPrBody test, since it can't check such a bead with bd.
+    const proseBeads = check(
       body("x")
         .replace("## Not done", "## Gate\n\nran\n\n## Not done")
-        .replace("- x-abc.1 the bead", "none yet"),
+        .replace("- x-abc.1 the bead", "`x-def.21`."),
     );
-    expect(noBead.code).toBe(1);
-    expect(noBead.out).toContain("the Beads section lists no bead");
+    expect(proseBeads.out).toBe("the PR body has every required section\n");
+    expect(proseBeads.code).toBe(0);
   });
 });
 

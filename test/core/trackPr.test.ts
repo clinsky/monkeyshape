@@ -44,16 +44,16 @@ describe("track pr's body", () => {
 
   test("beads are the ids that start list items, backticks and trailing punctuation stripped", () => {
     expect(listedBeads(filled)).toEqual(["x-abc.1", "x-abc.2"]);
-    expect(listedBeads("## Beads\n\n- not-an-id? no\n* monkeyshape-f4y.23 (mail half)\n")).toEqual([
-      "monkeyshape-f4y.23",
+    expect(listedBeads("## Beads\n\n- not-an-id? no\n* x-def.23 (mail half)\n")).toEqual([
+      "x-def.23",
     ]);
     expect(listedBeads("## Other\n\n- x-abc.1\n")).toEqual([]);
     // Decorated as #35's review tried: bold, a link, emphasis; all found.
     expect(
       listedBeads(
-        "## Beads\n\n- **monkeyshape-f4y.11** x\n- [monkeyshape-f4y.12](https://example.test) y\n- _x-abc.3_, z\n",
+        "## Beads\n\n- **x-def.11** x\n- [x-def.12](https://example.test) y\n- _x-abc.3_, z\n",
       ),
-    ).toEqual(["monkeyshape-f4y.11", "monkeyshape-f4y.12", "x-abc.3"]);
+    ).toEqual(["x-def.11", "x-def.12", "x-abc.3"]);
   });
 
   test("the Gate is replaced and every other section kept as written", () => {

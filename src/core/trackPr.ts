@@ -66,21 +66,29 @@ export type PrBodyPlan =
   | { readonly problems: ReadonlyArray<string> };
 
 /**
- * Why a PR body isn't ready: a required section missing, or no bead listed. The one test,
- * run by `track pr` before it posts and by CI's pr.yml (`--check-body`) on every track PR,
- * however it was opened. Whether a listed bead exists needs `bd`, so only `track pr` asks.
+ * What CI's pr.yml (`--check-body`) holds every track PR to, however it was opened: the
+ * required sections, as the template names them. Nothing more, so a body that follows the
+ * template passes, whatever form its Beads section takes.
  */
-export const bodyProblems = (body: string): ReadonlyArray<string> => {
+export const headingProblems = (body: string): ReadonlyArray<string> => {
   const missing = missingPrSections(body);
-  return [
-    ...(missing.length > 0 ? [missingSectionsProblem(missing)] : []),
-    ...(listedBeads(body).length === 0 && !missing.includes("Beads")
-      ? [
-          "the Beads section lists no bead: put each one this PR works on as a list item that starts with its id (`- <bead id> what it is`)",
-        ]
-      : []),
-  ];
+  return missing.length > 0 ? [missingSectionsProblem(missing)] : [];
 };
+
+/**
+ * What `track pr` holds a body to before it posts: `headingProblems`, and beads it can read.
+ * It goes further than CI on purpose: it checks each listed bead with `bd`, so it needs them
+ * as list items starting with their id, and says so. CI can't run `bd`, and the template
+ * doesn't ask for that form, so CI doesn't refuse a body for it (#33's `<id>.` passes there).
+ */
+export const bodyProblems = (body: string): ReadonlyArray<string> => [
+  ...headingProblems(body),
+  ...(listedBeads(body).length === 0 && !missingPrSections(body).includes("Beads")
+    ? [
+        "the Beads section lists no bead: put each one this PR works on as a list item that starts with its id (`- <bead id> what it is`)",
+      ]
+    : []),
+];
 
 /**
  * The body to publish: the agent's (from --body-file) or the PR's current one, with the Gate
