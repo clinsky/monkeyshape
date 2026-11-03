@@ -48,9 +48,11 @@ gate: if a check is too strict for this repo, fix the check, not the repo.
 ## Adding a rule
 
 One file in `src/core/rules/`, one entry in `registry.ts`, and `test/rules/<id>.test.ts` with
-at least one source that must fail and one that must pass. The message says why and what to
-do instead; `bugClass` names what the rule removes. If it would fire on this repo, it fires on
-adopters too: fix this repo first, or the rule.
+at least one source that must fail and one that must pass. Every rule id `mshape check` can
+report, a registry rule or a new kind in a check, also needs a must-fail and a must-pass case
+in `test/core/ruleCases.test.ts`; a check's kinds are listed in its exported `<CHECK>_RULES`.
+The message says why and what to do instead; `bugClass` names what the rule removes. If it
+would fire on this repo, it fires on adopters too: fix this repo first, or the rule.
 
 ## Rules that aren't mechanical
 
@@ -70,6 +72,7 @@ explain it in the PR body.
 - Written text is a hypothesis; code and tests are the truth. When a doc, decision or bead
   disagrees with the code or with common sense, fix the text and carry on.
 - One fact, one home. Link to `DECISIONS.md` entries by slug; never restate them.
-- Agents commit, push and open PRs; the maintainer merges. The PR body is the narrative:
-  what changed and why, gate output, what bug class a new check closes, what's not done.
+- Agents commit, push and open PRs; the maintainer merges. The PR body is the narrative,
+  in the sections of `.github/pull_request_template.md` (rendered from `PR_SECTIONS` in
+  `src/core/conventions.ts`, which owns the loop's machine-checkable values).
 - Work is tracked in beads (`bd ready`). A bead is a pointer to intent, not a spec.
