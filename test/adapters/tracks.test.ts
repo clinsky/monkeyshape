@@ -206,8 +206,8 @@ describe("track list", () => {
     expect(listed.stdout).toContain(`linked ${repo}/.agents/handoffs`);
     const rows = listed.stdout.split("\n").filter((line) => /^(docs|init) /.test(line));
     expect(rows.map((row) => row.split(/\s+/))).toEqual([
-      // No bd here, so docs' beads are unknown, and so is done; init isn't merged: not done.
-      ["docs", "stub", "-", "0", "yes", "unknown", ".agents/worktrees/repo@docs"],
+      // No PR has merged from either, so neither is done, whatever bd would say.
+      ["docs", "stub", "-", "0", "yes", "no", ".agents/worktrees/repo@docs"],
       ["init", "stub", "-", "1", "no", "no", ".agents/worktrees/repo@init"],
     ]);
     expect(await realpath(`${repo}/.handoffs`)).toBe(`${repo}/.git/monkeyshape/handoffs`);
@@ -603,6 +603,16 @@ describe("track rm and list with beads", () => {
     await chmod(`${base}/bin/bd`, 0o755);
     return { PATH: `${base}/bin:${base}/fake-gh:${process.env["PATH"] ?? ""}` };
   };
+
+  test("a track just made is not done, and isn't told to be removed", async () => {
+    // The probe from #39's review: real-looking facts all say yes for a branch at main.
+    await setup();
+    mshape(repo, "new", "fresh");
+    const env = await fakeBd([]);
+    const listed = mshapeWith(env, repo, "list").stdout;
+    expect(listed).toMatch(/^fresh\s+stub\s+0\s+0\s+yes\s+no\s/m);
+    expect(listed).not.toContain("remove it with");
+  });
 
   test("list derives done from beads, merge and PRs; flags beads open after their PR merged", async () => {
     await setup();

@@ -286,10 +286,12 @@ describe("whether a track is done", () => {
   });
   const facts = { beads: 0, branchExists: true, merged: true, prs: [pr(1, "MERGED")] };
 
-  test("done only when no open bead, merged (or no branch), and no open PR", () => {
+  test("done only when no open bead, merged (or no branch), no open PR and one merged", () => {
     expect(trackDone(facts)).toBe("yes");
     expect(trackDone({ ...facts, branchExists: false, merged: undefined })).toBe("yes");
-    expect(trackDone({ ...facts, prs: [] })).toBe("yes");
+    // No PR ever merged: a track that hasn't finished anything, such as one just made.
+    expect(trackDone({ ...facts, prs: [] })).toBe("no");
+    expect(trackDone({ ...facts, prs: [pr(1, "CLOSED")] })).toBe("no");
     expect(trackDone({ ...facts, beads: 1 })).toBe("no");
     expect(trackDone({ ...facts, merged: false })).toBe("no");
     expect(trackDone({ ...facts, prs: [pr(1, "MERGED"), pr(2, "OPEN")] })).toBe("no");

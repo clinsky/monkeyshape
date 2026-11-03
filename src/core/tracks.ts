@@ -414,7 +414,9 @@ export type Done = "yes" | "no" | "unknown";
 
 /**
  * A track is done when no open bead carries its label, its branch's work is in upstream
- * `main` (or the branch is gone), and no PR from `track/<name>` is open. Any fact that says
+ * `main` (or the branch is gone), no PR from `track/<name>` is open, and at least one has
+ * merged. That last fact is what separates finished from not started: a branch `track new`
+ * just made sits at `main`, so it is "merged" with no PR and no beads yet. Any fact that says
  * otherwise makes it `no`; a fact that couldn't be read, with none saying no, makes it
  * `unknown`. Never `yes` on a guess.
  */
@@ -430,6 +432,7 @@ export const trackDone = (facts: {
     facts.beads === undefined ? undefined : facts.beads === 0,
     facts.branchExists ? facts.merged : true,
     facts.prs === undefined ? undefined : !facts.prs.some((pr) => pr.state === "OPEN"),
+    facts.prs === undefined ? undefined : facts.prs.some((pr) => pr.state === "MERGED"),
   ];
   return says.includes(false) ? "no" : says.includes(undefined) ? "unknown" : "yes";
 };

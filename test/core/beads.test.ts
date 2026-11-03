@@ -45,6 +45,27 @@ describe("the beads check", () => {
     expect(checkBeads({}, tracked).map((v) => v.rule)).toEqual(["beads/unowned"]);
   });
 
+  test("pinned is frozen like deferred; a bd milestone, like an epic, needs no owner", () => {
+    const tracked = bead("x-0", "closed", ["track:a"]);
+    const found = checkBeads(
+      {},
+      repo(
+        {},
+        {
+          beadRows: [
+            tracked,
+            bead("x-1", "pinned", ["track:other"]),
+            bead("x-2", "pinned"),
+            bead("x-3", "open", [], "milestone"),
+          ],
+        },
+      ),
+    );
+    expect(found.map((v) => [v.rule, v.message.slice(0, 40)])).toEqual([
+      ["beads/deferred-in-track", 'bead x-1 ("the x-1 work") is pinned but '],
+    ]);
+  });
+
   test("a TODO naming a closed bead is reported on its own line, in a block comment too", () => {
     const text = "const a = 1;\n/**\n * Explains a.\n * TODO(x-1): drop this once bd can.\n */\n";
     const [found] = checkBeads(

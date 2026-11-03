@@ -1,11 +1,12 @@
 /**
  * Who owns each bead, from bd alone (no GitHub): the facts `track list`, `track rm` and
  * `/milestone` decide by, held where they go wrong. An open bead no track owns is work nobody
- * does and no `track list` counts. A deferred bead with a track label is counted as that
+ * does and no `track list` counts. A deferred or pinned bead with a track label is counted as that
  * track's open work, so the track is never done and `track rm` refuses. A `TODO(<id>)` naming
  * a closed bead says the work is pending after the bead said it was done.
  *
- * Outside tracks, a bead is owned by being an epic (it spans tracks), or by a label naming
+ * Outside tracks, a bead is owned by being an epic or a bd milestone (neither holds work of
+ * its own), or by a label naming
  * the kind of work no track does: `milestone` (acceptance runs, planning) or `process` (the
  * loop itself). Ownership applies only in a repo that works in tracks, one where some bead,
  * open or closed, has carried a `track:` label: before its first tracks (a repo just born,
@@ -21,6 +22,15 @@ export const BEADS_RULES = ["unowned", "deferred-in-track", "todo-closed"] as co
 
 /** Labels that own a bead no track does. */
 export const OWNER_LABELS = ["milestone", "process"] as const;
+
+/**
+ * bd's statuses for work set aside: `deferred` (later) and `pinned` (stays open on purpose).
+ * Neither is a track's to do, so neither needs a track, and neither may keep one.
+ */
+const FROZEN: ReadonlyArray<string> = ["deferred", "pinned"];
+
+/** bd's types that hold no work of their own: `epic` (spans tracks) and `milestone`. */
+const UNOWNED_TYPES: ReadonlyArray<string> = ["epic", "milestone"];
 
 /** Where the bead findings point: bd's own directory, since a bead has no file of its own. */
 export const BEADS_FILE = ".beads";
@@ -56,8 +66,8 @@ export const checkBeads = (_config: unknown, snapshot: Snapshot): ReadonlyArray<
     if (
       inTracks &&
       bead.status !== "closed" &&
-      bead.status !== "deferred" &&
-      bead.type !== "epic" &&
+      !FROZEN.includes(bead.status) &&
+      !UNOWNED_TYPES.includes(bead.type) &&
       tracks.length === 0 &&
       !bead.labels.some((label) => (OWNER_LABELS as ReadonlyArray<string>).includes(label))
     )
@@ -68,12 +78,12 @@ export const checkBeads = (_config: unknown, snapshot: Snapshot): ReadonlyArray<
           `bead ${named(bead)} is ${bead.status}, but no track owns it, so no \`track list\` counts it. Give it to the track doing it (\`bd update ${bead.id} --add-label track:<name>\`), label work no track does \`milestone\` or \`process\`, or defer it (\`bd defer ${bead.id}\`)`,
         ),
       );
-    if (bead.status === "deferred" && tracks.length > 0)
+    if (FROZEN.includes(bead.status) && tracks.length > 0)
       violations.push(
         violation(
           "deferred-in-track",
           BEADS_FILE,
-          `bead ${named(bead)} is deferred but still labelled ${tracks.map((t) => `\`${t}\``).join(", ")}, so it counts as that track's open work: the track is never done and \`track rm\` refuses. Remove the label (${tracks.map((t) => `\`bd update ${bead.id} --remove-label ${t}\``).join(", ")}), or undefer it if the track will do it now`,
+          `bead ${named(bead)} is ${bead.status} but still labelled ${tracks.map((t) => `\`${t}\``).join(", ")}, so it counts as that track's open work: the track is never done and \`track rm\` refuses. Remove the label (${tracks.map((t) => `\`bd update ${bead.id} --remove-label ${t}\``).join(", ")}), or undefer it if the track will do it now`,
         ),
       );
   }
