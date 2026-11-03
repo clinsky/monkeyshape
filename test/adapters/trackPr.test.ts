@@ -54,11 +54,19 @@ else if (args[1] === "create") {
   const pr = { number: 7, url: "https://example.test/pr/7", title: flag("--title"), body: await Bun.file(flag("--body-file")).text() };
   await Bun.write(state, JSON.stringify(pr));
   console.log(pr.url);
-} else if (args[1] === "edit") {
+} else if (args[0] === "api" && flag("--method") === "PATCH") {
+  // REST: \`-F body=@<file>\` reads the file; \`-f title=<t>\` is a raw string.
   const pr = JSON.parse(await state.text());
-  pr.body = await Bun.file(flag("--body-file")).text();
-  if (args.includes("--title")) pr.title = flag("--title");
+  for (const [i, arg] of args.entries()) {
+    const value = args[i + 1] ?? "";
+    if (arg === "-F" && value.startsWith("body=@")) pr.body = await Bun.file(value.slice(6)).text();
+    if (arg === "-f" && value.startsWith("title=")) pr.title = value.slice(6);
+  }
   await Bun.write(state, JSON.stringify(pr));
+} else {
+  // gh pr edit, as old gh versions fail it, and anything unexpected.
+  console.error("GraphQL: Projects (classic) is being deprecated");
+  process.exit(1);
 }
 `;
 

@@ -170,15 +170,18 @@ export const trackPr = (
     const dir = yield* Effect.promise(() => mkdtemp(join(tmpdir(), "mshape-pr-")));
     const file = join(dir, "body.md");
     yield* Effect.promise(() => writeFile(file, plan.body));
+    // An update goes through REST: `gh pr edit` fails on some gh versions, since GitHub
+    // retired the Projects (classic) field it asks for.
     const posted = existing
       ? yield* spawn(top, [
           "gh",
-          "pr",
-          "edit",
-          String(existing.number),
-          "--body-file",
-          file,
-          ...(options.title === undefined ? [] : ["--title", options.title]),
+          "api",
+          "--method",
+          "PATCH",
+          `repos/{owner}/{repo}/pulls/${existing.number}`,
+          "-F",
+          `body=@${file}`,
+          ...(options.title === undefined ? [] : ["-f", `title=${options.title}`]),
         ])
       : yield* spawn(top, [
           "gh",
@@ -198,7 +201,7 @@ export const trackPr = (
       // gh sometimes fails after GitHub acted: say what is there now, so nothing is posted twice.
       const now = yield* openPr(top, branch).pipe(Effect.orElseSucceed(() => undefined));
       return yield* refuse(
-        `\`gh pr ${existing ? "edit" : "create"}\` failed: ${posted.stderr || `exit ${posted.code}`}. ${
+        `${existing ? `updating PR #${existing.number}` : "`gh pr create`"} failed: ${posted.stderr || `exit ${posted.code}`}. ${
           now === undefined
             ? "No PR is open from the branch."
             : `A PR is open now (${now.url}): look at it before running track pr again.`
