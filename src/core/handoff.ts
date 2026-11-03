@@ -64,11 +64,13 @@ export const stubHandoff = (
   track: string,
   date: string,
   worktree: string,
+  /** What the branch started from, as people say it: `main`, or `origin/main`. */
+  base: string = MAIN_BRANCH,
 ): { readonly text: string } | Problems => {
   const bodies: Record<HandoffSection, string> = {
     Charter: "",
     State: `No charter yet: the next \`/track\` session interviews the human for one and writes it above,
-opening with ${CHARTER_LINES.map((line) => `\`${line}\``).join(", ")}. Worktree \`${worktree}\` on \`${trackBranch(track)}\`, branched from \`${MAIN_BRANCH}\`.`,
+opening with ${CHARTER_LINES.map((line) => `\`${line}\``).join(", ")}. Worktree \`${worktree}\` on \`${trackBranch(track)}\`, branched from \`${base}\`.`,
     "Lessons not yet promoted": "None yet.",
     Traps: "None yet.",
   };
