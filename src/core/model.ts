@@ -40,6 +40,8 @@ export interface Snapshot {
   readonly skills: SkillsSnapshot;
   /** The `.beads/PRIME.md` the running monkeyshape ships, when it has one. */
   readonly shippedPrime: string | undefined;
+  /** Files `mshape sync` manages that are on disk but not in `files`: git ignores them. */
+  readonly unlisted: ReadonlySet<string>;
 }
 
 /** File bytes keyed by path relative to a skills directory: `<skill>/SKILL.md`. Bytes, so a

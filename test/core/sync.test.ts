@@ -20,6 +20,7 @@ const ROOT = join(import.meta.dir, "..", "..");
 const PRIME = "# The working loop\n";
 
 const upToDate = {
+  ignored: [],
   beads: true,
   prime: PRIME,
   prTemplate: prTemplate(),
@@ -36,7 +37,7 @@ describe("the shipped PRIME.md", () => {
 
 describe("planSync", () => {
   test("writes nothing when everything is up to date", () => {
-    expect(planSync(upToDate, PRIME)).toEqual({ write: new Map(), notes: [] });
+    expect(planSync(upToDate, PRIME)).toEqual({ write: new Map(), notes: [], blocked: [] });
   });
 
   test("installs a missing or edited PRIME.md and PR template", () => {
@@ -57,10 +58,16 @@ describe("planSync", () => {
     expect(plan.write.get(SETTINGS_FILE)).toBe(renderSettings(HOOKS));
   });
 
-  test("leaves a settings.json that isn't JSON alone, with a note", () => {
+  test("leaves a settings.json that isn't JSON alone, and is blocked", () => {
     const plan = planSync({ ...upToDate, settings: "{ nope" }, PRIME);
     expect(plan.write.has(SETTINGS_FILE)).toBe(false);
-    expect(plan.notes.join("\n")).toContain(SETTINGS_FILE);
+    expect(plan.blocked.join("\n")).toContain(SETTINGS_FILE);
+  });
+
+  test("an ignored synced file blocks, naming the real fix, not sync", () => {
+    const plan = planSync({ ...upToDate, ignored: [SETTINGS_FILE] }, PRIME);
+    expect(plan.blocked.join("\n")).toContain(`git check-ignore -v ${SETTINGS_FILE}`);
+    expect(planSync({ ...upToDate, beads: false, prime: undefined }, PRIME).blocked).toEqual([]);
   });
 });
 

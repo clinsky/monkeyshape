@@ -21,6 +21,7 @@ export const SYNC_RULES = [
   "pr-template-diverged",
   "hook-missing",
   "settings-invalid",
+  "ignored",
 ] as const;
 
 const violation = (
@@ -36,8 +37,16 @@ const violation = (
 
 const SYNC = `\`${SYNC_COMMAND}\``;
 
+/** The files sync writes besides the skills: each must be committed to reach other clones. */
+export const SYNCED_FILES: ReadonlyArray<string> = [PRIME_FILE, PR_TEMPLATE_FILE, SETTINGS_FILE];
+
+const ignoredMessage = (file: string): string =>
+  `is on disk but ignored by git, so it isn't committed and other clones and CI don't have it${file === SETTINGS_FILE ? ": their sessions run none of its hooks" : ""}. \`${SYNC_COMMAND}\` can't fix that. Find the rule with \`git check-ignore -v ${file}\`, unignore the file (for \`.claude/\`, use \`.claude/*\` plus \`!${file}\`), then \`git add ${file}\` and commit it.`;
+
 /** What sync reads of a repo. */
 export interface SyncState {
+  /** Synced files on disk that git ignores: sync can't make them reach other clones. */
+  readonly ignored: ReadonlyArray<string>;
   /** Whether the repo uses beads: anything under `.beads/`. */
   readonly beads: boolean;
   readonly prime: string | undefined;
@@ -63,14 +72,17 @@ const parseSettings = (text: string | undefined): Record<string, unknown> | unde
 export interface SyncPlan {
   /** Repo-relative path to its new text: only files that change. */
   readonly write: ReadonlyMap<string, string>;
-  /** What sync left alone, and why, one line each. */
+  /** What sync left alone, and why, one line each: for information. */
   readonly notes: ReadonlyArray<string>;
+  /** What sync couldn't do and `mshape check` will still fail on: sync exits 1. */
+  readonly blocked: ReadonlyArray<string>;
 }
 
 /** What it takes to bring a repo's synced files up to `shippedPrime` and this package's code. */
 export const planSync = (state: SyncState, shippedPrime: string): SyncPlan => {
   const write = new Map<string, string>();
   const notes: Array<string> = [];
+  const blocked = state.ignored.map((file) => `${file} ${ignoredMessage(file)}`);
   if (state.beads) {
     if (state.prime !== shippedPrime) write.set(PRIME_FILE, shippedPrime);
   } else
@@ -80,18 +92,19 @@ export const planSync = (state: SyncState, shippedPrime: string): SyncPlan => {
   if (state.prTemplate !== prTemplate()) write.set(PR_TEMPLATE_FILE, prTemplate());
   const settings = parseSettings(state.settings);
   if (settings === undefined)
-    notes.push(
+    blocked.push(
       `${SETTINGS_FILE}: left alone, since it isn't a JSON object; fix it, then sync again`,
     );
   else if (missingHooks(settings, HOOKS).length > 0)
     write.set(SETTINGS_FILE, addHooks(settings, HOOKS));
-  return { write, notes };
+  return { write, notes, blocked };
 };
 
 /** One line per file sync wrote, for the CLI. */
 export const formatSyncPlan = (plan: SyncPlan): ReadonlyArray<string> => [
   ...[...plan.write.keys()].map((path) => `${path}: updated`),
   ...plan.notes,
+  ...plan.blocked,
 ];
 
 const describe = (hook: Hook): string => `${hook.event}: \`${hook.command}\``;
@@ -105,10 +118,13 @@ export const checkSync = (
   snapshot: Snapshot,
 ): ReadonlyArray<Violation> => {
   if (!snapshot.skills.installed.has(SKILLS_MANIFEST)) return [];
-  const out: Array<Violation> = [];
-  const prime = snapshot.texts.get(PRIME_FILE);
+  const out: Array<Violation> = [...snapshot.unlisted]
+    .filter((file) => SYNCED_FILES.includes(file))
+    .map((file) => violation("ignored", file, ignoredMessage(file)));
+  // An ignored file is reported once, as ignored: "missing" would prescribe sync, which can't help.
+  const prime = snapshot.unlisted.has(PRIME_FILE) ? undefined : snapshot.texts.get(PRIME_FILE);
   const beads = snapshot.files.some((file) => file.startsWith(".beads/"));
-  if (beads && snapshot.shippedPrime !== undefined) {
+  if (beads && snapshot.shippedPrime !== undefined && !snapshot.unlisted.has(PRIME_FILE)) {
     if (prime === undefined)
       out.push(
         violation(
@@ -127,7 +143,9 @@ export const checkSync = (
       );
   }
   const template = snapshot.texts.get(PR_TEMPLATE_FILE);
-  if (template === undefined)
+  if (snapshot.unlisted.has(PR_TEMPLATE_FILE)) {
+    // Reported above as ignored.
+  } else if (template === undefined)
     out.push(
       violation(
         "pr-template-missing",
@@ -144,7 +162,9 @@ export const checkSync = (
       ),
     );
   const settings = parseSettings(snapshot.texts.get(SETTINGS_FILE));
-  if (settings === undefined)
+  if (snapshot.unlisted.has(SETTINGS_FILE)) {
+    // Reported above as ignored.
+  } else if (settings === undefined)
     out.push(
       violation(
         "settings-invalid",

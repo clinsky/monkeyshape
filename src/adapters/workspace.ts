@@ -6,6 +6,7 @@ import { PRIME_FILE } from "../core/conventions.ts";
 import { parseJsonc } from "../core/coverage.ts";
 import { SETTINGS_FILE } from "../core/hooks.ts";
 import { type Integration, isTsSource, type Snapshot } from "../core/model.ts";
+import { SYNCED_FILES } from "../core/sync.ts";
 import type { ResolvedConfig } from "../schemas/config.ts";
 import { WorkspaceError } from "../schemas/errors.ts";
 import { run, runTool } from "./process.ts";
@@ -277,6 +278,10 @@ export const loadSnapshot = (root: string, config: ResolvedConfig, packageRoot: 
         .text()
         .catch(() => undefined),
     );
+    const listedNow = new Set(present);
+    const unlisted = new Set<string>();
+    for (const file of SYNCED_FILES)
+      if (!listedNow.has(file) && (yield* exists(root, file))) unlisted.add(file);
     const snapshot: Snapshot = {
       files: present,
       texts,
@@ -292,6 +297,7 @@ export const loadSnapshot = (root: string, config: ResolvedConfig, packageRoot: 
       },
       skills,
       shippedPrime,
+      unlisted,
     };
     return snapshot;
   });

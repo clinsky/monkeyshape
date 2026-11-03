@@ -493,7 +493,10 @@ const SYNCED_REPO: Record<string, string> = {
   [SETTINGS_FILE]: HOOKED,
 };
 
-const syncCase = (files: Record<string, string | undefined> = {}): Case => {
+const syncCase = (
+  files: Record<string, string | undefined> = {},
+  unlisted: ReadonlyArray<string> = [],
+): Case => {
   const merged = Object.fromEntries(
     Object.entries({ ...SYNCED_REPO, ...files }).filter(
       (entry): entry is [string, string] => entry[1] !== undefined,
@@ -503,6 +506,7 @@ const syncCase = (files: Record<string, string | undefined> = {}): Case => {
     files: merged,
     options: {
       shippedPrime: PRIME,
+      unlisted,
       skills: {
         link: { kind: "link", target: "../.agents/skills" },
         installed: bytes({ "monkeyshape.json": MANIFEST() }),
@@ -541,6 +545,11 @@ const syncCases: Record<string, Cases> = {
     fail: syncCase({ [SETTINGS_FILE]: renderSettings(HOOKS.slice(1)) }),
     // The repo's own hooks and keys beside monkeyshape's are its business.
     pass: syncCase({ [SETTINGS_FILE]: JSON.stringify({ ...ownHook, permissions: { allow: [] } }) }),
+  },
+  "sync/ignored": {
+    // On disk but not listed by git: the snapshot has no text for it.
+    fail: syncCase({ [SETTINGS_FILE]: undefined }, [SETTINGS_FILE]),
+    pass: syncCase(),
   },
   "sync/settings-invalid": {
     fail: syncCase({ [SETTINGS_FILE]: "{ hooks: " }),

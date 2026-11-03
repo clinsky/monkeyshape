@@ -321,7 +321,7 @@ const sync = (root: string, args: ReadonlyArray<string>) =>
         ...(files.length === 0 ? ["PRIME.md, PR template, hooks: up to date"] : files),
         ...formatCollisions(skillSync),
       ].join("\n"),
-      code: skillSync.collisions.length > 0 ? 1 : 0,
+      code: skillSync.collisions.length > 0 || plan.blocked.length > 0 ? 1 : 0,
     };
   });
 
