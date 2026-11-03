@@ -83,7 +83,11 @@ describe("refs in docs", () => {
 
   test("bun run scripts must exist", () => {
     expect(
-      rules({ "AGENTS.md": "`bun run check` and `bun run nope`" }, config(), ["check"]),
+      rules(
+        { "AGENTS.md": "`bun run check`, `bun run --silent check` and `bun run --silent nope`" },
+        config(),
+        ["check"],
+      ),
     ).toEqual(["refs/unknown-script"]);
   });
 

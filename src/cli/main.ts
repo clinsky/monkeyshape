@@ -20,49 +20,36 @@ import { formatCheck, formatGarden, formatViolation } from "../core/report.ts";
 import { RULES } from "../core/rules/registry.ts";
 import { nextStep, REPO_NAME } from "../core/scaffold.ts";
 import { formatCollisions, formatSync } from "../core/skills.ts";
+import type { ConfigError, TrackError, WorkspaceError } from "../schemas/errors.ts";
 
-const USAGE = `mshape ${pkg.version}
+/** What a command returns: the text to print, and the exit code (0 prints to stdout). */
+interface Outcome {
+  readonly output: string;
+  readonly code: number;
+}
 
-  mshape init <name> [--from <spec>]
-      Create ./<name>: a new repo whose gate passes, with one starter test. --from installs
-      monkeyshape from <spec> (a tarball path) instead of the registry, to try a release first.
-  mshape skills sync
-      Refresh the shared skills in .agents/skills from the installed package, after a bump.
-      Skills the package doesn't ship are the repo's own and are left alone.
-  mshape check [--only arch,refs,budgets,coverage,rules,skills]
-      Run the checks; violations above .shape/baseline.json fail.
-  mshape baseline --tighten
-      Lower baseline counts to what is found now. Never raises one.
-  mshape baseline --init
-      Grandfather every current violation. For adopting a repo; review the diff.
-  mshape garden
-      Print budgets and escape hatches for the milestone-boundary sweep.
-  mshape rules
-      List the custom rules and the bug class each one removes.
-  mshape track new <name>
-      Start a track: worktree .agents/worktrees/<repo>@<name> on track/<name> from main,
-      the shared handoffs and tracks.sharedPaths linked in, and a stub handoff. Shared paths
-      come from the main checkout's shape.config.ts, from whichever checkout this runs.
-  mshape track list
-      Every track: handoff status, open beads, commits in neither main nor origin/main,
-      worktree. Restores missing handoff links; a track label with open beads and no track
-      left is listed too. Offline: run git fetch to see merges done on the remote.
-  mshape track current
-      The track of this directory, name only; exit 1, saying why, outside a track.
-  mshape track rm <name> [--force] [--keep-handoff]
-      Remove a finished track: worktree, branch, handoff. Fetches main's upstream first, then
-      refuses on uncommitted changes or work in neither main nor origin/main (by merge,
-      rebase or squash); --force discards them. Also refuses while beads labelled
-      track:<name> aren't closed, which --force doesn't override. Never touches main or other tracks.
-  mshape review <n>
-      Pull request <n>'s head from origin in a detached worktree .agents/worktrees/<repo>.pr-<n>,
-      tracks.sharedPaths linked in. Again later: put it exactly at the new head, printing the
-      old one; edits to tracked files there are listed, then discarded.
-  mshape review rm <n>
-      Remove that worktree, listing what it discards, and its fetched ref. Never the shared data.
+/**
+ * One `mshape` command. A new command is one entry in `COMMANDS`, and the help is generated
+ * from the table, so a command can't ship without its usage and no two tracks edit one switch.
+ */
+interface Command {
+  readonly name: string;
+  /** Its lines in the help: each form indented two spaces, what it does six. */
+  readonly usage: string;
+  readonly run: (
+    root: string,
+    args: ReadonlyArray<string>,
+  ) => Effect.Effect<Outcome, ConfigError | WorkspaceError | TrackError>;
+}
 
-  --config <path>   For check, baseline and garden: use this config instead of ./shape.config.ts
+const FLAGS = `  --config <path>   For check, baseline and garden: use this config instead of ./shape.config.ts
                     (trying a repo before adopting).`;
+
+/** Every command's usage, in table order. A function, since the table is declared below. */
+export const help = (): string =>
+  [`mshape ${pkg.version}`, "", ...COMMANDS.map((command) => command.usage), "", FLAGS].join("\n");
+
+const usage = (): Outcome => ({ output: help(), code: 2 });
 
 const parseOnly = (args: ReadonlyArray<string>): ReadonlyArray<CheckName> | string => {
   const index = args.indexOf("--only");
@@ -134,9 +121,8 @@ const track = (root: string, args: ReadonlyArray<string>) =>
     const names = rest.filter((arg) => !arg.startsWith("--"));
     const allowed = sub === "rm" ? ["--force", "--keep-handoff"] : [];
     const takesName = sub === "new" || sub === "rm";
-    const usage = { output: USAGE, code: 2 };
-    if (flags.some((flag) => !allowed.includes(flag))) return usage;
-    if (names.length !== (takesName ? 1 : 0)) return usage;
+    if (flags.some((flag) => !allowed.includes(flag))) return usage();
+    if (names.length !== (takesName ? 1 : 0)) return usage();
     const name = names[0] ?? "";
     if (sub === "new") return { output: yield* trackNew(root, name, today()), code: 0 };
     if (sub === "list") return { output: yield* trackList(root), code: 0 };
@@ -156,7 +142,7 @@ const track = (root: string, args: ReadonlyArray<string>) =>
         ),
         code: 0,
       };
-    return usage;
+    return usage();
   });
 
 const review = (root: string, args: ReadonlyArray<string>) =>
@@ -175,40 +161,28 @@ const review = (root: string, args: ReadonlyArray<string>) =>
         ),
         code: 0,
       };
-    return { output: USAGE, code: 2 };
+    return usage();
   });
 
-const program = (root: string, args: ReadonlyArray<string>) =>
+const skills = (root: string, args: ReadonlyArray<string>) =>
   Effect.gen(function* () {
-    const [command, ...rest] = args;
-    if (command === "--version") return { output: pkg.version, code: 0 };
-    if (command === "init") return yield* init(root, rest);
-    if (command === "skills" && rest[0] === "sync") {
-      const { sync, linked } = yield* installSkills(`${PACKAGE_ROOT}/skills`, root);
-      return {
-        output: [
-          formatSync(sync),
-          ...(linked ? [`${CLAUDE_SKILLS_LINK}: linked`] : []),
-          ...formatCollisions(sync),
-        ].join("\n"),
-        code: sync.collisions.length > 0 ? 1 : 0,
-      };
-    }
-    if (command === "track") return yield* track(root, rest);
-    if (command === "review") return yield* review(root, rest);
-    if (command === "rules")
-      return {
-        output: RULES.map((r) => `${r.id.padEnd(22)}${r.layer.padEnd(9)}${r.bugClass}`).join("\n"),
-        code: 0,
-      };
-    if (command !== "check" && command !== "baseline" && command !== "garden")
-      return {
-        output: USAGE,
-        code: command === undefined || command === "help" || command === "--help" ? 0 : 2,
-      };
+    if (args[0] !== "sync") return usage();
+    const { sync, linked } = yield* installSkills(`${PACKAGE_ROOT}/skills`, root);
+    return {
+      output: [
+        formatSync(sync),
+        ...(linked ? [`${CLAUDE_SKILLS_LINK}: linked`] : []),
+        ...formatCollisions(sync),
+      ].join("\n"),
+      code: sync.collisions.length > 0 ? 1 : 0,
+    };
+  });
 
-    const configFlag = rest.indexOf("--config");
-    const configPath = configFlag === -1 ? undefined : rest[configFlag + 1];
+/** What `check`, `baseline` and `garden` all read: the config, the snapshot, the baseline. */
+const load = (root: string, args: ReadonlyArray<string>) =>
+  Effect.gen(function* () {
+    const configFlag = args.indexOf("--config");
+    const configPath = configFlag === -1 ? undefined : args[configFlag + 1];
     const config = yield* loadConfig(
       root,
       configPath === undefined
@@ -219,37 +193,14 @@ const program = (root: string, args: ReadonlyArray<string>) =>
     );
     const snapshot = yield* loadSnapshot(root, config, `${PACKAGE_ROOT}/skills`);
     const baseline = yield* readBaseline(root);
+    return { config, snapshot, baseline };
+  });
 
-    if (command === "garden")
-      return { output: formatGarden(garden(config, snapshot, baseline)), code: 0 };
-
+const check = (root: string, args: ReadonlyArray<string>) =>
+  Effect.gen(function* () {
+    const { config, snapshot, baseline } = yield* load(root, args);
     const blocked = prerequisites(config, snapshot);
-    if (command === "baseline") {
-      // A baseline written without a required integration would grandfather an incomplete count.
-      if (blocked.length > 0)
-        return {
-          output: [
-            ...blocked.map(formatViolation),
-            "mshape baseline: not written, because a prerequisite fails",
-          ].join("\n\n"),
-          code: 1,
-        };
-      const violations = runChecks(config, snapshot);
-      if (rest.includes("--init")) {
-        yield* writeBaseline(root, count(violations));
-        return {
-          output: `${BASELINE_FILE}: grandfathered ${violations.length} violation(s)`,
-          code: 0,
-        };
-      }
-      if (rest.includes("--tighten")) {
-        yield* writeBaseline(root, tighten(baseline, violations, unevaluated(snapshot)));
-        return { output: `${BASELINE_FILE}: tightened`, code: 0 };
-      }
-      return { output: USAGE, code: 2 };
-    }
-
-    const only = parseOnly(rest);
+    const only = parseOnly(args);
     if (typeof only === "string") return { output: only, code: 2 };
     const ratcheted = applyBaseline(
       runChecks(config, snapshot, only),
@@ -264,15 +215,145 @@ const program = (root: string, args: ReadonlyArray<string>) =>
     };
   });
 
-const outcome = await Effect.runPromise(
-  program(process.cwd(), process.argv.slice(2)).pipe(
-    Effect.catchTags({
-      ConfigError: (error) => Effect.succeed({ output: `mshape: ${error.message}`, code: 2 }),
-      WorkspaceError: (error) => Effect.succeed({ output: `mshape: ${error.message}`, code: 2 }),
-      TrackError: (error) => Effect.succeed({ output: `mshape: ${error.message}`, code: 1 }),
-    }),
-  ),
-);
-if (outcome.code === 0) console.log(outcome.output);
-else console.error(outcome.output);
-process.exitCode = outcome.code;
+const baseline = (root: string, args: ReadonlyArray<string>) =>
+  Effect.gen(function* () {
+    const loaded = yield* load(root, args);
+    const { config, snapshot } = loaded;
+    const blocked = prerequisites(config, snapshot);
+    // A baseline written without a required integration would grandfather an incomplete count.
+    if (blocked.length > 0)
+      return {
+        output: [
+          ...blocked.map(formatViolation),
+          "mshape baseline: not written, because a prerequisite fails",
+        ].join("\n\n"),
+        code: 1,
+      };
+    const violations = runChecks(config, snapshot);
+    if (args.includes("--init")) {
+      yield* writeBaseline(root, count(violations));
+      return {
+        output: `${BASELINE_FILE}: grandfathered ${violations.length} violation(s)`,
+        code: 0,
+      };
+    }
+    if (args.includes("--tighten")) {
+      yield* writeBaseline(root, tighten(loaded.baseline, violations, unevaluated(snapshot)));
+      return { output: `${BASELINE_FILE}: tightened`, code: 0 };
+    }
+    return usage();
+  });
+
+const gardenCommand = (root: string, args: ReadonlyArray<string>) =>
+  Effect.map(load(root, args), ({ config, snapshot, baseline }) => ({
+    output: formatGarden(garden(config, snapshot, baseline)),
+    code: 0,
+  }));
+
+const rules = () =>
+  Effect.succeed({
+    output: RULES.map((r) => `${r.id.padEnd(22)}${r.layer.padEnd(9)}${r.bugClass}`).join("\n"),
+    code: 0,
+  });
+
+/** Every command, in the order the help lists them. */
+export const COMMANDS: ReadonlyArray<Command> = [
+  {
+    name: "init",
+    usage: `  mshape init <name> [--from <spec>]
+      Create ./<name>: a new repo whose gate passes, with one starter test. --from installs
+      monkeyshape from <spec> (a tarball path) instead of the registry, to try a release first.`,
+    run: init,
+  },
+  {
+    name: "skills",
+    usage: `  mshape skills sync
+      Refresh the shared skills in .agents/skills from the installed package, after a bump.
+      Skills the package doesn't ship are the repo's own and are left alone.`,
+    run: skills,
+  },
+  {
+    name: "check",
+    usage: `  mshape check [--only arch,refs,budgets,coverage,rules,skills]
+      Run the checks; violations above .shape/baseline.json fail.`,
+    run: check,
+  },
+  {
+    name: "baseline",
+    usage: `  mshape baseline --tighten
+      Lower baseline counts to what is found now. Never raises one.
+  mshape baseline --init
+      Grandfather every current violation. For adopting a repo; review the diff.`,
+    run: baseline,
+  },
+  {
+    name: "garden",
+    usage: `  mshape garden
+      Print budgets and escape hatches for the milestone-boundary sweep.`,
+    run: gardenCommand,
+  },
+  {
+    name: "rules",
+    usage: `  mshape rules
+      List the custom rules and the bug class each one removes.`,
+    run: rules,
+  },
+  {
+    name: "track",
+    usage: `  mshape track new <name>
+      Start a track: worktree .agents/worktrees/<repo>@<name> on track/<name> from main,
+      the shared handoffs and tracks.sharedPaths linked in, and a stub handoff. Shared paths
+      come from the main checkout's shape.config.ts, from whichever checkout this runs.
+  mshape track list
+      Every track: handoff status, open beads, commits in neither main nor origin/main,
+      worktree. Restores missing handoff links; a track label with open beads and no track
+      left is listed too. Offline: run git fetch to see merges done on the remote.
+  mshape track current
+      The track of this directory, name only; exit 1, saying why, outside a track.
+  mshape track rm <name> [--force] [--keep-handoff]
+      Remove a finished track: worktree, branch, handoff. Fetches main's upstream first, then
+      refuses on uncommitted changes or work in neither main nor origin/main (by merge,
+      rebase or squash); --force discards them. Also refuses while beads labelled
+      track:<name> aren't closed, which --force doesn't override. Never touches main or other tracks.`,
+    run: track,
+  },
+  {
+    name: "review",
+    usage: `  mshape review <n>
+      Pull request <n>'s head from origin in a detached worktree .agents/worktrees/<repo>.pr-<n>,
+      tracks.sharedPaths linked in. Again later: put it exactly at the new head, printing the
+      old one; edits to tracked files there are listed, then discarded.
+  mshape review rm <n>
+      Remove that worktree, listing what it discards, and its fetched ref. Never the shared data.`,
+    run: review,
+  },
+];
+
+const HELP: ReadonlyArray<string | undefined> = [undefined, "help", "--help"];
+
+export const program = (root: string, args: ReadonlyArray<string>) =>
+  Effect.gen(function* () {
+    const [name, ...rest] = args;
+    if (name === "--version") return { output: pkg.version, code: 0 };
+    if (HELP.includes(name)) return { output: help(), code: 0 };
+    const command = COMMANDS.find((entry) => entry.name === name);
+    if (command === undefined)
+      return { output: `mshape: unknown command '${name}'\n\n${help()}`, code: 2 };
+    return yield* command.run(root, rest);
+  });
+
+// Only as the executable: tests import the table and the help without running a command.
+if (import.meta.main) {
+  const outcome = await Effect.runPromise(
+    program(process.cwd(), process.argv.slice(2)).pipe(
+      Effect.catchTags({
+        ConfigError: (error) => Effect.succeed({ output: `mshape: ${error.message}`, code: 2 }),
+        WorkspaceError: (error) => Effect.succeed({ output: `mshape: ${error.message}`, code: 2 }),
+        TrackError: (error) => Effect.succeed({ output: `mshape: ${error.message}`, code: 1 }),
+      }),
+    ),
+  );
+  if (outcome.code === 0) console.log(outcome.output);
+  else console.error(outcome.output);
+  process.exitCode = outcome.code;
+}

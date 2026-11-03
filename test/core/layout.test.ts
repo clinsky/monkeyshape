@@ -3,11 +3,18 @@ import {
   handoffPath,
   handoffsLink,
   handoffsStore,
+  mailboxDir,
+  mailboxReadDir,
+  mailDir,
   mainCheckout,
+  messagePath,
+  sessionPath,
+  sessionsDir,
   TRACK_NAME,
   trackBranch,
   trackLabel,
   trackOf,
+  trackSessionsDir,
   worktreePath,
 } from "../../src/core/layout.ts";
 
@@ -32,6 +39,19 @@ describe("track layout", () => {
     expect(handoffPath(common, "docs")).toBe(
       "/home/me/dev/monkey-emu/.git/monkeyshape/handoffs/docs.md",
     );
+  });
+
+  test("mail and sessions are stored beside the handoffs, one directory per track", () => {
+    const store = "/home/me/dev/monkey-emu/.git/monkeyshape";
+    expect(mailDir(common)).toBe(`${store}/mail`);
+    expect(mailDir(`${common}/`)).toBe(`${store}/mail`);
+    expect(mailboxDir(common, "docs")).toBe(`${store}/mail/docs`);
+    expect(mailboxReadDir(common, "docs")).toBe(`${store}/mail/docs/read`);
+    expect(messagePath(common, "docs", "m1")).toBe(`${store}/mail/docs/m1.json`);
+    expect(sessionsDir(common)).toBe(`${store}/sessions`);
+    expect(trackSessionsDir(common, "docs")).toBe(`${store}/sessions/docs`);
+    expect(sessionPath(common, "docs", "s1")).toBe(`${store}/sessions/docs/s1.json`);
+    expect(handoffsStore(common)).toBe(`${store}/handoffs`);
   });
 
   test("a worktree knows its track; the main checkout and strangers don't have one", () => {
