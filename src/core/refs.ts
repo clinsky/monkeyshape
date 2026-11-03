@@ -8,7 +8,7 @@
 import type { ResolvedConfig } from "../schemas/config.ts";
 import { parseDecisions, SLUG } from "./decisions.ts";
 import { matchesAny } from "./glob.ts";
-import { fencedLines, opensCodeSpan } from "./markdown.ts";
+import { fencedLines, splitCodeSpans } from "./markdown.ts";
 import { isTsSource, lineAt, pathIndex, type Snapshot, type Violation } from "./model.ts";
 import { parse } from "./parse.ts";
 import { basename, dirname, join } from "./paths.ts";
@@ -135,64 +135,63 @@ export const checkRefs = (config: ResolvedConfig, snapshot: Snapshot): ReadonlyA
     const text = snapshot.texts.get(doc);
     if (text === undefined) continue;
     const normative = !matchesAny(doc, config.refs.narrativeDocs);
-    stripFences(text)
-      .split("\n")
-      .forEach((line, i) => {
-        const n = i + 1;
-        checkCommon(doc, n, line);
-        // Lines are read one at a time, so a span split across two is never checked. A line
-        // indented four spaces may be an indented code block, where a backtick is literal.
-        if (!/^( {4}|\t)/.test(line) && opensCodeSpan(line))
-          violations.push(
-            violation(
-              "split-code-span",
-              doc,
-              n,
-              "a code span crosses a line break, so the refs check can't see it: keep each `...` span on one line.",
-            ),
-          );
-        if (
-          normative &&
-          NON_NORMATIVE.test(line.replace(/`[^`]*`/g, (span) => span.replaceAll("`", " ")))
-        )
-          violations.push(
-            violation(
-              "normative-link",
-              doc,
-              n,
-              "a normative doc points into notes/, plan/ or a handoff, which age by design. Promote what matters into a check, test or decision.",
-            ),
-          );
-        for (const match of line.matchAll(/`([^`\n]+)`/g)) {
-          const span = match[1] ?? "";
-          const script = /^bun run (?:--?[\w-]+ )*([\w:./-]+)/.exec(span)?.[1];
-          // Flags such as `--silent` come before the script.
-          // `bun run path/to/file.ts` runs a file, which the path check below covers.
-          if (script !== undefined && !script.includes("/") && !KNOWN_EXTENSION.test(script)) {
-            if (!snapshot.packageScripts.has(script))
-              violations.push(
-                violation(
-                  "unknown-script",
-                  doc,
-                  n,
-                  `\`bun run ${script}\` is not a package.json script`,
-                ),
-              );
-            continue;
-          }
-          const path = pathCandidate(span.replace(/^bun (run )?/, ""));
-          if (path !== undefined && checkable(path) && !pathExists(doc, path))
-            violations.push(violation("missing-path", doc, n, `\`${span}\` does not exist`));
-        }
-        for (const match of line.matchAll(/\]\(([^)\s]+)\)/g)) {
-          const target = (match[1] ?? "").split("#")[0] ?? "";
-          if (target === "" || /^[a-z]+:/.test(target)) continue;
-          if (!pathExists(doc, target))
+    const lines = stripFences(text).split("\n");
+    const split = splitCodeSpans(lines);
+    lines.forEach((line, i) => {
+      const n = i + 1;
+      checkCommon(doc, n, line);
+      // Lines are read one at a time, so a span split across two is never checked.
+      if (split.has(i))
+        violations.push(
+          violation(
+            "split-code-span",
+            doc,
+            n,
+            "a code span crosses a line break, so the refs check can't see it: keep each `...` span on one line.",
+          ),
+        );
+      if (
+        normative &&
+        NON_NORMATIVE.test(line.replace(/`[^`]*`/g, (span) => span.replaceAll("`", " ")))
+      )
+        violations.push(
+          violation(
+            "normative-link",
+            doc,
+            n,
+            "a normative doc points into notes/, plan/ or a handoff, which age by design. Promote what matters into a check, test or decision.",
+          ),
+        );
+      for (const match of line.matchAll(/`([^`\n]+)`/g)) {
+        const span = match[1] ?? "";
+        const script = /^bun run (?:--?[\w-]+ )*([\w:./-]+)/.exec(span)?.[1];
+        // Flags such as `--silent` come before the script.
+        // `bun run path/to/file.ts` runs a file, which the path check below covers.
+        if (script !== undefined && !script.includes("/") && !KNOWN_EXTENSION.test(script)) {
+          if (!snapshot.packageScripts.has(script))
             violations.push(
-              violation("missing-path", doc, n, `link target '${target}' does not exist`),
+              violation(
+                "unknown-script",
+                doc,
+                n,
+                `\`bun run ${script}\` is not a package.json script`,
+              ),
             );
+          continue;
         }
-      });
+        const path = pathCandidate(span.replace(/^bun (run )?/, ""));
+        if (path !== undefined && checkable(path) && !pathExists(doc, path))
+          violations.push(violation("missing-path", doc, n, `\`${span}\` does not exist`));
+      }
+      for (const match of line.matchAll(/\]\(([^)\s]+)\)/g)) {
+        const target = (match[1] ?? "").split("#")[0] ?? "";
+        if (target === "" || /^[a-z]+:/.test(target)) continue;
+        if (!pathExists(doc, target))
+          violations.push(
+            violation("missing-path", doc, n, `link target '${target}' does not exist`),
+          );
+      }
+    });
   }
 
   for (const file of snapshot.files) {

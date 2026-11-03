@@ -22,7 +22,6 @@ describe("refs in docs", () => {
     expect(rules({ "AGENTS.md": "Run `scripts/nope.sh` first." })).toEqual(["refs/missing-path"]);
     expect(rules({ "AGENTS.md": "Run `scripts/\nnope.sh` first." })).toEqual([
       "refs/split-code-span",
-      "refs/split-code-span",
     ]);
     expect(rules({ "AGENTS.md": "`a` and `b`\n```\nfenced ` stray\n```\n" })).toEqual([]);
   });
@@ -46,9 +45,10 @@ describe("refs in docs", () => {
     };
     for (const [name, text] of Object.entries(valid))
       expect([name, rules({ "AGENTS.md": text })]).toEqual([name, []]);
-    expect(rules({ "AGENTS.md": "a `` b ` c" })).toEqual(["refs/split-code-span"]);
+    // Unmatched backticks are literal text in CommonMark: only a span that pairs across a line
+    // break fails, once, on the line it opens.
+    expect(rules({ "AGENTS.md": "a `` b ` c" })).toEqual([]);
     expect(rules({ "AGENTS.md": "- run `bd ready --label\n  track:x` now\n" })).toEqual([
-      "refs/split-code-span",
       "refs/split-code-span",
     ]);
   });

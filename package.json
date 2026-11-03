@@ -64,7 +64,9 @@
   "devDependencies": {
     "@biomejs/biome": "2.5.15",
     "@types/bun": "1.4.2",
+    "commonmark-spec": "0.31.2",
     "effect": "4.0.0",
+    "mdast-util-from-markdown": "2.1.0",
     "typescript": "7.0.2"
   }
 }
