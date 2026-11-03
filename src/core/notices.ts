@@ -28,6 +28,8 @@ export interface Registration {
 /** The fields of Claude Code's session file that a notice depends on. */
 export interface ClaudeSession {
   readonly pid: number;
+  /** The directory the session runs in, when the record says; `track rm` reads it. */
+  readonly cwd?: string;
   readonly sessionId: string;
   readonly procStart: string;
   readonly peerProtocol: number;
@@ -79,13 +81,20 @@ export const encodeRegistration = (registration: Registration): string =>
 export const decodeClaudeSession = (text: string): ClaudeSession | undefined => {
   const value = object(text);
   if (value === undefined) return undefined;
-  const { pid, sessionId, procStart, peerProtocol, messagingSocketPath } = value;
+  const { pid, cwd, sessionId, procStart, peerProtocol, messagingSocketPath } = value;
   return typeof pid === "number" &&
     typeof sessionId === "string" &&
     typeof procStart === "string" &&
     typeof peerProtocol === "number" &&
     typeof messagingSocketPath === "string"
-    ? { pid, sessionId, procStart, peerProtocol, messagingSocketPath }
+    ? {
+        pid,
+        ...(typeof cwd === "string" ? { cwd } : {}),
+        sessionId,
+        procStart,
+        peerProtocol,
+        messagingSocketPath,
+      }
     : undefined;
 };
 
@@ -148,6 +157,19 @@ export const sessionStatus = (
         : "its process now runs another session",
   };
 };
+
+/**
+ * Sessions running inside a worktree whether or not they registered (one started before the
+ * register hook existed, or whose `register` only gave a note): by the record's `cwd`.
+ * Paths are compared as given, so the caller resolves symlinks on both sides first.
+ */
+export const sessionsIn = (
+  worktree: string,
+  records: ReadonlyArray<ClaudeSession>,
+): ReadonlyArray<string> =>
+  records
+    .filter((record) => record.cwd === worktree || record.cwd?.startsWith(`${worktree}/`))
+    .map((record) => record.sessionId);
 
 export const planNotice = (
   registration: Registration,
