@@ -20,11 +20,17 @@ export const changedLines = (shortstat: string): number => {
 };
 
 /**
- * The Gate section: the command, the commit it ran on, and the tail of its output in a fence
- * longer than any backtick run inside, so the output can't close it.
+ * The Gate section: the command, the commit it ran on, and the tail of its output, colour codes
+ * removed, in a fence longer than any backtick run inside, so the output can't close it.
  */
 export const gateSection = (command: string, commit: string, output: string): string => {
-  const lines = output.replace(/\r\n/g, "\n").trimEnd().split("\n");
+  const lines = output
+    // Terminal colour codes (biome's, say) are noise in a PR body.
+    // biome-ignore lint/suspicious/noControlCharactersInRegex: matching ESC is the point
+    .replace(/\u001b\[[0-9;?]*[A-Za-z]/g, "")
+    .replace(/\r\n/g, "\n")
+    .trimEnd()
+    .split("\n");
   const tail = lines.slice(-GATE_TAIL_LINES).join("\n");
   const longest = Math.max(2, ...[...tail.matchAll(/`+/g)].map((run) => run[0].length));
   const fence = "`".repeat(longest + 1);

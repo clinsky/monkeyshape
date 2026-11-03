@@ -36,6 +36,10 @@ describe("track pr's body", () => {
     expect(lines.slice(2, -1)).toHaveLength(GATE_TAIL_LINES);
     expect(lines.at(-2)).toBe(" 431 pass");
     expect(section).not.toContain("line 0\n");
+    // As biome printed it into #35's first Gate section.
+    const coloured =
+      "\u001b[0m\u001b[34mChecked 101 files in 58\u001b[0m\u001b[0m\u001b[2m\u001b[34mms\u001b[0m";
+    expect(gateSection("c", "abc", coloured).split("\n")[2]).toBe("Checked 101 files in 58ms");
   });
 
   test("beads are the ids that start list items, backticks and trailing punctuation stripped", () => {
