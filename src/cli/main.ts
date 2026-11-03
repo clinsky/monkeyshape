@@ -502,7 +502,7 @@ export const COMMANDS: ReadonlyArray<Command> = [
   },
   {
     name: "check",
-    usage: `  mshape check [--only arch,refs,budgets,coverage,rules,skills,sync]
+    usage: `  mshape check [--only arch,refs,budgets,coverage,rules,skills,sync,beads]
       Run the checks; violations above .shape/baseline.json fail.`,
     run: check,
   },

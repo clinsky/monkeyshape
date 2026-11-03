@@ -1,6 +1,7 @@
 /** Runs the selected checks over a snapshot. Pure: the CLI loads, this decides. */
 import type { ResolvedConfig } from "../schemas/config.ts";
 import { ARCH_RULES, checkArch } from "./arch.ts";
+import { BEADS_RULES, checkBeads } from "./beads.ts";
 import { BUDGETS_RULES, checkBudgets } from "./budgets.ts";
 import { COVERAGE_RULES, checkCoverage } from "./coverage.ts";
 import type { CheckName, Integration, Snapshot, Violation } from "./model.ts";
@@ -18,6 +19,7 @@ export const CHECKS: ReadonlyArray<CheckName> = [
   "rules",
   "skills",
   "sync",
+  "beads",
 ];
 
 const run: Record<
@@ -31,9 +33,16 @@ const run: Record<
   rules: (config, snapshot) => checkRules(config, snapshot, RULES),
   skills: checkSkills,
   sync: checkSync,
+  beads: checkBeads,
 };
 
-const BEADS_RULES = ["refs/bead-in-code", "budgets/memories-count", "budgets/memories-bytes"];
+/** The rules that need bd: where it can't run, they're skipped with a notice. */
+const NEEDS_BD = [
+  "refs/bead-in-code",
+  "budgets/memories-count",
+  "budgets/memories-bytes",
+  ...BEADS_RULES.map((kind) => `beads/${kind}`),
+];
 
 /**
  * Rules this run didn't evaluate: their check wasn't selected (`--only`), or they need data
@@ -46,7 +55,7 @@ export const unevaluated = (
   baselineRules: Iterable<string> = [],
 ): ReadonlySet<string> =>
   new Set([
-    ...(snapshot.integrations.beads.state === "ok" ? [] : BEADS_RULES),
+    ...(snapshot.integrations.beads.state === "ok" ? [] : NEEDS_BD),
     ...[...baselineRules].filter(
       (rule) => !(only as ReadonlyArray<string>).includes(rule.split("/")[0] ?? ""),
     ),
@@ -57,7 +66,7 @@ export const notices = (config: ResolvedConfig, snapshot: Snapshot): ReadonlyArr
   const out: Array<string> = [];
   const { beads, tsc, biome } = snapshot.integrations;
   if (beads.state === "unavailable" && config.beads === "optional")
-    out.push(`skipped ${BEADS_RULES.join(", ")}: ${beads.reason}`);
+    out.push(`skipped ${NEEDS_BD.join(", ")}: ${beads.reason}`);
   for (const [name, integration] of [
     ["tsc", tsc],
     ["biome", biome],
@@ -84,6 +93,7 @@ const KINDS: { readonly [C in Violation["check"]]: ReadonlyArray<string> } = {
   rules: ENGINE_RULES,
   skills: SKILLS_RULES,
   sync: SYNC_RULES,
+  beads: BEADS_RULES,
   prerequisites: PREREQUISITE_RULES,
 };
 

@@ -1,5 +1,5 @@
 /** In-memory repos for tests: checks are pure, so no temp directories are needed. */
-import type { Integration, SkillsSnapshot, Snapshot } from "../src/core/model.ts";
+import type { BeadSummary, Integration, SkillsSnapshot, Snapshot } from "../src/core/model.ts";
 import { lineAt } from "../src/core/model.ts";
 import { parse } from "../src/core/parse.ts";
 import { type Rule, runRule } from "../src/core/rules/engine.ts";
@@ -15,6 +15,8 @@ export const repo = (
     readonly scripts?: ReadonlyArray<string>;
     readonly memories?: Readonly<Record<string, string>>;
     readonly beadIds?: ReadonlyArray<string>;
+    /** Beads for the beads check; their ids join `beadIds`. */
+    readonly beadRows?: ReadonlyArray<BeadSummary>;
     readonly beads?: Integration;
     readonly typechecked?: ReadonlyArray<string>;
     readonly linted?: ReadonlyArray<string>;
@@ -23,7 +25,10 @@ export const repo = (
     readonly unlisted?: ReadonlyArray<string>;
   } = {},
 ): Snapshot => {
-  const beadsOk = options.memories !== undefined || options.beadIds !== undefined;
+  const beadsOk =
+    options.memories !== undefined ||
+    options.beadIds !== undefined ||
+    options.beadRows !== undefined;
   const tool = (list: ReadonlyArray<string> | undefined): Integration =>
     list === undefined
       ? { state: "unavailable", reason: "not run in unit tests" }
@@ -33,7 +38,10 @@ export const repo = (
     texts: new Map(Object.entries(files)),
     packageScripts: new Set(options.scripts ?? []),
     memories: beadsOk ? new Map(Object.entries(options.memories ?? {})) : undefined,
-    beadIds: beadsOk ? new Set(options.beadIds ?? []) : undefined,
+    beadIds: beadsOk
+      ? new Set([...(options.beadIds ?? []), ...(options.beadRows ?? []).map((bead) => bead.id)])
+      : undefined,
+    beadRows: beadsOk ? (options.beadRows ?? []) : undefined,
     typechecked: options.typechecked === undefined ? undefined : new Set(options.typechecked),
     linted: options.linted === undefined ? undefined : new Set(options.linted),
     integrations: {

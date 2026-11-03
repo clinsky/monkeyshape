@@ -1,6 +1,14 @@
 /** The data every check reads and the findings it returns. Pure: no I/O lives here. */
 
-export type CheckName = "arch" | "refs" | "budgets" | "coverage" | "rules" | "skills" | "sync";
+export type CheckName =
+  | "arch"
+  | "refs"
+  | "budgets"
+  | "coverage"
+  | "rules"
+  | "skills"
+  | "sync"
+  | "beads";
 
 type ViolationOf<C extends CheckName | "prerequisites"> = {
   /**
@@ -21,6 +29,16 @@ export type Violation = { [C in CheckName | "prerequisites"]: ViolationOf<C> }[
   | CheckName
   | "prerequisites"];
 
+/** What the beads check reads of a bead, from `bd list --json`. */
+export interface BeadSummary {
+  readonly id: string;
+  readonly title: string;
+  readonly status: string;
+  /** bd's `issue_type`: `task`, `bug`, `feature`, `epic`. */
+  readonly type: string;
+  readonly labels: ReadonlyArray<string>;
+}
+
 /** What the checks see of the repo, loaded once by the workspace adapter. */
 export interface Snapshot {
   /** Tracked and untracked-but-not-ignored files, repo-relative. */
@@ -32,6 +50,8 @@ export interface Snapshot {
   readonly memories: ReadonlyMap<string, string> | undefined;
   /** Every bead id, open or closed, when `integrations.beads` is ok. */
   readonly beadIds: ReadonlySet<string> | undefined;
+  /** Every bead, open or closed, when `integrations.beads` is ok: who owns what. */
+  readonly beadRows?: ReadonlyArray<BeadSummary> | undefined;
   /** Files in a tsconfig program, as `tsc --listFilesOnly` reports them, when tsc ran. */
   readonly typechecked: ReadonlySet<string> | undefined;
   /** Files biome processes, as biome itself reports them, when biome ran. */

@@ -16,7 +16,13 @@ import {
   prTemplate,
 } from "../../src/core/conventions.ts";
 import { HOOKS, renderSettings, SETTINGS_FILE } from "../../src/core/hooks.ts";
-import type { CheckName, SkillFiles, Snapshot, Violation } from "../../src/core/model.ts";
+import type {
+  BeadSummary,
+  CheckName,
+  SkillFiles,
+  Snapshot,
+  Violation,
+} from "../../src/core/model.ts";
 import type { ShapeConfig } from "../../src/schemas/config.ts";
 import { config, repo } from "../support.ts";
 
@@ -557,6 +563,49 @@ const syncCases: Record<string, Cases> = {
   },
 };
 
+// beads
+
+const bead = (
+  id: string,
+  status: string,
+  labels: ReadonlyArray<string> = [],
+  type = "task",
+): BeadSummary => ({ id, title: `bead ${id}`, status, type, labels });
+
+const beadsCases: Record<string, Cases> = {
+  "beads/unowned": {
+    fail: { options: { beadRows: [bead("x-1", "in_progress")] } },
+    // Owned by a track, by a label for work no track does, by being an epic, or not open.
+    pass: {
+      options: {
+        beadRows: [
+          bead("x-1", "in_progress", ["track:docs"]),
+          bead("x-2", "open", ["milestone"]),
+          bead("x-3", "open", ["process", "docs"]),
+          bead("x-4", "open", [], "epic"),
+          bead("x-5", "deferred"),
+          bead("x-6", "closed"),
+        ],
+      },
+    },
+  },
+  "beads/deferred-in-track": {
+    fail: { options: { beadRows: [bead("x-1", "deferred", ["track:docs"])] } },
+    pass: { options: { beadRows: [bead("x-1", "deferred", ["later"])] } },
+  },
+  "beads/todo-closed": {
+    fail: {
+      files: { "src/a.ts": "/* first line\n   TODO(x-1): undo the workaround */\n" },
+      options: { beadRows: [bead("x-1", "closed")] },
+    },
+    // An open bead's TODO, and an id bd doesn't know (refs' business, not this check's).
+    pass: {
+      files: { "src/a.ts": "// TODO(x-1): later\n// TODO(x-9): someone else's\n" },
+      options: { beadRows: [bead("x-1", "open", ["track:docs"])] },
+    },
+  },
+};
+
 // prerequisites
 
 const prerequisitesCases: Record<string, Cases> = {
@@ -578,6 +627,7 @@ const CASES: Record<string, Cases> = {
   ...rules,
   ...skills,
   ...syncCases,
+  ...beadsCases,
   ...prerequisitesCases,
 };
 
