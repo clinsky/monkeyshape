@@ -2,7 +2,9 @@
  * References in prose must resolve, and prose may only point at things a check keeps true.
  * Docs: backticked paths, `bun run` scripts, decision slugs and relative links must exist, and
  * each backticked span sits on one line, where it can be checked;
- * normative docs may not link into notes/, plan/ or handoffs. Code comments: no links into
+ * normative docs may not link into notes/, plan/ or handoffs. Plans and notes are held to form
+ * only (`refs.formOnlyDocs`): one-line spans, no `§N`, no forbidden text, never whether a
+ * path still exists. Code comments: no links into
  * those either, no `§N` citations, decision slugs must exist, bead ids only in `TODO(id)`.
  */
 import type { ResolvedConfig } from "../schemas/config.ts";
@@ -131,7 +133,9 @@ export const checkRefs = (config: ResolvedConfig, snapshot: Snapshot): ReadonlyA
   };
 
   for (const doc of snapshot.files) {
-    if (!doc.endsWith(".md") || !matchesAny(doc, config.refs.docs)) continue;
+    if (!doc.endsWith(".md")) continue;
+    const formOnly = matchesAny(doc, config.refs.formOnlyDocs);
+    if (!formOnly && !matchesAny(doc, config.refs.docs)) continue;
     const text = snapshot.texts.get(doc);
     if (text === undefined) continue;
     const normative = !matchesAny(doc, config.refs.narrativeDocs);
@@ -139,7 +143,6 @@ export const checkRefs = (config: ResolvedConfig, snapshot: Snapshot): ReadonlyA
     const split = splitCodeSpans(lines);
     lines.forEach((line, i) => {
       const n = i + 1;
-      checkCommon(doc, n, line);
       // Lines are read one at a time, so a span split across two is never checked.
       if (split.has(i))
         violations.push(
@@ -150,6 +153,23 @@ export const checkRefs = (config: ResolvedConfig, snapshot: Snapshot): ReadonlyA
             "a code span crosses a line break, so the refs check can't see it: keep each `...` span on one line.",
           ),
         );
+      if (formOnly) {
+        if (SECTION_CITATION.test(line))
+          violations.push(
+            violation(
+              "section-citation",
+              doc,
+              n,
+              "cites a `§N` section, which moves when the doc it points into is edited. Name the section or the file instead.",
+            ),
+          );
+        // A forbidden pattern bans text, whatever exists: it holds in plans and notes too.
+        for (const { regex, reason } of forbidden)
+          if (regex.test(line))
+            violations.push(violation("forbidden", doc, n, `matches /${regex.source}/: ${reason}`));
+        return;
+      }
+      checkCommon(doc, n, line);
       if (
         normative &&
         NON_NORMATIVE.test(line.replace(/`[^`]*`/g, (span) => span.replaceAll("`", " ")))
