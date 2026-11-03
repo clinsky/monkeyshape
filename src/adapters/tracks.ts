@@ -353,13 +353,14 @@ const trackBeads = (repo: string) =>
     byTrack: openBeadsByTrack(loaded.value ?? []),
     byId: new Map(
       (loaded.value ?? []).flatMap((row) => {
-        const { id, status, labels } = (row ?? {}) as Record<string, unknown>;
+        const { id, status, issue_type, labels } = (row ?? {}) as Record<string, unknown>;
         return typeof id === "string" && typeof status === "string"
           ? [
               [
                 id,
                 {
                   status,
+                  type: typeof issue_type === "string" ? issue_type : "",
                   labels: Array.isArray(labels)
                     ? labels.filter((label): label is string => typeof label === "string")
                     : [],

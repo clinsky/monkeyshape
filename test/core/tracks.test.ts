@@ -325,16 +325,25 @@ describe("whether a track is done", () => {
   });
 
   test("a bead a merged PR lists but that is still open is flagged; closed, unknown or unmerged ones aren't", () => {
+    const task = (status: string, labels: ReadonlyArray<string> = [], type = "task") => ({
+      status,
+      type,
+      labels,
+    });
     const beads: BeadsById = new Map([
-      ["x-abc.1", { status: "open", labels: [] }],
-      ["x-abc.2", { status: "closed", labels: ["track:docs"] }],
-      ["x-abc.3", { status: "in_progress", labels: ["track:docs"] }],
-      ["x-abc.4", { status: "in_progress", labels: ["track:docs", "track:review"] }],
+      ["x-abc.1", task("open")],
+      ["x-abc.2", task("closed", ["track:docs"])],
+      ["x-abc.3", task("in_progress", ["track:docs"])],
+      ["x-abc.4", task("in_progress", ["track:docs", "track:review"])],
       // Another track's: listed here because this track's work fed it (#38 and f4y.26).
-      ["x-abc.5", { status: "in_progress", labels: ["track:review"] }],
+      ["x-abc.5", task("in_progress", ["track:review"])],
+      // Owned without a track, as the beads check says (#39's last nit): no track's to close.
+      ["x-abc.6", task("open", [], "epic")],
+      ["x-abc.7", task("open", [], "milestone")],
+      ["x-abc.8", task("open", ["milestone"])],
+      ["x-abc.9", task("open", ["process"])],
     ]);
-    const body =
-      "## Beads\n\n- x-abc.1 one\n- x-abc.2 two\n- x-abc.4\n- x-abc.5\n- x-zzz.9 unknown to bd\n";
+    const body = `## Beads\n\n${["x-abc.1 one", "x-abc.2 two", "x-abc.4", "x-abc.5", "x-abc.6", "x-abc.7", "x-abc.8", "x-abc.9", "x-zzz.9 unknown to bd"].map((item) => `- ${item}`).join("\n")}\n`;
     expect(
       openAfterMerge(
         [pr(5, "MERGED", body), pr(6, "OPEN", "## Beads\n\n- x-abc.3\n")],

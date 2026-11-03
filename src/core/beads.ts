@@ -32,6 +32,18 @@ const FROZEN: ReadonlyArray<string> = ["deferred", "pinned"];
 /** bd's types that hold no work of their own: `epic` (spans tracks) and `milestone`. */
 const UNOWNED_TYPES: ReadonlyArray<string> = ["epic", "milestone"];
 
+/**
+ * A bead that needs no track: an epic or a bd milestone (no work of its own), or one labelled
+ * for work no track does. `beads/unowned` and `track list`'s merged-PR warnings both ask this,
+ * so what a track must settle and what needs an owner can't drift apart.
+ */
+export const ownedWithoutTrack = (bead: {
+  readonly type: string;
+  readonly labels: ReadonlyArray<string>;
+}): boolean =>
+  UNOWNED_TYPES.includes(bead.type) ||
+  bead.labels.some((label) => (OWNER_LABELS as ReadonlyArray<string>).includes(label));
+
 /** Where the bead findings point: bd's own directory, since a bead has no file of its own. */
 export const BEADS_FILE = ".beads";
 
@@ -67,9 +79,8 @@ export const checkBeads = (_config: unknown, snapshot: Snapshot): ReadonlyArray<
       inTracks &&
       bead.status !== "closed" &&
       !FROZEN.includes(bead.status) &&
-      !UNOWNED_TYPES.includes(bead.type) &&
       tracks.length === 0 &&
-      !bead.labels.some((label) => (OWNER_LABELS as ReadonlyArray<string>).includes(label))
+      !ownedWithoutTrack(bead)
     )
       violations.push(
         violation(

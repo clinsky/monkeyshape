@@ -4,6 +4,7 @@
  * are read by `src/adapters/tracks.ts`, which hands the facts here.
  */
 import type { ResolvedConfig } from "../schemas/config.ts";
+import { ownedWithoutTrack } from "./beads.ts";
 import { beadsBlocker } from "./check.ts";
 import {
   AGENTS_HANDOFFS_LINK,
@@ -466,14 +467,15 @@ export const trackDone = (facts: {
 /** A bead's status and labels, by id: what `openAfterMerge` reads. */
 export type BeadsById = ReadonlyMap<
   string,
-  { readonly status: string; readonly labels: ReadonlyArray<string> }
+  { readonly status: string; readonly type: string; readonly labels: ReadonlyArray<string> }
 >;
 
 /**
  * Beads a merged PR of the track lists in its Beads section but that are still open: the
  * work merged, so each is either done and needs closing, or needs a line saying what is left.
- * Only the track's own (its label) or nobody's (no track label): a bead another track owns is
- * listed in its count, and is that track's to settle. A listed id bd doesn't know is skipped,
+ * Only the track's own (its label) or nobody's (no track label, and not owned without one, as
+ * `ownedWithoutTrack` says): another track's bead is in that track's count and is its to
+ * settle, and an epic, a milestone or process work is no track's to close. A listed id bd doesn't know is skipped,
  * since `track pr` checked ids when it posted.
  */
 export const openAfterMerge = (
@@ -488,7 +490,8 @@ export const openAfterMerge = (
         const bead = beads.get(id);
         if (bead === undefined || bead.status === "closed") return [];
         const tracks = bead.labels.filter((label) => label.startsWith("track:"));
-        if (tracks.length > 0 && !tracks.includes(trackLabel(track))) return [];
+        if (tracks.length > 0 ? !tracks.includes(trackLabel(track)) : ownedWithoutTrack(bead))
+          return [];
         return [
           `${id} (${bead.status}) is listed in merged PR #${pr.number} but still open: close it (\`bd close ${id}\`), or say in its notes what is left`,
         ];
