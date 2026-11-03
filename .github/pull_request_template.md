@@ -20,4 +20,4 @@
 
 ## Beads
 
-<!-- The beads this PR works on, by id, and any it filed. -->
+<!-- Each bead this PR works on, and any it filed, as a list item starting with its id: `- <id> what it is`. -->
