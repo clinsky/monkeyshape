@@ -33,10 +33,12 @@ links (PRs, beads), not a story. Ask what they saw that you didn't.
 
 ## 3. Agree the goal
 
-Propose one goal, from the human's priorities and the roadmap, with **acceptance on real
-data**: a run on a named real target, or a real repo or user doing the thing, never "tests
-pass". A new repo's first milestone is "a first result on a real target". Say what you
-would defer to make it fit, and why. Iterate until the human agrees; don't write the plan
+Propose one goal, from the human's priorities and the roadmap: by default the roadmap's
+next goal not yet shipped, in its listed order, whose "why it comes when it does" line seeds
+the plan's "Why this milestone". Give it **acceptance on real data**: a run on a named
+real target, or a real repo or user doing the thing, never "tests pass". A new repo's first
+milestone is "a first result on a real target". Say what you would defer to make it fit,
+and why. Iterate until the human agrees; don't write the plan
 before that.
 
 ## 4. Write plan/MILESTONE.md
