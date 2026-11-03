@@ -85,7 +85,7 @@ export const ShapeConfig = Schema.Struct({
       /** Docs that are not normative (may link into notes/, plan/, handoffs). */
       narrativeDocs: Schema.optionalKey(Globs),
       /**
-       * Docs held to form only (one-line code spans, no `§N` citations), never to whether a
+       * Docs held to form only (one-line code spans, no `§N` citations, no `forbidden` text), never to whether a
        * path, script or decision exists: plans describe what doesn't exist yet, notes are
        * history. Wins over `docs`.
        */

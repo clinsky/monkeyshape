@@ -175,6 +175,16 @@ describe("refs in plans and notes: form only", () => {
     ).toEqual([]);
   });
 
+  test("a forbidden pattern holds in plans and notes too: it bans text, not missing things", () => {
+    const forbidden = [{ pattern: "internal-codename", reason: "never in this repo" }];
+    expect(
+      rules(
+        { "plan/MILESTONE.md": "Ship internal-codename.\n", "notes/2026-01-01-x.md": "ok\n" },
+        { refs: { forbidden } },
+      ),
+    ).toEqual(["plan/MILESTONE.md:1 refs/forbidden"]);
+  });
+
   test("form only wins over refs.docs, and is configurable", () => {
     const files = { "plan/MILESTONE.md": "Add `src/core/next.ts`.\n" };
     expect(rules(files, { refs: { docs: ["plan/**/*.md"] } })).toEqual([]);

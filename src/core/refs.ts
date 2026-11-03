@@ -3,7 +3,8 @@
  * Docs: backticked paths, `bun run` scripts, decision slugs and relative links must exist, and
  * each backticked span sits on one line, where it can be checked;
  * normative docs may not link into notes/, plan/ or handoffs. Plans and notes are held to form
- * only (`refs.formOnlyDocs`): one-line spans and no `§N`, never whether a path still exists. Code comments: no links into
+ * only (`refs.formOnlyDocs`): one-line spans, no `§N`, no forbidden text, never whether a
+ * path still exists. Code comments: no links into
  * those either, no `§N` citations, decision slugs must exist, bead ids only in `TODO(id)`.
  */
 import type { ResolvedConfig } from "../schemas/config.ts";
@@ -162,6 +163,10 @@ export const checkRefs = (config: ResolvedConfig, snapshot: Snapshot): ReadonlyA
               "cites a `§N` section, which moves when the doc it points into is edited. Name the section or the file instead.",
             ),
           );
+        // A forbidden pattern bans text, whatever exists: it holds in plans and notes too.
+        for (const { regex, reason } of forbidden)
+          if (regex.test(line))
+            violations.push(violation("forbidden", doc, n, `matches /${regex.source}/: ${reason}`));
         return;
       }
       checkCommon(doc, n, line);
