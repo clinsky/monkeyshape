@@ -42,13 +42,32 @@ interface Ignore {
   used: boolean;
 }
 
-const violation = (rule: string, file: string, line: number, message: string): Violation => ({
+/**
+ * What the engine itself reports, as `rules/<kind>`, beside each registry rule's own id; no
+ * registry rule may take one of these ids. test/core/ruleCases.test.ts covers each.
+ */
+export const ENGINE_RULES = [
+  "config",
+  "syntax",
+  "ignore-without-reason",
+  "unused-ignore",
+  "unused-allowance",
+] as const;
+
+const reported = (rule: string, file: string, line: number, message: string): Violation => ({
   check: "rules",
   rule: `rules/${rule}`,
   file,
   line,
   message,
 });
+
+const violation = (
+  kind: (typeof ENGINE_RULES)[number],
+  file: string,
+  line: number,
+  message: string,
+): Violation => reported(kind, file, line, message);
 
 export const runRule = (rule: Rule, parsed: Parsed): ReadonlyArray<Finding> => {
   const findings: Array<Finding> = [];
@@ -120,7 +139,7 @@ export const checkRules = (
           ignore.used = true;
           continue;
         }
-        violations.push(violation(rule.id, file, line, finding.message ?? rule.message));
+        violations.push(reported(rule.id, file, line, finding.message ?? rule.message));
       }
     }
     for (const ignore of ignores)

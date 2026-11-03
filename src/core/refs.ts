@@ -24,7 +24,24 @@ const DECISION_REF = /\bD-[a-z0-9]+(?:-[a-z0-9]+)*\b/g;
 const KNOWN_EXTENSION =
   /\.(ts|tsx|mts|cts|js|mjs|json|jsonc|jsonl|md|yaml|yml|toml|sh|txt|lock|grit|java|py)$/;
 
-const violation = (rule: string, file: string, line: number, message: string): Violation => ({
+/** Every rule this check reports, as `refs/<kind>`; test/core/ruleCases.test.ts covers each. */
+export const REFS_RULES = [
+  "section-citation",
+  "forbidden",
+  "unknown-decision",
+  "split-code-span",
+  "normative-link",
+  "unknown-script",
+  "missing-path",
+  "bead-in-code",
+] as const;
+
+const violation = (
+  rule: (typeof REFS_RULES)[number],
+  file: string,
+  line: number,
+  message: string,
+): Violation => ({
   check: "refs",
   rule: `refs/${rule}`,
   file,
