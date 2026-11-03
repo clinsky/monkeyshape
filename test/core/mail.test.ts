@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import {
   decodeMessage,
   encodeMessage,
+  formatAllInboxes,
   formatInbox,
   formatMessage,
   knownTracks,
@@ -102,6 +103,59 @@ describe("mail", () => {
     const shown = formatMessage(message("20261103-140000-0001", "2026-11-03T14:00:00.000Z"), true);
     expect(shown).toBe(
       "From: tracks\nTo: messaging\nDate: 2026-11-03 14:00 UTC\nSubject: hello\n(already read)\n\nthe body",
+    );
+  });
+
+  test("--all groups unread mail by track, says what to do with a gone track's, and marks nothing", () => {
+    const first = message("20261103-140000-0001", "2026-11-03T14:00:00.000Z", "first");
+    const second = message("20261103-150000-0002", "2026-11-03T15:00:00.000Z", "second");
+    const box = (
+      track: string,
+      known: boolean,
+      messages: Array<Message>,
+      unreadable: Array<{ file: string; reason: string }> = [],
+    ) => ({
+      track,
+      known,
+      dir: `/r/.git/monkeyshape/mail/${track}`,
+      messages,
+      unreadable,
+    });
+    const shown = formatAllInboxes([
+      box("tracks", true, [second, first]),
+      box("docs", true, []),
+      box("old", false, [first]),
+    ]);
+    expect(shown.split("\n")).toEqual([
+      "old: 1 unread (no such track: its worktree and handoff are gone; recreate it with `bun run --silent mshape track new old` to read this, or delete /r/.git/monkeyshape/mail/old if it is no longer wanted)",
+      "  20261103-140000-0001  from tracks, 2026-11-03 14:00 UTC: first",
+      "tracks: 2 unread",
+      "  20261103-140000-0001  from tracks, 2026-11-03 14:00 UTC: first",
+      "  20261103-150000-0002  from tracks, 2026-11-03 15:00 UTC: second",
+      "3 unread in 2 tracks. A track reads its own from its worktree with `bun run --silent mshape msg read <id>`; this marks nothing read.",
+    ]);
+    expect(formatAllInboxes([box("docs", true, [])])).toBe("No unread mail in any track.");
+  });
+
+  test("--all counts only tracks with unread mail; files that aren't messages are counted apart", () => {
+    const first = message("20261103-140000-0001", "2026-11-03T14:00:00.000Z", "first");
+    const box = (track: string, messages: Array<Message>, files: number) => ({
+      track,
+      known: true,
+      dir: `/r/${track}`,
+      messages,
+      unreadable: Array.from({ length: files }, (_, i) => ({
+        file: `x${i}.json`,
+        reason: "not JSON",
+      })),
+    });
+    const summary = (boxes: Parameters<typeof formatAllInboxes>[0]) =>
+      formatAllInboxes(boxes).split("\n").at(-1);
+    expect(summary([box("review", [], 1), box("tracks", [first], 0)])).toStartWith(
+      "1 unread in 1 track, and 1 file that isn't a message.",
+    );
+    expect(summary([box("review", [], 2)])).toStartWith(
+      "0 unread in 0 tracks, and 2 files that aren't messages.",
     );
   });
 });

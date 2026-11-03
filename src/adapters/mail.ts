@@ -17,11 +17,19 @@ import {
   writeFile,
 } from "node:fs/promises";
 import { Effect } from "effect";
-import { handoffsStore, mailboxDir, mailboxReadDir, messagePath } from "../core/layout.ts";
+import {
+  handoffsStore,
+  mailboxDir,
+  mailboxReadDir,
+  mailDir,
+  messagePath,
+  TRACK_NAME,
+} from "../core/layout.ts";
 import {
   decodeMessage,
   encodeMessage,
   knownTracks,
+  type Mailbox,
   MESSAGE_ID,
   type Message,
   messageId,
@@ -148,6 +156,26 @@ export const mailInbox = (cwd: string) =>
     const track = yield* ownTrack(cwd);
     const { common } = yield* locate(cwd);
     return { track, ...(yield* readMessages(mailboxDir(common, track))) };
+  });
+
+/**
+ * Every mailbox's unread mail, from any checkout: each track's, and any left by a track
+ * that is gone. Read-only: nothing is marked read.
+ */
+export const mailInboxAll = (cwd: string) =>
+  Effect.gen(function* () {
+    const { common, repo } = yield* locate(cwd);
+    const known = knownTracks(repo, yield* worktrees(repo), yield* entries(handoffsStore(common)));
+    const boxes = (yield* entries(mailDir(common))).filter((name) => TRACK_NAME.test(name));
+    const mailboxes: Array<Mailbox> = [];
+    for (const track of [...new Set([...known, ...boxes])])
+      mailboxes.push({
+        track,
+        known: known.includes(track),
+        dir: mailboxDir(common, track),
+        ...(yield* readMessages(mailboxDir(common, track))),
+      });
+    return mailboxes;
   });
 
 /** Reads message `id` and marks it read for the whole track. Reading it again shows it again. */
