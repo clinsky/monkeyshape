@@ -55,4 +55,5 @@ design, refactors, docs, checks and beads, and explain them in the PR body.
 ## Before you stop
 
 Commit and push what is done, update the handoff's State if you are in a track, and say
-what is left. Text is a hypothesis: when a doc or bead disagrees with the code, fix the text.
+what is left. Where beads are shared (`bd config get dolt.auto-push` is true), `bd dolt push`
+sends any that its five-minute throttle held back. Text is a hypothesis: when a doc or bead disagrees with the code, fix the text.

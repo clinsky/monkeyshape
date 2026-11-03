@@ -86,12 +86,23 @@ export const scaffold = (
   ]);
 
 /** The last thing `init` prints: what to do now, and where the conventions are. */
+/**
+ * Shares a repo's beads through git origin, run once after the first push: the beads go to
+ * origin's `refs/dolt/data`, where a second clone's `bd bootstrap` finds them, and the
+ * committed `dolt.auto-push` makes every clone push its writes (at most every five minutes).
+ * Printed, never run: it publishes the repo's issue history to that remote.
+ */
+export const SHARE_BEADS =
+  "bd dolt push --yes && bd config set dolt.auto-push true && git commit --quiet -m 'Share beads through origin' .beads/config.yaml && git push --quiet origin HEAD";
+
 export const nextStep = (name: string, workflowUrl: string): string =>
   [
     "Next:",
     `1. Give it a GitHub remote, since agents push and open PRs: in ${name}/ run`,
     `   \`gh repo create ${name} --private --source . --push\` (or add a remote and push main).`,
-    `2. Open a chat with your coding agent in ${name}/ and run /roadmap with a brain-dump of`,
+    "2. Share its beads through that remote, so another clone's `bd bootstrap` gets them. This",
+    `   publishes the issue history there: \`${SHARE_BEADS}\``,
+    `3. Open a chat with your coding agent in ${name}/ and run /roadmap with a brain-dump of`,
     "   what you want to build. It writes docs/roadmap.md and the first epics, and opens a PR.",
     `The working loop, in full: ${workflowUrl}`,
   ].join("\n");
