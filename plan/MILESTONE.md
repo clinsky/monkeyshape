@@ -310,3 +310,7 @@ None: no model calls in this milestone's code.
   pruned when its session ended, its pid runs another session, or its socket refuses the
   connection. The version check is Claude Code's `peerProtocol`. Reason: the spike
   (`notes/2026-11-03-spike-native-delivery.md`).
+- **2026-11-03, the track branch stays in `layout.ts` (#31).** Interfaces says
+  `conventions.ts` re-exports the track branch from `layout.ts`; it doesn't, and code imports
+  `trackBranch` and `MAIN_BRANCH` from `layout.ts`. Reason: biome's `noBarrelFile`, part of
+  this repo's gate and adopters', forbids re-exports.

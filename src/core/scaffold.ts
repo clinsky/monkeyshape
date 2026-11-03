@@ -2,9 +2,11 @@
  * What `mshape init` writes: the package's `template/` files, rendered, plus the JSON configs
  * generated here. The configs are generated rather than copied because they pin versions, and
  * because a `biome.json` inside `template/` would be a nested root config for biome itself.
- * `.claude/settings.json` is rendered from the hook list in `hooks.ts`, the same as this repo's.
+ * `.claude/settings.json` is rendered from the hook list in `hooks.ts`, and the PR template from
+ * `PR_SECTIONS` in `conventions.ts`, the same as this repo's.
  */
 
+import { GATE_SCRIPT, PR_TEMPLATE_FILE, prTemplate } from "./conventions.ts";
 import { HOOKS, renderSettings, SETTINGS_FILE } from "./hooks.ts";
 
 /** Lowercase words joined by hyphens: a package name, a directory and a beads prefix at once. */
@@ -48,7 +50,8 @@ const configs = (name: string, toolchain: Toolchain): Record<string, string> => 
       // How hooks and skills run mshape: D-run-mshape.
       mshape: "mshape",
       shape: "mshape check",
-      check: "bun run typecheck && bun run lint && bun run shape && bun test --pass-with-no-tests",
+      [GATE_SCRIPT]:
+        "bun run typecheck && bun run lint && bun run shape && bun test --pass-with-no-tests",
     },
     dependencies: { effect: toolchain.effect },
     devDependencies: {
@@ -68,6 +71,7 @@ const configs = (name: string, toolchain: Toolchain): Record<string, string> => 
     files: { includes: ["src/**", "test/**", "*.json", "*.ts"] },
   }),
   [SETTINGS_FILE]: renderSettings(HOOKS),
+  [PR_TEMPLATE_FILE]: prTemplate(),
 });
 
 /** Every file of the new repo, by repo-relative path. Generated configs win over the template. */
