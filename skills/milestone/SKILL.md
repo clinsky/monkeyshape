@@ -15,7 +15,8 @@ Run this in the main checkout, on an up-to-date `main`, in a fresh chat.
 
 - plan/MILESTONE.md (the milestone ending), docs/roadmap.md, AGENTS.md.
 - `mshape track list`, and every track's handoff in `.handoffs`: state, lessons not yet
-  promoted, messages nobody answered.
+  promoted. Then each track's unread mail: `mshape msg inbox` in its worktree. A message
+  still unread at the boundary is a question nobody answered.
 - The milestone's epic and its children (`bd list --parent <epic> --all`), and
   `bd list --label process` for what got in the way.
 - Merged PRs since the plan was written (`gh pr list --state merged`), and their bodies'
@@ -41,22 +42,33 @@ before that.
 ## 4. Write plan/MILESTONE.md
 
 First move the old plan to notes/, named with today's date (YYYY-MM-DD-milestone-<n>.md).
-Then write the new one, about 500 lines at most:
+Then write the new one, about 500 lines at most, with these sections in this order. A track's
+charter, a reviewer's "Fit" and the next retrospective all read them, so none is optional:
 
-- **Goal, and how we'll know:** the acceptance agreed above.
+- At the top, under the title: the date, and that the plan is frozen once tracks start,
+  except through Amendments.
+- **Why this milestone:** the problem, with the evidence (PRs, beads, retrospective
+  findings), and why it comes now rather than another roadmap goal.
+- **Goal, and how we'll know:** the goal as numbered steps, so tracks and beads can cite
+  "goal 2"; then the acceptance agreed above.
+- **Non-goals:** what this milestone will not do, each with its reason (no consumer yet,
+  depends on something later, settled already). A reviewer flags a PR that builds one.
 - **Where we are:** a gap table, measured where it can be.
 - **What changed since the last milestone, and why.**
 - **Interfaces the tracks share:** every path, command, format or schema two tracks both
   touch, with its owner and consumer, settled before anyone starts. This is the section
   that keeps parallel work from colliding; spend the effort here.
-- **Tracks:** a table of name, charter, beads and acceptance. Split into as many parallel
+- **Tracks:** a table of name, **Serves** (the goal steps it serves), charter, beads and
+  acceptance. Each track serves at least one step, and every step is served by a track; a
+  track that serves none is out of scope. Split into as many parallel
   tracks as the work allows: each touches disjoint files and meets the others only at the
   interfaces. Derive the number from the work, not a habit: up to about five is usual, and
   one is fine when the work is sequential. When a track ends up holding far more than the
   others, or the riskiest work alongside everything else, split it.
 - **Decision points**, **spend** for big runs, and **deferred items, each with a reason**.
-
-The plan is frozen once tracks start. Say so at its top.
+- **Amendments:** empty at first ("None yet."). Once tracks start, a divergence the human
+  approves is appended here with its date, what changed and why; the sections above are
+  not edited. A track that diverges says so in its handoff and asks the human.
 
 ## 5. Groom
 
@@ -96,9 +108,33 @@ Once the PR is merged (or the human says to start):
   reason is open beads, `--force` won't help, and grooming has already decided each one:
   move it to the track the new plan gives it, or close it if it's done, and list what you
   did in your report. Ask the human only when the plan doesn't say.
-- `mshape track new <name>` for each new track. Fill its handoff: `Status: active`, the
-  charter (its beads, the interfaces it owns or consumes), the state ("not started", and
-  how to start), the traps you already know, and messages from the plan.
+- `mshape track new <name>` for each new track. Fill its handoff (`.handoffs/<name>.md`):
+  the charter, the state ("not started", and how to start) with today's date in its
+  heading, and the traps you already know. Change nothing else: there is no status line
+  (a handoff with an empty charter is a stub, and one with a charter is active), and no
+  Messages section. The charter opens with three lines, in this order, each free to wrap:
+  `Serves:` the goal steps from the plan's track table, then `because` and why this track
+  now; `Out of scope:` the non-goals nearest this track; `Done means:` its acceptance. Then,
+  freely, its beads and the interfaces it owns or consumes. For example:
+
+  ```markdown
+  ## Charter
+
+  Serves: goal 2, because the second consumer needs the export before it can start.
+  Out of scope: the import side (milestone non-goal); any format change (owned by `api`).
+  Done means: an export of the named real dataset round-trips through the consumer.
+
+  Beads (epic `x-1`): `x-1.3` the export command, `x-1.4` its schema test.
+  You own: `src/export/`. You consume: the record schema from `api`.
+
+  ## State (2026-01-15)
+
+  Not started. Begin with `x-1.3`; `api` lands the schema first.
+  ```
+
+  What the plan says one track must tell another goes by mail, not into a handoff:
+  `mshape msg send <name> --subject "<one line>" "<body>"`, run from the main checkout, so
+  it arrives from `main`.
 
 Finish by telling the human what to launch: for each track, the worktree path and "open a
 chat there and run `/track`".

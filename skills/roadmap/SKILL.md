@@ -40,9 +40,12 @@ Rewrite it in place; git has the history, so keep no revision log and no frozen 
 
 - **Open with a status table**: one row per goal, with status `Shipped`, `Milestone N` (in
   progress), `Later` or `Idea`, and the epic id. A reader learns what exists without reading
-  the design.
+  the design. List the goals not yet shipped in the order you'd take them.
 - Then scope (who it's for, what it is not), then a section per goal: the intent, the
-  consumer, what done looks like, and what was learned so far. Far-off detail belongs here,
+  consumer, what done looks like, **why it comes when it does** (what it waits on, what it
+  unblocks, or why it is worth more now than the goals after it), and what was learned so
+  far. `/milestone` picks the next goal by that line and writes it into its plan's "why
+  this milestone", so a goal without one can't be planned. Far-off detail belongs here,
   not in beads.
 - No dated promises, no restating AGENTS.md or DECISIONS.md, and nothing other docs would
   need to cite: if something must be enforced, it becomes a check, a test or a decision.
@@ -50,7 +53,8 @@ Rewrite it in place; git has the history, so keep no revision log and no frozen 
 ## 4. One deferred epic per goal
 
 For each goal without an epic: `bd create --type epic --title "<goal>" --description "..."`
-with the goal, two or three lines of why, and the roadmap section it comes from, then
+with the goal, two or three lines of why and why at that point in the order, and the
+roadmap section it comes from, then
 `bd defer <id>`. **No child stories:** a milestone creates those when it pulls the epic in.
 For goals that changed, rewrite the epic; for goals dropped, close it with the reason. Put
 each epic's id in the status table.
