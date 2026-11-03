@@ -381,13 +381,35 @@ export const planRm = (facts: RmFacts): RmPlan => {
     : { refusals, warnings, steps, kept, notes };
 };
 
-/** A PR from a track's branch, as `gh pr list --json number,state,headRefName,body` gives it. */
+/** A PR from a track's branch, as `gh pr list --json number,state,headRefName,body,createdAt` gives it. */
 export interface TrackPr {
   readonly number: number;
   readonly state: string;
   readonly headRefName: string;
   readonly body: string;
+  /** ISO 8601, as GitHub records it. */
+  readonly createdAt: string;
 }
+
+/** Where `track new` records when a track started: in the branch's config, so it goes with the branch. */
+export const STARTED_KEY = (track: string): string => `branch.${trackBranch(track)}.mshape-started`;
+
+/**
+ * The PRs of this track, not of an earlier one that had its name: from its branch, opened at or
+ * after it started. Undefined when gh couldn't say, or when the start isn't known (the branch is
+ * gone, or has neither the recorded start nor a reflog), since then no PR can be placed.
+ */
+export const ownPrs = (
+  prs: ReadonlyArray<TrackPr> | undefined,
+  track: string,
+  started: Date | undefined,
+): ReadonlyArray<TrackPr> | undefined =>
+  prs === undefined || started === undefined
+    ? undefined
+    : prs.filter(
+        (pr) =>
+          pr.headRefName === trackBranch(track) && Date.parse(pr.createdAt) >= started.getTime(),
+      );
 
 /** The PRs `gh` printed, or undefined when they aren't PRs: never a guess. */
 export const parseTrackPrs = (json: string): ReadonlyArray<TrackPr> | undefined => {
@@ -405,7 +427,8 @@ export const parseTrackPrs = (json: string): ReadonlyArray<TrackPr> | undefined 
       typeof pr.number === "number" &&
       typeof pr.state === "string" &&
       typeof pr.headRefName === "string" &&
-      typeof pr.body === "string",
+      typeof pr.body === "string" &&
+      typeof pr.createdAt === "string",
   );
   return prs.length === value.length ? prs : undefined;
 };
@@ -414,8 +437,8 @@ export type Done = "yes" | "no" | "unknown";
 
 /**
  * A track is done when no open bead carries its label, its branch's work is in upstream
- * `main` (or the branch is gone), no PR from `track/<name>` is open, and at least one has
- * merged. That last fact is what separates finished from not started: a branch `track new`
+ * `main` (or the branch is gone), no PR from `track/<name>` is open, at least one has
+ * merged, and no bead of its own that a merged PR lists is still open. That last fact is what separates finished from not started: a branch `track new`
  * just made sits at `main`, so it is "merged" with no PR and no beads yet. Any fact that says
  * otherwise makes it `no`; a fact that couldn't be read, with none saying no, makes it
  * `unknown`. Never `yes` on a guess.
@@ -427,35 +450,48 @@ export const trackDone = (facts: {
   readonly merged: boolean | undefined;
   /** This track's PRs; undefined when gh couldn't say. */
   readonly prs: ReadonlyArray<TrackPr> | undefined;
+  /** Its own beads still open though a merged PR of its lists them (`openAfterMerge`). */
+  readonly unsettled?: number | undefined;
 }): Done => {
   const says = [
     facts.beads === undefined ? undefined : facts.beads === 0,
     facts.branchExists ? facts.merged : true,
     facts.prs === undefined ? undefined : !facts.prs.some((pr) => pr.state === "OPEN"),
     facts.prs === undefined ? undefined : facts.prs.some((pr) => pr.state === "MERGED"),
+    (facts.unsettled ?? 0) === 0,
   ];
   return says.includes(false) ? "no" : says.includes(undefined) ? "unknown" : "yes";
 };
 
+/** A bead's status and labels, by id: what `openAfterMerge` reads. */
+export type BeadsById = ReadonlyMap<
+  string,
+  { readonly status: string; readonly labels: ReadonlyArray<string> }
+>;
+
 /**
  * Beads a merged PR of the track lists in its Beads section but that are still open: the
  * work merged, so each is either done and needs closing, or needs a line saying what is left.
- * A listed id bd doesn't know is skipped, since `track pr` checked ids when it posted.
+ * Only the track's own (its label) or nobody's (no track label): a bead another track owns is
+ * listed in its count, and is that track's to settle. A listed id bd doesn't know is skipped,
+ * since `track pr` checked ids when it posted.
  */
 export const openAfterMerge = (
   prs: ReadonlyArray<TrackPr>,
-  statusById: ReadonlyMap<string, string>,
+  beads: BeadsById,
+  track: string,
 ): ReadonlyArray<string> =>
   prs
     .filter((pr) => pr.state === "MERGED")
     .flatMap((pr) =>
       listedBeads(pr.body).flatMap((id) => {
-        const status = statusById.get(id);
-        return status === undefined || status === "closed"
-          ? []
-          : [
-              `${id} (${status}) is listed in merged PR #${pr.number} but still open: close it (\`bd close ${id}\`), or say in its notes what is left`,
-            ];
+        const bead = beads.get(id);
+        if (bead === undefined || bead.status === "closed") return [];
+        const tracks = bead.labels.filter((label) => label.startsWith("track:"));
+        if (tracks.length > 0 && !tracks.includes(trackLabel(track))) return [];
+        return [
+          `${id} (${bead.status}) is listed in merged PR #${pr.number} but still open: close it (\`bd close ${id}\`), or say in its notes what is left`,
+        ];
       }),
     );
 

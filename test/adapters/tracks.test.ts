@@ -614,6 +614,47 @@ describe("track rm and list with beads", () => {
     expect(listed).not.toContain("remove it with");
   });
 
+  test("a reused name doesn't inherit the earlier track's PRs: not done, no warnings of theirs", async () => {
+    // The probe from #39's re-review: rm, then new with the same name, while gh still lists
+    // the first track's merged PR, whose bead is open.
+    await setup();
+    mshape(repo, "new", "fresh");
+    const env = await fakeBd([bead("x-1", "open", [])]);
+    const earlier = {
+      number: 3,
+      state: "MERGED",
+      headRefName: "track/fresh",
+      body: "## Beads\n\n- x-1\n",
+      // Opened during the first track's life, which started just above.
+      createdAt: new Date().toISOString(),
+    };
+    await fakeGh([earlier]);
+    expect(mshapeWith(env, repo, "list").stdout).toContain("x-1 (open) is listed in merged PR #3");
+    expect(mshapeWith(env, repo, "rm", "fresh").code).toBe(0);
+    mshape(repo, "new", "fresh");
+
+    const listed = mshapeWith(env, repo, "list").stdout;
+    expect(listed).toMatch(/^fresh\s+stub\s+0\s+0\s+yes\s+no\s/m);
+    expect(listed).not.toContain("merged PR #3");
+    expect(listed).not.toContain("remove it with");
+    expect(sh(repo, "config", "--get", "branch.track/fresh.mshape-started")).toMatch(/^\d{4}-/);
+  });
+
+  test("a branch made before track new recorded its start falls back to its reflog", async () => {
+    await setup();
+    mshape(repo, "new", "old");
+    sh(repo, "config", "--unset", "branch.track/old.mshape-started");
+    const env = await fakeBd([]);
+    const merged = (createdAt: string) => [
+      { number: 1, state: "MERGED", headRefName: "track/old", body: "", createdAt },
+    ];
+    // A PR opened before the branch existed is someone else's; one opened since is its own.
+    await fakeGh(merged("2020-01-01T00:00:00Z"));
+    expect(mshapeWith(env, repo, "list").stdout).toMatch(/^old\s+\S+\s+0\s+0\s+yes\s+no\s/m);
+    await fakeGh(merged(new Date(Date.now() + 60_000).toISOString()));
+    expect(mshapeWith(env, repo, "list").stdout).toMatch(/^old\s+\S+\s+0\s+0\s+yes\s+yes\s/m);
+  });
+
   test("list derives done from beads, merge and PRs; flags beads open after their PR merged", async () => {
     await setup();
     for (const track of ["docs", "init", "wip"]) mshape(repo, "new", track);
@@ -625,11 +666,13 @@ describe("track rm and list with beads", () => {
       bead("x-2", "in_progress", []),
       bead("x-3", "closed", ["track:docs"]),
     ]);
+    // Opened now: after each track started.
     const pr = (number: number, state: string, head: string, beads: string) => ({
       number,
       state,
       headRefName: head,
       body: `## Beads\n\n${beads}\n`,
+      createdAt: new Date().toISOString(),
     });
     await fakeGh([
       pr(1, "MERGED", "track/docs", "- x-3 done\n- x-2 left open"),

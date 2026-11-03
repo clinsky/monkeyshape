@@ -206,7 +206,13 @@ const track = (root: string, args: ReadonlyArray<string>) =>
     const name = names[0] ?? "";
     if (sub === "new")
       return {
-        output: yield* trackNew(root, name, today(), { ...process.env, GIT_TERMINAL_PROMPT: "0" }),
+        output: yield* trackNew(
+          root,
+          name,
+          today(),
+          { ...process.env, GIT_TERMINAL_PROMPT: "0" },
+          new Date(),
+        ),
         code: 0,
       };
     if (sub === "list") return { output: yield* trackList(root, carryMessages(root)), code: 0 };

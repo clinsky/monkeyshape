@@ -1,10 +1,12 @@
 import { describe, expect, test } from "bun:test";
 import type { Integration } from "../../src/core/model.ts";
 import {
+  type BeadsById,
   describeStep,
   hygieneWarnings,
   openAfterMerge,
   openBeadsByTrack,
+  ownPrs,
   parseTrackPrs,
   parseWorktrees,
   planRm,
@@ -278,11 +280,17 @@ test("open beads by track: closed ones and other labels left out, a bead in two 
 });
 
 describe("whether a track is done", () => {
-  const pr = (number: number, state: string, body = ""): TrackPr => ({
+  const pr = (
+    number: number,
+    state: string,
+    body = "",
+    createdAt = "2026-11-02T10:00:00Z",
+  ): TrackPr => ({
     number,
     state,
     headRefName: "track/docs",
     body,
+    createdAt,
   });
   const facts = { beads: 0, branchExists: true, merged: true, prs: [pr(1, "MERGED")] };
 
@@ -297,6 +305,19 @@ describe("whether a track is done", () => {
     expect(trackDone({ ...facts, prs: [pr(1, "MERGED"), pr(2, "OPEN")] })).toBe("no");
   });
 
+  test("a track's PRs are its branch's, opened since it started: not an earlier track's of the name", () => {
+    const started = new Date("2026-11-03T12:00:00Z");
+    const old = pr(16, "MERGED", "", "2026-10-31T09:00:00Z");
+    const now = pr(32, "MERGED", "", "2026-11-03T12:30:00Z");
+    const other = { ...pr(33, "MERGED", "", "2026-11-03T13:00:00Z"), headRefName: "track/review" };
+    expect(ownPrs([old, now, other], "docs", started)?.map((p) => p.number)).toEqual([32]);
+    // Only the old one: this track has merged nothing, so it isn't done.
+    expect(trackDone({ ...facts, prs: ownPrs([old], "docs", started) })).toBe("no");
+    // No start known, or no PRs read: which PRs are this track's can't be said.
+    expect(ownPrs([now], "docs", undefined)).toBeUndefined();
+    expect(ownPrs(undefined, "docs", started)).toBeUndefined();
+  });
+
   test("a fact that can't be read is unknown, never yes; any no still says no", () => {
     expect(trackDone({ ...facts, beads: undefined })).toBe("unknown");
     expect(trackDone({ ...facts, prs: undefined })).toBe("unknown");
@@ -304,17 +325,31 @@ describe("whether a track is done", () => {
   });
 
   test("a bead a merged PR lists but that is still open is flagged; closed, unknown or unmerged ones aren't", () => {
-    const status = new Map([
-      ["x-abc.1", "open"],
-      ["x-abc.2", "closed"],
-      ["x-abc.3", "in_progress"],
+    const beads: BeadsById = new Map([
+      ["x-abc.1", { status: "open", labels: [] }],
+      ["x-abc.2", { status: "closed", labels: ["track:docs"] }],
+      ["x-abc.3", { status: "in_progress", labels: ["track:docs"] }],
+      ["x-abc.4", { status: "in_progress", labels: ["track:docs", "track:review"] }],
+      // Another track's: listed here because this track's work fed it (#38 and f4y.26).
+      ["x-abc.5", { status: "in_progress", labels: ["track:review"] }],
     ]);
-    const body = "## Beads\n\n- x-abc.1 one\n- x-abc.2 two\n- x-zzz.9 unknown to bd\n";
+    const body =
+      "## Beads\n\n- x-abc.1 one\n- x-abc.2 two\n- x-abc.4\n- x-abc.5\n- x-zzz.9 unknown to bd\n";
     expect(
-      openAfterMerge([pr(5, "MERGED", body), pr(6, "OPEN", "## Beads\n\n- x-abc.3\n")], status),
+      openAfterMerge(
+        [pr(5, "MERGED", body), pr(6, "OPEN", "## Beads\n\n- x-abc.3\n")],
+        beads,
+        "docs",
+      ),
     ).toEqual([
       "x-abc.1 (open) is listed in merged PR #5 but still open: close it (`bd close x-abc.1`), or say in its notes what is left",
+      "x-abc.4 (in_progress) is listed in merged PR #5 but still open: close it (`bd close x-abc.4`), or say in its notes what is left",
     ]);
+  });
+
+  test("a track isn't done while a bead of its own that a merged PR lists is still open", () => {
+    expect(trackDone({ ...facts, unsettled: 1 })).toBe("no");
+    expect(trackDone({ ...facts, unsettled: 0 })).toBe("yes");
   });
 
   test("hygiene: a State older than the branch's last commit; a done track still on disk", () => {
@@ -340,8 +375,14 @@ describe("whether a track is done", () => {
 
   test("gh's JSON is PRs or nothing: a row that isn't a PR makes the whole answer unknown", () => {
     expect(
-      parseTrackPrs('[{"number":1,"state":"OPEN","headRefName":"track/a","body":""}]'),
+      parseTrackPrs(
+        '[{"number":1,"state":"OPEN","headRefName":"track/a","body":"","createdAt":"2026-11-03T00:00:00Z"}]',
+      ),
     ).toHaveLength(1);
+    // Without createdAt a PR can't be placed in a track's life.
+    expect(
+      parseTrackPrs('[{"number":1,"state":"OPEN","headRefName":"track/a","body":""}]'),
+    ).toBeUndefined();
     expect(parseTrackPrs('[{"number":1}]')).toBeUndefined();
     expect(parseTrackPrs("not json")).toBeUndefined();
     expect(parseTrackPrs("{}")).toBeUndefined();

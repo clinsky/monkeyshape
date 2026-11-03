@@ -37,6 +37,7 @@ import {
 } from "../core/layout.ts";
 import { decodeMessage } from "../core/mail.ts";
 import {
+  type BeadsById,
   type BeadsCheck,
   currentTrack,
   describeStep,
@@ -46,10 +47,12 @@ import {
   nameProblem,
   openAfterMerge,
   openBeadsByTrack,
+  ownPrs,
   parseTrackPrs,
   parseWorktrees,
   planRm,
   type RmStep,
+  STARTED_KEY,
   sharedPathProblems,
   type TrackRow,
   trackDone,
@@ -340,20 +343,32 @@ const ensureHandoffLinks = (common: string, repo: string, checkouts: ReadonlyArr
   });
 
 /**
- * Every bead with a `track:` label that isn't closed, by track, in the beads state `mshape
- * check` uses: one loader, so the two can't disagree about what a beads failure means.
+ * Every bead, once, in the beads state `mshape check` uses (one loader, so the two can't
+ * disagree about what a beads failure means): the open ones by track label, and each one's
+ * status and labels by id.
  */
-/** Every bead, once: the open ones by track label, and each one's status by id. */
 const trackBeads = (repo: string) =>
   Effect.map(beadRows(repo, ["--brief"]), (loaded) => ({
     integration: loaded.integration,
     byTrack: openBeadsByTrack(loaded.value ?? []),
-    statusById: new Map(
+    byId: new Map(
       (loaded.value ?? []).flatMap((row) => {
-        const { id, status } = (row ?? {}) as Record<string, unknown>;
-        return typeof id === "string" && typeof status === "string" ? [[id, status] as const] : [];
+        const { id, status, labels } = (row ?? {}) as Record<string, unknown>;
+        return typeof id === "string" && typeof status === "string"
+          ? [
+              [
+                id,
+                {
+                  status,
+                  labels: Array.isArray(labels)
+                    ? labels.filter((label): label is string => typeof label === "string")
+                    : [],
+                },
+              ] as const,
+            ]
+          : [];
       }),
-    ),
+    ) as BeadsById,
   }));
 
 const GH_TIMEOUT_MS = 30_000;
@@ -375,7 +390,7 @@ const trackPrs = (repo: string) =>
           "--limit",
           "1000",
           "--json",
-          "number,state,headRefName,body",
+          "number,state,headRefName,body,createdAt",
         ],
         { cwd: repo, stdout: "pipe", stderr: "pipe", timeout: GH_TIMEOUT_MS },
       ),
@@ -415,6 +430,26 @@ const trackedInMain = (repo: string, path: string) =>
  * data, whichever checkout the command runs from.
  */
 /**
+ * When the track started: as `track new` recorded it, or, for a branch made before it did,
+ * when the branch's reflog says it was created. Both go with the branch, so `track rm` then
+ * `track new` starts a new one. Undefined when neither is there.
+ */
+const trackStarted = (repo: string, track: string) =>
+  Effect.gen(function* () {
+    const recorded = (yield* git(repo, ["config", "--get", STARTED_KEY(track)])).stdout.trim();
+    if (recorded !== "" && !Number.isNaN(Date.parse(recorded))) return new Date(recorded);
+    const reflog = yield* git(repo, [
+      "log",
+      "--walk-reflogs",
+      "--date=unix",
+      "--format=%gd",
+      head(trackBranch(track)),
+    ]);
+    const oldest = /@\{(\d+)\}\s*$/.exec(reflog.stdout.trim())?.[1];
+    return oldest === undefined ? undefined : new Date(Number(oldest) * 1000);
+  });
+
+/**
  * Where a new track branches: upstream `main` when it has commits local `main` lacks (merges
  * done on GitHub since the last pull), so the track starts from what will be its PR's base;
  * local `main` otherwise, which also covers no upstream and local commits not pushed yet.
@@ -448,6 +483,8 @@ export const trackNew = (
   date: string,
   /** The environment for fetching `main`'s upstream: one where git can't prompt. */
   fetchEnv: Readonly<Record<string, string | undefined>>,
+  /** When the track starts, recorded so its PRs can be told from an earlier track's of the name. */
+  now: Date,
 ) =>
   Effect.gen(function* () {
     const invalid = nameProblem(track);
@@ -491,6 +528,7 @@ export const trackNew = (
         notes.push(`note: ${what} (\`${at}\`) is not gitignored; add it to .gitignore`);
 
     yield* gitOk(repo, ["worktree", "add", "--quiet", "--no-track", "-b", branch, path, start.ref]);
+    yield* gitOk(repo, ["config", STARTED_KEY(track), now.toISOString()]);
     const said = [...start.notes, `created ${path} on \`${branch}\` from \`${start.name}\``];
     // From here the track exists: a failure must say what was done and how to undo it.
     const finish = Effect.gen(function* () {
@@ -625,11 +663,25 @@ export const trackList = (cwd: string, carry: CarryMessages) =>
         const merge = branchExists
           ? yield* mergeState(repo, trackBranch(track), targets)
           : { ahead: undefined, merged: undefined };
-        const own =
-          "prs" in prs ? prs.prs.filter((pr) => pr.headRefName === trackBranch(track)) : undefined;
+        // Only this track's PRs: a reused name mustn't inherit an earlier track's.
+        const own = ownPrs(
+          "prs" in prs ? prs.prs : undefined,
+          track,
+          branchExists ? yield* trackStarted(repo, track) : undefined,
+        );
         const open =
           beads.integration.state === "ok" ? (beads.byTrack.get(track)?.length ?? 0) : undefined;
-        const done = trackDone({ beads: open, branchExists, merged: merge.merged, prs: own });
+        const afterMerge =
+          own === undefined || beads.integration.state !== "ok"
+            ? []
+            : openAfterMerge(own, beads.byId, track);
+        const done = trackDone({
+          beads: open,
+          branchExists,
+          merged: merge.merged,
+          prs: own,
+          unsettled: afterMerge.length,
+        });
         const lastCommit =
           branchExists && (merge.ahead ?? 0) > 0
             ? (yield* gitOk(repo, ["log", "-1", "--format=%cs", head(trackBranch(track))])) ||
@@ -650,9 +702,7 @@ export const trackList = (cwd: string, carry: CarryMessages) =>
           ...merge,
           done,
           warnings: [
-            ...(own === undefined || beads.integration.state !== "ok"
-              ? []
-              : openAfterMerge(own, beads.statusById)),
+            ...afterMerge,
             ...hygieneWarnings({
               track,
               done,
