@@ -145,6 +145,40 @@ export const formatInbox = (
   ].join("\n");
 };
 
+/** One track's mailbox, for `msg inbox --all`. */
+export interface Mailbox {
+  readonly track: string;
+  /** False for a mailbox whose track is gone: mail nobody will read unless someone acts. */
+  readonly known: boolean;
+  readonly messages: ReadonlyArray<Message>;
+  readonly unreadable: ReadonlyArray<Unreadable>;
+}
+
+/**
+ * Every track's unread mail, for the main checkout and `/milestone`: grouped by track, oldest
+ * first, then a summary line. Reading stays the track's own act, so it says where to read.
+ */
+export const formatAllInboxes = (mailboxes: ReadonlyArray<Mailbox>): string => {
+  const waiting = [...mailboxes]
+    .filter((box) => box.messages.length > 0 || box.unreadable.length > 0)
+    .sort((a, b) => a.track.localeCompare(b.track));
+  const total = waiting.reduce((sum, box) => sum + box.messages.length, 0);
+  if (waiting.length === 0) return "No unread mail in any track.";
+  return [
+    ...waiting.flatMap((box) => [
+      `${box.track}${box.known ? "" : " (no such track: its worktree and handoff are gone)"}: ${box.messages.length} unread`,
+      ...[...box.messages]
+        .sort(byCreated)
+        .map(
+          (message) =>
+            `  ${message.id}  from ${message.from}, ${when(message.created)}: ${message.subject}`,
+        ),
+      ...box.unreadable.map((entry) => `  note: ${entry.file} is not a message (${entry.reason})`),
+    ]),
+    `${total} unread in ${waiting.length} track${waiting.length === 1 ? "" : "s"}. A track reads its own from its worktree with \`${mshapeCommand(["msg", "read"])} <id>\`; this marks nothing read.`,
+  ].join("\n");
+};
+
 export const formatMessage = (message: Message, alreadyRead: boolean): string =>
   [
     `From: ${message.from}`,

@@ -8,7 +8,7 @@ import pkg from "../../package.json" with { type: "json" };
 import { BASELINE_FILE, readBaseline, writeBaseline } from "../adapters/baseline.ts";
 import { loadConfig } from "../adapters/config.ts";
 import { initRepo, vendoredSpec } from "../adapters/init.ts";
-import { mailInbox, mailRead, mailSend } from "../adapters/mail.ts";
+import { mailInbox, mailInboxAll, mailRead, mailSend } from "../adapters/mail.ts";
 import {
   claudeCodeNotifier,
   liveSessions,
@@ -33,7 +33,7 @@ import { loadSnapshot } from "../adapters/workspace.ts";
 import { CHECKS, notices, prerequisites, runChecks, unevaluated } from "../core/check.ts";
 import { garden } from "../core/garden.ts";
 import { CLAUDE_SKILLS_LINK } from "../core/layout.ts";
-import { formatInbox, formatMessage, formatSent } from "../core/mail.ts";
+import { formatAllInboxes, formatInbox, formatMessage, formatSent } from "../core/mail.ts";
 import type { CheckName } from "../core/model.ts";
 import { formatDelivery } from "../core/notices.ts";
 import { applyBaseline, count, tighten } from "../core/ratchet.ts";
@@ -370,6 +370,8 @@ const msg = (root: string, args: ReadonlyArray<string>) =>
     if (sub === "inbox" && rest.length === 0) return yield* msgInbox(root, false);
     if (sub === "inbox" && rest.length === 1 && rest[0] === "--quiet")
       return yield* msgInbox(root, true);
+    if (sub === "inbox" && rest.length === 1 && rest[0] === "--all")
+      return { output: formatAllInboxes(yield* mailInboxAll(root)), code: 0 };
     if (sub === "register" && rest.length === 0) return yield* msgRegister(root);
     if (sub === "read" && rest.length === 1) {
       const { message, alreadyRead } = yield* mailRead(root, rest[0] ?? "");
@@ -597,6 +599,9 @@ export const COMMANDS: ReadonlyArray<Command> = [
   mshape msg inbox [--quiet]
       This track's unread messages, oldest first. --quiet, for hooks: nothing when there are
       none or this isn't a track, and never a failure.
+  mshape msg inbox --all
+      Every track's unread mail, from any checkout, and mail left for a track that is gone.
+      For the milestone boundary; marks nothing read.
   mshape msg read <id>
       Print a message and mark it read for the whole track. Nothing else marks one read.
   mshape msg register

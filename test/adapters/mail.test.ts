@@ -171,4 +171,43 @@ describe("msg", () => {
     expect(noted.code).toBe(0);
     expect(noted.stdout).toContain("note: broken.json in docs's mailbox is not a message");
   });
+
+  test("inbox --all, from the main checkout or a worktree: every mailbox, nothing marked read", async () => {
+    mshape(wt("docs"), "msg", "send", "tracks", "--subject", "to tracks");
+    mshape(wt("tracks"), "msg", "send", "docs", "--subject", "to docs");
+    // A mailbox left by a track that is gone.
+    await mkdir(mailbox("gone"), { recursive: true });
+    await writeFile(
+      `${mailbox("gone")}/20261101-120000-abcd.json`,
+      JSON.stringify({
+        id: "20261101-120000-abcd",
+        from: "main",
+        to: "gone",
+        subject: "left behind",
+        body: "",
+        created: "2026-11-01T12:00:00.000Z",
+      }),
+    );
+    for (const cwd of [repo, wt("docs")]) {
+      const all = mshape(cwd, "msg", "inbox", "--all");
+      expect(all.code).toBe(0);
+      const lines = all.stdout.split("\n");
+      expect(lines[0]).toBe("docs: 1 unread");
+      expect(lines[1]).toContain("from tracks, ");
+      expect(lines[2]).toBe("gone (no such track: its worktree and handoff are gone): 1 unread");
+      expect(lines[4]).toBe("tracks: 1 unread");
+      expect(lines.at(-1)).toStartWith("3 unread in 3 tracks.");
+    }
+    expect(mshape(wt("tracks"), "msg", "inbox").stdout).toContain(": to tracks");
+    expect(await files(`${mailbox("tracks")}/read`)).toEqual([]);
+  });
+
+  test("inbox --all with nothing unread says so, and takes no other flag", () => {
+    expect(mshape(repo, "msg", "inbox", "--all")).toEqual({
+      code: 0,
+      stdout: "No unread mail in any track.",
+      stderr: "",
+    });
+    expect(mshape(repo, "msg", "inbox", "--all", "--quiet").code).toBe(2);
+  });
 });
