@@ -113,10 +113,11 @@ Once the PR is merged (or the human says to start):
   `yes`, and for no other. `unknown` means `bd` or `gh` couldn't say: act on the note
   `track list` prints, then list again; never remove on it. `no` on a track the new plan
   doesn't continue: an open bead is grooming's, already decided, so move it to the track
-  the plan gives it or close it if it's done, and list what you did in your report. An open
-  PR, unmerged commits, or no merged PR since the track started are the human's to decide.
-  Ask the human only when the plan doesn't say. If `rm` refuses, report the reason; never reach for `--force` without the
-  human.
+  the plan gives it or close it if it's done, and list what you did in your report; ask the
+  human only when the plan doesn't say; then list again. An open PR, unmerged commits, or
+  no merged PR since the track started are always the human's to decide: `rm` doesn't
+  refuse on the first or the last. If `rm` refuses, report the reason; never reach for
+  `--force` without the human.
 - `mshape track new <name>` for each new track. Fill its handoff (`.handoffs/<name>.md`):
   the charter, the state ("not started", and how to start) with today's date in its
   heading, and the traps you already know. Change nothing else: there is no status line
