@@ -25,7 +25,8 @@ convention: rewritten in place at each milestone boundary, and never cited by co
 | Adopting monkeyshape in an existing repo, with a migration guide | Later: `monkeyshape-36f` |
 | Selectable policy bundles | Idea: when an outside adopter needs it (`monkeyshape-8h4`) |
 
-A PR that ships a piece updates its row.
+"Shipped" means on `main`. npm still has 0.1.0, which lacks `init`, `track`, `review` and
+`skills sync`, until 0.2.0 is published. A PR that ships a piece updates its row.
 
 ## 0. Scope
 
@@ -87,28 +88,17 @@ Every rule must trace back to one of these principles. A rule that can't is dele
    routine step at every milestone boundary, not an emergency cleanup. A check is silent
    until violated, so it is cheap to keep; prose costs every session, so pruning it is
    mandatory.
-7. **Plan in three horizons, and commit in detail only to the nearest.** See below.
+7. **Plan in three horizons, and commit in detail only to the nearest.** Direction is
+   months ahead and coarse on purpose; a milestone is detailed and frozen; track state is
+   live. Breaking far-off goals into dozens of high-priority stories on day 1 crowds out the
+   real queue and describes work that events will overtake. How the horizons work is in
+   `docs/workflow.md`.
 8. **Build for a consumer, on agent timelines.** No framework feature ships before a consumer
    asks for it. Design with the second consumer in mind, but build for the first. When hard
    work lines up with current priorities, do it now. Agent time is cheap, and carrying a
    design you know is wrong is not.
 
-## 2. The three horizons
-
-How they work day to day is in `docs/workflow.md`; this is what each is for.
-
-- **Direction (months)** is this file plus one deferred epic per goal. It is coarse on
-  purpose: the brainstorm and far-off detail live here, not as dozens of high-priority
-  stories filed on day 1 that crowd out the real queue and describe work overtaken by
-  events. The status table comes first so nobody builds to it as if it were a spec.
-- **A milestone (weeks)** is the next significant delivery, several PRs from several parallel
-  agents, planned in detail and frozen so tracks can work against a fixed target.
-- **Track state (today)** is one live handoff per parallel track, so a fresh-context agent
-  can continue and the human can see what to relay.
-
-The milestone boundary is the only ceremony; between boundaries, tracks work their queues.
-
-## 3. Direction
+## 2. Direction
 
 ### Milestone 2: conventions as code (`monkeyshape-f4y`)
 
@@ -178,3 +168,10 @@ Repos stay separate: a foundation library serves many applications. The idea is 
 dependencies shipped as release tarballs, a command that bumps one (verify its hash, update
 the lockfile, run the gate), and upstream releases that smoke-test their consumers' real
 workflows. It waits for a second repo that depends on another.
+
+### Gate hardening (no epic yet)
+
+Planned for the gate and not built: pre-push and pre-commit hooks running the gate (or a
+fast part of it), branch protection on `main` requiring a PR and a green `check`, a
+meta-check that rejects biome excludes other than generated or vendor paths, and compiling
+any non-TypeScript code in the repo. Each closes a way for red code to reach `main`.
