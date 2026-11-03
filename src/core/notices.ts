@@ -28,6 +28,8 @@ export interface Registration {
 /** The fields of Claude Code's session file that a notice depends on. */
 export interface ClaudeSession {
   readonly pid: number;
+  /** The directory the session runs in, when the record says; `track rm` reads it. */
+  readonly cwd?: string;
   readonly sessionId: string;
   readonly procStart: string;
   readonly peerProtocol: number;
@@ -79,13 +81,20 @@ export const encodeRegistration = (registration: Registration): string =>
 export const decodeClaudeSession = (text: string): ClaudeSession | undefined => {
   const value = object(text);
   if (value === undefined) return undefined;
-  const { pid, sessionId, procStart, peerProtocol, messagingSocketPath } = value;
+  const { pid, cwd, sessionId, procStart, peerProtocol, messagingSocketPath } = value;
   return typeof pid === "number" &&
     typeof sessionId === "string" &&
     typeof procStart === "string" &&
     typeof peerProtocol === "number" &&
     typeof messagingSocketPath === "string"
-    ? { pid, sessionId, procStart, peerProtocol, messagingSocketPath }
+    ? {
+        pid,
+        ...(typeof cwd === "string" ? { cwd } : {}),
+        sessionId,
+        procStart,
+        peerProtocol,
+        messagingSocketPath,
+      }
     : undefined;
 };
 
@@ -122,28 +131,56 @@ export type Plan =
  */
 export const REGISTRATION_GRACE_MS = 30_000;
 
+/**
+ * Whether a registration's session is still running, from Claude Code's current record of
+ * its process: `live`, `pending` (it registered just now, ahead of the record, so it counts
+ * as running), or `gone` with the reason. The one rule `send` and `track rm` both use.
+ */
+export type SessionStatus =
+  | { readonly kind: "live" | "pending" }
+  | { readonly kind: "gone"; readonly reason: string };
+
+export const sessionStatus = (
+  registration: Registration,
+  session: ClaudeSession | undefined,
+  now: Date,
+): SessionStatus => {
+  // A /clear starts a new session id in the same process; a reused pid runs another one.
+  if (session !== undefined && session.sessionId === registration.session) return { kind: "live" };
+  const age = now.getTime() - Date.parse(registration.registered);
+  if (age >= 0 && age < REGISTRATION_GRACE_MS) return { kind: "pending" };
+  return {
+    kind: "gone",
+    reason:
+      session === undefined
+        ? "its Claude Code session has ended"
+        : "its process now runs another session",
+  };
+};
+
+/**
+ * Sessions running inside a worktree whether or not they registered (one started before the
+ * register hook existed, or whose `register` only gave a note): by the record's `cwd`.
+ * Paths are compared as given, so the caller resolves symlinks on both sides first.
+ */
+export const sessionsIn = (
+  worktree: string,
+  records: ReadonlyArray<ClaudeSession>,
+): ReadonlyArray<string> =>
+  records
+    .filter((record) => record.cwd === worktree || record.cwd?.startsWith(`${worktree}/`))
+    .map((record) => record.sessionId);
+
 export const planNotice = (
   registration: Registration,
   session: ClaudeSession | undefined,
   keys: ReadonlyArray<ClaudeKey>,
   now: Date,
 ): Plan => {
-  // A /clear starts a new session id in the same process; a reused pid runs another one.
-  if (session === undefined || session.sessionId !== registration.session) {
-    const age = now.getTime() - Date.parse(registration.registered);
-    if (age >= 0 && age < REGISTRATION_GRACE_MS)
-      return {
-        kind: "skip",
-        reason: "it registered just now, before Claude Code recorded it; kept",
-      };
-    return {
-      kind: "prune",
-      reason:
-        session === undefined
-          ? "its Claude Code session has ended"
-          : "its process now runs another session",
-    };
-  }
+  const status = sessionStatus(registration, session, now);
+  if (status.kind === "gone") return { kind: "prune", reason: status.reason };
+  if (status.kind === "pending" || session === undefined)
+    return { kind: "skip", reason: "it registered just now, before Claude Code recorded it; kept" };
   if (session.peerProtocol !== PEER_PROTOCOL)
     return {
       kind: "skip",

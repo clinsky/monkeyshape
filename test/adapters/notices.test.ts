@@ -9,6 +9,8 @@ import { mkdir, mkdtemp, readdir, realpath, rm, writeFile } from "node:fs/promis
 import { createServer, type Server } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { Effect } from "effect";
+import { liveSessions, removeSessions } from "../../src/adapters/notices.ts";
 
 const CLI = join(import.meta.dir, "..", "..", "src", "cli", "main.ts");
 let base = "";
@@ -279,5 +281,76 @@ describe("live notices", () => {
     expect(bad.code).toBe(0);
     expect(bad.stdout).toContain("is not a Claude Code session id");
     expect(await readdir(registry("tracks")).catch(() => [])).toEqual([]);
+  });
+
+  describe("for track rm", () => {
+    test("liveSessions: live and just-registered sessions count; gone ones are pruned", async () => {
+      await claudeSession(1);
+      await claudeSession(2);
+      for (const n of [1, 2]) await mshape(wt("tracks"), ["msg", "register"], hookInput(n));
+      await age("tracks");
+      await rm(`${claude}/sessions/1002.json`);
+      // 3 registered just now, before Claude Code wrote its record: still running.
+      await mshape(wt("tracks"), ["msg", "register"], hookInput(3), { CLAUDE_PID: "1003" });
+      await writeFile(`${registry("tracks")}/junk.json`, "{");
+      const live = await Effect.runPromise(
+        liveSessions(wt("tracks"), "tracks", claude, new Date()),
+      );
+      expect(live).toEqual([uuid(1), uuid(3)]);
+      expect((await readdir(registry("tracks"))).sort()).toEqual([
+        `${uuid(1)}.json`,
+        `${uuid(3)}.json`,
+      ]);
+      // From any checkout, and for a track with no registry at all.
+      expect(await Effect.runPromise(liveSessions(repo, "docs", claude, new Date()))).toEqual([]);
+    });
+
+    test("liveSessions: a running session inside the worktree counts even if it never registered", async () => {
+      // One started before the register hook existed; and a lingering record of an ended one.
+      const record = (n: number, pid: number, cwd: string) =>
+        writeFile(
+          `${claude}/sessions/${pid}.json`,
+          JSON.stringify({
+            pid,
+            cwd,
+            sessionId: uuid(n),
+            procStart: "p",
+            peerProtocol: 1,
+            messagingSocketPath: `${base}/none.sock`,
+          }),
+        );
+      await mkdir(`${wt("tracks")}/src`, { recursive: true });
+      await record(7, process.pid, `${wt("tracks")}/src`);
+      await record(8, 2 ** 22 + 1, wt("tracks")); // above Linux's pid_max: never a live process
+      await record(9, process.ppid, wt("docs")); // a second live pid: one record file per pid
+      const live = (track: string) =>
+        Effect.runPromise(liveSessions(repo, track, claude, new Date()));
+      expect(await live("tracks")).toEqual([uuid(7)]);
+      expect(await live("docs")).toEqual([uuid(9)]);
+    });
+
+    test("both refuse a name that isn't a track's: '' would address every track's registry", async () => {
+      await claudeSession(1);
+      await mshape(wt("tracks"), ["msg", "register"], hookInput(1));
+      for (const bad of ["", "..", "a/b"]) {
+        const removed = await Effect.runPromise(Effect.result(removeSessions(repo, bad)));
+        expect(removed._tag).toBe("Failure");
+        const listed = await Effect.runPromise(
+          Effect.result(liveSessions(repo, bad, claude, new Date())),
+        );
+        expect(listed._tag).toBe("Failure");
+      }
+      expect(await readdir(registry("tracks"))).toEqual([`${uuid(1)}.json`]);
+    });
+
+    test("removeSessions empties the track's registry and says how many it held", async () => {
+      await claudeSession(1);
+      await claudeSession(2);
+      for (const n of [1, 2]) await mshape(wt("tracks"), ["msg", "register"], hookInput(n));
+      await writeFile(`${registry("tracks")}/junk.json`, "{");
+      expect(await Effect.runPromise(removeSessions(repo, "tracks"))).toBe(2);
+      expect(await readdir(registry("tracks")).catch(() => "gone")).toBe("gone");
+      expect(await Effect.runPromise(removeSessions(repo, "tracks"))).toBe(0);
+    });
   });
 });
