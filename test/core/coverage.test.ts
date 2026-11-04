@@ -495,3 +495,32 @@ describe("a long command's line", () => {
     expect(found?.message).toContain(run.join(" "));
   });
 });
+
+describe("review of #61: JSON whose tool reads comments", () => {
+  const NO_TOOLS: ShapeConfig = { prerequisites: { tsc: "optional", biome: "optional" } };
+  const comment = '{ // a comment\n "a": 1 }';
+
+  test("a root .devcontainer.json and the common JSONC tool configs pass with a comment", () => {
+    const files = Object.fromEntries(
+      [
+        ".devcontainer.json",
+        "app/.devcontainer.json",
+        "turbo.json",
+        "packages/web/turbo.json",
+        ".eslintrc.json",
+        "deno.json",
+        "cspell.json",
+        "api-extractor.json",
+      ].map((name) => [name, comment]),
+    );
+    expect(checkCoverage(config(NO_TOOLS), repo(files))).toEqual([]);
+  });
+
+  test("any other commented .json: the message offers an exemption for a name its tool fixes", () => {
+    const [found] = checkCoverage(config(NO_TOOLS), repo({ "renovate.json": comment }));
+    expect(found?.rule).toBe("coverage/data");
+    expect(found?.message).toContain("name the file `.jsonc`");
+    expect(found?.message).toContain("needs this exact name");
+    expect(found?.message).toContain("`coverage.exemptFiles`");
+  });
+});

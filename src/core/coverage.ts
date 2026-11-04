@@ -335,7 +335,7 @@ const unparsable = (config: ResolvedConfig, snapshot: Snapshot): ReadonlyArray<V
           violation(
             "data",
             file,
-            `does not parse as ${format.toUpperCase()}: ${error}. Fix it; if it is broken on purpose (a test fixture), list it in \`coverage.exemptFiles\` with that reason.${format === "json" ? " If its tool reads comments, name the file `.jsonc`." : ""}`,
+            `does not parse as ${format.toUpperCase()}: ${error}. Fix it; if it is broken on purpose (a test fixture), list it in \`coverage.exemptFiles\` with that reason.${format === "json" ? " If its tool reads it with comments, name the file `.jsonc` where the tool accepts that name; where the tool needs this exact name, list it in `coverage.exemptFiles` with the reason (read as JSONC by that tool)." : ""}`,
           ),
         ];
   });

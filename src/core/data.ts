@@ -6,20 +6,27 @@
 import { matchesPathOrBelow } from "./glob.ts";
 
 /**
- * JSON files whose tools read them as JSONC, by convention: TypeScript's and biome's configs,
- * and the editor's. Anything else named `.json` is strict JSON, which every reader accepts.
+ * JSON files whose tools read them as JSONC, by convention: TypeScript's, biome's and the
+ * editor's configs, the dev container's (in `.devcontainer/` or as a root file), and the
+ * common tool configs documented to take comments. Anything else named `.json` is strict
+ * JSON, which every reader accepts; one whose tool fixes its name and reads comments is
+ * exempt with that reason (the message says so).
  */
-const JSONC_BY_CONVENTION = [
-  "**/tsconfig*.json",
+const JSONC_NAMES = [
   "tsconfig*.json",
-  "**/jsconfig*.json",
   "jsconfig*.json",
-  "**/biome*.json",
   "biome*.json",
-  ".vscode",
-  "**/.vscode",
-  ".devcontainer",
-  "**/.devcontainer",
+  ".devcontainer.json",
+  "turbo.json",
+  ".eslintrc.json",
+  "deno.json",
+  "cspell.json",
+  "api-extractor.json",
+];
+const JSONC_DIRECTORIES = [".vscode", ".devcontainer"];
+const JSONC_BY_CONVENTION = [
+  ...JSONC_NAMES.flatMap((name) => [name, `**/${name}`]),
+  ...JSONC_DIRECTORIES.flatMap((dir) => [dir, `**/${dir}`]),
 ];
 
 export type DataFormat = "json" | "jsonc" | "yaml" | "toml";
