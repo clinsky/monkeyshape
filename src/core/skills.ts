@@ -2,10 +2,13 @@
  * Shared skills: the package's `skills/<name>/` copied into a repo's `.agents/skills/<name>/`,
  * which Claude Code reaches through the committed relative link `.claude/skills`
  * (D-skills-link). Sync records the names it installed in a manifest; any other skill is the
- * repo's own and is never touched, even when the package starts shipping one of that name. A
- * shared skill is replaced whole, and one the package stops shipping is removed.
+ * repo's own and is never touched, even when the package starts shipping one of that name,
+ * until `mshape sync --replace` hands it over. A shared skill is replaced whole, and one the
+ * package stops shipping is removed. The same manifest records the other files sync owns
+ * (`files`), so a file the adopter wrote is told from one sync wrote in every clone.
  */
 import type { ResolvedConfig } from "../schemas/config.ts";
+import { OWNABLE_FILES } from "./conventions.ts";
 import { SYNC_COMMAND } from "./hooks.ts";
 import { CLAUDE_SKILLS_LINK, CLAUDE_SKILLS_TARGET, SKILLS_DIR, SKILLS_MANIFEST } from "./layout.ts";
 import type { SkillFiles, Snapshot, Violation } from "./model.ts";
@@ -49,30 +52,66 @@ const same = (a: SkillFiles, b: SkillFiles): boolean =>
  */
 export const SKILL_NAME = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 
-/**
- * The shared skill names in an installed manifest; undefined when it isn't sync's format,
- * including any name that isn't a single skill directory.
- */
-export const parseManifest = (bytes: Uint8Array): ReadonlyArray<string> | undefined => {
+interface Manifest {
+  readonly shared: ReadonlyArray<string>;
+  /** The files sync owns; undefined in a manifest from before sync recorded them. */
+  readonly files: ReadonlyArray<string> | undefined;
+}
+
+const readManifest = (bytes: Uint8Array): Manifest | undefined => {
   try {
     const value: unknown = JSON.parse(new TextDecoder().decode(bytes));
-    const shared =
-      typeof value === "object" && value !== null && "shared" in value ? value.shared : undefined;
-    return Array.isArray(shared) &&
-      shared.every((name) => typeof name === "string" && SKILL_NAME.test(name))
-      ? shared
-      : undefined;
+    if (typeof value !== "object" || value === null) return undefined;
+    const shared = "shared" in value ? value.shared : undefined;
+    const files = "files" in value ? value.files : undefined;
+    if (
+      !Array.isArray(shared) ||
+      !shared.every((name) => typeof name === "string" && SKILL_NAME.test(name))
+    )
+      return undefined;
+    if (
+      files !== undefined &&
+      !(
+        Array.isArray(files) &&
+        files.every((file) => typeof file === "string" && OWNABLE_FILES.includes(file))
+      )
+    )
+      return undefined;
+    return { shared, files };
   } catch {
     return undefined;
   }
 };
 
-const manifest = (shared: ReadonlyArray<string>): Uint8Array =>
+/**
+ * The shared skill names in an installed manifest; undefined when it isn't sync's format,
+ * including any name that isn't a single skill directory, or a file sync never writes.
+ */
+export const parseManifest = (bytes: Uint8Array): ReadonlyArray<string> | undefined =>
+  readManifest(bytes)?.shared;
+
+/**
+ * The files sync owns, by the installed manifest: none without one (a repo sync has never run
+ * in); every ownable file for one from before sync recorded them, since that sync overwrote
+ * them all; and every ownable file for one that can't be read, which the skills check reports.
+ */
+export const ownedFiles = (manifestBytes: Uint8Array | undefined): ReadonlyArray<string> => {
+  if (manifestBytes === undefined) return [];
+  return readManifest(manifestBytes)?.files ?? OWNABLE_FILES;
+};
+
+/** Without `files`, the manifest keeps saying what one from before the record says. */
+const manifest = (
+  shared: ReadonlyArray<string>,
+  files: ReadonlyArray<string> | undefined,
+): Uint8Array =>
   new TextEncoder().encode(
     `${JSON.stringify(
       {
-        about: "The shared skills `mshape skills sync` installed. Written by sync; don't edit.",
+        about:
+          "What `mshape sync` installed: the shared skills, and the files it keeps up to date. Anything else is this repo's own. Written by sync; don't edit.",
         shared,
+        files,
       },
       null,
       2,
@@ -85,11 +124,23 @@ const sharedNames = (installed: SkillFiles): ReadonlyArray<string> => {
   return bytes === undefined ? [] : (parseManifest(bytes) ?? []);
 };
 
+export interface SkillSyncOptions {
+  /** The files sync owns after this run, to record; by default, the ones recorded now. */
+  readonly files?: ReadonlyArray<string>;
+  /** Skills of the repo's own to replace with the shared skill of the same name. */
+  readonly replace?: ReadonlyArray<string>;
+}
+
 /** What it takes to bring the installed shared skills up to the package's. */
-export const syncSkills = (shipped: SkillFiles, installed: SkillFiles): SkillSync => {
+export const syncSkills = (
+  shipped: SkillFiles,
+  installed: SkillFiles,
+  options: SkillSyncOptions = {},
+): SkillSync => {
   const installedBySkill = bySkill(installed);
   const shippedBySkill = bySkill(shipped);
   const shared = sharedNames(installed);
+  const replace = options.replace ?? [];
   const added: Array<string> = [];
   const updated: Array<string> = [];
   const unchanged: Array<string> = [];
@@ -98,7 +149,7 @@ export const syncSkills = (shipped: SkillFiles, installed: SkillFiles): SkillSyn
   for (const [skill, files] of [...shippedBySkill].sort(([a], [b]) => a.localeCompare(b))) {
     const current = installedBySkill.get(skill);
     if (current === undefined) added.push(skill);
-    else if (!shared.includes(skill)) collisions.push(skill);
+    else if (!shared.includes(skill) && !replace.includes(skill)) collisions.push(skill);
     else if (same(current, files)) unchanged.push(skill);
     else {
       updated.push(skill);
@@ -112,8 +163,18 @@ export const syncSkills = (shipped: SkillFiles, installed: SkillFiles): SkillSyn
   const installing = new Set([...added, ...updated]);
   const write = new Map([...shipped].filter(([path]) => installing.has(skillOf(path))));
   const next = [...added, ...updated, ...unchanged].sort();
-  if (installed.get(SKILLS_MANIFEST) === undefined || next.join("\n") !== shared.join("\n"))
-    write.set(SKILLS_MANIFEST, manifest(next));
+  const current = installed.get(SKILLS_MANIFEST);
+  const recorded = current === undefined ? undefined : readManifest(current)?.files;
+  const files =
+    options.files === undefined
+      ? recorded
+      : OWNABLE_FILES.filter((file) => options.files?.includes(file));
+  if (
+    current === undefined ||
+    next.join("\n") !== shared.join("\n") ||
+    recorded?.join("\n") !== files?.join("\n")
+  )
+    write.set(SKILLS_MANIFEST, manifest(next, files));
   return { added, updated, unchanged, retired, collisions, write, remove };
 };
 
@@ -131,7 +192,7 @@ export const formatSync = (sync: SkillSync): string => {
 };
 
 const collision = (name: string): string =>
-  `is a skill of this repo's own, but monkeyshape now ships a shared skill named ${name}, so sync leaves yours alone and the shared one uninstalled. Rename yours: move ${SKILLS_DIR}/${name} and change \`name:\` in its SKILL.md, then run \`${SYNC_COMMAND}\`.`;
+  `is a skill of this repo's own, but monkeyshape now ships a shared skill named ${name}, so sync leaves yours alone and the shared one uninstalled. Rename yours to keep it: move ${SKILLS_DIR}/${name} and change \`name:\` in its SKILL.md, then run \`${SYNC_COMMAND}\`. To take the shared one instead, run \`${SYNC_COMMAND} --replace ${SKILLS_DIR}/${name}\`, which deletes yours.`;
 
 /** What `mshape sync` prints about the skills it would not touch. */
 export const formatCollisions = (sync: SkillSync): ReadonlyArray<string> =>

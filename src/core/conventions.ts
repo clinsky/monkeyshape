@@ -187,3 +187,9 @@ export const setPrSections = (
 export const PRIME_FILE = ".beads/PRIME.md";
 /** PRIME.md's budget: it costs every session. */
 export const PRIME_LINES = 70;
+
+/**
+ * The files sync writes whole: an adopter may already have one of their own, which sync
+ * leaves alone until `mshape sync --replace <file>`. Sync records the ones it owns.
+ */
+export const OWNABLE_FILES: ReadonlyArray<string> = [PRIME_FILE, PR_TEMPLATE_FILE];

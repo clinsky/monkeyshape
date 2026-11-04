@@ -153,7 +153,7 @@ Once the PR is merged (or the human says to start):
 
   What the plan says one track must tell another goes by mail, not into a handoff:
   `mshape msg send <name> --subject "<one line>" "<body>"`, run from the main checkout, so
-  it arrives from `main`.
+  it arrives from `main` and the answer comes back to `main`'s mailbox.
 
 Finish by telling the human what to launch: for each track, the worktree path and "open a
 chat there and run `/track`".

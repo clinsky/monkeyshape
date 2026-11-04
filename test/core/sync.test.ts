@@ -14,7 +14,7 @@ import {
   SETTINGS_FILE,
 } from "../../src/core/hooks.ts";
 import { lineCount } from "../../src/core/model.ts";
-import { planSync } from "../../src/core/sync.ts";
+import { isPrTemplate, planSync } from "../../src/core/sync.ts";
 
 const ROOT = join(import.meta.dir, "..", "..");
 const PRIME = "# The working loop\n";
@@ -25,6 +25,9 @@ const upToDate = {
   prime: PRIME,
   prTemplate: prTemplate(),
   settings: renderSettings(HOOKS),
+  owned: [PRIME_FILE, PR_TEMPLATE_FILE],
+  replace: [],
+  otherTemplates: [],
 };
 
 describe("the shipped PRIME.md", () => {
@@ -37,7 +40,12 @@ describe("the shipped PRIME.md", () => {
 
 describe("planSync", () => {
   test("writes nothing when everything is up to date", () => {
-    expect(planSync(upToDate, PRIME)).toEqual({ write: new Map(), notes: [], blocked: [] });
+    expect(planSync(upToDate, PRIME)).toEqual({
+      write: new Map(),
+      notes: [],
+      blocked: [],
+      owned: [PRIME_FILE, PR_TEMPLATE_FILE],
+    });
   });
 
   test("installs a missing or edited PRIME.md and PR template", () => {
@@ -68,6 +76,83 @@ describe("planSync", () => {
     const plan = planSync({ ...upToDate, ignored: [SETTINGS_FILE] }, PRIME);
     expect(plan.blocked.join("\n")).toContain(`git check-ignore -v ${SETTINGS_FILE}`);
     expect(planSync({ ...upToDate, beads: false, prime: undefined }, PRIME).blocked).toEqual([]);
+  });
+});
+
+describe("planSync and files the adopter wrote", () => {
+  const OWN_TEMPLATE = "## Summary\n\n## Testing\n";
+  const adopter = { ...upToDate, owned: [], prime: "# Our loop\n", prTemplate: OWN_TEMPLATE };
+
+  test("leaves a differing file it never wrote alone, naming where its content goes", () => {
+    const plan = planSync(adopter, PRIME);
+    expect(plan.write.has(PRIME_FILE)).toBe(false);
+    expect(plan.write.has(PR_TEMPLATE_FILE)).toBe(false);
+    expect(plan.owned).toEqual([]);
+    const said = plan.blocked.join("\n");
+    expect(said).toContain(`${PRIME_FILE} is this repo's own`);
+    expect(said).toContain("AGENTS.md");
+    expect(said).toContain(`mshape sync --replace ${PR_TEMPLATE_FILE}`);
+  });
+
+  test("takes a file that is absent or already the shipped text, and records it", () => {
+    const plan = planSync(
+      { ...upToDate, owned: [], prime: undefined, prTemplate: prTemplate() },
+      PRIME,
+    );
+    expect(plan.write.get(PRIME_FILE)).toBe(PRIME);
+    expect(plan.write.has(PR_TEMPLATE_FILE)).toBe(false);
+    expect(plan.owned).toEqual([PRIME_FILE, PR_TEMPLATE_FILE]);
+    expect(plan.blocked).toEqual([]);
+  });
+
+  test("--replace takes the file over, and from then on it is sync's", () => {
+    const plan = planSync({ ...adopter, replace: [PR_TEMPLATE_FILE] }, PRIME);
+    expect(plan.write.get(PR_TEMPLATE_FILE)).toBe(prTemplate());
+    expect(plan.write.has(PRIME_FILE)).toBe(false);
+    expect(plan.owned).toEqual([PR_TEMPLATE_FILE]);
+  });
+
+  test("a file it owns is brought up to date, as after a version bump", () => {
+    const plan = planSync({ ...upToDate, prTemplate: "## Old sections\n" }, PRIME);
+    expect(plan.write.get(PR_TEMPLATE_FILE)).toBe(prTemplate());
+    expect(plan.blocked).toEqual([]);
+  });
+
+  test("beside another PR template GitHub reads, writes neither and names it", () => {
+    const plan = planSync(
+      {
+        ...upToDate,
+        owned: [],
+        prTemplate: undefined,
+        otherTemplates: [".github/PULL_REQUEST_TEMPLATE.md"],
+      },
+      PRIME,
+    );
+    expect(plan.write.has(PR_TEMPLATE_FILE)).toBe(false);
+    expect(plan.owned).toEqual([PRIME_FILE]);
+    expect(plan.blocked.join("\n")).toContain(
+      ".github/PULL_REQUEST_TEMPLATE.md is a PR template too",
+    );
+  });
+
+  test("GitHub's template locations, in any case, are templates; others aren't", () => {
+    for (const path of [
+      "pull_request_template.md",
+      "PULL_REQUEST_TEMPLATE.md",
+      ".github/Pull_Request_Template.md",
+      "docs/pull_request_template.md",
+      PR_TEMPLATE_FILE,
+    ])
+      expect(isPrTemplate(path)).toBe(true);
+    for (const path of ["src/pull_request_template.md", ".github/PULL_REQUEST_TEMPLATE/a.md"])
+      expect(isPrTemplate(path)).toBe(false);
+  });
+
+  test("without .beads/ keeps owning PRIME.md, so adding beads later installs it", () => {
+    expect(planSync({ ...upToDate, beads: false, prime: undefined }, PRIME).owned).toEqual([
+      PRIME_FILE,
+      PR_TEMPLATE_FILE,
+    ]);
   });
 });
 

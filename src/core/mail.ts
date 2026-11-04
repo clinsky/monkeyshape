@@ -5,14 +5,22 @@
  * live notice) only ever names a message, and only `mshape msg read <id>` marks it read.
  */
 import { mshapeCommand } from "./hooks.ts";
-import { PR_NUMBER, reviewPath, TRACK_NAME, trackOf } from "./layout.ts";
+import {
+  MAIN_ADDRESS,
+  PR_NUMBER,
+  reviewAddress,
+  reviewOf,
+  reviewPath,
+  TRACK_NAME,
+  trackOf,
+} from "./layout.ts";
 import type { Worktree } from "./tracks.ts";
 
 export interface Message {
   readonly id: string;
-  /** The sending track, `main` (the main checkout) or `review-<n>` (a review worktree). */
+  /** The sender's address: a track, `main` or `review-<n>`. */
   readonly from: string;
-  /** The receiving track. */
+  /** The recipient's address. */
   readonly to: string;
   /** One line: it is what every notice shows. */
   readonly subject: string;
@@ -44,24 +52,26 @@ export const messageId = (created: Date, random: string): string => {
 };
 
 /**
- * Who is sending, from where this runs: the track, `main` in the main checkout, `review-<n>`
- * in a review worktree. Anywhere else (a worktree on the wrong branch, say) is refused, since
- * the recipient couldn't reply.
+ * The address of the checkout this runs in: the track, `main` in the main checkout,
+ * `review-<n>` in a review worktree. A session's registration overrides it (a session at
+ * `main` that runs `mshape review <n>` moves); this is the fallback for a session that has
+ * none, and for a terminal. Anywhere else (a worktree on the wrong branch, say) has no
+ * address, since nobody could reply to it.
  */
-export const senderOf = (
+export const directoryAddress = (
   repo: string,
   toplevel: string,
   worktrees: ReadonlyArray<Worktree>,
   track: { readonly track: string } | { readonly reason: string },
-): { readonly from: string } | { readonly reason: string } => {
-  if ("track" in track) return { from: track.track };
-  if (toplevel === repo) return { from: "main" };
+): { readonly address: string } | { readonly reason: string } => {
+  if ("track" in track) return { address: track.track };
+  if (toplevel === repo) return { address: MAIN_ADDRESS };
   const review = reviewPath(repo, "");
   const pr = toplevel.startsWith(review) ? toplevel.slice(review.length) : "";
   if (PR_NUMBER.test(pr) && worktrees.some((worktree) => worktree.path === toplevel))
-    return { from: `review-${pr}` };
+    return { address: reviewAddress(pr) };
   return {
-    reason: `${track.reason}. Send from a track's worktree, the main checkout or a review worktree`,
+    reason: `${track.reason}. Only a track's worktree, the main checkout and a review worktree have an address`,
   };
 };
 
@@ -78,11 +88,31 @@ export const knownTracks = (
   return [...new Set([...fromWorktrees, ...fromHandoffs])].sort();
 };
 
+/** Every address a message can go to: the tracks, `main`, and each review with a worktree. */
+export const knownAddresses = (
+  repo: string,
+  worktrees: ReadonlyArray<Worktree>,
+  handoffs: ReadonlyArray<string>,
+): ReadonlyArray<string> => {
+  const reviews = worktrees.flatMap((worktree) => {
+    const prefix = reviewPath(repo, "");
+    const pr = worktree.path.startsWith(prefix) ? worktree.path.slice(prefix.length) : "";
+    return PR_NUMBER.test(pr) ? [reviewAddress(pr)] : [];
+  });
+  return [...knownTracks(repo, worktrees, handoffs), MAIN_ADDRESS, ...reviews.sort()];
+};
+
 export const recipientProblem = (to: string, known: ReadonlyArray<string>): string | undefined => {
   if (known.includes(to)) return undefined;
-  const tracks = known.length === 0 ? "none" : known.join(", ");
-  return `no track \`${to}\` to send to (tracks: ${tracks}); \`mshape track list\` shows them`;
+  const pr = reviewOf(to);
+  if (pr !== undefined)
+    return `no review of #${pr} to send to: \`${to}\` exists while \`mshape review ${pr}\`'s worktree does (addresses: ${known.join(", ")})`;
+  return `no track \`${to}\` to send to (addresses: ${known.join(", ")}); \`mshape track list\` shows the tracks`;
 };
+
+/** How an address reads in a sentence: `track docs`, `main`, `review-12`. */
+export const addressLabel = (address: string): string =>
+  address === MAIN_ADDRESS || reviewOf(address) !== undefined ? address : `track ${address}`;
 
 /** A message file's contents, or why it can't be one. Strict: an unknown key is refused. */
 export const decodeMessage = (text: string): Message | string => {
@@ -122,21 +152,21 @@ export interface Unreadable {
  * none and `quiet` is set, so a hook adds nothing to a session with nothing to read.
  */
 export const formatInbox = (
-  track: string,
+  address: string,
   messages: ReadonlyArray<Message>,
   unreadable: ReadonlyArray<Unreadable>,
   quiet: boolean,
 ): string => {
   const notes = unreadable.map(
-    (entry) => `note: ${entry.file} in ${track}'s mailbox is not a message (${entry.reason})`,
+    (entry) => `note: ${entry.file} in ${address}'s mailbox is not a message (${entry.reason})`,
   );
   if (messages.length === 0)
     return quiet && notes.length === 0
       ? ""
-      : [`No unread messages for track ${track}.`, ...notes].join("\n");
+      : [`No unread messages for ${addressLabel(address)}.`, ...notes].join("\n");
   const sorted = [...messages].sort(byCreated);
   return [
-    `Unread messages for track ${track}. Read one with \`${mshapeCommand(["msg", "read"])} <id>\`; until then it stays unread.`,
+    `Unread messages for ${addressLabel(address)}. Read one with \`${mshapeCommand(["msg", "read"])} <id>\`; until then it stays unread.`,
     ...sorted.map(
       (message) =>
         `  ${message.id}  from ${message.from}, ${when(message.created)}: ${message.subject}`,
@@ -145,34 +175,38 @@ export const formatInbox = (
   ].join("\n");
 };
 
-/** One track's mailbox, for `msg inbox --all`. */
+/** One address's mailbox, for `msg inbox --all`. */
 export interface Mailbox {
-  readonly track: string;
-  /** False for a mailbox whose track is gone: mail nobody will read unless someone acts. */
+  readonly address: string;
+  /** False for a mailbox whose track or review is gone: mail nobody will read unless someone acts. */
   readonly known: boolean;
-  /** Where it is on disk: a gone track's mail can only be dealt with there. */
+  /** Where it is on disk: a gone address's mail can only be dealt with there. */
   readonly dir: string;
   readonly messages: ReadonlyArray<Message>;
   readonly unreadable: ReadonlyArray<Unreadable>;
 }
 
 /**
- * Every track's unread mail, for the main checkout and `/milestone`: grouped by track, oldest
- * first, then a summary line. Reading stays the track's own act, so it says where to read.
+ * Every address's unread mail, for the main checkout and `/milestone`: grouped by address,
+ * oldest first, then a summary line. Reading stays the address's own act, so it says where.
  */
 export const formatAllInboxes = (mailboxes: ReadonlyArray<Mailbox>): string => {
   const listed = [...mailboxes]
     .filter((box) => box.messages.length > 0 || box.unreadable.length > 0)
-    .sort((a, b) => a.track.localeCompare(b.track));
-  if (listed.length === 0) return "No unread mail in any track.";
+    .sort((a, b) => a.address.localeCompare(b.address));
+  if (listed.length === 0) return "No unread mail anywhere.";
   const unread = listed.reduce((sum, box) => sum + box.messages.length, 0);
-  const tracks = listed.filter((box) => box.messages.length > 0).length;
+  const boxes = listed.filter((box) => box.messages.length > 0).length;
   const junk = listed.reduce((sum, box) => sum + box.unreadable.length, 0);
-  const gone = (box: Mailbox): string =>
-    ` (no such track: its worktree and handoff are gone; recreate it with \`${mshapeCommand(["track", "new", box.track])}\` to read this, or delete ${box.dir} if it is no longer wanted)`;
+  const gone = (box: Mailbox): string => {
+    const pr = reviewOf(box.address);
+    return pr === undefined
+      ? ` (no such track: its worktree and handoff are gone; recreate it with \`${mshapeCommand(["track", "new", box.address])}\` to read this, or delete ${box.dir} if it is no longer wanted)`
+      : ` (no review of #${pr} is running; \`${mshapeCommand(["review", pr])}\` from the main checkout moves a session there to read it, or delete ${box.dir} if it is no longer wanted)`;
+  };
   return [
     ...listed.flatMap((box) => [
-      `${box.track}: ${box.messages.length} unread${box.known ? "" : gone(box)}`,
+      `${box.address}: ${box.messages.length} unread${box.known ? "" : gone(box)}`,
       ...[...box.messages]
         .sort(byCreated)
         .map(
@@ -181,7 +215,7 @@ export const formatAllInboxes = (mailboxes: ReadonlyArray<Mailbox>): string => {
         ),
       ...box.unreadable.map((entry) => `  note: ${entry.file} is not a message (${entry.reason})`),
     ]),
-    `${unread} unread in ${tracks} track${tracks === 1 ? "" : "s"}${junk === 0 ? "" : `, and ${junk} file${junk === 1 ? "" : "s"} that ${junk === 1 ? "isn't a message" : "aren't messages"}`}. A track reads its own from its worktree with \`${mshapeCommand(["msg", "read"])} <id>\`; this marks nothing read.`,
+    `${unread} unread in ${boxes} mailbox${boxes === 1 ? "" : "es"}${junk === 0 ? "" : `, and ${junk} file${junk === 1 ? "" : "s"} that ${junk === 1 ? "isn't a message" : "aren't messages"}`}. Each address reads its own, from a session there, with \`${mshapeCommand(["msg", "read"])} <id>\`; this marks nothing read.`,
   ].join("\n");
 };
 

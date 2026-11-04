@@ -3,19 +3,10 @@
  * checkout of the repo shares it. Each message is one file, written to a temporary name and
  * then hard-linked to its own, so a reader never sees half a message and two senders can't
  * overwrite each other. Reading renames it into `read/`, which is atomic too: once any session
- * of a track reads a message, it is read for all of them. The decisions are in
+ * at an address reads a message, it is read for all of them. The decisions are in
  * `src/core/mail.ts`.
  */
-import {
-  link,
-  mkdir,
-  readdir,
-  readFile,
-  realpath,
-  rename,
-  unlink,
-  writeFile,
-} from "node:fs/promises";
+import { link, mkdir, readdir, readFile, rename, unlink, writeFile } from "node:fs/promises";
 import { Effect } from "effect";
 import {
   handoffsStore,
@@ -26,22 +17,24 @@ import {
   TRACK_NAME,
 } from "../core/layout.ts";
 import {
+  addressLabel,
   decodeMessage,
   encodeMessage,
-  knownTracks,
+  knownAddresses,
   type Mailbox,
   MESSAGE_ID,
   type Message,
   messageId,
   recipientProblem,
-  senderOf,
   subjectProblem,
   type Unreadable,
 } from "../core/mail.ts";
 import { WorkspaceError } from "../schemas/errors.ts";
-import { fs, gitOk, locate, refuse, trackCurrent, worktrees } from "./tracks.ts";
+import { type Caller, sessionAddress } from "./notices.ts";
+import { fs, locate, refuse, worktrees } from "./tracks.ts";
 
-const real = (path: string) => Effect.promise(() => realpath(path).catch(() => path));
+/** A caller Claude Code said nothing about: a terminal, or `track list`'s migration. */
+const nobody = (now: Date): Caller => ({ identity: {}, claudeDir: "", now });
 
 /** `run`, with one expected error code (`ENOENT`, `EEXIST`) as `fallback`, not a failure. */
 const fsUnless = <A, B>(
@@ -63,21 +56,6 @@ const fsUnless = <A, B>(
 const entries = (path: string) =>
   fsUnless("list", path, "ENOENT", [] as Array<string>, () => readdir(path));
 
-/** The track this directory belongs to, as a value: refusing is the caller's choice. */
-const currentOrReason = (cwd: string) =>
-  trackCurrent(cwd).pipe(
-    Effect.map((track) => ({ track })),
-    Effect.catchTag("TrackError", (error) => Effect.succeed({ reason: error.reason })),
-  );
-
-/** The directory's track, or a refusal saying that only a track has a mailbox. */
-const ownTrack = (cwd: string) =>
-  Effect.flatMap(currentOrReason(cwd), (found) =>
-    "track" in found
-      ? Effect.succeed(found.track)
-      : refuse(`${found.reason}. Only a track has a mailbox: run this from its worktree`),
-  );
-
 /** Hard links never replace a file, so an id taken by another sender is retried, not lost. */
 const ATTEMPTS = 5;
 
@@ -88,29 +66,32 @@ export const mailSend = (
   body: string,
   now: Date,
   random: () => string,
+  caller: Caller = nobody(now),
 ) =>
   Effect.gen(function* () {
     const problem = subjectProblem(subject);
     if (problem !== undefined) return yield* refuse(`${problem}`);
     const { common, repo } = yield* locate(cwd);
-    const registered = yield* worktrees(repo);
-    const tracks = knownTracks(repo, registered, yield* entries(handoffsStore(common)));
-    const unknown = recipientProblem(to, tracks);
+    const known = knownAddresses(
+      repo,
+      yield* worktrees(repo),
+      yield* entries(handoffsStore(common)),
+    );
+    const unknown = recipientProblem(to, known);
     if (unknown !== undefined) return yield* refuse(`${unknown}`);
-    const here = yield* real(yield* gitOk(cwd, ["rev-parse", "--show-toplevel"]));
-    // git's path for this checkout, in the layout's terms (worktrees() resolved them alike).
-    let toplevel = here;
-    for (const worktree of registered)
-      if ((yield* real(worktree.path)) === here) toplevel = worktree.path;
-    const sender = senderOf(repo, toplevel, registered, yield* currentOrReason(cwd));
-    if ("reason" in sender) return yield* refuse(`${sender.reason}`);
+    // From the sender's address, so a reply reaches it: a review's, once a session moved there.
+    const sender = yield* sessionAddress(cwd, caller).pipe(
+      Effect.catchTag("TrackError", (error) =>
+        refuse(`${error.reason}. Send from a track's worktree, the main checkout or a review`),
+      ),
+    );
     const dir = mailboxDir(common, to);
     yield* fs("create", dir, () => mkdir(dir, { recursive: true }));
     for (let attempt = 0; attempt < ATTEMPTS; attempt++) {
       const id = messageId(now, random());
       const message: Message = {
         id,
-        from: sender.from,
+        from: sender.address,
         to,
         subject,
         body,
@@ -150,40 +131,54 @@ const readMessages = (dir: string) =>
     return { messages, unreadable };
   });
 
-/** The unread mail of this directory's track. */
-export const mailInbox = (cwd: string) =>
+/**
+ * The unread mail at the caller's address. `unregistered` is set for a session Claude Code
+ * identified that has no registration: its mail is its checkout's until it registers.
+ */
+export const mailInbox = (cwd: string, caller: Caller) =>
   Effect.gen(function* () {
-    const track = yield* ownTrack(cwd);
+    const here = yield* sessionAddress(cwd, caller);
     const { common } = yield* locate(cwd);
-    return { track, ...(yield* readMessages(mailboxDir(common, track))) };
+    return { ...here, ...(yield* readMessages(mailboxDir(common, here.address))) };
   });
 
+/** The unread mail at `address`, from any checkout: for `review rm`, which lists it first. */
+export const addressInbox = (cwd: string, address: string) =>
+  Effect.flatMap(locate(cwd), ({ common }) => readMessages(mailboxDir(common, address)));
+
 /**
- * Every mailbox's unread mail, from any checkout: each track's, and any left by a track
- * that is gone. Read-only: nothing is marked read.
+ * Every mailbox's unread mail, from any checkout: each address's, and any left at a track or
+ * review that is gone. Read-only: nothing is marked read.
  */
 export const mailInboxAll = (cwd: string) =>
   Effect.gen(function* () {
     const { common, repo } = yield* locate(cwd);
-    const known = knownTracks(repo, yield* worktrees(repo), yield* entries(handoffsStore(common)));
+    const known = knownAddresses(
+      repo,
+      yield* worktrees(repo),
+      yield* entries(handoffsStore(common)),
+    );
     const boxes = (yield* entries(mailDir(common))).filter((name) => TRACK_NAME.test(name));
     const mailboxes: Array<Mailbox> = [];
-    for (const track of [...new Set([...known, ...boxes])])
+    for (const address of [...new Set([...known, ...boxes])])
       mailboxes.push({
-        track,
-        known: known.includes(track),
-        dir: mailboxDir(common, track),
-        ...(yield* readMessages(mailboxDir(common, track))),
+        address,
+        known: known.includes(address),
+        dir: mailboxDir(common, address),
+        ...(yield* readMessages(mailboxDir(common, address))),
       });
     return mailboxes;
   });
 
-/** Reads message `id` and marks it read for the whole track. Reading it again shows it again. */
-export const mailRead = (cwd: string, id: string) =>
+/**
+ * Reads message `id` at the caller's address and marks it read there, for every session at
+ * it. Reading it again shows it again.
+ */
+export const mailRead = (cwd: string, id: string, caller: Caller) =>
   Effect.gen(function* () {
     if (!MESSAGE_ID.test(id))
       return yield* refuse(`\`${id}\` is not a message id; \`mshape msg inbox\` lists them`);
-    const track = yield* ownTrack(cwd);
+    const { address: track } = yield* sessionAddress(cwd, caller);
     const { common } = yield* locate(cwd);
     const unread = messagePath(common, track, id);
     const readDir = mailboxReadDir(common, track);
@@ -196,7 +191,7 @@ export const mailRead = (cwd: string, id: string) =>
     const text = yield* fsUnless("read", read, "ENOENT", undefined, () => readFile(read, "utf8"));
     if (text === undefined)
       return yield* refuse(
-        `no message ${id} for track ${track}; \`mshape msg inbox\` lists the unread ones`,
+        `no message ${id} for ${addressLabel(track)}; \`mshape msg inbox\` lists the unread ones`,
       );
     const message = decodeMessage(text);
     if (typeof message === "string") return yield* refuse(`${read} is not a message (${message})`);

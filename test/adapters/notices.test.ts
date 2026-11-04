@@ -133,10 +133,15 @@ describe("live notices", () => {
     const first = await claudeSession(1);
     const second = await claudeSession(2);
     const other = await claudeSession(3);
-    for (const n of [1, 2]) {
-      const registered = await mshape(wt("tracks"), ["msg", "register"], hookInput(n));
-      expect(registered).toEqual({ code: 0, stdout: "", stderr: "" });
-    }
+    expect(await mshape(wt("tracks"), ["msg", "register"], hookInput(1))).toEqual({
+      code: 0,
+      stdout: "",
+      stderr: "",
+    });
+    const warned = await mshape(wt("tracks"), ["msg", "register"], hookInput(2));
+    expect(warned.stdout).toBe(
+      `note: session ${uuid(1)} is also registered at tracks: each gets its notices, and a message one of you reads is read for all`,
+    );
     // A session of another track is registered there, and never told about this track's mail.
     expect((await mshape(wt("docs"), ["msg", "register"], hookInput(3))).code).toBe(0);
 
@@ -267,9 +272,9 @@ describe("live notices", () => {
     expect(await readdir(registry("tracks"))).toEqual([`${uuid(1)}.json`]);
   });
 
-  test("register: silent outside a track; a note, never a failure, when it can't", async () => {
+  test("register: silent outside every address; a note, never a failure, when it can't", async () => {
     await claudeSession(1);
-    expect(await mshape(repo, ["msg", "register"], hookInput(1))).toEqual({
+    expect(await mshape(base, ["msg", "register"], hookInput(1))).toEqual({
       code: 0,
       stdout: "",
       stderr: "",
@@ -284,7 +289,7 @@ describe("live notices", () => {
   });
 
   describe("for track rm", () => {
-    test("liveSessions: live and just-registered sessions count; gone ones are pruned", async () => {
+    test("liveSessions: live and just-registered sessions count; it only reads, so nothing is pruned", async () => {
       await claudeSession(1);
       await claudeSession(2);
       for (const n of [1, 2]) await mshape(wt("tracks"), ["msg", "register"], hookInput(n));
@@ -299,7 +304,9 @@ describe("live notices", () => {
       expect(live).toEqual([uuid(1), uuid(3)]);
       expect((await readdir(registry("tracks"))).sort()).toEqual([
         `${uuid(1)}.json`,
+        `${uuid(2)}.json`,
         `${uuid(3)}.json`,
+        "junk.json",
       ]);
       // From any checkout, and for a track with no registry at all.
       expect(await Effect.runPromise(liveSessions(repo, "docs", claude, new Date()))).toEqual([]);
