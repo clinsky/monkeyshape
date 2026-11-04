@@ -50,3 +50,14 @@ describe("review of #59: files config", () => {
     for (const bad of [0, -5, 1.5]) expect(decodes({ files: { maxBytes: bad } })).toBe(false);
   });
 });
+
+test("a path that isn't plain says how to write it, not the regex", async () => {
+  const { Effect: E, Exit: X, Cause } = await import("effect");
+  const exit = E.runSyncExit(
+    decodeStrict(ShapeConfig)({
+      files: { vendored: [{ path: "./vendor/x.tgz", package: "x", sha256: "a".repeat(64) }] },
+    }),
+  );
+  expect(X.isFailure(exit)).toBe(true);
+  expect(X.isFailure(exit) ? Cause.pretty(exit.cause) : "").toContain("not `./vendor/x.tgz`");
+});

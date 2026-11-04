@@ -92,7 +92,10 @@ export const RuleSetting = Schema.Struct({
  * So `cases` and `data/large` pass; `/abs`, `../x`, `.`, `./x`, `data//large`, `cases/` don't.
  */
 export const SharedPath = Schema.String.check(
-  Schema.isPattern(/^(?!\.\.?(?:\/|$))[^/\0]+(?:\/(?!\.\.?(?:\/|$))[^/\0]+)*$/),
+  Schema.isPattern(/^(?!\.\.?(?:\/|$))[^/\0]+(?:\/(?!\.\.?(?:\/|$))[^/\0]+)*$/, {
+    message:
+      "must be a repo-relative path written plainly: no leading `/` or `./`, no `.` or `..` segment, no `//` and no trailing `/` (write `vendor/x.tgz`, not `./vendor/x.tgz`)",
+  }),
 );
 
 /**
