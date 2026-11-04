@@ -44,18 +44,33 @@ const REASON = "a reason a later agent can weigh";
 
 // arch
 
+/** Both modules optional, so a case needn't give each a file; `arch/empty-module` isn't. */
 const ARCH: ShapeConfig = {
   arch: {
     modules: {
-      core: { description: "pure" },
-      adapters: { description: "host", mayImport: ["core"], hostAccess: true },
+      core: { description: "pure", optional: true },
+      adapters: { description: "host", mayImport: ["core"], hostAccess: true, optional: true },
     },
   },
 };
 
 const arch: Record<string, Cases> = {
+  "arch/empty-module": {
+    fail: {
+      config: { arch: { modules: { core: { description: "pure" }, gone: { description: "x" } } } },
+      files: { "src/core/a.ts": "export const a = 1;\n" },
+    },
+    pass: {
+      config: {
+        arch: {
+          modules: { core: { description: "pure" }, later: { description: "x", optional: true } },
+        },
+      },
+      files: { "src/core/a.ts": "export const a = 1;\n" },
+    },
+  },
   "arch/no-module-map": {
-    fail: { config: {} },
+    fail: { config: {}, files: { "src/a.ts": "export const a = 1;\n" } },
     pass: { config: ARCH },
   },
   "arch/config": {
@@ -609,21 +624,63 @@ const beadsCases: Record<string, Cases> = {
   },
 };
 
+// sources
+
+const sourcesCases: Record<string, Cases> = {
+  "sources/outside": {
+    fail: { files: { "server/a.ts": "export const a = 1;\n" } },
+    // In sources, a test, a declaration file, the config, and a reasoned exemption.
+    pass: {
+      config: { sources: { exempt: [{ path: "template/**", reason: REASON }] } },
+      files: {
+        "src/a.ts": "",
+        "src/a.test.ts": "",
+        "test/support.ts": "",
+        "types/x.d.ts": "",
+        "shape.config.ts": "",
+        "template/t.ts": "",
+      },
+    },
+  },
+  "sources/unmatched": {
+    fail: { config: { entry: ["src/main.ts"] }, files: { "src/cli.ts": "" } },
+    pass: {
+      config: { entry: ["src/cli.ts", { path: "src/main.ts", optional: true }] },
+      files: { "src/cli.ts": "" },
+    },
+  },
+};
+
 // prerequisites
+
+/** tsc and biome ran: the prerequisites cases are about bd unless they say otherwise. */
+const TOOLS_RAN = { typechecked: [], linted: [] };
 
 const prerequisitesCases: Record<string, Cases> = {
   "prerequisites/beads-failed": {
-    fail: { options: { beads: { state: "failed", reason: "bd crashed" } } },
-    pass: { options: { beads: { state: "unavailable", reason: "bd is not installed" } } },
+    fail: { options: { ...TOOLS_RAN, beads: { state: "failed", reason: "bd crashed" } } },
+    pass: {
+      options: { ...TOOLS_RAN, beads: { state: "unavailable", reason: "bd is not installed" } },
+    },
   },
   "prerequisites/beads-required": {
-    fail: { config: { beads: "required" }, options: { beads: { state: "absent" } } },
-    pass: { config: { beads: "required" }, options: { beads: { state: "ok" } } },
+    fail: { config: { beads: "required" }, options: { ...TOOLS_RAN, beads: { state: "absent" } } },
+    pass: { config: { beads: "required" }, options: { ...TOOLS_RAN, beads: { state: "ok" } } },
+  },
+  "prerequisites/tool-failed": {
+    fail: { options: { linted: [], tsc: { state: "failed", reason: "`tsc` exited 2" } } },
+    pass: { options: TOOLS_RAN },
+  },
+  "prerequisites/tool-unavailable": {
+    fail: { options: { linted: [] } },
+    // The same missing tsc, declared optional: coverage reads tsconfig instead.
+    pass: { config: { prerequisites: { tsc: "optional" } }, options: { linted: [] } },
   },
 };
 
 const CASES: Record<string, Cases> = {
   ...arch,
+  ...sourcesCases,
   ...refs,
   ...budgets,
   ...coverage,
@@ -635,7 +692,11 @@ const CASES: Record<string, Cases> = {
 };
 
 /** Configs default to the check's own: every arch case needs a module map. */
-const DEFAULT_CONFIG: Partial<Record<string, ShapeConfig>> = { arch: ARCH };
+const DEFAULT_CONFIG: Partial<Record<string, ShapeConfig>> = {
+  arch: ARCH,
+  // Unit tests run neither tool, so coverage reads their configs, as optional tools allow.
+  coverage: { prerequisites: { tsc: "optional", biome: "optional" } },
+};
 
 /** What the rule's own check reports on a case; prerequisites run whatever is selected. */
 const evaluate = (id: string, input: Case): ReadonlyArray<Violation> => {

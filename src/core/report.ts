@@ -1,7 +1,7 @@
 /** Text output for the CLI. Violations sort by file and line so diffs between runs are stable. */
 import type { Metrics } from "./budgets.ts";
-import type { Violation } from "./model.ts";
-import type { RatchetResult } from "./ratchet.ts";
+import type { CheckRun } from "./check.ts";
+import type { Outcome, Violation } from "./model.ts";
 
 /** Location and rule on one line (grep-able), the message indented below it (readable). */
 export const formatViolation = (v: Violation): string =>
@@ -12,7 +12,25 @@ const plural = (n: number, word: string): string => `${n} ${word}${n === 1 ? "" 
 const byLocation = (a: Violation, b: Violation): number =>
   a.file.localeCompare(b.file) || (a.line ?? 0) - (b.line ?? 0) || a.rule.localeCompare(b.rule);
 
-export const formatCheck = (result: RatchetResult): string => {
+/** What follows a check's outcome on its line. */
+const detail = (outcome: Outcome): string => {
+  switch (outcome.state) {
+    case "passed":
+    case "failed":
+      return outcome.examined;
+    case "not-applicable":
+    case "exempt":
+      return outcome.reason;
+    case "unavailable":
+      return `${outcome.prerequisite}: ${outcome.reason}${outcome.required ? "" : " (optional)"}`;
+  }
+};
+
+/**
+ * Notes, then each finding, then one line per check (its outcome and what it examined), then
+ * the summary, which is always the last line.
+ */
+export const formatCheck = ({ reports, result, notes }: CheckRun): string => {
   const entries = [...result.failing].sort(byLocation).map(formatViolation);
   for (const l of result.loose)
     entries.push(
@@ -25,7 +43,17 @@ export const formatCheck = (result: RatchetResult): string => {
     problems === 0
       ? `mshape check passed${suffix}`
       : `mshape check failed: ${plural(problems, "problem")}${suffix}`;
-  return [...entries, summary].join("\n\n");
+  const width = Math.max(0, ...reports.map((r) => r.check.length)) + 2;
+  const line = (label: string, outcome: Outcome) =>
+    `${label.padEnd(width)}${outcome.state.padEnd(16)}${detail(outcome)}`;
+  const lines = reports.flatMap((r) => [
+    `  ${line(r.check, r.outcome)}`,
+    ...(r.parts ?? []).map((part) => `    ${line(part.label, part.outcome)}`),
+  ]);
+  return [
+    ...notes.map((note) => `note: ${note}`),
+    [...entries, [...lines, "", summary].join("\n")].join("\n\n"),
+  ].join("\n");
 };
 
 export interface GardenReport {
