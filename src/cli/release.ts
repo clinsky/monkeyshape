@@ -14,11 +14,12 @@ import {
   fetchPublished,
   fileDigest,
   packCommit,
+  packSource,
   packWorkingTree,
   readTarball,
 } from "../adapters/release.ts";
 import { MAIN_BRANCH } from "../core/layout.ts";
-import { releaseTag, tagMessage, tarballDifferences } from "../core/release.ts";
+import { releaseTag, tagMessage, tarballDifferences, untaggedWarning } from "../core/release.ts";
 import type { WorkspaceError } from "../schemas/errors.ts";
 
 const USAGE = `usage: bun run release pack [<dir>] | tag [<commit>] | verify <version>`;
@@ -138,8 +139,15 @@ const main = (repo: string, args: ReadonlyArray<string>) =>
     const [command, arg, ...rest] = args;
     if (rest.length > 0) return { output: USAGE, code: 2 };
     const scratch = `${repo}/.release`;
-    if (command === "pack")
-      return { output: yield* packWorkingTree(repo, arg ?? repo), code: 0 } satisfies Outcome;
+    if (command === "pack") {
+      const warning = untaggedWarning(yield* packSource(repo));
+      const path = yield* packWorkingTree(repo, arg ?? repo);
+      // The path last, for a script that reads it.
+      return {
+        output: [...(warning === undefined ? [] : [`warning: ${warning}`]), path].join("\n"),
+        code: 0,
+      } satisfies Outcome;
+    }
     if (command === "tag") return yield* tag(repo, arg ?? "HEAD", scratch);
     if (command === "verify" && arg !== undefined) return yield* verify(repo, arg, scratch);
     return { output: USAGE, code: 2 } satisfies Outcome;

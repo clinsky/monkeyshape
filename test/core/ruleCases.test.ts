@@ -588,6 +588,11 @@ const syncCases: Record<string, Cases> = {
     fail: syncCase({ [PR_TEMPLATE_FILE]: "## Summary\n" }, [], [PRIME_FILE]),
     pass: syncCase({}, [], [PRIME_FILE]),
   },
+  "sync/pr-template-other": {
+    // GitHub's other spelling beside sync's: which one GitHub uses isn't specified.
+    fail: syncCase({ ".github/PULL_REQUEST_TEMPLATE.md": "## Summary\n" }),
+    pass: syncCase(),
+  },
   "sync/hook-missing": {
     fail: syncCase({ [SETTINGS_FILE]: renderSettings(HOOKS.slice(1)) }),
     // The repo's own hooks and keys beside monkeyshape's are its business.

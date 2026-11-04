@@ -54,6 +54,22 @@ describe("packing", () => {
     expect(files).toEqual(["package/lib/a.js", "package/package.json"]);
   });
 
+  test("an untracked file the package would ship makes a pack at the tag a dev pack", async () => {
+    git("tag", "v1.2.0");
+    await Bun.write(join(repo(), "lib", "scratch.js"), "not released\n");
+    expect(await version(Effect.runPromise(packWorkingTree(repo(), join(dir, "out"))))).toMatch(
+      /^1\.2\.1-dev\.[0-9a-f]{7}\.dirty$/,
+    );
+  });
+
+  test("an untracked file outside what the package ships leaves the release clean", async () => {
+    git("tag", "v1.2.0");
+    await Bun.write(join(repo(), "notes.md"), "scratch\n");
+    expect(await version(Effect.runPromise(packWorkingTree(repo(), join(dir, "out"))))).toBe(
+      "1.2.0",
+    );
+  });
+
   test("a commit packs as committed, whatever the working tree holds", async () => {
     git("tag", "v1.2.0");
     await writeFile(join(repo(), "lib", "a.js"), "uncommitted\n");

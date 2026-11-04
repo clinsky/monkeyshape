@@ -1,12 +1,12 @@
 /** `mshape sync`'s writes: PRIME.md, the PR template and the hooks, as `planSync` decides. */
-import { mkdir, stat } from "node:fs/promises";
+import { mkdir, readdir, stat } from "node:fs/promises";
 import { dirname } from "node:path";
 import { Effect } from "effect";
 import { PR_TEMPLATE_FILE, PRIME_FILE } from "../core/conventions.ts";
 import { SETTINGS_FILE } from "../core/hooks.ts";
 import { SKILLS_DIR, SKILLS_MANIFEST } from "../core/layout.ts";
 import { ownedFiles, parseManifest } from "../core/skills.ts";
-import { planSync, SYNCED_FILES, type SyncPlan } from "../core/sync.ts";
+import { isPrTemplate, planSync, SYNCED_FILES, type SyncPlan } from "../core/sync.ts";
 import { WorkspaceError } from "../schemas/errors.ts";
 import { installSkills } from "./skills.ts";
 
@@ -27,6 +27,19 @@ const ignoredFiles = async (repo: string): Promise<ReadonlyArray<string>> => {
     if (ran.exitCode === 0) out.push(file);
   }
   return out;
+};
+
+/** The PR templates GitHub would read in `repo` besides sync's, by their names on disk. */
+const otherTemplates = async (repo: string): Promise<ReadonlyArray<string>> => {
+  const out: Array<string> = [];
+  for (const dir of ["", ".github/", "docs/"]) {
+    const entries = await readdir(`${repo}/${dir}`, { withFileTypes: true }).catch(() => []);
+    for (const entry of entries) {
+      const path = `${dir}${entry.name}`;
+      if (entry.isFile() && path !== PR_TEMPLATE_FILE && isPrTemplate(path)) out.push(path);
+    }
+  }
+  return out.sort();
 };
 
 /**
@@ -58,6 +71,7 @@ export const syncRepo = (repo: string, packageRoot: string, replace: ReadonlyArr
           settings: await text(`${repo}/${SETTINGS_FILE}`),
           owned: ownedFiles(manifest),
           replace,
+          otherTemplates: await otherTemplates(repo),
         },
         shipped,
       );
@@ -89,6 +103,20 @@ export const syncAll = (
   replace: SyncReplace = { files: [], skills: [] },
 ) =>
   Effect.gen(function* () {
+    const shipped = yield* Effect.promise(() =>
+      readdir(`${packageRoot}/skills`, { withFileTypes: true }).catch(() => []),
+    );
+    const names = new Set(shipped.filter((entry) => !entry.isFile()).map((entry) => entry.name));
+    const unknown = replace.skills.filter((skill) => !names.has(skill));
+    // Before anything is written: a typo must not look as if it took effect.
+    if (unknown.length > 0)
+      return yield* Effect.fail(
+        new WorkspaceError({
+          operation: "sync --replace",
+          path: unknown.map((skill) => `${SKILLS_DIR}/${skill}`).join(", "),
+          reason: `monkeyshape ships no skill of that name, so there is nothing to replace it with. It ships ${[...names].sort().join(", ")}`,
+        }),
+      );
     const plan = yield* syncRepo(repo, packageRoot, replace.files);
     const skills = yield* installSkills(`${packageRoot}/skills`, repo, {
       files: plan.owned,

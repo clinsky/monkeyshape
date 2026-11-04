@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { packVersion, tarballDifferences } from "../../src/core/release.ts";
+import { packVersion, tarballDifferences, untaggedWarning } from "../../src/core/release.ts";
 
 const source = { version: "0.3.0", tagged: true, atTag: true, commit: "abc1234", dirty: false };
 
@@ -15,6 +15,16 @@ describe("packVersion", () => {
 
   test("before its tag, a version not yet released is a prerelease of itself", () => {
     expect(packVersion({ ...source, tagged: false, atTag: false })).toBe("0.3.0-dev.abc1234");
+  });
+});
+
+describe("untaggedWarning", () => {
+  test("without the tag, says the pack sorts before the version and how to fetch the tag", () => {
+    const untagged = { ...source, tagged: false, atTag: false };
+    expect(untaggedWarning(untagged)).toContain("0.3.0-dev.abc1234, which sorts before 0.3.0");
+    expect(untaggedWarning(untagged)).toContain("git fetch --tags");
+    expect(untaggedWarning(source)).toBeUndefined();
+    expect(untaggedWarning({ ...source, atTag: false })).toBeUndefined();
   });
 });
 

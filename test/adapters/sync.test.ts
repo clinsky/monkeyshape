@@ -67,6 +67,26 @@ describe("sync and a PR template the adopter wrote", () => {
     expect(await recorded(clone)).toEqual([PRIME_FILE, PR_TEMPLATE_FILE]);
   });
 
+  test("an adopter's template in GitHub's other spelling blocks sync from adding a second", async () => {
+    await rm(join(repo(), PR_TEMPLATE_FILE));
+    await put(join(repo(), ".github", "PULL_REQUEST_TEMPLATE.md"), OWN_TEMPLATE);
+    const plan = (await sync(repo())).plan;
+    expect(plan.blocked.join("\n")).toContain(
+      ".github/PULL_REQUEST_TEMPLATE.md is a PR template too",
+    );
+    expect(await Bun.file(join(repo(), PR_TEMPLATE_FILE)).exists()).toBe(false);
+  });
+
+  test("--replace of a skill monkeyshape doesn't ship refuses, writing nothing", async () => {
+    const exit = await Effect.runPromiseExit(
+      syncAll(repo(), pkg(), { files: [], skills: ["trak"] }),
+    );
+    expect(exit._tag).toBe("Failure");
+    expect(String(exit)).toContain(".agents/skills/trak");
+    expect(String(exit)).toContain("It ships track");
+    expect(await Bun.file(join(repo(), PRIME_FILE)).exists()).toBe(false);
+  });
+
   test("a hand edit to a file sync owns is put back, as before", async () => {
     await sync(repo(), [PR_TEMPLATE_FILE]);
     await put(join(repo(), PR_TEMPLATE_FILE), "## Edited\n");

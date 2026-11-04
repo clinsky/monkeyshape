@@ -16,7 +16,7 @@ export interface PackSource {
   readonly atTag: boolean;
   /** HEAD's short commit id. */
   readonly commit: string;
-  /** Whether the working tree has changes git would commit. */
+  /** Whether what the package ships differs from HEAD: changed, staged or untracked files. */
   readonly dirty: boolean;
 }
 
@@ -26,14 +26,23 @@ const nextPatch = (version: string): string => {
 };
 
 /**
- * The version a pack carries: the release's own at its tag; otherwise a prerelease of the next
- * version, naming the commit, which sorts after the release it follows and before the next.
+ * The version a pack carries: the release's own at its tag; otherwise a prerelease naming the
+ * commit. Past a tagged release it is of the next patch, so it sorts after the release it
+ * follows. Without the tag it is of `version` itself, which sorts before it: right for a
+ * version not yet released, wrong where the tag exists elsewhere but isn't here, which is why
+ * `untaggedWarning` says so.
  */
 export const packVersion = (source: PackSource): string => {
   if (source.atTag && !source.dirty) return source.version;
   const base = source.tagged ? nextPatch(source.version) : source.version;
   return `${base}-dev.${source.commit}${source.dirty ? ".dirty" : ""}`;
 };
+
+/** What `pack` says when it can't tell a released version from one to come; else nothing. */
+export const untaggedWarning = (source: PackSource): string | undefined =>
+  source.tagged
+    ? undefined
+    : `no tag ${releaseTag(source.version)} here, so this pack is ${packVersion(source)}, which sorts before ${source.version}. If ${source.version} is released, run \`git fetch --tags\` and pack again.`;
 
 /** A tarball as a release compares them: its version, and each file's content digest. */
 export interface Tarball {

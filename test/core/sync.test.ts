@@ -14,7 +14,7 @@ import {
   SETTINGS_FILE,
 } from "../../src/core/hooks.ts";
 import { lineCount } from "../../src/core/model.ts";
-import { planSync } from "../../src/core/sync.ts";
+import { isPrTemplate, planSync } from "../../src/core/sync.ts";
 
 const ROOT = join(import.meta.dir, "..", "..");
 const PRIME = "# The working loop\n";
@@ -27,6 +27,7 @@ const upToDate = {
   settings: renderSettings(HOOKS),
   owned: [PRIME_FILE, PR_TEMPLATE_FILE],
   replace: [],
+  otherTemplates: [],
 };
 
 describe("the shipped PRIME.md", () => {
@@ -115,6 +116,36 @@ describe("planSync and files the adopter wrote", () => {
     const plan = planSync({ ...upToDate, prTemplate: "## Old sections\n" }, PRIME);
     expect(plan.write.get(PR_TEMPLATE_FILE)).toBe(prTemplate());
     expect(plan.blocked).toEqual([]);
+  });
+
+  test("beside another PR template GitHub reads, writes neither and names it", () => {
+    const plan = planSync(
+      {
+        ...upToDate,
+        owned: [],
+        prTemplate: undefined,
+        otherTemplates: [".github/PULL_REQUEST_TEMPLATE.md"],
+      },
+      PRIME,
+    );
+    expect(plan.write.has(PR_TEMPLATE_FILE)).toBe(false);
+    expect(plan.owned).toEqual([PRIME_FILE]);
+    expect(plan.blocked.join("\n")).toContain(
+      ".github/PULL_REQUEST_TEMPLATE.md is a PR template too",
+    );
+  });
+
+  test("GitHub's template locations, in any case, are templates; others aren't", () => {
+    for (const path of [
+      "pull_request_template.md",
+      "PULL_REQUEST_TEMPLATE.md",
+      ".github/Pull_Request_Template.md",
+      "docs/pull_request_template.md",
+      PR_TEMPLATE_FILE,
+    ])
+      expect(isPrTemplate(path)).toBe(true);
+    for (const path of ["src/pull_request_template.md", ".github/PULL_REQUEST_TEMPLATE/a.md"])
+      expect(isPrTemplate(path)).toBe(false);
   });
 
   test("without .beads/ keeps owning PRIME.md, so adding beads later installs it", () => {

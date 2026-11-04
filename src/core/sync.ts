@@ -26,6 +26,7 @@ export const SYNC_RULES = [
   "pr-template-missing",
   "pr-template-diverged",
   "pr-template-own",
+  "pr-template-other",
   "hook-missing",
   "settings-invalid",
   "ignored",
@@ -59,6 +60,17 @@ export const ownFileMessage = (file: string): string =>
     ? `is this repo's own, not a copy sync wrote, so sync leaves it alone. But it isn't the working loop monkeyshape ships, which every session loads from it. What this repo decides goes in AGENTS.md: move what you need from it there, then run \`${SYNC_COMMAND} --replace ${PRIME_FILE}\` and commit both.`
     : `is this repo's own, not the template sync renders, so sync leaves it alone. But \`mshape track pr\` and CI's PR check need monkeyshape's sections. What your sections ask of every PR goes in AGENTS.md as a rule, answered in each PR's "What changed and why": move it there, then run \`${SYNC_COMMAND} --replace ${file}\` and commit both.`;
 
+/**
+ * Whether GitHub would read `path` as the default PR template: `pull_request_template.md` in
+ * the root, `.github/` or `docs/`, in any letter case. Sync's own file is one of them.
+ */
+export const isPrTemplate = (path: string): boolean =>
+  /^(?:\.github\/|docs\/)?pull_request_template(?:\.md|\.txt)?$/i.test(path);
+
+/** A PR template beside sync's: the adopter's, and GitHub reads only one of them. */
+export const otherTemplateMessage = (file: string): string =>
+  `is a PR template too, and GitHub reads only one: beside ${PR_TEMPLATE_FILE} it isn't specified which. So sync leaves both as they are. What its sections ask of every PR goes in AGENTS.md as a rule, answered in each PR's "What changed and why": move it there, delete ${file}, then run \`${SYNC_COMMAND}\` and commit.`;
+
 /** What sync reads of a repo. */
 export interface SyncState {
   /** Synced files on disk that git ignores: sync can't make them reach other clones. */
@@ -73,6 +85,8 @@ export interface SyncState {
   readonly owned: ReadonlyArray<string>;
   /** Files the adopter asked sync to take over with `--replace`. */
   readonly replace: ReadonlyArray<string>;
+  /** PR templates GitHub would read other than sync's (`isPrTemplate`). */
+  readonly otherTemplates: ReadonlyArray<string>;
 }
 
 /** The parsed settings, `{}` for none, undefined when it isn't a JSON object. */
@@ -126,7 +140,11 @@ export const planSync = (state: SyncState, shippedPrime: string): SyncPlan => {
       `${PRIME_FILE}: not installed, since this repo has no .beads/ yet; run \`bd init\`, then sync again`,
     );
   }
-  whole(PR_TEMPLATE_FILE, state.prTemplate, prTemplate());
+  // Beside another template, writing sync's could shadow the adopter's: write neither.
+  if (state.otherTemplates.length > 0) {
+    if (state.owned.includes(PR_TEMPLATE_FILE)) owned.push(PR_TEMPLATE_FILE);
+    for (const file of state.otherTemplates) blocked.push(`${file} ${otherTemplateMessage(file)}`);
+  } else whole(PR_TEMPLATE_FILE, state.prTemplate, prTemplate());
   const settings = parseSettings(state.settings);
   if (settings === undefined)
     blocked.push(
@@ -183,8 +201,11 @@ export const checkSync = (
       );
   }
   const template = snapshot.texts.get(PR_TEMPLATE_FILE);
-  if (snapshot.unlisted.has(PR_TEMPLATE_FILE)) {
-    // Reported above as ignored.
+  const others = snapshot.files.filter((file) => file !== PR_TEMPLATE_FILE && isPrTemplate(file));
+  for (const file of others)
+    out.push(violation("pr-template-other", file, otherTemplateMessage(file)));
+  if (others.length > 0 || snapshot.unlisted.has(PR_TEMPLATE_FILE)) {
+    // Reported above: as another template, which sync won't write beside, or as ignored.
   } else if (template === undefined)
     out.push(
       violation(

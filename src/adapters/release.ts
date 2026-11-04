@@ -57,7 +57,17 @@ export const packSource = (repo: string) =>
       0;
     const head = yield* must(repo, ["git", "rev-parse", "HEAD"]);
     const tagCommit = tagged ? yield* must(repo, ["git", "rev-parse", `${tag}^{commit}`]) : "";
-    const status = yield* must(repo, ["git", "status", "--porcelain", "--untracked-files=no"]);
+    // Untracked files count where the package ships them: `bun pm pack` would include them.
+    const shipped = (yield* readPackage(repo)).files?.filter((entry) => !entry.startsWith("!"));
+    const status = yield* must(repo, [
+      "git",
+      "status",
+      "--porcelain",
+      "--untracked-files=all",
+      "--",
+      "package.json",
+      ...(shipped ?? ["."]),
+    ]);
     return {
       version,
       tagged,
