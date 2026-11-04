@@ -84,8 +84,11 @@ handoff, all derived from the name by `mshape track`:
 - `mshape track rm <name>` removes a finished track. It refuses while the worktree has
   uncommitted work or the branch has unmerged commits, and says which; `--force` discards
   them. Merged means in `main` or in its upstream, which `rm` fetches first, so a PR merged
-  on the remote counts before anyone pulls; a merge commit, a rebase and a squash all count. It also refuses while any bead labelled `track:<name>` isn't closed, and `--force`
-  doesn't override that: close each one, or move it to the track that will do it.
+  on the remote counts before anyone pulls; a merge commit, a rebase and a squash all count.
+  It also refuses while any bead labelled `track:<name>` isn't closed, and `--force` doesn't
+  override that: close each one, move it to the track that will do it, or, when the next
+  milestone starts a new track of the same name, pass `--keep-beads` to leave them labelled
+  for it.
 
 Its beads carry the label `track:<name>`; its queue is `bd ready --label track:<name>`. An
 empty queue doesn't mean the track is done: `bd ready` leaves out beads in progress or blocked.
