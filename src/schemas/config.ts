@@ -67,6 +67,12 @@ export const ShapeConfig = Schema.Struct({
     }),
   ),
   rules: Schema.optionalKey(Schema.Record(Schema.String, RuleSetting)),
+  /**
+   * The repo's own rules: each a module's default export, imported here
+   * (`import indexWrites from "./rules/indexWrites.ts"`). The rules check validates each and
+   * runs it as `local/<id>`; `rules` configures it under that id.
+   */
+  localRules: Schema.optionalKey(Schema.Array(Schema.Unknown)),
   /** `required` fails the check when bd can't answer, so a green CI run means beads was checked. */
   beads: Schema.optionalKey(Schema.Literals(["optional", "required"])),
   tracks: Schema.optionalKey(
@@ -137,6 +143,8 @@ export interface ResolvedConfig {
   readonly rules: Readonly<
     Record<string, { readonly off?: string; readonly allow?: ReadonlyArray<Allowance> }>
   >;
+  /** Validated by the rules check, not here, so a misshaped one fails the gate with a reason. */
+  readonly localRules: ReadonlyArray<unknown>;
   readonly refs: {
     readonly docs: ReadonlyArray<string>;
     readonly narrativeDocs: ReadonlyArray<string>;
@@ -196,6 +204,7 @@ export const resolveConfig = (config: ShapeConfig): ResolvedConfig => ({
           ],
         },
   rules: config.rules ?? {},
+  localRules: config.localRules ?? [],
   refs: {
     docs: config.refs?.docs ?? DEFAULT_DOCS,
     narrativeDocs: config.refs?.narrativeDocs ?? ["README.md"],

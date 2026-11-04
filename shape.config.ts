@@ -18,7 +18,7 @@ export default defineConfig({
       },
       api: {
         description: "The package's public surface.",
-        mayImport: ["schemas", "helpers"],
+        mayImport: ["schemas", "helpers", "core"],
       },
       cli: {
         description: "The mshape executable and composition root.",
