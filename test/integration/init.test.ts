@@ -63,6 +63,89 @@ describe("mshape init", () => {
     expect(created.output).toContain(`note: monkeyshape is installed from vendor/${name}`);
   });
 
+  test("a --from tarball is recorded with its digest, and the files check verifies it", async () => {
+    const repo = join(work, "demo");
+    const name = tarball.split("/").at(-1) ?? "";
+    const digest = new Bun.CryptoHasher("sha256")
+      .update(await Bun.file(tarball).bytes())
+      .digest("hex");
+    const config = await Bun.file(join(repo, "shape.config.ts")).text();
+    // Laid out by the born repo's own biome, so field by field.
+    expect(config).toContain(`path: "vendor/${name}"`);
+    expect(config).toContain(`package: "monkeyshape"`);
+    expect(config).toContain(`sha256: "${digest}"`);
+    const bin = join(repo, "node_modules", ".bin", "mshape");
+    const files = await run(repo, [process.execPath, bin, "check", "--only", "files"]);
+    expect(files.output).toMatch(/files +passed .*1 vendored artifact/);
+    expect(files.code).toBe(0);
+    // A record that isn't the tarball's digest fails, so the record is checked, not trusted.
+    // Outside the repo, as `--config` is used to try a config: it must still resolve monkeyshape.
+    const tampered = join(work, "tampered.config.ts");
+    await writeFile(tampered, config.replace(digest, "0".repeat(64)));
+    const wrong = await run(repo, [
+      process.execPath,
+      bin,
+      "check",
+      "--only",
+      "files",
+      "--config",
+      tampered,
+    ]);
+    await rm(tampered);
+    expect(wrong.output).toContain("files/vendored-digest");
+    expect(wrong.code).toBe(1);
+  }, 60_000);
+
+  test("dep bump on a born repo: a wrong digest changes nothing, the right one moves it", async () => {
+    await fromSource(["bumped", "--from", tarball]);
+    const repo = join(work, "bumped");
+    const bin = join(repo, "node_modules", ".bin", "mshape");
+    // A second release on disk: the same package under another name, so the path moves.
+    const next = join(work, "monkeyshape-next.tgz");
+    await writeFile(next, await Bun.file(tarball).bytes());
+    const digest = new Bun.CryptoHasher("sha256")
+      .update(await Bun.file(next).bytes())
+      .digest("hex");
+    const before = await Bun.file(join(repo, "shape.config.ts")).text();
+
+    const wrong = await run(repo, [
+      process.execPath,
+      bin,
+      "dep",
+      "bump",
+      "monkeyshape",
+      next,
+      "--sha256",
+      "0".repeat(64),
+    ]);
+    expect(wrong.output).toContain("not that release");
+    expect(wrong.code).toBe(1);
+    expect(await Bun.file(join(repo, "shape.config.ts")).text()).toBe(before);
+    expect((await run(repo, ["git", "status", "--porcelain"])).output.trim()).toBe("");
+
+    const right = await run(repo, [
+      process.execPath,
+      bin,
+      "dep",
+      "bump",
+      "monkeyshape",
+      next,
+      "--sha256",
+      digest,
+    ]);
+    expect(right.output).toContain("gate passed");
+    expect(right.code).toBe(0);
+    const pkg = await Bun.file(join(repo, "package.json")).json();
+    expect(pkg.devDependencies.monkeyshape).toBe("file:./vendor/monkeyshape-next.tgz");
+    expect(await Bun.file(join(repo, "shape.config.ts")).text()).toContain(
+      '"vendor/monkeyshape-next.tgz"',
+    );
+    expect(await Bun.file(join(repo, "bun.lock")).text()).toContain("monkeyshape-next.tgz");
+    expect(await Bun.file(join(repo, "vendor", tarball.split("/").at(-1) ?? "")).exists()).toBe(
+      false,
+    );
+  }, 180_000);
+
   test("--from vendors any file it names, whatever its extension", async () => {
     const renamed = tarball.replace(/\.tgz$/, ".tar.gz");
     await Bun.write(renamed, Bun.file(tarball));
