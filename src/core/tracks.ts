@@ -180,6 +180,11 @@ export interface RmFacts {
   readonly sessions: { readonly live: ReadonlyArray<string> } | { readonly unknown: string };
   readonly force: boolean;
   readonly keepHandoff: boolean;
+  /**
+   * The track's open beads are for the next track of the same name, which the caller is
+   * about to start (a milestone reusing it): leave them labelled instead of refusing.
+   */
+  readonly keepBeads?: boolean | undefined;
 }
 
 export type RmStep =
@@ -270,14 +275,27 @@ export const planRm = (facts: RmFacts): RmPlan => {
         ? `\`${branch}\` is still registered as checked out at ${elsewhere.path}, which no longer exists: run \`git worktree prune\`, then retry`
         : `\`${branch}\` is checked out at ${elsewhere.path}: switch that checkout to another branch first`,
     );
-  if (integration.state === "ok" && open.length > 0)
-    refusals.push(
-      [
-        `\`${label}\` still labels ${open.length} bead(s) that aren't closed, and removing the track would orphan them:`,
-        ...open.map((bead) => `  ${bead.id} (${bead.status}) ${bead.title}`),
-        `close each one that's done (\`bd close <id>\`), or move it to the track that will do it (\`bd update <id> --remove-label ${label} --add-label track:<other>\`). --force doesn't override this`,
-      ].join("\n    "),
-    );
+  if (integration.state === "ok" && open.length > 0) {
+    const listed = open.map((bead) => `  ${bead.id} (${bead.status}) ${bead.title}`);
+    // Only the caller knows whether a track of this name comes next. Nothing here can tell an
+    // earlier track's open beads from ones a milestone filed for the next: they share the
+    // label, and the next track's beads are filed before the old track is removed.
+    if (facts.keepBeads)
+      kept.push(
+        [
+          `${open.length} open bead(s) labelled \`${label}\`, for the next track of that name (--keep-beads): start it with \`mshape track new ${facts.track}\``,
+          ...listed,
+        ].join("\n    "),
+      );
+    else
+      refusals.push(
+        [
+          `\`${label}\` still labels ${open.length} bead(s) that aren't closed, and removing the track would orphan them:`,
+          ...listed,
+          `close each one that's done (\`bd close <id>\`), or move it to the track that will do it (\`bd update <id> --remove-label ${label} --add-label track:<other>\`). If they are for a new track of this same name that you'll start next (a milestone reusing it), pass --keep-beads to leave them labelled for it. --force doesn't override this`,
+        ].join("\n    "),
+      );
+  }
   // The repo has beads but bd can't run: `check` notes it and goes on, but removal can't be
   // undone, so rm refuses until the beads can be seen. --force has nothing to agree to.
   if (blocker === undefined && integration.state === "unavailable")

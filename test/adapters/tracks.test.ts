@@ -849,6 +849,50 @@ describe("track rm and list with beads", () => {
     },
     30_000,
   );
+
+  test.skipIf(Bun.which("bd") === null)(
+    "with the real bd: a reused name's next beads don't strand the old track; --keep-beads hands them on (4q6)",
+    async () => {
+      // The milestone boundary: the old track merged and clean, its bead closed, and the next
+      // milestone's bead already filed with the same label, as /milestone grooms before rm.
+      await setup();
+      const bd = (...args: ReadonlyArray<string>) => {
+        const result = Bun.spawnSync(["bd", ...args], {
+          cwd: repo,
+          stdout: "pipe",
+          stderr: "pipe",
+        });
+        if (result.exitCode !== 0) throw new Error(`bd ${args.join(" ")}: ${result.stderr}`);
+        return result.stdout.toString().trim();
+      };
+      bd("init", "-q", "--skip-agents", "--prefix", "t");
+      mshape(repo, "new", "docs");
+      bd("close", bd("create", "--title", "old work", "--labels", "track:docs", "--silent"));
+      await writeFile(`${wt("docs")}/page.md`, "page\n");
+      sh(wt("docs"), "add", ".");
+      sh(wt("docs"), "commit", "-qm", "page");
+      sh(repo, "merge", "-q", "--no-edit", "track/docs");
+      const next = bd("create", "--title", "next work", "--labels", "track:docs", "--silent");
+
+      const refused = mshape(repo, "rm", "docs");
+      expect(refused.code).toBe(1);
+      expect(refused.stderr).toContain("pass --keep-beads to leave them labelled for it");
+      expect(await exists(wt("docs"))).toBe(true);
+
+      const removed = mshape(repo, "rm", "docs", "--keep-beads");
+      expect(removed.code).toBe(0);
+      expect(removed.stdout).toContain(
+        "kept 1 open bead(s) labelled `track:docs`, for the next track of that name (--keep-beads): start it with `mshape track new docs`",
+      );
+      expect(await exists(wt("docs"))).toBe(false);
+      expect(bd("show", next, "--json")).toContain("track:docs");
+
+      // The next track of the name starts fresh, with the bead in its queue.
+      expect(mshape(repo, "new", "docs").code).toBe(0);
+      expect(mshape(repo, "list").stdout).toMatch(/^docs\s+stub\s+1\s+0\s+yes\s+no\s/m);
+    },
+    30_000,
+  );
 });
 
 /**

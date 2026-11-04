@@ -199,7 +199,7 @@ const track = (root: string, args: ReadonlyArray<string>) =>
     if (sub === "pr") return yield* trackPrCommand(root, rest);
     const flags = rest.filter((arg) => arg.startsWith("--"));
     const names = rest.filter((arg) => !arg.startsWith("--"));
-    const allowed = sub === "rm" ? ["--force", "--keep-handoff"] : [];
+    const allowed = sub === "rm" ? ["--force", "--keep-handoff", "--keep-beads"] : [];
     const takesName = sub === "new" || sub === "rm";
     if (flags.some((flag) => !allowed.includes(flag))) return usage();
     if (names.length !== (takesName ? 1 : 0)) return usage();
@@ -225,6 +225,7 @@ const track = (root: string, args: ReadonlyArray<string>) =>
           {
             force: flags.includes("--force"),
             keepHandoff: flags.includes("--keep-handoff"),
+            keepBeads: flags.includes("--keep-beads"),
             // rm fetches main's upstream; with no terminal to answer, a prompt would hang it.
             fetchEnv: { ...process.env, GIT_TERMINAL_PROMPT: "0" },
             sessions: trackSessions(root),
@@ -578,12 +579,14 @@ export const COMMANDS: ReadonlyArray<Command> = [
   mshape track pr --check-body
       Read a PR body on stdin; exit 1 naming the required sections it lacks (CI's pr.yml).
       track pr also needs each bead as a list item starting with its id, to check it with bd.
-  mshape track rm <name> [--force] [--keep-handoff]
+  mshape track rm <name> [--force] [--keep-handoff] [--keep-beads]
       Remove a finished track: worktree, branch, handoff, mailbox. Fetches main's upstream
       first, then refuses on uncommitted changes, work in neither main nor origin/main (by
       merge, rebase or squash), or unread mail; --force discards them. Also refuses while beads
-      labelled track:<name> aren't closed, which --force doesn't override. --keep-handoff keeps
-      the handoff and mailbox, for a track that continues. Never touches main or other tracks.`,
+      labelled track:<name> aren't closed, which --force doesn't override; --keep-beads leaves
+      them labelled for a new track of the same name you start next (a milestone reusing it).
+      --keep-handoff keeps the handoff and mailbox, for a track that continues. Never touches
+      main or other tracks.`,
     run: track,
   },
   {
