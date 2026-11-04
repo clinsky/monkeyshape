@@ -64,7 +64,11 @@
       "linter": { "rules": { "performance": { "noBarrelFile": "off" } } }
     },
     {
-      "includes": ["src/cli/**", "tools/**", "**/*.test.ts", "**/*.test.tsx"],
+      "includes": ["**/*.ts", "**/*.tsx", "**/*.mts", "**/*.cts"],
+      "linter": { "rules": { "suspicious": { "noConsole": "off" } } }
+    },
+    {
+      "includes": ["src/cli/**", "tools/**", "**/*.test.js", "**/*.test.mjs"],
       "linter": { "rules": { "suspicious": { "noConsole": "off" } } }
     }
   ]

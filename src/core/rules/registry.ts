@@ -2,6 +2,7 @@
 import { decodeStrict } from "./decodeStrict.ts";
 import { effectRunAtEdge } from "./effectRunAtEdge.ts";
 import type { Rule } from "./engine.ts";
+import { noConsole } from "./noConsole.ts";
 import { noErrorSpread } from "./noErrorSpread.ts";
 import { noNondeterminism } from "./noNondeterminism.ts";
 import { noThrow } from "./noThrow.ts";
@@ -12,4 +13,5 @@ export const RULES: ReadonlyArray<Rule> = [
   noThrow,
   effectRunAtEdge,
   noErrorSpread,
+  noConsole,
 ];
