@@ -252,18 +252,21 @@ const ROWS: ReadonlyArray<Row> = [
     },
   },
   {
-    name: "a repo with no TypeScript to cover needs neither tsc nor biome",
-    // The configs are there: whether coverage asks for them without TypeScript is coverage's.
-    files: {
-      "AGENTS.md": "# A\n",
-      "tools/build.sh": "echo\n",
-      "tsconfig.json": "{}",
-      "biome.json": "{}",
+    // 4dq: a C-only repo without node_modules reads coverage passed, its commands judged.
+    name: "a repo with no TypeScript to cover needs neither tsc nor biome: its commands are judged",
+    files: { "AGENTS.md": "# A\n", "native/a.c": "int main(void) { return 0; }\n" },
+    config: {
+      coverage: { commands: [{ files: ["native/**/*.c"], run: ["make", "-C", "native"] }] },
     },
-    options: {},
+    // Neither tool ran: no file lists, so both integrations are unavailable.
+    options: { commands: [{ state: "ran", code: 0, output: "" }] },
     only: ["coverage"],
-    outcomes: { coverage: "not-applicable" },
+    outcomes: { coverage: "passed" },
     green: true,
+    also: (run) => {
+      expect(rulesOf(run).filter((rule) => rule.startsWith("prerequisites/tool-"))).toEqual([]);
+      expect(outcomeOf(run, "coverage")?.state).toBe("passed");
+    },
   },
   {
     name: "a prerequisite of a check --only didn't select: no effect",
