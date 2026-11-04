@@ -333,8 +333,9 @@ const TOOLS = { "tsconfig.json": '{ "include": ["src"] }', "biome.json": "{}" };
 
 const coverage: Record<string, Cases> = {
   "coverage/config": {
-    fail: { files: { "biome.json": "{}", "tsconfig.json": "{ not json" } },
-    pass: { files: { "biome.json": "{}", "tsconfig.json": "// a comment\n{}" } },
+    // Only with TypeScript to cover: a repo without any needs neither config.
+    fail: { files: { "biome.json": "{}", "tsconfig.json": "{ not json", "src/a.ts": "" } },
+    pass: { files: { "biome.json": "{}", "tsconfig.json": "// a comment\n{}", "src/a.ts": "" } },
   },
   "coverage/typecheck": {
     fail: { files: { ...TOOLS, "scripts/a.ts": "" } },

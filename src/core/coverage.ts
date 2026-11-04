@@ -94,6 +94,13 @@ export const checkCoverage = (
 ): ReadonlyArray<Violation> => {
   const violations: Array<Violation> = [];
   const tsconfigs: Array<{ path: string; value: unknown }> = [];
+  const exempt = new Set(config.coverage.exempt);
+  const typescript = snapshot.files.filter(
+    (file) => isTsSource(file) && !file.split("/").some((segment) => exempt.has(segment)),
+  );
+  const others = [...uncovered(config, snapshot), ...commandViolations(config, snapshot)];
+  // No TypeScript to cover: tsc's and biome's configs answer for nothing, so none is needed.
+  if (typescript.length === 0) return others;
   const typechecked = snapshot.typechecked;
   const linted = snapshot.linted;
   for (const path of typechecked === undefined ? config.coverage.tsconfigs : []) {
@@ -114,9 +121,7 @@ export const checkCoverage = (
   const isLinted = (file: string) =>
     linted !== undefined ? linted.has(file) : biome === undefined || biomeCovers(biome, file);
 
-  const exempt = new Set(config.coverage.exempt);
-  for (const file of snapshot.files) {
-    if (!isTsSource(file) || file.split("/").some((segment) => exempt.has(segment))) continue;
+  for (const file of typescript) {
     if (!isTypechecked(file))
       violations.push(
         violation(
@@ -134,7 +139,7 @@ export const checkCoverage = (
         ),
       );
   }
-  return [...violations, ...uncovered(config, snapshot), ...commandViolations(config, snapshot)];
+  return [...violations, ...others];
 };
 
 const CONFIG_FILE = "shape.config.ts";

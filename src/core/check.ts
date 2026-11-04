@@ -211,7 +211,11 @@ export const report = (
   if (off !== undefined)
     return { check, outcome: { state: "exempt", reason: off }, violations: [] };
   const blocked = blocker(check, config, snapshot);
-  if (blocked !== undefined) return { check, outcome: blocked, violations: [] };
+  if (blocked !== undefined) {
+    // Each command still ran: its line shows under the blocked check, so its error isn't hidden.
+    const parts = check === "coverage" ? commandReports(config, snapshot) : [];
+    return { check, outcome: blocked, violations: [], ...(parts.length === 0 ? {} : { parts }) };
+  }
   const violations = run[check](config, snapshot);
   const scope = scopeOf(check, config, snapshot);
   const examined = "examined" in scope ? scope.examined : scope.notApplicable;

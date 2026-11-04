@@ -356,3 +356,38 @@ describe("coverage's report under the outcome contract", () => {
     expect(lines[at + 2]).toMatch(/^\s+ruff check\s+not-applicable\s+its files match nothing/);
   });
 });
+
+describe("review of the merge with #53", () => {
+  test("a blocked coverage report still shows each command's line", () => {
+    const shape: ShapeConfig = {
+      coverage: { commands: [{ files: ["native/**"], run: ["cc", "native/a.c"] }] },
+    };
+    const snapshot = repo(
+      { ...configs({}, {}), "src/a.ts": "", "native/a.c": "" },
+      { commands: [{ state: "ran", code: 1, output: "native/a.c:1: error" }] },
+    );
+    const got = report("coverage", config(shape), snapshot);
+    expect(got.outcome.state).toBe("unavailable");
+    expect(got.parts).toEqual([
+      { label: "cc native/a.c", outcome: { state: "failed", examined: "1 file" } },
+    ]);
+  });
+
+  test("no TypeScript: no tsconfig.json or biome.json is asked for", () => {
+    const shape: ShapeConfig = {
+      prerequisites: { tsc: "optional", biome: "optional" },
+      coverage: { commands: [{ files: ["native/**"], run: ["cc", "native/a.c"] }] },
+    };
+    const snapshot = repo(
+      { "native/a.c": "", "vendor/x.ts": "" },
+      { commands: [{ state: "ran", code: 0, output: "" }] },
+    );
+    expect(checkCoverage(config(shape), snapshot)).toEqual([]);
+  });
+
+  test("the mirror: with TypeScript, a missing tsconfig.json is still reported", () => {
+    expect(
+      checkCoverage(config(), repo({ "src/a.ts": "" })).map((v) => `${v.rule} ${v.file}`),
+    ).toEqual(["coverage/config tsconfig.json", "coverage/config biome.json"]);
+  });
+});
