@@ -408,7 +408,8 @@ export default { localRules: [noSave] };
         await rm(dir, { recursive: true, force: true });
       }
     })();
-    expect(typo.output).toContain("shape.config.ts: not found");
+    // The loader names the path it tried (adoption is changing it to the flag's path).
+    expect(typo.output).toMatch(/: not found/);
     expect(typo.code).toBe(2);
     const bare = await rules({});
     expect(bare.output).toContain("no-throw ");
