@@ -469,3 +469,29 @@ describe("structured data parses", () => {
     expect(found({ "tsconfig.json": "{" })).toEqual(["coverage/data tsconfig.json"]);
   });
 });
+
+describe("a long command's line", () => {
+  test("is cut to one short line under coverage; its finding keeps the whole command", () => {
+    const run = [
+      "sh",
+      "-c",
+      'test -n "$HOME_DIR" ||\n exit 127; javac -d out "$@"',
+      "x",
+      ...Array(5).fill("scripts/Some.java"),
+    ];
+    const shape: ShapeConfig = {
+      prerequisites: { tsc: "optional", biome: "optional" },
+      coverage: { commands: [{ files: ["scripts/**"], run }] },
+    };
+    const snapshot = repo(
+      { "scripts/Some.java": "" },
+      { commands: [{ state: "ran", code: 1, output: "error" }] },
+    );
+    const [part] = commandReports(config(shape), snapshot);
+    expect(part?.label.length).toBe(60);
+    expect(part?.label.endsWith("…")).toBe(true);
+    expect(part?.label).not.toContain("\n");
+    const [found] = checkCoverage(config(shape), snapshot);
+    expect(found?.message).toContain(run.join(" "));
+  });
+});
