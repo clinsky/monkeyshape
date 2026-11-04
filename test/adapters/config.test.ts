@@ -36,4 +36,26 @@ describe("loadConfig", () => {
     const outside = await Effect.runPromise(Effect.flip(loadConfig(dir, "/nowhere/x.ts")));
     expect(outside.message).toBe("/nowhere/x.ts: not found");
   });
+
+  test("a config outside the repo resolves monkeyshape from the repo, and its own files beside it", async () => {
+    const outside = await mkdtemp(join(tmpdir(), "mshape-outside-"));
+    try {
+      await Bun.write(join(outside, "shared.ts"), 'export const docs = ["AGENTS.md"];\n');
+      await Bun.write(
+        join(outside, "try.config.ts"),
+        'import { defineConfig } from "monkeyshape";\nimport { docs } from "./shared.ts";\nexport default defineConfig({ refs: { docs } });\n',
+      );
+      const config = await Effect.runPromise(loadConfig(dir, join(outside, "try.config.ts")));
+      expect(config.refs.docs).toEqual(["AGENTS.md"]);
+      // An error names the file given, not the copy loaded.
+      await Bun.write(join(outside, "bad.config.ts"), "export default { a: ;\n");
+      const error = await Effect.runPromise(
+        Effect.flip(loadConfig(dir, join(outside, "bad.config.ts"))),
+      );
+      expect(error.message).toContain(`${join(outside, "bad.config.ts")}:1:`);
+      expect(error.message).not.toContain("mshape-config-");
+    } finally {
+      await rm(outside, { recursive: true, force: true });
+    }
+  });
 });
