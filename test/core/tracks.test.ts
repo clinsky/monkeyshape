@@ -145,6 +145,14 @@ describe("what track rm may do", () => {
     expect(why({ ownPrs: { unknown: "x" }, merged: false, unmerged: 1, force: true })[0]).toContain(
       "Get `gh` working (`gh auth status`), finish the rest, then retry",
     );
+    // A start that can't be placed isn't a gh failure: its fix is recording it (z2m).
+    expect(why({ ownPrs: { unplaced: "no-start" } })).toEqual([
+      "--keep-beads hands the beads to a new track of this name only once this one is done, and that isn't shown: its start isn't recorded and its branch's reflog no longer reaches its creation (git expires reflog entries), so which PRs are its own can't be told. Record when it started (`git config branch.track/docs.mshape-started <YYYY-MM-DD>`): if unsure, a later date is safe, and an earlier one may count an earlier track's PRs of this name, then retry; --force doesn't override this",
+    ]);
+    expect(why({ ownPrs: { unplaced: "no-branch" } })[0]).toContain(
+      "its branch is gone, so its start, and which PRs are its own, can't be read. Settle it with the human, then retry",
+    );
+    expect(why({ ownPrs: { unplaced: "no-start" } })[0]).not.toContain("gh");
     // It speaks only to open beads: a failing bd still refuses.
     const failing = {
       ...beads,
