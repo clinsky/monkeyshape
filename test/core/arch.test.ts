@@ -264,3 +264,81 @@ describe("arch at the repo root and across top-level directories", () => {
     ).toEqual(["arch/unknown-module tools/gen.ts"]);
   });
 });
+
+describe("host access is judged per operation", () => {
+  const pure = config({ arch: { modules: { core: { description: "logic" } } } });
+  const found = (source: string) =>
+    checkArch(pure, repo({ "src/core/a.ts": source })).map((v) => `${v.rule}: ${v.message}`);
+
+  test("passes: pure operations by name, by namespace member, and type-only imports", () => {
+    expect(
+      found(
+        [
+          'import { createHash, createHmac } from "node:crypto";',
+          'import * as zlib from "node:zlib";',
+          'import path from "node:path";',
+          'import { Duplex } from "node:stream";',
+          'import { Glob } from "bun";',
+          'import type { Stats } from "node:fs";',
+          'import { type Dirent } from "node:fs";',
+          'export const h = createHash("sha256").update("x").digest("hex");',
+          "export const z = zlib.inflateRawSync(Buffer.from([]), { flush: zlib.constants.Z_SYNC_FLUSH });",
+          'export const p = path.join("a", path.basename("b/c"));',
+          "export type S = Stats | Dirent | Duplex | Glob;",
+          'export const g = new Glob("*.ts");',
+        ].join("\n"),
+      ),
+    ).toEqual([]);
+  });
+
+  test("fails: a host operation, named in the message", () => {
+    expect(found('import { createHash, randomBytes } from "node:crypto";')).toEqual([
+      expect.stringMatching(/^arch\/host-access: imports randomBytes from 'node:crypto'/),
+    ]);
+  });
+
+  test("fails: a namespace used for a host operation, or passed whole", () => {
+    expect(
+      found(
+        [
+          'import * as crypto from "node:crypto";',
+          'import path from "node:path";',
+          'export const h = crypto.createHash("sha256");',
+          "export const r = crypto.randomBytes(8);",
+          'export const abs = path.resolve("x");',
+          "export const all = path;",
+        ].join("\n"),
+      ),
+    ).toEqual([
+      expect.stringContaining("uses crypto.randomBytes from 'node:crypto'"),
+      expect.stringContaining("uses path.resolve from 'node:path'"),
+      expect.stringContaining("uses path from 'node:path'"),
+    ]);
+  });
+
+  test("fails: a module with nothing pure, a side-effect import, a re-export, a literal dynamic import", () => {
+    expect(
+      found(
+        [
+          'import { readFileSync } from "node:fs";',
+          'import "node:crypto";',
+          'import { spawn } from "bun";',
+          'export { join } from "node:path";',
+          'export const fs = () => import("node:fs");',
+        ].join("\n"),
+      ).length,
+    ).toBe(5);
+  });
+
+  test("fails: a dynamic import computed at runtime, in a module without hostAccess", () => {
+    expect(found("export const load = (name: string) => import(name);")).toEqual([
+      expect.stringContaining("computed at runtime"),
+    ]);
+    const host = config({
+      arch: { modules: { core: { description: "logic", hostAccess: true } } },
+    });
+    expect(
+      checkArch(host, repo({ "src/core/a.ts": "export const load = (n: string) => import(n);" })),
+    ).toEqual([]);
+  });
+});
