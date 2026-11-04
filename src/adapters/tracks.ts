@@ -431,6 +431,36 @@ const trackedInMain = (repo: string, path: string) =>
  * data, whichever checkout the command runs from.
  */
 /**
+ * A `track/<name>` still on main's remote that the new track's start doesn't contain: an
+ * earlier track of the name, squash- or rebase-merged with its head branch kept, or dropped.
+ * `track rm` deletes only the local branch, so the new track's first `track pr` would be
+ * refused as non-fast-forward. Said at `track new`, with the fix; undefined when there is
+ * none, it is contained, or there is no remote to ask.
+ */
+const leftoverRemoteBranch = (
+  repo: string,
+  track: string,
+  start: string,
+  fetchEnv: Readonly<Record<string, string | undefined>>,
+) =>
+  Effect.gen(function* () {
+    const remote = (yield* git(repo, ["config", `branch.${MAIN_BRANCH}.remote`])).stdout.trim();
+    if (remote === "") return undefined;
+    const branch = trackBranch(track);
+    const listed = yield* git(repo, ["ls-remote", "--heads", remote, branch], {
+      env: { ...fetchEnv },
+      timeout: FETCH_TIMEOUT_MS,
+    });
+    const sha = listed.code === 0 ? listed.stdout.trim().split(/\s/)[0] : undefined;
+    if (sha === undefined || sha === "") return undefined;
+    // An unknown commit (never fetched) isn't known to be contained: say so too.
+    const contained = (yield* git(repo, ["merge-base", "--is-ancestor", sha, start])).code === 0;
+    return contained
+      ? undefined
+      : `note: \`${remote}\` still has a \`${branch}\` (at ${sha.slice(0, 12)}) that this track's start doesn't contain, most likely an earlier track of this name whose PR was squash- or rebase-merged, or which was dropped. This track's first \`mshape track pr\` can't push over it. If that track is finished, delete it: \`git push ${remote} --delete ${branch}\``;
+  });
+
+/**
  * When the track started: as `track new` recorded it, or, for a branch made before it did,
  * when the branch's reflog says it was created. Both go with the branch, so `track rm` then
  * `track new` starts a new one. Undefined when neither is there.
@@ -530,7 +560,12 @@ export const trackNew = (
 
     yield* gitOk(repo, ["worktree", "add", "--quiet", "--no-track", "-b", branch, path, start.ref]);
     yield* gitOk(repo, ["config", STARTED_KEY(track), now.toISOString()]);
-    const said = [...start.notes, `created ${path} on \`${branch}\` from \`${start.name}\``];
+    const leftover = yield* leftoverRemoteBranch(repo, track, start.ref, fetchEnv);
+    const said = [
+      ...start.notes,
+      ...(leftover === undefined ? [] : [leftover]),
+      `created ${path} on \`${branch}\` from \`${start.name}\``,
+    ];
     // From here the track exists: a failure must say what was done and how to undo it.
     const finish = Effect.gen(function* () {
       said.push(...(yield* ensureHandoffLinks(common, repo, [path])));
@@ -828,6 +863,21 @@ export const trackRm = (
       open: found.byTrack.get(track) ?? [],
     };
     const mailbox = yield* mailboxFacts(common, track);
+    // Only for --keep-beads, the one case that needs them: rm stays offline otherwise.
+    const ownPrsOf = options.keepBeads
+      ? yield* Effect.gen(function* () {
+          const read = yield* trackPrs(repo);
+          if ("reason" in read) return { unknown: read.reason };
+          const started = hasBranch ? yield* trackStarted(repo, track) : undefined;
+          return (
+            ownPrs(read.prs, track, started) ?? {
+              unknown: hasBranch
+                ? "the track's start isn't recorded and its branch has no reflog"
+                : "its branch is gone, so its start can't be read",
+            }
+          );
+        })
+      : undefined;
     const sessions = yield* options.sessions.live(track);
     const plan = planRm({
       track,
@@ -855,6 +905,7 @@ export const trackRm = (
       force: options.force,
       keepHandoff: options.keepHandoff,
       keepBeads: options.keepBeads ?? false,
+      ownPrs: ownPrsOf,
     });
     yield* Effect.forEach(plan.notes, (note) => say(`note: ${note}`));
     if (plan.refusals.length > 0)

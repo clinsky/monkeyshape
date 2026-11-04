@@ -112,20 +112,47 @@ describe("what track rm may do", () => {
       "If they are for a new track of this same name that you'll start next (a milestone reusing it), pass --keep-beads to leave them labelled for it. --force doesn't override this",
     );
     expect(planRm({ ...facts, beads, force: true }).steps).toEqual([]);
-    const kept = planRm({ ...facts, beads, keepBeads: true });
+    const merged = {
+      number: 3,
+      state: "MERGED",
+      headRefName: "track/docs",
+      body: "",
+      createdAt: "2026-11-03T12:00:00Z",
+    };
+    const kept = planRm({ ...facts, beads, keepBeads: true, ownPrs: [merged] });
     expect(kept.refusals).toEqual([]);
     expect(kept.steps.map((step) => step.kind)).toEqual(["worktree", "branch", "handoff"]);
     expect(kept.kept).toEqual([
       "1 open bead(s) labelled `track:docs`, for the next track of that name (--keep-beads): start it with `mshape track new docs`\n      x-9 (open) next milestone's work",
     ]);
+    // Only a done track hands its beads on: merged, no PR of its own open, one merged (6p7).
+    const why = (more: Partial<RmFacts>) =>
+      planRm({ ...facts, beads, keepBeads: true, ownPrs: [merged], ...more }).refusals;
+    expect(why({ ownPrs: [] })).toEqual([
+      "--keep-beads hands the beads to a new track of this name only once this one is done, and that isn't shown: no PR from `track/docs` has merged since the track started. Finish it first, or settle it with the human; --force doesn't override this",
+    ]);
+    expect(why({ ownPrs: [merged, { ...merged, number: 4, state: "OPEN" }] })[0]).toContain(
+      "PR #4 from `track/docs` is still open",
+    );
+    // Merged is judged against main or its upstream, and the refusal says both (#46's nit).
+    expect(
+      why({ merged: false, unmerged: 2, force: true, mergeTargets: ["main", "origin/main"] })[0],
+    ).toContain("`track/docs` has 2 commit(s) not in `main` or `origin/main`");
+    // PRs that can't be read: the fix is gh, not finishing a track that may well be done.
+    expect(why({ ownPrs: { unknown: "`gh` is not on PATH" } })).toEqual([
+      "--keep-beads hands the beads to a new track of this name only once this one is done, and that isn't shown: its PRs couldn't be read (`gh` is not on PATH), so whether it finished can't be told. Get `gh` working (`gh auth status`), then retry; --force doesn't override this",
+    ]);
+    expect(why({ ownPrs: { unknown: "x" }, merged: false, unmerged: 1, force: true })[0]).toContain(
+      "Get `gh` working (`gh auth status`), finish the rest, then retry",
+    );
     // It speaks only to open beads: a failing bd still refuses.
     const failing = {
       ...beads,
       integration: { state: "failed", reason: "locked" } as Integration,
     };
-    expect(planRm({ ...facts, beads: failing, keepBeads: true }).refusals[0]).toContain(
-      "bd failed",
-    );
+    expect(
+      planRm({ ...facts, beads: failing, keepBeads: true, ownPrs: [merged] }).refusals[0],
+    ).toContain("bd failed");
   });
 
   describe("the mailbox", () => {

@@ -584,7 +584,8 @@ export const COMMANDS: ReadonlyArray<Command> = [
       first, then refuses on uncommitted changes, work in neither main nor origin/main (by
       merge, rebase or squash), or unread mail; --force discards them. Also refuses while beads
       labelled track:<name> aren't closed, which --force doesn't override; --keep-beads leaves
-      them labelled for a new track of the same name you start next (a milestone reusing it).
+      them labelled for a new track of the same name you start next (a milestone reusing it),
+      and refuses unless the track is otherwise done: merged, no open PR, one merged (from gh).
       --keep-handoff keeps the handoff and mailbox, for a track that continues. Never touches
       main or other tracks.`,
     run: track,

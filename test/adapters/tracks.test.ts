@@ -319,6 +319,45 @@ describe("track new from upstream main", () => {
   });
 });
 
+describe("track new and a track branch left on the remote", () => {
+  test("a stale origin/track/<name> from an earlier track is said, with the fix; a merged one isn't", async () => {
+    await setup();
+    sh(base, "init", "-q", "--bare", "-b", "main", "remote.git");
+    sh(repo, "remote", "add", "origin", join(base, "remote.git"));
+    sh(repo, "push", "-q", "-u", "origin", "main");
+
+    // An earlier track pushed its branch, and its PR was squash-merged: the head branch stays.
+    mshape(repo, "new", "docs");
+    await writeFile(`${wt("docs")}/page.md`, "page\n");
+    sh(wt("docs"), "add", ".");
+    sh(wt("docs"), "commit", "-qm", "page");
+    sh(wt("docs"), "push", "-q", "origin", "track/docs");
+    sh(repo, "merge", "-q", "--squash", "track/docs");
+    sh(repo, "commit", "-qm", "page (squashed)");
+    sh(repo, "push", "-q", "origin", "main");
+    expect(mshape(repo, "rm", "docs").code).toBe(0);
+
+    const made = mshape(repo, "new", "docs");
+    expect(made.code).toBe(0);
+    const stale = sh(join(base, "remote.git"), "rev-parse", "track/docs").slice(0, 12);
+    expect(made.stdout).toContain(
+      `note: \`origin\` still has a \`track/docs\` (at ${stale}) that this track's start doesn't contain`,
+    );
+    expect(made.stdout).toContain("delete it: `git push origin --delete track/docs`");
+
+    // Merged by a merge commit instead: main contains it, the push fast-forwards, no note.
+    mshape(repo, "new", "notes");
+    await writeFile(`${wt("notes")}/n.md`, "n\n");
+    sh(wt("notes"), "add", ".");
+    sh(wt("notes"), "commit", "-qm", "n");
+    sh(wt("notes"), "push", "-q", "origin", "track/notes");
+    sh(repo, "merge", "-q", "--no-edit", "track/notes");
+    sh(repo, "push", "-q", "origin", "main");
+    expect(mshape(repo, "rm", "notes").code).toBe(0);
+    expect(mshape(repo, "new", "notes").stdout).not.toContain("still has a");
+  });
+});
+
 describe("track rm", () => {
   test("a clean, merged track: worktree, branch and handoff go; main, others and shared data stay", async () => {
     await setup(["data"]);
@@ -873,6 +912,22 @@ describe("track rm and list with beads", () => {
       sh(wt("docs"), "commit", "-qm", "page");
       sh(repo, "merge", "-q", "--no-edit", "track/docs");
       const next = bd("create", "--title", "next work", "--labels", "track:docs", "--silent");
+      const pr = (state: string) => ({
+        number: 7,
+        state,
+        headRefName: "track/docs",
+        body: "",
+        createdAt: new Date().toISOString(),
+      });
+
+      // Its PR is still open: not done, so its beads aren't handed on (6p7).
+      await fakeGh([pr("OPEN")]);
+      const unfinished = mshape(repo, "rm", "docs", "--keep-beads");
+      expect(unfinished.code).toBe(1);
+      expect(unfinished.stderr).toContain(
+        "--keep-beads hands the beads to a new track of this name only once this one is done, and that isn't shown: PR #7 from `track/docs` is still open",
+      );
+      await fakeGh([pr("MERGED")]);
 
       const refused = mshape(repo, "rm", "docs");
       expect(refused.code).toBe(1);
