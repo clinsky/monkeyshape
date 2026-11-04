@@ -19,16 +19,18 @@ convention: rewritten in place at each milestone boundary, and never cited by co
 | `docs/workflow.md` (the working loop) and `docs/adopting.md` | **Shipped** (milestone 1, `monkeyshape-iqf`) |
 | `mshape sync` (`skills sync` is its alias): shared skills, `.beads/PRIME.md` (what every session loads), the PR template and monkeyshape's hooks, with the `sync` check | **Shipped** (milestone 2, `monkeyshape-f4y`) |
 | `mshape track pr` (a fresh gate, then open or update the PR) and `pr.yml`; `track list`'s derived `done` column; the `beads` check (who owns each bead) | **Shipped** (milestone 2, `monkeyshape-f4y`) |
-| Conventions as code: one owner per checkable convention, delivered when needed, messages between tracks, derived status, review that reads the milestone | **Milestone 2** (in progress): `monkeyshape-f4y`, plan in `plan/MILESTONE.md` |
-| First real adoption: a new repo born through the loop | **After milestone 2**: `monkeyshape-iqf.14` |
+| `mshape msg send / inbox / read / register`: the mailbox between tracks, with live notices into idle Claude Code sessions; `track rm --keep-beads` | **Shipped** (milestone 2, `monkeyshape-f4y`) |
+| Conventions as code: one owner per checkable convention, delivered when needed, messages between tracks, derived status, review that reads the milestone | **Shipped** (milestone 2, `monkeyshape-f4y`); plan in `notes/2026-11-04-milestone-2.md` |
+| Ready for a real application and a new repo: a gate whose pass means what it says, checks true on real layouts, adopter rules, no file silently overlooked, adoption as written | **Milestone 3** (draft): plan in `plan/MILESTONE.md` |
+| First real adoptions: an existing application, and a new repo born through the loop | **After milestone 3**, each as its own repo's milestone: `monkeyshape-36f`, `monkeyshape-iqf.14` |
 | The remaining starter rules | Later: `monkeyshape-hh2` |
 | The agentic layer | Later: `monkeyshape-v56` |
 | `mshape validate`: the real-data loop | Later: `monkeyshape-97o` |
-| Adopting monkeyshape in an existing repo, with a migration guide | Later: `monkeyshape-36f` |
+| Effect: correct use in monkeyshape, and enforcement for adopters | Later: an epic filed with milestone 3 |
 | Selectable policy bundles | Idea: when an outside adopter needs it (`monkeyshape-8h4`) |
 
-"Shipped" means on `main`. npm still has 0.1.0, which lacks `init`, `track`, `review` and
-`skills sync`, until 0.2.0 is published. A PR that ships a piece updates its row.
+"Shipped" means on `main`. npm has 0.2.0, published before milestone 2's mailbox merged;
+0.3.0 ships milestone 2. A PR that ships a piece updates its row.
 
 ## 0. Scope
 
@@ -102,19 +104,28 @@ Every rule must trace back to one of these principles. A rule that can't is dele
 
 ## 2. Direction
 
-### Milestone 2: conventions as code (`monkeyshape-f4y`)
+### Milestone 3: ready for a real application and a new repo
 
-Milestone 1 applied mechanism-over-prose to code but shipped the loop's own conventions as
-prose, and they decayed as the principles predict. Milestone 2 gives each checkable
-convention one owner in code, delivers each at the moment it is needed, and derives status
-from git, PRs and beads instead of recording it by hand. The why and the plan are in
-`plan/MILESTONE.md`.
+monkeyshape had only been used on itself: one language, a `src/` root, no data. Run against
+an existing application and a new repo with C code, its checks passed silently on a layout
+without `src/`, misfired on correct code, saw only TypeScript, and gave an adopter no place
+for its own rules; the adoption guide failed when followed literally. Milestone 3 fixes
+those against the real cases. The why and the plan are in `plan/MILESTONE.md`.
 
-### First real adoption (`monkeyshape-iqf.14`)
+What milestone 2 taught: the loop between tracks works once messages are mechanism (no
+relaying at all in its second half); what remains is an address for the sessions that
+aren't tracks (the main checkout, reviews). Long review rounds came from derived facts
+defined in one sentence, so plans now give their cases as a table.
 
-A new repo born through `mshape init` and worked through the whole loop. It comes after
-milestone 2 so it tests the loop, not contradictions we already know about. Its first
-milestone is "a first result on a real target".
+### First real adoptions (`monkeyshape-36f`, `monkeyshape-iqf.14`)
+
+An existing application adopts monkeyshape at a sync point, in one knowledge-migration
+milestone of its own. Its knowledge is sorted, not cut: history worth keeping stays (not
+loaded), current instructions get short, obsolete text is retired, and invariants become
+tests or adopter rules; the bead backlog is groomed to three horizons, handoffs leave git,
+and code-level rules land as ratchets. A new repo is born through `mshape init` and worked
+through the whole loop; its first milestone is "a first result on a real target". Both come
+after milestone 3, so they test the loop and the checks, not defects already known.
 
 ### The remaining starter rules (`monkeyshape-hh2`)
 
@@ -143,6 +154,20 @@ Opt-in rules and helpers for repos whose code calls models:
 
 Evidence for a prompt or agent change is a run graded against the adopter's evaluation set.
 
+### Effect: guarantees, not style (epic filed with milestone 3)
+
+Effect belongs where it buys an execution guarantee: typed operational failures,
+cancellation, resource lifetimes, concurrency supervision, dependency composition and
+testability. Pure transformations, parsers and deterministic analysis stay ordinary
+TypeScript. monkeyshape keeps its shape (a pure core, operational adapters, schemas for
+contracts, execution at composition roots) and works in two directions that inform each
+other: its own Effect use (subprocess cancellation, resource cleanup, typed failures,
+interruption and failure-injection tests), and enforcement for adopters (rule corrections,
+type-aware diagnostics tried through Effect's own tooling before any syntax heuristic,
+execution boundaries declared in the existing module map, checks for recurring resource and
+concurrency mistakes). A real bug fixed in one becomes a regression test or a rule in the
+other. It waits for a reproduced failure on an adopter's path.
+
 ### `mshape validate` (`monkeyshape-97o`)
 
 The real-data loop as a command: checks run against named targets (a location and a content
@@ -151,25 +176,16 @@ Required on PRs that touch core logic, with its table in the PR body; baselines 
 in the PR whose code moves them. This is what turns "real data is the judge" from a habit
 into a gate.
 
-### Adopting an existing repo (`monkeyshape-36f`)
-
-Today `docs/adopting.md` covers installing, trying the checks with `--config` and
-grandfathering violations with `baseline --init`. The goal is a migration guide for a repo
-with history: adopt at a sync point, after parallel work finishes its current PRs, with one
-knowledge-migration PR that reshapes docs, decisions, memories, handoffs and beads, and
-code-level rules landing as ratchets so in-flight work sees no churn.
-
 ### Policy bundles (`monkeyshape-8h4`)
 
 Correctness checks always on; workflow opinions opt-out as a bundle. Built only when an
 outside adopter needs it.
 
-### Dependencies between repos (no epic yet)
+### Dependencies between repos
 
-Repos stay separate: a foundation library serves many applications. The idea is internal
-dependencies shipped as release tarballs, a command that bumps one (verify its hash, update
-the lockfile, run the gate), and upstream releases that smoke-test their consumers' real
-workflows. It waits for a second repo that depends on another.
+Repos stay separate: a foundation library serves many applications. Milestone 3 ships the
+first part, a release tarball with its hash and `mshape dep bump`. Still to come: upstream
+releases that smoke-test their consumers' real workflows.
 
 ### Gate hardening (no epic yet)
 

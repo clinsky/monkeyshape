@@ -1,302 +1,434 @@
-# Milestone 2: conventions as code
+# Milestone 3: ready for a real application and a new repo
 
-**Draft for approval, 2026-11-02; revised after review by the three milestone-1 tracks
-(PR #21).** Beads are filed only after the maintainer approves. Once approved, the plan is
-frozen for the milestone, except that a divergence the maintainer approves is appended under
-"Amendments" with its date and reason, so the plan never goes stale.
+**Draft for approval, 2026-11-04; revised after the maintainer's review and the four
+milestone-2 tracks' reviews (PR #49).** Beads are filed only after the maintainer approves.
+Once tracks start, the plan is frozen, except that a divergence the maintainer approves is
+appended under "Amendments" with its date and reason.
 
 ## Why this milestone
 
-monkeyshape exists because prose is fragile: it works only if it is loaded and noticed, it
-goes stale, and docs that restate docs spread their errors. Its answer is mechanism over
-prose, one home per fact, and a budget for what is loaded automatically (docs/roadmap.md,
-Principles).
+monkeyshape is meant for every repo its maintainers start or keep, and so far it has been
+used only on itself: a TypeScript CLI package with a `src/` root, one language, no data and
+no model calls. Milestone 2 made the loop work between parallel tracks; its retrospective
+(the four milestone-2 handoffs) found that agent-to-agent and human-to-agent work now goes
+without relaying. The next roadmap goals are both adoption: an existing repo (`36f`) and a
+new one born through the loop (`iqf.14`).
 
-Milestone 1 applied that answer to **code** and shipped the working loop. But it shipped the
-loop's **conventions** as prose, and they decayed in exactly the ways the thesis predicts.
-The tracks' retrospectives and six read-only audits found:
+To see whether monkeyshape is ready, the boundary ran it, in scratch copies, against two
+real cases, and four independent reviews (code quality, process, the existing repo's
+history, monkeyshape as a product) read the results without being told what to conclude:
 
-- **No owner, many copies.** The PR body's sections exist in five versions; the three tracks
-  wrote three dialects, and the `milestone` skill's retrospective reads PR bodies by section
-  name. Decision authority exists in five versions, and a skill cites a spend cap defined
-  nowhere.
-- **The wrong moment.** A new repo loads none of the conventions; only `/roadmap` is named in
-  anything it loads. The `track` skill sends agents to `docs/workflow.md`, which isn't in a
-  born repo, for the PR size. The `bd prime` hook, the largest text loaded every session,
-  tells agents not to push, contradicting AGENTS.md.
-- **State recorded by hand.** Cross-track messages were pull-only and arrived only when the
-  maintainer relayed them; one session ran four days without a restart and never saw a
-  message sent on the second. Handoffs only grew: finished tracks still say `Status: active`.
-  Beads stayed open after their decision shipped, and a mislabelled bug made a track look done.
-- **Review looked down, not up.** Reviews caught real bugs on nearly every PR, but nothing asks
-  a reviewer to read the milestone, the track's charter or the bead, so no review asked
-  whether a change fit the milestone's intent or duplicated something.
+- **An existing private application**: TypeScript on the same stack, about 80k lines, seven
+  top-level code directories and no `src/`, months of history with agents, and real
+  secondary code in other languages (scripts, compiled helpers, fixtures, a vendored
+  tarball).
+- **A new repo**, not yet started: TypeScript orchestration plus C code to come, large data
+  kept outside the repo, a dependency on the application's release.
 
-This milestone applies monkeyshape's thesis to its own conventions, at the 95% bar: where a
-convention is machine-checkable, it gets one owner and a check; where it is judgement, it is
-worded for its reader where that reader needs it. "One home per fact" means one owner, not
-that every mention of a convention is a defect. It comes before the first real adoption
-(`iqf.14`): that run should test the loop, not trip over contradictions we already know about.
+What they found, as defects in monkeyshape (each reproduced in scratch):
+
+- **Checks that pass when they should fail.** `arch` with `root: "."` matches no file and
+  prints "passed" (`src/core/arch.ts`, the `${root}/` prefix), so a repo without a single
+  source root can't be mapped. Default `sources` that match nothing are silent too.
+- **False positives on correct code.** About 20 of 32 `decode-strict` findings on the
+  application were strict decodes: the rule accepts only an inline options object, not a
+  same-file `const`, and fires on branded-string schemas where excess properties mean
+  nothing. `arch/host-access` flags `node:crypto`'s `createHash`, a pure operation.
+- **A green gate that didn't look.** `isTsSource` gates budgets, coverage, refs, garden and
+  arch. A C file calling `gets`, a Python script, a shell script and a 30 MB binary all
+  passed `mshape check` in a born repo; garden reported no large files.
+- **No home for an adopter's own rules.** The application's most expensive bug class (about
+  20 bugs: derived data keyed on too few inputs, an index replaced instead of merged, an
+  identity missing a field) was fixed each time by routing every caller through one
+  function; one bead closed with "the lesson was written down in an accepted decision
+  record and still did not transfer". The class is domain-specific; today `rules` in
+  `shape.config.ts` only configures the registry's rules.
+- **The adoption path, followed literally:** `bun add` unpinned the adopter's exact
+  versions; `--config` outside the repo can't resolve the `effect` peer; synced skills fail
+  the adopter's `refs` check (`bun run mshape` isn't a script); `baseline --init` before
+  `sync` leaves the gate red; the base biome `noConsole` override hard-codes `src/cli/**`
+  and `tools/**`; the hooks exit 127 at every prompt before `mshape` is installed;
+  `budgets/claude-md` fights the block `bd setup` appends; `mshape sync` overwrites an
+  adopter's own PR template and PRIME.md whenever they differ from the shipped copies
+  (`src/core/sync.ts`).
+- **A born repo starts red.** `mshape init` from a checkout copies that checkout's skills but
+  installs the npm release, so the first gate fails with `skills/sync-due`; a packed tarball
+  carries npm's version number with different contents.
+- **Repos that depend on repos** have no mechanism, and both cases need one.
+- **The loop, from the tracks' retrospectives:**
+  - `main` can send but not receive (`msg send main` fails), so a boundary session can ask
+    the tracks a question but not get the answer by mail. All four tracks hit it.
+  - A reviewer started in a track's worktree gets that track's mail: its SessionStart hook
+    registers it at the track (`msg register` uses `track current`), and the inbox hooks
+    print mail by directory (`src/core/hooks.ts`). Started from the main checkout, a reviewer
+    has no address at all.
+  - `liveSessions` prunes as it reads: a probe deleted a real registration (#30).
+  - `track list` migrated four live handoffs as a side effect of listing (#32's branch).
+  - Long review rounds came from a lifecycle fact defined in one sentence: #39's `done` took
+    four rounds, each a case the definition didn't cover (a reused name, a just-made track,
+    a partly deferred bead).
+
+It comes now because both adoptions are next, and each defect either blocks them or would be
+paid for on every future repo. Each fix has a consumer (principle 8). The measure for every
+item below is three questions: does it remove a demonstrated, recurring failure; does it
+generalize past the repo that surfaced it; is it the simplest mechanism that holds. An
+adopter's own policy stays in that adopter; monkeyshape provides the mechanism to enforce it.
+After this milestone the next step is the first real adoption, not another framework
+milestone: that adoption decides what monkeyshape needs next.
 
 ## Goal, and how we'll know
 
-1. **One owner per machine-checkable convention.** The PR body's sections, the PR size
-   default, the track branch and git authority each have one source in code or in one
-   shipped file, and every generated or shipped copy is checked against it. Prose that
-   explains a convention for its reader is not policed.
-2. **Delivered at the moment of need.** What every session needs arrives at session start for
-   any agent; what one step needs is in that step's skill or printed by the command used then.
-   No skill sends an agent to another doc for a rule.
-3. **Messages reach a running agent.** A message to another track is stored durably, and its
-   subject is pushed at once into every live session of that track, **including an idle one**,
-   through Claude Code's native cross-session messaging. The recipient decides when to read
-   the body; the notice never marks it read. With no live session, it waits and is shown at
-   the next session's start.
-4. **Status is derived, not remembered.** Whether a track is done, whether a bead's work has
-   merged, whether a handoff is stale: computed from git, PRs and beads, never written by hand.
-5. **Review looks up.** A reviewer reads the milestone's why and non-goals, the track's
-   charter and the PR's beads before the diff, and says in the review whether the PR fits
-   them.
+**The cut line.** This milestone must make monkeyshape safe and useful to adopt in a mature
+Bun, TypeScript, Effect and beads repo: no silent passes, no excessive false positives, no
+destructive `init` or `sync`, and a place for the adopter's own rules. Goals 1 to 6 are
+that (P1). Goal 7 is **worth doing if contained** (P2): a track drops what doesn't fit, and
+says so. A feature being useful is not a reason to make it a prerequisite for adoption: no
+new must-have scope is added during implementation unless a real acceptance run shows the
+need, and the session system and the adopter-rule API grow no further than the cases this
+plan names and the first consumer needs.
+
+1. **A green gate means what it says.** Every check reports an outcome (the contract and its
+   cases are under Interfaces), and `mshape check` prints one line per check with its
+   outcome and what it examined. A configured glob or module that matches nothing fails
+   unless declared optional; a required prerequisite that couldn't run fails. Every tracked
+   TypeScript file is in the rules' scope, or is a test or a declaration file, or is exempt
+   with a reason: a repo with TypeScript source whose rules analyzed none of it fails, and
+   `not-applicable` means there is no TypeScript source, not that discovery missed it. This
+   is separate from typecheck and lint coverage: a file can be typechecked and linted and
+   still be outside the rules.
+2. **Checks tell the truth on a real layout.** A module map at the repo root or across
+   several top-level directories. `decode-strict` resolves same-file options and skips
+   schemas with no properties, with aliases and shadowing handled. `host-access` judges an
+   operation, not a module (`createHash` is pure, `randomBytes` is not). `noConsole` follows
+   the config's declared entry files.
+3. **Adopters extend the engine.** An adopter writes a rule in its own repo, against a small
+   stable interface, in the same engine as the registry's: same scope, allowances,
+   `shape-ignore`, report format and rule-cases test. A rule that is missing, fails to load or
+   is misconfigured fails the gate. The pattern documented for a domain bug class: one
+   function as the only enforcement point, and a rule that bans going around it, so the rule
+   catches every implementation, not the one that was seen.
+4. **No source file is silently overlooked.** Executable source is TypeScript (deep checks,
+   as today) or covered by a declared command that `mshape check` runs and reports, or
+   exempt with a reason; an uncovered one fails. Everything else is repository metadata,
+   held only to a size cap with explicit exceptions; structured data is parsed with Bun's
+   own parsers. A vendored artifact's package and hash are recorded and checked. No analysis
+   of other languages.
+5. **Adoption and birth work as written.** `docs/adopting.md`, followed literally on a real
+   mature repo, reaches a green gate with no undocumented step, and sorts the repo's
+   knowledge into four kinds: history worth keeping (kept, not loaded), current
+   instructions (short, loaded), obsolete or duplicated text (retired), and invariants
+   (tests or adopter rules). Nothing is deleted to meet a budget, and `sync` never
+   overwrites a file the adopter wrote without a deliberate step. `init` makes a repo whose
+   first gate is green from a checkout, a tarball or npm; hooks degrade to a note before
+   `mshape` is installed; a release is reproducible from its tag.
+6. **Every session has an address.** A track's worktree, the main checkout and a review are
+   each a mailbox: `msg send main` works, and a review started from the main checkout moves
+   to its own address. Mail follows the address, never the directory, while `track rm`
+   still refuses with any session running in the worktree.
+7. **The rest of the loop, and repo dependencies, contained.** Reads never prune; a
+   migration is its own command, never a side effect; the `milestone` skill gives each
+   lifecycle or workflow fact a plan introduces as a case table, which the owning track
+   turns into its test first; `mshape dep bump` updates a dependency on another repo's
+   release tarball. Its acceptance lines below are conditional on its delivery.
 
 **Acceptance on real data:**
-- **What a fresh agent actually loads.** In a repo freshly made by `init`, and in this repo,
-  a test runs the SessionStart hook commands exactly as the generated `.claude/settings.json`
-  configures them (CI installs a pinned `bd`, so it runs there, not only on a laptop), then asserts that their output plus AGENTS.md plus the `track` skill state
-  the PR size, how to open a PR, that agents push and open PRs, the decision authority, and
-  how to message another track. It must fail on today's `main`.
-- **Shipped copies agree.** PRIME.md and the PR template in a born repo and in this repo
-  match what the package ships, and the check fails when one is edited by hand.
-- **Two real Claude Code sessions, in two tracks** (run by hand by the maintainer, recorded in
-  the PR): `mshape msg send` from one makes an **idle** recipient show the subject notice with
-  no new user prompt; the recipient defers it, keeps working, and later reads it with
-  `mshape msg read`; the message stays unread until then. A message to a track with no live
-  session, or a stale registration, waits and is shown at the next session's start. The test
-  suite covers the same contract with a fake socket; the acceptance is real delivery, not a
-  successful write.
-- **The tracks use it.** From the moment the mailbox merges, every track messages the others
-  through `mshape msg`; the maintainer relays nothing the mailbox could have carried.
-- **A release is published** that ships this milestone's template changes to adopters, and
-  the README quick start works from npm on a clean machine.
+- **The existing application, at a pinned commit** (a private repo; a scratch clone, run by
+  `checks`, `rules`, `languages` and `adoption`, recorded as one table in each PR: counts
+  and rule ids, never its code):
+  - production TypeScript files found, typechecked, linted and analyzed by rules;
+  - its real secondary code: each declared command, the files it covers, its outcome, and
+    `unavailable` (red) with that command's toolchain missing; a compile error replayed
+    from its history (or reintroduced, if its history has none) turns it red;
+  - files exempted, grouped by reason; existing violations baselined, by rule;
+  - `arch` finds its real cross-module imports, and fails on a map entry matching nothing;
+  - every remaining `decode-strict` and `host-access` finding is a real one, each listed;
+  - an adopter rule fails on two different bugs of one class from its history (replayed from
+    its git log) and passes on the commits that fixed them;
+  - a fresh agent following `docs/adopting.md` reaches a green gate without an undocumented
+    command, a manual repair or a change to monkeyshape; each such step is a defect fixed
+    in this milestone. Application-specific choices the guide asks it to make are not.
+- **This repo** stays green under goals 1 and 4 with no declared command and one reasoned
+  exemption (`template/`'s TypeScript, which is scaffold data); bd's hooks, `bun.lock`,
+  `LICENSE`, git's own files and `.gitkeep` need no configuration. An undeclared Python
+  script turns it red, and so does an executable script under `.github/scripts/`.
+- **A new repo born from the release**, through npm and through `init --from` a tarball:
+  green on its first gate, its `files` check included; its real data directory linked in
+  from outside the repo through `sharedPaths`, never tracked; and, if `dep bump` (goal 7) is
+  delivered, a dependency on the application's release tarball that it refuses with a wrong
+  digest and moves with the right one. Deliberately broken files (a C file that doesn't compile, a 30 MB binary,
+  an unrecorded tarball) are the tests' fixtures, not the acceptance.
+- **Two real Claude Code sessions, run by the maintainer:** a review started from one of two
+  sessions in the main checkout gets none of the reviewed track's mail and leaves the other
+  session's address alone; a track's `msg send main` reaches the main session as a live
+  notice; `track rm` refuses while an unregistered session runs in that track's worktree.
+- **A release is published** (0.4.0), and the README quick start works from npm.
+
+**Closing:** `adoption`'s literal run comes last. A P1 defect it finds is fixed before the
+milestone closes, by the track that owns the file (restarted if it has finished); a P2
+limitation is deferred with a reason and the maintainer's yes. The run catches regressions
+against this plan; it is not a source of new capabilities.
 
 ## Non-goals
 
-- **The remaining starter rules, the agentic layer, `mshape validate`** (deferred epics
-  `hh2`, `v56`, `97o`): no consumer yet.
-- **Adopting an existing repo** (`36f`): after a new repo has been born the new way.
-- **Reworking the review process:** rounds, severities and nits are settled in `review-pr`
-  and work. This milestone adds the look-up and an author-side self-check, nothing else.
-- **Changing the PR size default:** this milestone moves it to where agents see it, not what
-  it is.
-- **A rendering or templating framework for skills,** and checks that police prose: shipped
-  and generated copies are checked, not prose that mentions a convention.
-- **Live delivery for agents other than Claude Code.** The transport is replaceable and the
-  mailbox readable by any agent, but Claude Code is the only live-delivery harness now.
+- **Analysis of languages other than TypeScript,** a language-plugin framework, a
+  configurable file taxonomy, or schema validation of arbitrary config files: the adopter's
+  own command is the check (goal 4).
+- **Effect enforcement and monkeyshape's own Effect use:** no Effect failure was reproduced in
+  either real case, so it is not on the path to adoption. Its direction is in
+  `docs/roadmap.md` and its work in a deferred epic.
+- **`decode-strict` at trust boundaries:** knowing where a boundary is needs the module map
+  to say it; this milestone removes false positives only.
+- **Handoff backup through the remote:** no adopter is hurt yet (no cloud or second-machine
+  sessions); revisit when one is.
+- **Live delivery and hooks for agents other than Claude Code; a default branch other than
+  `main`; a host other than GitHub:** no adopter uses them. The README says so.
+- **A derived-data helper, or an "absent is not 0" rule:** one consumer; adopter rules
+  (goal 3) carry them there first, and show what a general version would need.
+- **Paused tracks:** a pause is already expressible. Its beads are deferred out of the
+  milestone (dropping their `track:` label), the track is removed, and `bd dep` records what
+  the work waits on.
+- **A refs exemption for a frozen design document:** the adopter keeps the document as
+  history (goal 5) and replaces section citations in code with decision slugs or tests, under
+  a baseline.
+- **Locks on shared data, a home for sensitive narrative, spend approval per run:** one
+  consumer each, kept in that adopter until a second repo needs them.
+- **The adoptions themselves:** the existing application adopts in a milestone of its own,
+  in its repo; the new repo's first milestone is its own. This milestone makes monkeyshape
+  ready and proves it on a scratch clone and a born repo.
+- **Capping review rounds:** goal 7's case tables remove a cause of long rounds, not rounds.
 
 ## Where we are
 
 | Area | Today |
 |---|---|
-| PR body | 5 section lists; no PR template in this repo; `gh pr create --body-file` bypasses GitHub's template anyway |
-| Session-start context | `bd prime`'s default text (about 6.5 KB, unbudgeted) contradicts AGENTS.md on pushing, bead-first, markdown tracking and when to close beads |
-| A born repo | loads AGENTS.md (no loop, no PR rules) and the contradicting hook; bare `mshape` isn't on PATH for skills or hooks; no remote, so the first `/roadmap` can't push |
-| Messages | appended to other tracks' handoffs; pull-only; direction varies |
-| Status | handoff `Status` set by hand and stale; beads closed by hand; bead ids in commits used inconsistently |
-| Review | `review-pr` reads AGENTS.md and the diff, not the milestone, charter or bead |
-| npm | 0.1.0, without `init`; the README quick start fails |
+| A pass | means "no violation found", including when nothing was examined |
+| TypeScript outside `src/` | with default `sources`, the rules analyze none of it and pass |
+| `arch` without `src/` | `root: "."` matches 0 files and passes; with the code moved under `src/`, 14 findings |
+| `decode-strict` | 32 findings on the application, about 20 false (options in a `const`, branded strings) |
+| `host-access` | 11 findings on the application, 9 of them `createHash` |
+| Non-TS files | C, Python, shell and a 30 MB binary: 0 findings in a born repo |
+| A tool that can't run | always a note, so a missing compiler would pass |
+| Adopter rules | none: `rules` configures registry rules only |
+| `docs/adopting.md` | 8 defects when followed literally (above) |
+| `init` from a checkout | first gate red: 5 `skills/sync-due` |
+| Mail to `main` | `no track main to send to` |
+| npm | 0.2.0, published before milestone 2's mailbox merged |
 
-## What changed since milestone 1, and why
+## What changed since milestone 2, and why
 
-- Held and kept as they are: one open PR per track, from `track/<name>` (`5b4`); PR size as a
-  batching default, not a gate; nits open until settled; uncapped rounds.
-- Settled during milestone 1 and now in code: open beads block `track rm`, and a failing `bd`
-  makes it refuse even with `--force` (#16); merged is judged against upstream `main`,
-  including squash and rebase merges, and `rm` fetches first (#20); `bd init`'s commit is
-  folded into `init`'s first commit (`31v`); a track starts with `mshape track new` and
-  `/track` (`y0p`).
-- The `milestone` skill derived the number of tracks from a habit ("two to four"); it now
-  derives it from the work, up to about five (this PR). This plan uses four for that reason.
+- Milestone 2 shipped every story bead (#23 to #48): `mshape sync` and PRIME.md, `track pr`
+  and `pr.yml`, the mailbox and live notices, derived `done`, review's Fit section.
+- After its retrospective, `4q6` (retiring a track whose name the next milestone reuses) was
+  fixed with `track rm --keep-beads` (#43, #46, #48), which `/milestone` step 8 uses (#45, #47).
+- Two of its acceptance lines were not met at the boundary: the release (0.2.0 shipped before
+  the mailbox) and the maintainer's recorded two-session run (`f4y.22`). Phase 0 closes both.
+- "A tool that can't run degrades to a note" (an AGENTS.md gotcha) becomes goal 1's contract:
+  a note only for a prerequisite that is optional. `adoption` rewrites the gotcha.
+- Narrowed in review: language handling is the adopter's command, not analysis, and only
+  executable source must be covered; Effect moved out entirely; handoff backup deferred;
+  adoption keeps history rather than retiring it; acceptance counts coverage and uses real
+  code; the outcome contract got its own case table; addresses became must-have; TypeScript
+  outside the rules' scope fails; git's own files are exempt by name, not `.git*`; an
+  explicit cut line.
 
-## Phase 0: the milestone-1 boundary (before the tracks start)
+## Phase 0: the milestone-2 boundary (before the tracks start)
 
-Done by the maintainer and the planning agent, not a track, in this order:
-1. Check whether bd's telemetry (`bd config list`: metrics on, an external endpoint) is
-   global and whether born repos inherit it. Anything that leaves the machine is the
-   maintainer's call; settle it before a release ships.
-2. Publish 0.2.0 from `main` (the quick start then works), with an unknown command saying
-   `unknown command` before the help.
-3. Close `31v` and `y0p` (resolved), and take `iqf.14` off `track:init` (it stays a child of
-   `monkeyshape-iqf`), since open labelled beads block `track rm`. For each milestone-1
-   handoff, promote or delete each lesson (to AGENTS.md, a check, or the code; the skills
-   track's "probe a new check with valid input" is covered by `review`'s self-check and is
-   deleted). Then `mshape track rm` all three tracks **without** `--keep-handoff`, so a new
-   track that reuses a name (`tracks`) starts from a stub, not the old handoff.
-4. Archive milestone 1's plan to `notes/` (done in this PR) and replace it with this one.
-5. Land the groundwork every track builds on, so no track waits on another:
-   - `src/cli/main.ts` gets a command table, with the help generated from it; each track then
-     adds only its own entries.
-   - `src/core/layout.ts` gains the mailbox and session-registry paths under git's directory,
-     beside the handoffs store.
-   - One way for hooks and skills to invoke `mshape`, chosen and tested from a born repo and
-     from a worktree inside it; every track uses it.
-   - `.claude/settings.json` (here and in the template) is generated from a hook list in code;
-     each track adds only its own entries.
-6. Cut `docs/roadmap.md` back to direction: keep the status table, scope, principles and
-   goals; move anything still unique about shipped conventions to where it now lives;
-   delete the rest.
+Done by the maintainer and the planning agent, in this order:
+1. Record `f4y.22`: the boundary's retrospective request went from `main` by `mshape msg` to
+   all four tracks, each notified live while idle, each answered without relaying. The
+   maintainer confirms and closes it, with milestone 2's epic.
+2. Publish 0.3.0 from `main` (the maintainer): milestone 2's template changes reach npm.
+3. Remove the four milestone-2 tracks (`/milestone` step 8); none continues.
+4. File the epic and the beads below, and the deferred Effect epic the roadmap points to.
 
 ## Interfaces the tracks share
 
-Settled before the tracks start. A change goes to the other tracks by `mshape msg` (once it
-exists) and to the maintainer.
+Settled before the tracks start. A change goes to the other tracks by `mshape msg` and to the
+maintainer.
 
-- **Ownership of code and files,** so no two tracks edit the same file:
-  - `messaging`: `mshape msg` and everything under it (the mailbox, the session registry, the
-    `Notifier`), and its own entries in the hook list.
-  - `tracks`: every `mshape track *` command (`track pr` included),
-    `src/{core,adapters}/tracks.ts`, `src/core/handoff.ts`, `src/core/layout.ts` after
-    Phase 0, the PR-body workflow (`.github/workflows/pr.yml`, here and in the template, a file
-    of its own), the beads-ownership check, and the `track` and `handoff` skills.
-  - `conventions`: `src/core/conventions.ts`, `mshape sync`, `init`, the template (except
-    `pr.yml`), the hook-list generator and the generated `.claude/settings.json`, CI's
-    `ci.yml`, PRIME.md, the PR template, `docs/workflow.md`, README, AGENTS.md.
-  - `review`: the `review-pr`, `milestone` and `roadmap` skills, and the rule-cases and
-    Markdown reference tests.
-  - `src/cli/main.ts` and the hook list: each track adds only its own entries (both are
-    tables after Phase 0, so additions don't collide).
-  - A track that needs a change in another's file sends it as a message or a bead.
-- **`src/core/conventions.ts` owns the machine-checkable values:** `PR_SECTIONS` (name,
-  purpose, required); the PR size default, which `mshape track pr` prints when it opens a PR;
-  the gate command (`bun run check`), which `track pr` runs; and the track branch, re-exported
-  from `layout.ts`. A value lives here only if code or a
-  check reads it. Docs and skills word a convention for their reader; nothing renders them.
-- **Always-loaded files:** what monkeyshape decides goes in `.beads/PRIME.md`; what the repo
-  decides goes in AGENTS.md. bd's SessionStart hook stays; PRIME.md (about 60 lines,
-  budgeted) replaces its default text, so the hook agrees with AGENTS.md, and bd still
-  appends memories. `init` writes PRIME.md and sets `agent.profile team-maintainer` as a
-  fallback. `mshape sync` is the one command that refreshes skills, PRIME.md and the PR
-  template (`skills sync` becomes its alias); it, the manifest and the check all compare
-  against the shipped copy. AGENTS.md stays repo-owned with one pointer line to PRIME.md.
-- **Running `mshape` from hooks and skills:** every generated hook and every skill invokes
-  `mshape` the same way, chosen by `conventions` and tested from a freshly initialized repo
-  and from a track worktree inside it (a package script alone doesn't put `mshape` on a
-  hook's PATH).
-- **The PR body:** `.github/pull_request_template.md` is generated from `PR_SECTIONS` in this
-  repo and in born repos, and `conventions` exports a function that builds the skeleton.
-  `mshape track pr` (owned by `tracks`) pushes `track/<name>` and creates the track's PR
-  from that skeleton, or updates it **without overwriting** the agent's narrative and
-  evidence: it fills only machine-known fields, each from a verified fact (the gate's output
-  from a run it does then, never a cached result, though it takes about 90 seconds here;
-  changed lines from `git diff`). The PR's Beads section is the record
-  of which beads a PR works on: the agent lists them, `track pr` checks that each exists, and
-  a bead listed in a merged PR but still open is flagged by `track list`, which already talks
-  to GitHub; when `gh` can't answer, it shows "unknown" with a note, never "fine". CI's
-  `pr.yml` checks the body's required headings on **every** PR from a `track/*` branch,
-  however it was opened; other PRs, like this one, are unaffected.
-- **The mailbox is the durable source of truth.** One file per message,
-  `<common>/monkeyshape/mail/<track>/<id>.json`, under git's directory so `git clean` can't
-  delete it, and written atomically so concurrent senders can't lose messages. A message has
-  `id`, `from`, `to`, `subject`, `body` and `created`; reading it moves it to `read/` (atomic
-  rename). Reading is consumption by the **track**: once any of its sessions reads a message,
-  it is read for all of them. Only `mshape msg read <id>` marks a message read. Commands:
-  `mshape msg send <track> --subject <subject> [body]`, `mshape msg inbox`,
-  `mshape msg read <id>`. A sender outside a track writes `from` as `main` (the main
-  checkout) or `review-<n>` (a review worktree). `send` and `register` create their
-  directories on first use. Handoff Messages sections are retired.
-- **Live notices go through Claude Code's native cross-session messaging.**
-  - **Registration:** a SessionStart hook runs `mshape msg register`, which records the
-    session against its track (from `mshape track current`) with its
-    `CLAUDE_CODE_MESSAGING_SOCKET`, session id and process, in
-    `<common>/monkeyshape/sessions/<track>/<session>.json`. Outside a track it does nothing.
-  - **Send:** writes the message first, then sends every live session registered for the
-    track one line: `[mshape] Message from <from>: <subject> (mshape msg read <id>)`. Never
-    the body.
-  - **Stale and multiple registrations:** a registration whose process is gone or whose
-    socket doesn't answer is pruned at send time; every live session gets the notice. A failed
-    notice never fails the send: the mail waits.
-  - **Restarts:** the same SessionStart hook prints the subjects of unread mail.
-  - **Until live notices land:** a `UserPromptSubmit` hook also prints unread subjects, from
-    the day the mailbox merges. It covers long-running sessions at their next prompt; it
-    doesn't replace native delivery to an idle session or change that acceptance.
-  - **Replaceable transport:** notices go through a `Notifier` service; the Claude Code socket
-    is its one implementation now, behind a check of the session registry's protocol version.
-- **A track is done** when no open bead carries its label, its branch is merged into upstream
-  `main`, and no PR from `track/<name>` is open. `track list` derives it; the `milestone`
-  skill prunes by it. When a fact can't be read (no `bd`, no `gh`), done is "unknown", never
-  yes.
-- **Beads that can't be seen:** one shared fact (beads exist, but their state is unknown),
-  two explicit policies. `mshape check` reports it as a note, as today, so adopters without
-  `bd` keep a working gate. `track rm` refuses, because removal can't be undone. `beadsBlocker`
-  stays the one place that reads the state.
-- **Handoff format:** the `Status` line is removed (a stub is a handoff with an empty
-  charter; "done" is derived as above), and so is `Messages`; existing handoffs are migrated
-  when the parser changes. The Charter opens with `Serves: goal step <n>, because ...`, then
-  `Out of scope:` and `Done means:`. Its writers change with it: the `milestone` skill stops
-  writing `Status: active` and writes those lines from this plan's track table (`review`),
-  and `docs/workflow.md` stops describing stubs by `Status` (`conventions`).
-- **Refs on plans and notes:** `plan/` describes what doesn't exist yet and `notes/` is
-  history, so both get form checks only (split code spans, `§` citations), never a check that
-  a path or command exists.
+- **Ownership of files,** so no two tracks edit the same file:
+  - `checks`: `src/core/check.ts` and `src/core/report.ts` (the outcome contract),
+    `src/core/arch.ts`, `src/core/rules/decodeStrict.ts`, `src/helpers/`, the `arch` and
+    `sources` sections of `src/schemas/config.ts`, `config/` (biome and tsconfig bases), and
+    **any file not listed here**: others send it changes.
+  - `rules`: `src/core/rules/engine.ts`, `registry.ts` and their rule files, the `rules`
+    section of the config schema, and what `src/api/monkeyshape.ts` exports for adopter
+    rules.
+  - `languages`: `src/core/coverage.ts`, `src/core/budgets.ts`, `src/core/model.ts`'s file
+    classification, `src/core/garden.ts`, `src/core/refs.ts`, a new `files` check, and the
+    `coverage`, `budgets`, `refs` and `files` sections of the config schema.
+  - `adoption`: `docs/adopting.md`, README, AGENTS.md, `src/adapters/init.ts`,
+    `src/core/scaffold.ts`, `template/`, `src/{core,adapters}/sync.ts`,
+    `src/{core,adapters}/skills.ts`, `src/core/conventions.ts`, `src/core/hooks.ts`, the
+    config loader (`src/adapters/config.ts`), the release script, and `mshape dep`.
+  - `loop`: `src/{core,adapters}/mail.ts`, `src/{core,adapters}/notices.ts`,
+    `src/adapters/reviews.ts`, `src/{core,adapters}/tracks.ts`, `src/{core,adapters}/trackPr.ts`,
+    `src/core/handoff.ts`, `src/core/layout.ts`, `src/core/beads.ts`, and the `track`,
+    `handoff`, `review-pr`, `milestone` and `roadmap` skills.
+  - Shared tables, additions only: `KINDS` in `src/core/check.ts`, the command table in
+    `src/cli/main.ts`, the top-level keys of `ShapeConfig`, the hook list in
+    `src/core/hooks.ts` (for `loop`'s inbox hook), `test/core/ruleCases.test.ts`.
+  - A change in another track's file goes to that track as a message or a bead.
+- **The outcome contract (owner `checks`, consumers every track).** Each check returns its
+  violations and one outcome: `passed`, `failed`, `not-applicable`, `unavailable` (naming the
+  missing prerequisite) or `exempt` (with the reason). A prerequisite is required unless
+  the config says otherwise; `beads` keeps its existing `optional | required` setting,
+  default optional. Its cases, which `checks` turns into its first test:
+
+  | Case | Outcome | Gate |
+  |---|---|---|
+  | the check ran over its files, no violations | `passed` | green |
+  | the check ran, a violation | `failed` | red |
+  | nothing in the repo is the check's to look at, and no config asked for anything | `not-applicable` | green |
+  | the repo has TypeScript source, and the rules' `sources` match none of it (a layout without `src/`, default config) | `failed`, naming the files outside scope | red |
+  | TypeScript source at the repo root or in several top-level directories, `sources` set to cover it | `passed` | green |
+  | a TypeScript file outside `sources` that is a test, a declaration file, or exempt with a reason | counted, not analyzed | green |
+  | a configured glob or module matches no file | `failed`, naming it | red |
+  | the same, declared `optional: true` | `not-applicable` | green |
+  | `optional: true` on a glob that does match | as if not optional | as the check |
+  | a required prerequisite is missing (`tsc`, biome, a declared command's tool) | `unavailable` | red |
+  | an optional prerequisite is missing | `unavailable`, printed as a note | green |
+  | a clone with `.beads/` but no database (CI, a fresh clone), `beads` optional | `unavailable` note, as today | green |
+  | the same, `beads: required` | `unavailable` | red |
+  | a tool present on a laptop, absent in CI | `unavailable` in CI | red if required: CI installs it, or the config makes it optional |
+  | two declared commands, one ran clean and one's tool is missing | one line each: `passed`, `unavailable` | red if that one is required |
+  | the check is turned off with a reason | `exempt` | green |
+  | some files exempt with a reason, a violation in another | `failed` | red |
+
+  Lands in `checks`' first PR; the others build on it.
+- **Declared commands and file classes (owner `languages`, consumer `adoption`'s docs).**
+  Executable source is a built-in list of extensions (`.c`, `.h`, `.cc`, `.cpp`, `.hpp`,
+  `.py`, `.sh`, `.bash`, `.java`, `.go`, `.rs`, `.rb`, `.js`, `.mjs`, `.cjs`) plus any
+  file git records as executable. The executable bit is a heuristic: a script with an
+  unusual extension and no executable bit needs a declared command or a reasoned exemption,
+  and the docs say so. A repo declares,
+  in `shape.config.ts`, globs and the command that checks them (`{ files, run, optional? }`);
+  `mshape check` runs each and reports its outcome under the contract. An executable source
+  file that is neither TypeScript, nor declared, nor exempt with a reason fails `coverage`.
+  Built in, with no configuration: `.beads/` (bd manages it), git's own files (`.gitignore`,
+  `.gitattributes`, `.gitmodules`, `.gitkeep`) and symlinks. `.github/` is not exempt: a
+  script there is executable source, and its workflows are structured data that must parse.
+  Everything else is metadata: lockfiles, licences, dotfiles, `.gitkeep`, docs, images and
+  other assets, held only to the size cap; JSON, YAML and TOML must parse. This repo and
+  the template declare nothing and stay green. Lands in `languages`' first PR.
+- **Tracked files (owner `languages`).** The `files` check: a size cap for tracked files,
+  explicit per-path exceptions with a reason, `.env*` never tracked (the template's ignore
+  list gets it too, through `adoption`), and each recorded vendored artifact's package and
+  sha256 verified.
+- **Adopter rules (owner `rules`, consumer `adoption`'s docs).** `shape.config.ts` names local
+  rule modules. Each exports what a registry rule has and nothing more: an id, a `bugClass`, a
+  message, and a function from a parsed file to offsets, over a small exported AST helper
+  set, not the parser's internals. Ids are namespaced (`local/<id>`) and appear in
+  `mshape rules` and garden. A module that fails to load or export the shape fails the gate.
+  Each rule needs must-fail, must-pass and allowed-exception cases in the adopter's tests.
+  The engine stays the one owner of scope, allowances and `shape-ignore`. Lands in `rules`'
+  first PR.
+- **Module map at the root (owner `checks`).** `arch.root` may be `.`, and a module may name
+  its directory by a path. Matching follows the outcome contract.
+- **Vendored releases (owner `adoption`; `languages`' `files` check verifies them).** A
+  dependency on another repo is its release tarball under `vendor/`, recorded in
+  `shape.config.ts` with its package name and sha256.
+  `mshape dep bump <name> <tarball> --sha256 <digest>` takes the digest from the upstream
+  release, refuses a mismatch or a
+  different package name, updates `package.json`, the lockfile and the record, and runs the
+  gate; it never fetches. `init --from <tarball>` records its own vendored tarball the same
+  way, so a repo born from a tarball passes `files` on its first gate.
+- **`sync` and files the adopter wrote (owner `adoption`).** `sync` writes a shipped file
+  (PRIME.md, the PR template, a skill) only where it is absent or one `sync` wrote before.
+  A pre-existing file that differs is left alone: `sync` names it, says where its content
+  goes (the repo's own decisions in AGENTS.md, old PR sections into the narrative), and
+  `mshape sync --replace <file>` is the deliberate step. After that, sync is automatic. How
+  `sync` knows which files it wrote is the implementation's choice; its tests cover a fresh
+  clone and a version bump.
+- **Session addresses (owner `loop`).** A session's address is the checkout it serves. Mail
+  and live notices go only to registered sessions, by address. The inbox hooks list the
+  unread mail of the session's address, or of its checkout when it has none: that is
+  discovery for a session that missed registering, not delivery. Separately, `track rm`'s
+  safety check counts any live session inside the worktree, registered or not (#30). Its
+  cases, which `loop` turns into a table test first:
+
+  | Case | Result |
+  |---|---|
+  | a session starts in a track's worktree | registered at `<track>` |
+  | a session starts in the main checkout | registered at `main` |
+  | a session at `main` runs `mshape review <n>` | moves to `review-<n>`; any other session at `main` is untouched |
+  | a session at a track runs `mshape review <n>` | stays at its track; the review worktree is made or refreshed, no address moves |
+  | a session at `review-<n>` runs `mshape review <n>` again | stays at `review-<n>` |
+  | a session at `review-<n>` runs `mshape review <m>` | moves to `review-<m>`; `review-<n>`'s unread mail stays there |
+  | `mshape review rm <n>` | that address's registrations are removed; its unread mail is listed first |
+  | `/clear` or a restart in a review session | registers at `main` again, until `mshape review <n>` reruns |
+  | a second live session registers where one already is | both registered; `register` warns |
+  | no session identity (no session id or pid) | no address, and a note; never a guess |
+  | which session to move is ambiguous | refuses, naming the sessions |
+  | a live session that never registered (its hook didn't run) | no live notices; its inbox hook lists its checkout's unread mail, says it isn't registered, and says to run `mshape msg register` |
+  | `track rm <name>` while an unregistered session runs in its worktree | refuses, naming the session |
+  | a registration whose session ended | pruned by `send`, never by a read |
+
+  `msg send main` and `msg send review-<n>` are valid; `inbox` and `read` work at each
+  address; the inbox hooks read the session's address, not its directory, when it has one.
+- **Migrations (owner `loop`).** `mshape track migrate` rewrites handoffs to the current
+  format and prints what it changed; `track list` only reports a handoff that needs it.
 
 ## Tracks
 
 | Track | Serves | Charter | Acceptance |
 |---|---|---|---|
-| `conventions` | goals 1, 2 | Kept small, so nobody waits on it. `conventions.ts`; PRIME.md, `mshape sync` and its checks (shipped copy, hook present, budget); the PR template and the skeleton function; the hook-list generator and `ci.yml` (which installs a pinned `bd`); a born repo ready for the first chat (`init` prints the `gh repo create --source . --push` step, sets `agent.profile`, and its `package.json` doesn't record a machine-specific tarball path); the AGENTS.md split, with a dogfooding section in this repo's; `docs/workflow.md` without `Status`; the fresh-agent test; form-only refs checks on `plan/` and `notes/`, and the new-repo refs test built from `template/` | The fresh-agent test passes in CI, and fails on today's `main`; shipped copies are checked |
-| `messaging` | goal 3 | The mailbox first (`send`, `inbox`, `read`, and its SessionStart and `UserPromptSubmit` entries in the hook list), so every track uses it early; then a spike that proves native socket delivery into a real idle session and reports; then `register`, the session registry, stale pruning and the `Notifier` with its Claude Code implementation | The two-session acceptance above, including the idle recipient; a message to a track with no live session waits and is shown at its next session |
-| `tracks` | goals 2, 4 | Every `track *` command: `track pr` (prints the PR size, runs the gate fresh, fills verified fields, never overwrites the narrative) and `pr.yml`, which checks every `track/*` PR; `track list`'s derived done status, merged-PR reconciliation (unknown, never fine, without `gh`) and handoff hygiene warnings; `track new` from upstream `main`; `track rm` refusing when beads can't be seen, as above. The handoff format change and migration. The offline part of the beads-ownership check in `mshape check`: open beads with no `track:` label, deferred beads with one, `TODO(<id>)` on closed beads. The `track` and `handoff` skills: the mailbox, the self-check from `review`, and no pointer to `docs/workflow.md` for the PR size | `track list` shows finished tracks as done, and unknown when it can't tell; `track pr` keeps a hand-written narrative; `rm`'s refusal says why; each ownership case is flagged |
-| `review` | goal 5 | First, as a small PR of its own: a test that every rule id `mshape check` can report (the rules registry and each check's violation kinds) has a must-fail and a must-pass case, and the Markdown reference-parser test. `review-pr` reads the milestone (why, non-goals, the track's row), the track's charter and the PR's beads before the diff; every review body has a short "Fit" section: does it serve its beads and goal step, is anything outside them (filed as a bead, as nits already are), is it redundant with existing code or docs, is there prose where a check belongs. The author self-check text for the `track` skill (re-run the reviewer's probes before replying "fixed", try to break the fix with valid input), handed to `tracks`, which owns that file. The `milestone` and `roadmap` skills write the plan sections this plan uses (why, non-goals, how tracks serve, amendments); `milestone` writes the new charter lines and stops writing `Status` | The rule-cases test fails when a rule loses its must-pass case; a plan written by `/milestone` has every section above; a manual review of a deliberately out-of-scope PR flags it under "Fit" |
+| `checks` | goals 1, 2 | The outcome contract, its case-table test and its output (first PR), including TypeScript source outside the rules' scope; `arch` at the root and across directories; `decode-strict` false positives (same-file options, property-less schemas, aliases, shadowing); `decodeStrict` helper variants for sync decodes; `host-access` per operation; `noConsole` from declared entry files | On the pinned application clone: with the default config the gate fails, naming the TypeScript outside `sources`; configured, the coverage table's TypeScript rows; `arch` finds its real cross-module imports; each remaining `decode-strict` and `host-access` finding is real, listed in the PR |
+| `rules` | goal 3 | The adopter-rule interface and loader (first PR), with `mshape rules`, garden and rule-cases covering adopter rules; the enforcement-point pattern, documented with its example rule | An adopter rule in the clone fails on two different historical bugs of one class and passes on their fixes; a broken rule module fails the gate |
+| `languages` | goal 4 | Declared commands and file classes (first PR); coverage of executable source; structured-data parsing; line budgets and garden over any text source; refs over any doc; the `files` check, including vendored-artifact verification | The clone's real secondary code: each declared command's outcome, red on a real compile error, `unavailable` without its toolchain; this repo green with no declared command, red with an undeclared script or one under `.github/scripts/`; fixtures for a non-compiling C file and a 30 MB binary as tests |
+| `adoption` | goals 5, 7 (`dep bump`) | `docs/adopting.md` rewritten from a literal run on the pinned clone, with the four kinds of knowledge and each defect above; `sync` that leaves an adopter's files alone; the AGENTS.md gotcha for the outcome contract; `init` green from a checkout, tarball or npm, recording its vendored tarball, with versions that say what they contain; hooks before install; a release reproducible from its tag; `mshape dep bump`; the fresh-agent test over an adopted repo | A fresh agent following `docs/adopting.md` on the clone reaches a green gate, without an undocumented command, manual repair or change to monkeyshape; repos born from npm and from a tarball are green on their first gate; if delivered, `dep bump` refuses a wrong digest and moves a right one |
+| `loop` | goals 6, 7 | Session addresses (the case table) with `track rm`'s safety kept, the inbox hooks by address, and `review-pr`'s step that moves the reviewer (P1); then `liveSessions` reads only, `mshape track migrate`, case tables for lifecycle facts in the `milestone` skill, and splitting `test/adapters/tracks.test.ts` (1172 lines, near the cap) by command (P2) | The maintainer's two-session run above; `track list` never rewrites a handoff |
 
-**Order:** Phase 0's groundwork lands before any track starts. `review`'s rule-cases test is
-its first, small PR, and lands before any track adds a check. `messaging`'s mailbox lands
-before its socket work, and `tracks`' skills adopt it once it merges. `conventions.ts` lands
-in `conventions`' first PR. Nothing else waits on another track.
+**Order:** each track's first PR lands its interface (the outcome contract, adopter rules,
+declared commands and file classes); the rest build on them, and nothing else waits.
+`adoption`'s literal run happens last, against everyone's merged work (see Closing).
 
 ## Proposed beads (filed after approval)
 
-- **conventions:** `conventions.ts`; PRIME.md, `mshape sync` (with `skills sync` as its
-  alias) and its checks; how hooks and skills invoke `mshape`, tested from a born repo and a
-  worktree; the PR template and skeleton function; `init` for the first chat (the
-  `gh repo create` step, `agent.profile`, no machine-specific tarball path); the AGENTS.md
-  split and the dogfooding section; `docs/workflow.md` without `Status`; the hook-list
-  generator and `ci.yml` with a pinned `bd`; the fresh-agent test; form-only refs checks on
-  `plan/` and `notes/`, and the new-repo refs test built from `template/`.
-- **messaging:** the mailbox (one file per message; `send`, `inbox`, `read`; SessionStart
-  and `UserPromptSubmit` unread subjects); the native-delivery spike; `register`, the registry and pruning; the
-  `Notifier` and its Claude Code implementation.
-- **tracks:** `track pr` and `pr.yml`; derived done status, merged-PR reconciliation and
-  hygiene warnings in `track list`; `track new` from upstream `main`; `track rm` refusing
-  when beads can't be seen; the handoff format change and migration; the offline
-  beads-ownership check; the `track` and `handoff` skills (mailbox, self-check, no pointer to
-  `docs/workflow.md`).
-- **review:** the rule-cases test (its own small first PR); the Markdown reference-parser test; `review-pr`'s look-up
-  and Fit section; the self-check text for `track`; the `milestone` and `roadmap` skills.
-- **milestone:** the acceptance run that closes it: the acceptance above passes, a release is
-  published, and the quick start works from npm.
+- **checks:** the outcome contract, its case table and output; TypeScript source outside
+  the rules' scope fails; `arch` at the root and across
+  directories; `decode-strict` false positives; `decodeStrict` sync variants; `host-access`
+  per operation; `noConsole` from declared entry files.
+- **rules:** the adopter-rule interface and loader; `mshape rules`, garden and rule-cases
+  over adopter rules; the enforcement-point pattern and its example.
+- **languages:** declared commands and file classes; coverage of executable source;
+  structured-data parsing; budgets, garden and refs over any text source; the `files` check
+  and vendored-artifact verification.
+- **adoption:** `docs/adopting.md` from a literal run, with the four kinds of knowledge;
+  `sync` and files the adopter wrote; the outcome-contract gotcha; `init` green from any
+  source, recording its tarball; hooks before install; a reproducible release; the
+  fresh-agent test over an adopted repo; `.env*` in the template; `mshape dep bump` (P2).
+- **loop:** session addresses, inbox hooks by address and `review-pr`'s move, with `rm`'s
+  safety kept (P1); reads never prune, `track migrate`, case tables in `milestone`, the
+  `tracks.test.ts` split (P2).
+- **milestone:** the acceptance run, the 0.4.0 release, and the quick start from npm.
 
 ## Decision points
 
-- **If native delivery into an idle session can't be made reliable,** `messaging` stops
-  and brings the spike's findings to the maintainer. The goal and acceptance stay as written
-  unless the maintainer amends them; the mailbox and its SessionStart notices ship either way,
-  since they don't depend on the spike.
-- **Does PRIME.md reach non-Claude agents?** It reaches any agent whose SessionStart hook runs
-  `bd prime`. `conventions` confirms how Codex's hook is wired (without `bd setup codex`,
-  which writes into AGENTS.md) and reports before relying on it.
+- **If adopter rules can't share the engine** without exporting the parser's internals,
+  `rules` reports the smallest surface that works before building on it; the maintainer
+  decides what becomes public.
+- **If a declared command needs a toolchain CI doesn't have,** `languages` says so: the
+  template's CI installs only Bun, and whether it grows a toolchain list is the maintainer's.
+- **If the outcome contract turns a currently green adopter red** beyond the cases above,
+  `checks` lists which prerequisites it would default to optional, and the maintainer
+  approves the defaults.
 
 ## Deferred, with reasons
 
-- Remaining starter rules (`hh2`), agentic layer (`v56`), `mshape validate` (`97o`),
-  adoption (`36f`), policy bundles (`8h4`): unchanged from milestone 1, no consumer yet.
-- A check that files restating a convention for their reader (the `track` skill's PR size,
-  `docs/workflow.md`) still agree with `conventions.ts`: no recurring failure of that kind
-  yet, and `track pr` prints the size where it's needed.
-- Check messages that say how to fix (`unknown-module`, `readme-lines`, where budgets and
-  exempt directories are set): small, and none of them blocks the loop.
-- A mailbox address for the maintainer (`to: maintainer`): useful for decisions like `5b4`,
-  but the maintainer's sessions aren't tracks yet; revisit once the mailbox has been used.
-- A reminder to hand off near the context limit (statusline or PreCompact hook): no failure
-  seen yet.
-- A private-names check against a denylist kept outside the repo: no leak seen.
+- Effect enforcement and monkeyshape's own Effect use: no reproduced failure on the path to
+  adoption; direction in `docs/roadmap.md`, work in its deferred epic.
+- Handoff backup through the remote; Cursor and Codex; another default branch or host:
+  no adopter needs them yet (Non-goals).
+- The derived-data helper and an "absent is not 0" rule: one consumer; revisit after its
+  adopter rules exist.
+- Locks on shared data, a sensitive-narrative directory, spend approval per run: one
+  consumer each.
+- `mshape validate` (`97o`) and the agentic layer (`v56`): the first adoption runs without
+  them; they come when a repo's real-data runs are its bottleneck.
+- A default timeout for integration tests: one occurrence (#36), fixed in place.
+- Remaining starter rules (`hh2`), policy bundles (`8h4`), gate hardening (`nm9`): unchanged,
+  no consumer yet.
 
 ## Spend
 
@@ -304,13 +436,4 @@ None: no model calls in this milestone's code.
 
 ## Amendments
 
-- **2026-11-03, live notices (#27), approved by the maintainer.** `register` stores the
-  session id and Claude Code's pid, not the socket; the socket and peer token are read from
-  Claude Code's session record at send time. The socket never replies, so a registration is
-  pruned when its session ended, its pid runs another session, or its socket refuses the
-  connection. The version check is Claude Code's `peerProtocol`. Reason: the spike
-  (`notes/2026-11-03-spike-native-delivery.md`).
-- **2026-11-03, the track branch stays in `layout.ts` (#31).** Interfaces says
-  `conventions.ts` re-exports the track branch from `layout.ts`; it doesn't, and code imports
-  `trackBranch` and `MAIN_BRANCH` from `layout.ts`. Reason: biome's `noBarrelFile`, part of
-  this repo's gate and adopters', forbids re-exports.
+None yet.
