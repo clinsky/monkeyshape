@@ -2,6 +2,14 @@ import { defineConfig } from "./src/api/monkeyshape.ts";
 import { DEFAULT_DOCS } from "./src/schemas/config.ts";
 
 export default defineConfig({
+  sources: {
+    exempt: [
+      {
+        path: "template/**",
+        reason: "scaffold data that `mshape init` copies; each born repo's own gate checks it",
+      },
+    ],
+  },
   arch: {
     modules: {
       schemas: { description: "Config schema and tagged errors: pure data contracts." },
@@ -18,7 +26,7 @@ export default defineConfig({
       },
       api: {
         description: "The package's public surface.",
-        mayImport: ["schemas", "helpers"],
+        mayImport: ["schemas", "helpers", "core"],
       },
       cli: {
         description: "The mshape executable and composition root.",

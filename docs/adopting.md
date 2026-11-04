@@ -35,7 +35,13 @@ export default defineConfig({
   arch: {
     modules: {
       core: { description: "Deterministic logic. No host I/O." },
-      adapters: { description: "Host I/O behind services.", mayImport: ["core"], hostAccess: true },
+      // optional: no adapter code yet. A module that matches no file fails unless optional.
+      adapters: {
+        description: "Host I/O behind services.",
+        mayImport: ["core"],
+        hostAccess: true,
+        optional: true,
+      },
     },
   },
 });
