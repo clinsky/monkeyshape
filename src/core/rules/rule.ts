@@ -8,6 +8,16 @@ export interface Finding {
   readonly message?: string;
 }
 
+/** What a registry rule may ask of the repo beyond the file it is visiting. */
+export interface RuleContext {
+  /**
+   * The parsed file a relative import specifier (`./x.ts`, `../schemas/case.ts`) names, joined
+   * against the visited file's directory. Undefined for a package import, or a file the
+   * snapshot hasn't read. Specifiers are exact (this repo's imports carry their extension).
+   */
+  readonly resolve: (specifier: string) => Parsed | undefined;
+}
+
 export interface Rule {
   readonly id: string;
   readonly layer: "core" | "agentic";
@@ -17,7 +27,11 @@ export interface Rule {
   readonly message: string;
   /** Whether composition roots (`entry`) are exempt. */
   readonly entryExempt: boolean;
-  readonly visit: (parsed: Parsed, report: (finding: Finding) => void) => VisitorObject;
+  readonly visit: (
+    parsed: Parsed,
+    report: (finding: Finding) => void,
+    context: RuleContext,
+  ) => VisitorObject;
   /**
    * Instead of `visit`, for an adopter's rule: its findings, or why the rule itself broke on
    * this file, which the engine reports as `rules/local-rule` so no allowance can hide it.

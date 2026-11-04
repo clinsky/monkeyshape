@@ -12,10 +12,11 @@ import type { ResolvedConfig } from "../../schemas/config.ts";
 import { matchesAny } from "../glob.ts";
 import { lineAt, type Snapshot, type Violation } from "../model.ts";
 import { type Parsed, parse } from "../parse.ts";
+import { dirname, join } from "../paths.ts";
 import { localRules } from "./local.ts";
-import type { Finding, Rule } from "./rule.ts";
+import type { Finding, Rule, RuleContext } from "./rule.ts";
 
-export type { Finding, Rule } from "./rule.ts";
+export type { Finding, Rule, RuleContext } from "./rule.ts";
 
 /** Only a line comment that starts with the directive counts, so prose can mention it. */
 const IGNORE = /^\s*shape-ignore\s+((?:local\/)?[a-z0-9-]+)(?::\s*(.*))?/;
@@ -56,13 +57,29 @@ const violation = (
   message: string,
 ): Violation => reported(kind, file, line, message);
 
+/** Outside `checkRules` (one file, no repo): nothing beyond the file resolves. */
+const ALONE: RuleContext = { resolve: () => undefined };
+
+/** Resolves relative imports against the snapshot's texts, parsed through the shared cache. */
+export const contextFor = (snapshot: Snapshot, path: string): RuleContext => ({
+  resolve: (specifier) => {
+    if (!specifier.startsWith("./") && !specifier.startsWith("../")) return undefined;
+    const target = join(dirname(path), specifier);
+    const text = target.startsWith("..") ? undefined : snapshot.texts.get(target);
+    return text === undefined ? undefined : parse(target, text);
+  },
+});
+
 const results = (
   rule: Rule,
   parsed: Parsed,
+  context: RuleContext = ALONE,
 ): ReadonlyArray<Finding> | { readonly broken: string } => {
   if (rule.run !== undefined) return rule.run(parsed);
   const findings: Array<Finding> = [];
-  new Visitor(rule.visit(parsed, (finding) => findings.push(finding))).visit(parsed.program);
+  new Visitor(rule.visit(parsed, (finding) => findings.push(finding), context)).visit(
+    parsed.program,
+  );
   return findings;
 };
 
@@ -127,12 +144,13 @@ export const checkRules = (
     }
 
     const entry = matchesAny(file, config.entry);
+    const context = contextFor(snapshot, file);
     for (const rule of active) {
       if (rule.entryExempt && entry) continue;
       const allowance = (config.rules[rule.id]?.allow ?? []).find((a) =>
         matchesAny(file, [a.path]),
       );
-      const found = results(rule, parsed);
+      const found = results(rule, parsed, context);
       if ("broken" in found) {
         // Its escape hatches here may be right: unchecked, they aren't unused.
         if (allowance !== undefined) usedAllowances.add(`${rule.id}\0${allowance.path}`);
