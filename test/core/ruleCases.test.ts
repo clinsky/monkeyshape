@@ -502,6 +502,8 @@ const SYNCED_REPO: Record<string, string> = {
 const syncCase = (
   files: Record<string, string | undefined> = {},
   unlisted: ReadonlyArray<string> = [],
+  /** The files the manifest says sync owns; by default an old manifest's silence: all. */
+  owned?: ReadonlyArray<string>,
 ): Case => {
   const merged = Object.fromEntries(
     Object.entries({ ...SYNCED_REPO, ...files }).filter(
@@ -515,7 +517,10 @@ const syncCase = (
       unlisted,
       skills: {
         link: { kind: "link", target: "../.agents/skills" },
-        installed: bytes({ "monkeyshape.json": MANIFEST() }),
+        installed: bytes({
+          "monkeyshape.json":
+            owned === undefined ? MANIFEST() : JSON.stringify({ shared: [], files: owned }),
+        }),
         claudeDirectory: new Map(),
         shipped: new Map(),
       },
@@ -539,6 +544,11 @@ const syncCases: Record<string, Cases> = {
     fail: syncCase({ [PRIME_FILE]: `${PRIME}A local rule.\n` }),
     pass: syncCase(),
   },
+  "sync/prime-own": {
+    // The adopter's own PRIME.md: sync never wrote it, so it is moved, not overwritten.
+    fail: syncCase({ [PRIME_FILE]: "# Our loop\n" }, [], [PR_TEMPLATE_FILE]),
+    pass: syncCase({}, [], [PR_TEMPLATE_FILE]),
+  },
   "sync/pr-template-missing": {
     fail: syncCase({ [PR_TEMPLATE_FILE]: undefined }),
     pass: syncCase(),
@@ -546,6 +556,10 @@ const syncCases: Record<string, Cases> = {
   "sync/pr-template-diverged": {
     fail: syncCase({ [PR_TEMPLATE_FILE]: "## What changed, and why\n\n## Gate\n" }),
     pass: syncCase(),
+  },
+  "sync/pr-template-own": {
+    fail: syncCase({ [PR_TEMPLATE_FILE]: "## Summary\n" }, [], [PRIME_FILE]),
+    pass: syncCase({}, [], [PRIME_FILE]),
   },
   "sync/hook-missing": {
     fail: syncCase({ [SETTINGS_FILE]: renderSettings(HOOKS.slice(1)) }),

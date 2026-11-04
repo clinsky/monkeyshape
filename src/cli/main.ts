@@ -17,8 +17,7 @@ import {
   removeSessions,
 } from "../adapters/notices.ts";
 import { reviewNew, reviewRm } from "../adapters/reviews.ts";
-import { installSkills } from "../adapters/skills.ts";
-import { syncRepo } from "../adapters/sync.ts";
+import { syncAll } from "../adapters/sync.ts";
 import { trackPr } from "../adapters/trackPr.ts";
 import {
   type CarryMessages,
@@ -31,8 +30,9 @@ import {
 } from "../adapters/tracks.ts";
 import { loadSnapshot } from "../adapters/workspace.ts";
 import { CHECKS, notices, prerequisites, runChecks, unevaluated } from "../core/check.ts";
+import { OWNABLE_FILES } from "../core/conventions.ts";
 import { garden } from "../core/garden.ts";
-import { CLAUDE_SKILLS_LINK } from "../core/layout.ts";
+import { CLAUDE_SKILLS_LINK, SKILLS_DIR } from "../core/layout.ts";
 import { formatAllInboxes, formatInbox, formatMessage, formatSent } from "../core/mail.ts";
 import type { CheckName } from "../core/model.ts";
 import { formatDelivery } from "../core/notices.ts";
@@ -40,7 +40,7 @@ import { applyBaseline, count, tighten } from "../core/ratchet.ts";
 import { formatCheck, formatGarden, formatViolation } from "../core/report.ts";
 import { RULES } from "../core/rules/registry.ts";
 import { nextStep, REPO_NAME } from "../core/scaffold.ts";
-import { formatCollisions, formatSync } from "../core/skills.ts";
+import { formatCollisions, formatSync, SKILL_NAME } from "../core/skills.ts";
 import { formatSyncPlan } from "../core/sync.ts";
 import { headingProblems } from "../core/trackPr.ts";
 import { type ConfigError, type TrackError, WorkspaceError } from "../schemas/errors.ts";
@@ -406,11 +406,35 @@ const review = (root: string, args: ReadonlyArray<string>) =>
     return usage();
   });
 
+/**
+ * `--replace <path>` arguments, split into ownable files and skill names; a string is the
+ * reason they can't be.
+ */
+const replaceArgs = (
+  args: ReadonlyArray<string>,
+): { files: Array<string>; skills: Array<string> } | string => {
+  const files: Array<string> = [];
+  const skills: Array<string> = [];
+  for (let i = 0; i < args.length; i += 2) {
+    const path = args[i + 1]?.replace(/^\.\//, "").replace(/\/+$/, "");
+    if (args[i] !== "--replace" || path === undefined) return help();
+    const skill = path.startsWith(`${SKILLS_DIR}/`) ? path.slice(SKILLS_DIR.length + 1) : "";
+    if (OWNABLE_FILES.includes(path)) files.push(path);
+    else if (SKILL_NAME.test(skill)) skills.push(skill);
+    else
+      return `mshape: sync --replace takes ${OWNABLE_FILES.join(", ")} or ${SKILLS_DIR}/<skill>, not ${path}`;
+  }
+  return { files, skills };
+};
+
 const sync = (root: string, args: ReadonlyArray<string>) =>
   Effect.gen(function* () {
-    if (args.length > 0) return usage();
-    const { sync: skillSync, linked } = yield* installSkills(`${PACKAGE_ROOT}/skills`, root);
-    const plan = yield* syncRepo(root, PACKAGE_ROOT);
+    const replace = replaceArgs(args);
+    if (typeof replace === "string") return { output: replace, code: 2 };
+    const {
+      plan,
+      skills: { sync: skillSync, linked },
+    } = yield* syncAll(root, PACKAGE_ROOT, replace);
     const files = formatSyncPlan(plan);
     return {
       output: [
@@ -516,10 +540,12 @@ export const COMMANDS: ReadonlyArray<Command> = [
   },
   {
     name: "sync",
-    usage: `  mshape sync
+    usage: `  mshape sync [--replace <path>]...
       After a bump, bring what the installed package ships up to date: the shared skills in
       .agents/skills, .beads/PRIME.md, the PR template, and monkeyshape's hooks in
-      .claude/settings.json. Skills and hooks the package doesn't ship are left alone.`,
+      .claude/settings.json. Skills and hooks the package doesn't ship are left alone, and so
+      is a PRIME.md, PR template or skill this repo wrote itself: --replace <path> replaces it
+      with the shipped one, and sync keeps it up to date from then on.`,
     run: sync,
   },
   {

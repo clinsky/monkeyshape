@@ -1,10 +1,14 @@
 {
-  "about": "The shared skills `mshape skills sync` installed. Written by sync; don't edit.",
+  "about": "What `mshape sync` installed: the shared skills, and the files it keeps up to date. Anything else is this repo's own. Written by sync; don't edit.",
   "shared": [
     "handoff",
     "milestone",
     "review-pr",
     "roadmap",
     "track"
+  ],
+  "files": [
+    ".beads/PRIME.md",
+    ".github/pull_request_template.md"
   ]
 }
