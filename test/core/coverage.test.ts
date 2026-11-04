@@ -224,3 +224,71 @@ describe("executable source and declared commands", () => {
     expect(found?.message).not.toContain("line 69\n");
   });
 });
+
+describe("review of #51", () => {
+  const TOOLS = configs({}, {});
+
+  test("optional with one glob unmatched still reports the run's own failure", () => {
+    const shape = {
+      coverage: {
+        commands: [
+          {
+            files: ["native/**", "tools/**"],
+            run: ["cc", "-fsyntax-only", "native/a.c"],
+            optional: true,
+          },
+        ],
+      },
+    };
+    const snapshot = repo(
+      { ...TOOLS, "native/a.c": "int f(void){ return x; }" },
+      { commands: [{ state: "ran", code: 1, output: "native/a.c:1:21: error: 'x' undeclared" }] },
+    );
+    expect(checkCoverage(config(shape), snapshot).map((v) => v.rule)).toEqual([
+      "coverage/command-failed",
+    ]);
+    expect(commandReports(config(shape), snapshot).map((r) => r.outcome)).toEqual(["failed"]);
+  });
+
+  test("the mirror: optional, one glob unmatched, the run passes: green", () => {
+    const shape = {
+      coverage: { commands: [{ files: ["native/**", "tools/**"], run: ["cc"], optional: true }] },
+    };
+    const snapshot = repo(
+      { ...TOOLS, "native/a.c": "" },
+      { commands: [{ state: "ran", code: 0, output: "" }] },
+    );
+    expect(checkCoverage(config(shape), snapshot)).toEqual([]);
+  });
+
+  test("required, one glob unmatched, the run fails: both are reported", () => {
+    const shape = { coverage: { commands: [{ files: ["native/**", "tools/**"], run: ["cc"] }] } };
+    const snapshot = repo(
+      { ...TOOLS, "native/a.c": "" },
+      { commands: [{ state: "ran", code: 1, output: "error" }] },
+    );
+    expect(checkCoverage(config(shape), snapshot).map((v) => v.rule)).toEqual([
+      "coverage/command-unmatched",
+      "coverage/command-failed",
+    ]);
+  });
+
+  test("an exemption names a directory the way a command's files do", () => {
+    const shape = {
+      coverage: { exemptFiles: [{ path: "scripts", reason: "one-off migrations, run by hand" }] },
+    };
+    expect(
+      checkCoverage(config(shape), repo({ ...TOOLS, "scripts/a.py": "", "scripts/b/c.sh": "" })),
+    ).toEqual([]);
+  });
+
+  test("an executable file's message says a binary needs an exemption, not a command", () => {
+    const [found] = checkCoverage(
+      config(),
+      repo({ ...TOOLS, "lib/helper.so": "" }, { modes: { "lib/helper.so": "executable" } }),
+    );
+    expect(found?.message).toContain("a compiled binary");
+    const [source] = checkCoverage(config(), repo({ ...TOOLS, "a.py": "" }));
+    expect(source?.message).not.toContain("a compiled binary");
+  });
+});

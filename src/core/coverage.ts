@@ -12,7 +12,7 @@
  * resolved. Reading the configs here is the fallback, and approximates both.
  */
 import type { DeclaredCommand, ResolvedConfig } from "../schemas/config.ts";
-import { matches, matchesAny, matchesPathOrBelow } from "./glob.ts";
+import { matchesPathOrBelow } from "./glob.ts";
 import { stripJsonc } from "./jsonc.ts";
 import { classify, isTsSource, type Snapshot, type Violation } from "./model.ts";
 import { dirname } from "./paths.ts";
@@ -201,14 +201,14 @@ const commandViolations = (config: ResolvedConfig, snapshot: Snapshot): Readonly
     const unmatched = command.files.filter(
       (pattern) => !snapshot.files.some((file) => matchesPathOrBelow(file, pattern)),
     );
-    const own = unmatched.map((pattern) =>
+    // `optional` is about absence only: it drops the unmatched globs, never the run's result.
+    const own = (optional ? [] : unmatched).map((pattern) =>
       violation(
         "command-unmatched",
         CONFIG_FILE,
         `declared command \`${label}\` covers '${pattern}', which matches no file. Fix the glob, remove it, or set \`optional: true\` if its files may be absent.`,
       ),
     );
-    if (optional && unmatched.length > 0) return [];
     const ran = snapshot.commands.get(index);
     if (ran === undefined) return own;
     if (ran.state === "unavailable")
@@ -237,6 +237,8 @@ const commandViolations = (config: ResolvedConfig, snapshot: Snapshot): Readonly
 const uncovered = (config: ResolvedConfig, snapshot: Snapshot): ReadonlyArray<Violation> => {
   const segments = new Set(config.coverage.exempt);
   const exemptPaths = config.coverage.exemptFiles.map((entry) => entry.path);
+  const exempted = (file: string) =>
+    exemptPaths.some((pattern) => matchesPathOrBelow(file, pattern));
   const covered = (file: string) =>
     config.coverage.commands.some((command) =>
       command.files.some((pattern) => matchesPathOrBelow(file, pattern)),
@@ -245,17 +247,17 @@ const uncovered = (config: ResolvedConfig, snapshot: Snapshot): ReadonlyArray<Vi
   for (const file of snapshot.files) {
     if (classify(file, snapshot.modes.get(file)) !== "executable") continue;
     if (file.split("/").some((segment) => segments.has(segment))) continue;
-    if (matchesAny(file, exemptPaths) || covered(file)) continue;
+    if (exempted(file) || covered(file)) continue;
     out.push(
       violation(
         "uncovered",
         file,
-        `is ${snapshot.modes.get(file) === "executable" ? "an executable file" : "source"} that monkeyshape doesn't analyze, and no declared command checks it. Add a command that does to \`coverage.commands\` in ${CONFIG_FILE} (\`{ files, run }\`), or list it in \`coverage.exemptFiles\` with the reason it needs none.`,
+        `is ${snapshot.modes.get(file) === "executable" ? "an executable file" : "source"} that monkeyshape doesn't analyze, and no declared command checks it. Add a command that does to \`coverage.commands\` in ${CONFIG_FILE} (\`{ files, run }\`), or list it in \`coverage.exemptFiles\` with the reason it needs none.${snapshot.modes.get(file) === "executable" ? " If it is a compiled binary, no command checks it: exempt it with that reason, or stop tracking it and build it instead." : ""}`,
       ),
     );
   }
   for (const entry of config.coverage.exemptFiles)
-    if (!snapshot.files.some((file) => matches(file, entry.path)))
+    if (!snapshot.files.some((file) => matchesPathOrBelow(file, entry.path)))
       out.push(
         violation(
           "exempt-unmatched",
