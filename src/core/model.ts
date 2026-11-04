@@ -212,6 +212,19 @@ export const classify = (path: string, mode: FileMode | undefined): FileClass =>
 export const isTsSource = (path: string): boolean =>
   TS_SOURCE.test(path) && !path.endsWith(".d.ts");
 
+/**
+ * Source whose lines count: TypeScript, and executable source in any language whose text was
+ * read and isn't binary (a NUL byte: a compiled artifact with the executable bit).
+ */
+export const lineSources = (snapshot: Snapshot): ReadonlyArray<string> =>
+  snapshot.files.filter((file) => {
+    const kind = classify(file, snapshot.modes.get(file));
+    if (kind === "typescript") return isTsSource(file);
+    if (kind !== "executable") return false;
+    const text = snapshot.texts.get(file);
+    return text !== undefined && !text.includes("\0");
+  });
+
 /** Every directory that contains a file, plus the files themselves. */
 export const pathIndex = (files: ReadonlyArray<string>): ReadonlySet<string> => {
   const index = new Set<string>();

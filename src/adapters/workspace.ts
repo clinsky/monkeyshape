@@ -323,12 +323,18 @@ export const loadSnapshot = (
       "package.json",
       SETTINGS_FILE,
     ]);
+    const modes = yield* loadModes(root, present);
+    const sizes = yield* loadSizes(root, present);
+    // Source in other languages is read for its lines (budgets, garden), within the size cap:
+    // past it, \`files\` already speaks for it, and a large binary needn't be read as text.
+    const readable = (file: string) => (sizes.get(file) ?? 0) <= config.files.maxBytes;
     const wanted = present.filter(
       (file) =>
         isTsSource(file) ||
         file.endsWith(".md") ||
         configs.has(file) ||
-        classify(file, undefined) === "data",
+        classify(file, undefined) === "data" ||
+        (classify(file, modes.get(file)) === "executable" && readable(file)),
     );
     const texts = new Map(
       yield* Effect.forEach(
@@ -363,9 +369,7 @@ export const loadSnapshot = (
     const unlisted = new Set<string>();
     for (const file of SYNCED_FILES)
       if (!listedNow.has(file) && (yield* exists(root, file))) unlisted.add(file);
-    const modes = yield* loadModes(root, present);
     const commands = coverage ? yield* runCommands(root, config, present) : new Map();
-    const sizes = yield* loadSizes(root, present);
     const vendored = yield* loadVendored(root, config, present);
     const snapshot: Snapshot = {
       files: present,
