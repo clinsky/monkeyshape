@@ -871,9 +871,7 @@ export const trackRm = (
           const started = hasBranch ? yield* trackStarted(repo, track) : undefined;
           return (
             ownPrs(read.prs, track, started) ?? {
-              unknown: hasBranch
-                ? "the track's start isn't recorded and its branch has no reflog"
-                : "its branch is gone, so its start can't be read",
+              unplaced: hasBranch ? ("no-start" as const) : ("no-branch" as const),
             }
           );
         })

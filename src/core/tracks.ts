@@ -189,7 +189,12 @@ export interface RmFacts {
    * With `keepBeads`: this track's own PRs (`ownPrs`), or why they couldn't be read. The
    * beads go to a new track only once this one is done by `track list`'s own facts.
    */
-  readonly ownPrs?: ReadonlyArray<TrackPr> | { readonly unknown: string } | undefined;
+  readonly ownPrs?:
+    | ReadonlyArray<TrackPr>
+    | { readonly unknown: string }
+    /** The PRs were read, but the track's start can't be placed, so which are its own can't. */
+    | { readonly unplaced: "no-start" | "no-branch" }
+    | undefined;
 }
 
 export type RmStep =
@@ -310,27 +315,42 @@ export const planRm = (facts: RmFacts): RmPlan => {
         `${branchName} has ${facts.unmerged} commit(s) not in ${facts.mergeTargets.map((target) => `\`${target}\``).join(" or ")}`,
       );
     const prs = facts.ownPrs;
-    if (prs === undefined || "unknown" in prs)
+    // Each fact that can't be read has its own fix: gh, or a start to record, or the human.
+    const fixes: Array<string> = [];
+    if (prs === undefined || "unknown" in prs) {
       unfinished.push(
         `its PRs couldn't be read (${prs === undefined ? "not loaded" : prs.unknown}), so whether it finished can't be told`,
       );
-    else {
+      fixes.push("get `gh` working (`gh auth status`)");
+    } else if ("unplaced" in prs) {
+      if (prs.unplaced === "no-start") {
+        unfinished.push(
+          `its start isn't recorded and its branch's reflog doesn't go back to its creation (reflogs expire), so which PRs are its own can't be told`,
+        );
+        fixes.push(
+          `record when it started, if you know (\`git config ${STARTED_KEY(facts.track)} <YYYY-MM-DD>\`)`,
+        );
+      } else {
+        unfinished.push(
+          "its branch is gone, so its start, and which PRs are its own, can't be read",
+        );
+        fixes.push("settle it with the human");
+      }
+    } else {
       const open = prs.filter((pr) => pr.state === "OPEN").map((pr) => `#${pr.number}`);
       if (open.length > 0)
         unfinished.push(`PR ${open.join(", ")} from ${branchName} is still open`);
       if (!prs.some((pr) => pr.state === "MERGED"))
         unfinished.push(`no PR from ${branchName} has merged since the track started`);
     }
-    const unread = prs === undefined || "unknown" in prs;
+    const rest = unfinished.length > fixes.length;
+    const advice =
+      fixes.length === 0
+        ? "Finish it first, or settle it with the human"
+        : `${[...fixes, ...(rest ? ["finish the rest"] : [])].join(", ").replace(/^./, (c) => c.toUpperCase())}, then retry`;
     if (unfinished.length > 0)
       refusals.push(
-        `--keep-beads hands the beads to a new track of this name only once this one is done, and that isn't shown: ${unfinished.join("; ")}. ${
-          unread && unfinished.length === 1
-            ? "Get `gh` working (`gh auth status`), then retry"
-            : unread
-              ? "Get `gh` working (`gh auth status`), finish the rest, then retry"
-              : "Finish it first, or settle it with the human"
-        }; --force doesn't override this`,
+        `--keep-beads hands the beads to a new track of this name only once this one is done, and that isn't shown: ${unfinished.join("; ")}. ${advice}; --force doesn't override this`,
       );
   }
   // The repo has beads but bd can't run: `check` notes it and goes on, but removal can't be

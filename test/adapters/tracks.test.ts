@@ -703,6 +703,33 @@ describe("track rm and list with beads", () => {
     expect(sh(repo, "config", "--get", "branch.track/fresh.mshape-started")).toMatch(/^\d{4}-/);
   });
 
+  test("--keep-beads on a track whose start can't be placed says to record it, not to fix gh (z2m)", async () => {
+    await setup();
+    mshape(repo, "new", "old");
+    // A long-lived track made before the start was recorded, its reflog since expired.
+    sh(repo, "config", "--unset", "branch.track/old.mshape-started");
+    sh(repo, "reflog", "expire", "--expire=now", "--all");
+    const env = await fakeBd([bead("x-1", "open", ["track:old"])]);
+    await fakeGh([
+      {
+        number: 1,
+        state: "MERGED",
+        headRefName: "track/old",
+        body: "",
+        createdAt: "2026-11-01T00:00:00Z",
+      },
+    ]);
+    const refused = mshapeWith(env, repo, "rm", "old", "--keep-beads");
+    expect(refused.code).toBe(1);
+    expect(refused.stderr).toContain(
+      "Record when it started, if you know (`git config branch.track/old.mshape-started <YYYY-MM-DD>`), then retry",
+    );
+    expect(refused.stderr).not.toContain("gh auth status");
+    // Recorded, as the refusal says: the merged PR is its own, and the bead is handed on.
+    sh(repo, "config", "branch.track/old.mshape-started", "2026-10-31");
+    expect(mshapeWith(env, repo, "rm", "old", "--keep-beads").code).toBe(0);
+  });
+
   test("a branch made before track new recorded its start falls back to its reflog", async () => {
     await setup();
     mshape(repo, "new", "old");
