@@ -137,7 +137,7 @@ Everything comes from `monkeyshape`:
 The example makes its exception in `check`. It could instead leave `check` to report
 everything and exempt the enforcement point in the config, with
 `rules["local/index-writes-merge"].allow`. An `allowed` case at an allowed path then reports
-nothing, as in a real run. In the code, the exception sits beside the rule and its cases;
+nothing, as in a real run; must-fail and must-pass cases ignore allowances. In the code, the exception sits beside the rule and its cases;
 in the config, garden counts it as an escape hatch.
 
 In `shape.config.ts`, `rules["local/<id>"]` takes `off` and `allow` like any rule, and

@@ -53,8 +53,9 @@ export interface LocalRule {
     /**
      * The exceptions the rule makes on purpose, such as the enforcement point itself: code
      * that looks like the bug and must not be reported. Needed when the rule makes one. The
-     * exception may be in `check` or in the config's `rules["local/<id>"].allow`: a case
-     * whose path the config allows reports nothing, as in a real run.
+     * exception may be in `check` or in the config's `rules["local/<id>"].allow`: an allowed
+     * case whose path the config allows reports nothing, as in a real run. Must-fail and
+     * must-pass cases ignore allowances: they test the rule's own logic.
      */
     readonly allowed?: ReadonlyArray<Case>;
   };
@@ -234,16 +235,11 @@ const caseProblems = (
         out.push(`${at} doesn't parse: ${error}; a case must be valid source`);
         return;
       }
-      // As in a real run: a path the config allows reports nothing.
+      // An allowed case is the one kind meaning "accepted in a real run", so it alone honours
+      // the config's allowances; must-fail and must-pass cases test the rule's own logic, raw.
       const run = rule.run?.(parsed) ?? [];
-      const allowedHere = matchesAny(path, allowed);
-      if (kind === "fail" && allowedHere && !("broken" in run) && run.length > 0) {
-        out.push(
-          `${at} is at ${path}, which rules["${id}"].allow allows, so it can't fail; give the case another \`path\``,
-        );
-        return;
-      }
-      const found = "broken" in run || !allowedHere ? run : [];
+      const found =
+        kind === "allowed" && !("broken" in run) && matchesAny(path, allowed) ? [] : run;
       if ("broken" in found) out.push(`${at}: the rule broke on it: ${found.broken}`);
       else if (kind === "fail" && found.length === 0)
         out.push(`${at} reported nothing: the rule no longer catches the bug this case shows`);
@@ -260,7 +256,7 @@ export interface LocalRules {
   readonly rules: ReadonlyArray<Rule>;
   /**
    * By `local/<id>`: what is wrong with each valid rule's cases, run when the rule is on and
-   * given the paths its config allows, which report nothing in a case as in a real run.
+   * given the paths its config allows, which an allowed case honours as a real run does.
    */
   readonly cases: ReadonlyMap<string, (allowed: ReadonlyArray<string>) => ReadonlyArray<string>>;
   /** One reason per entry of `localRules` that isn't a usable rule, by its index. */

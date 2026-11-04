@@ -302,13 +302,29 @@ describe("a local rule's cases", () => {
     expect(cases(rule)).toEqual([
       expect.stringContaining("allowed-exception case 1 was reported at line 1"),
     ]);
-    // The mirror: an allowance that covers a must-fail case's path names the allowance.
-    const everywhere = { allow: [{ path: "src/**", reason: "the whole tree, by mistake" }] };
-    expect(cases(noSave, { rules: { "local/no-save": everywhere } })).toEqual([
+    // Must-fail and must-pass cases test the rule itself: an allowance covering their path
+    // neither blocks a must-fail case nor hides a rule that fires on a must-pass one.
+    const everywhere = {
+      rules: { "local/broad": { allow: [{ path: "src/**", reason: "the whole tree" }] } },
+    };
+    const broad = defineRule({
+      ...noSave,
+      id: "broad",
+      check: (file) => {
+        const found: Array<number> = [];
+        walk(file.program, { CallExpression: (node) => found.push(node.start) });
+        return found;
+      },
+      cases: { fail: ["save(x);"], pass: ["ok(x);"] },
+    });
+    expect(cases(broad, everywhere)).toEqual([
       expect.stringContaining(
-        "local/no-save's must-fail case 1 is at src/case.ts, which rules[\"local/no-save\"].allow allows, so it can't fail; give the case another `path`",
+        "local/broad's must-pass case 1 was reported at line 1: the rule fires on code it must accept",
       ),
     ]);
+    expect(
+      cases({ ...broad, cases: { fail: ["save(x);"], pass: ["const ok = 1;"] } }, everywhere),
+    ).toEqual([]);
   });
 
   test("an allowed case sees its own path, so a rule can exempt its enforcement point", () => {
