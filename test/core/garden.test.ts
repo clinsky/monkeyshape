@@ -2,6 +2,7 @@
 import { describe, expect, test } from "bun:test";
 import { defineRule } from "../../src/api/monkeyshape.ts";
 import { checkBudgets } from "../../src/core/budgets.ts";
+import { report as checkReport } from "../../src/core/check.ts";
 import { garden } from "../../src/core/garden.ts";
 import { formatGarden } from "../../src/core/report.ts";
 import { config, repo } from "../support.ts";
@@ -18,6 +19,10 @@ describe("garden and line budgets over any text source", () => {
     expect(found.map((v) => `${v.rule} ${v.file}`)).toEqual([
       "budgets/file-lines scripts/deploy.sh",
     ]);
+    expect(checkReport("budgets", config(), snapshot).outcome).toMatchObject({
+      examined:
+        "the loaded docs, decisions, memories and 0 TypeScript files and 1 other source file' lengths",
+    });
   });
 
   test("Python, C and an executable without an extension count; a binary, data and docs don't", () => {
