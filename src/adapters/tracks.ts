@@ -20,6 +20,7 @@ import {
 import { posix } from "node:path";
 import { Effect } from "effect";
 import { migrateHandoff, parseHandoff, stubHandoff } from "../core/handoff.ts";
+import { mshapeCommand } from "../core/hooks.ts";
 import {
   HANDOFFS_LINK,
   handoffPath,
@@ -644,7 +645,38 @@ const migrate = (track: string, handoff: string, text: string, carry: CarryMessa
     };
   });
 
-export const trackList = (cwd: string, carry: CarryMessages) =>
+/**
+ * `mshape track migrate`: every handoff in the older format upgraded in place, and what
+ * changed, one line each. The only command that rewrites a handoff's format; `list` reports.
+ */
+export const trackMigrate = (cwd: string, carry: CarryMessages) =>
+  Effect.gen(function* () {
+    const { common, repo } = yield* locate(cwd);
+    yield* requireMain(repo);
+    const store = handoffsStore(common);
+    const tracks = yield* Effect.promise(() =>
+      readdir(store).then(
+        (files) =>
+          files
+            .filter((file) => file.endsWith(".md"))
+            .map((file) => file.slice(0, -3))
+            .filter((track) => TRACK_NAME.test(track))
+            .sort(),
+        () => [],
+      ),
+    );
+    const said: Array<string> = [];
+    for (const track of tracks) {
+      const handoff = handoffPath(common, track);
+      const text = yield* fs("read", handoff, () => Bun.file(handoff).text());
+      said.push(...(yield* migrate(track, handoff, text, carry)).notes);
+    }
+    return said.length === 0
+      ? "every handoff is in the current format; nothing changed"
+      : said.join("\n");
+  });
+
+export const trackList = (cwd: string) =>
   Effect.gen(function* () {
     const { common, repo } = yield* locate(cwd);
     yield* requireMain(repo);
@@ -694,10 +726,13 @@ export const trackList = (cwd: string, carry: CarryMessages) =>
         const found = (yield* lexists(handoff))
           ? yield* fs("read", handoff, () => Bun.file(handoff).text())
           : undefined;
-        const migrated =
-          found === undefined ? undefined : yield* migrate(track, handoff, found, carry);
-        notes.push(...(migrated?.notes ?? []));
-        const text = migrated?.text;
+        // Never written here: an older handoff is said, and read as `migrate` would leave it.
+        const migration = found === undefined ? undefined : migrateHandoff(found);
+        if (migration !== undefined)
+          notes.push(
+            `note: ${HANDOFFS_LINK}/${track}.md is in an older format; \`${mshapeCommand(["track", "migrate"])}\` upgrades it (${migration.changes.join("; ")})`,
+          );
+        const text = migration?.text ?? found;
         const parsed = text === undefined ? undefined : parseHandoff(text);
         const worktree = byTrack.get(track);
         const branchExists = branches.includes(track);

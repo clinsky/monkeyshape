@@ -92,7 +92,7 @@ describe("handoff format", () => {
 
   test("the older format is refused with the way out: Status and Messages are gone", () => {
     expect(problems(active.replace("Queue:", "Status: active\nQueue:"))).toEqual([
-      "`Status:` is gone: a stub is a handoff with an empty charter, and done is derived. Run `mshape track list`, which migrates the old format",
+      "`Status:` is gone: a stub is a handoff with an empty charter, and done is derived. Run `mshape track migrate`, which upgrades the old format",
     ]);
     expect(problems(`${active}\n## Messages\n\nNone yet.\n`)).toEqual([
       "`## Messages` is gone: tracks message each other with `mshape msg send`. Run `mshape track list`, which moves the section into the track's mailbox",

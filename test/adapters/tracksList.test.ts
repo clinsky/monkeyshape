@@ -78,29 +78,44 @@ describe("track list", () => {
     expect(lines[row + 3]).toMatch(/^init\s+stub/);
   });
 
-  test("an older handoff is migrated once, its Messages mailed to the track from main", async () => {
+  test("list never rewrites an older handoff: it reads it as migrated and names `track migrate`", async () => {
     await setup();
     mshape(repo, "new", "docs");
     mshape(repo, "new", "init");
     const text = await Bun.file(handoff("docs")).text();
     const charter = "Serves: goal 2, because x.\nOut of scope: y.\nDone means: z.";
     const current = text.replace("## Charter", `## Charter\n\n${charter}`);
-    await writeFile(
-      handoff("docs"),
-      `${current.replace("Queue:", "Status: active\nQueue:")}\n## Messages\n\n- From init: hello.\n`,
-    );
+    const old = `${current.replace("Queue:", "Status: active\nQueue:")}\n## Messages\n\n- From init: hello.\n`;
+    await writeFile(handoff("docs"), old);
     const initText = await Bun.file(handoff("init")).text();
-    await writeFile(handoff("init"), `${initText}\n## Messages\n\nNone yet.\n`);
+    const initOld = `${initText}\n## Messages\n\nNone yet.\n`;
+    await writeFile(handoff("init"), initOld);
 
-    const first = mshape(repo, "list").stdout;
-    expect(first).toMatch(
+    for (const _ of [1, 2]) {
+      const listed = mshape(repo, "list");
+      expect(listed.code).toBe(0);
+      expect(listed.stdout).toContain(
+        "note: .handoffs/docs.md is in an older format; `bun run --silent mshape track migrate` upgrades it (moved `## Messages` into the track's mailbox; removed `Status: active`)",
+      );
+      expect(listed.stdout).toContain(
+        "note: .handoffs/init.md is in an older format; `bun run --silent mshape track migrate` upgrades it (removed `## Messages`, which held nothing)",
+      );
+      expect(listed.stdout).toMatch(/^docs\s+active\s/m);
+      expect(listed.stdout).toMatch(/^init\s+stub\s/m);
+      expect(listed.stdout).not.toContain("migrated");
+      expect(await Bun.file(handoff("docs")).text()).toBe(old);
+      expect(await Bun.file(handoff("init")).text()).toBe(initOld);
+      expect(await readdir(`${repo}/.git/monkeyshape/mail`).catch(() => [])).toEqual([]);
+    }
+
+    const migrated = mshape(repo, "migrate");
+    expect(migrated.code).toBe(0);
+    expect(migrated.stdout).toMatch(
       /^migrated \.handoffs\/docs\.md: moved `## Messages` into the track's mailbox; removed `Status: active` \(message \d{8}-\d{6}-[0-9a-f]{4}\)$/m,
     );
-    expect(first).toContain(
-      "migrated .handoffs/init.md: removed `## Messages`, which held nothing\n",
+    expect(migrated.stdout).toContain(
+      "migrated .handoffs/init.md: removed `## Messages`, which held nothing",
     );
-    expect(first).toMatch(/^docs\s+active\s/m);
-    expect(first).toMatch(/^init\s+stub\s/m);
     expect(await Bun.file(handoff("docs")).text()).toBe(current);
     expect(await Bun.file(handoff("init")).text()).toBe(initText);
 
@@ -113,9 +128,13 @@ describe("track list", () => {
     expect(message.from).toBe("main");
     expect(message.subject).toBe("Messages carried over from your handoff");
     expect(message.body).toStartWith("- From init: hello.\n\n");
+    expect(message.body).toContain("`mshape track migrate`");
 
-    const second = mshape(repo, "list").stdout;
-    expect(second).not.toContain("migrated");
+    // Once is enough: nothing left to migrate, and list has nothing to say about it.
+    expect(mshape(repo, "migrate").stdout).toBe(
+      "every handoff is in the current format; nothing changed",
+    );
+    expect(mshape(repo, "list").stdout).not.toContain("older format");
   });
 });
 

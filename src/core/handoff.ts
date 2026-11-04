@@ -226,7 +226,7 @@ export const parseHandoff = (text: string): Handoff | Problems => {
   const extra = header.slice(1).filter((line) => !line.startsWith("Queue:"));
   if (extra.some((line) => line.startsWith("Status:")))
     problems.push(
-      "`Status:` is gone: a stub is a handoff with an empty charter, and done is derived. Run `mshape track list`, which migrates the old format",
+      "`Status:` is gone: a stub is a handoff with an empty charter, and done is derived. Run `mshape track migrate`, which upgrades the old format",
     );
   else if (extra.length > 0)
     problems.push(

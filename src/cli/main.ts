@@ -27,6 +27,7 @@ import {
   type TrackSessions,
   trackCurrent,
   trackList,
+  trackMigrate,
   trackNew,
   trackRm,
 } from "../adapters/tracks.ts";
@@ -216,7 +217,9 @@ const track = (root: string, args: ReadonlyArray<string>) =>
         ),
         code: 0,
       };
-    if (sub === "list") return { output: yield* trackList(root, carryMessages(root)), code: 0 };
+    if (sub === "list") return { output: yield* trackList(root), code: 0 };
+    if (sub === "migrate")
+      return { output: yield* trackMigrate(root, carryMessages(root)), code: 0 };
     if (sub === "current") return { output: yield* trackCurrent(root), code: 0 };
     if (sub === "rm")
       return {
@@ -258,7 +261,7 @@ const trackSessions = (root: string): TrackSessions => {
 
 /**
  * A retired handoff Messages section, mailed to its track from the main checkout (so from
- * `main`) by `track list`'s migration. No live notice: it shows at the track's next prompt.
+ * `main`) by `track migrate`. No live notice: it shows at the track's next prompt.
  */
 const carryMessages =
   (root: string): CarryMessages =>
@@ -269,7 +272,7 @@ const carryMessages =
         repo,
         track,
         "Messages carried over from your handoff",
-        `${body}\n\nMoved here by \`mshape track list\` when handoffs stopped having a Messages section.`,
+        `${body}\n\nMoved here by \`mshape track migrate\` when handoffs stopped having a Messages section.`,
         new Date(),
         randomHex,
       );
@@ -591,7 +594,11 @@ export const COMMANDS: ReadonlyArray<Command> = [
       no open PR (from gh); unknown when bd or gh can't say. Under a row: beads still open
       though a merged PR lists them, a State older than the branch's last commit, and a done
       track's rm. Restores missing handoff links; a track label with open beads and no track
-      left is listed too. Run git fetch to see merges done on the remote.
+      left is listed too. Run git fetch to see merges done on the remote. It never rewrites a
+      handoff: one in an older format is noted, with what track migrate would change.
+  mshape track migrate
+      Upgrade every handoff in an older format in place, printing what changed in each; a
+      retired Messages section is mailed to its track first.
   mshape track current
       The track of this directory, name only; exit 1, saying why, outside a track.
   mshape track pr [--title <title>] [--body-file <path>]
