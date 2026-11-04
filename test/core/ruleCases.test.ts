@@ -445,7 +445,9 @@ const LOCAL = {
   id: "no-save",
   bugClass: "Writes that skip the merge function.",
   message: "calls save directly; write through saveMerged.",
-  check: () => [],
+  check: (file: { readonly text: string }) =>
+    [...file.text.matchAll(/\bsave\(/g)].map((match) => match.index),
+  cases: { fail: ["save(x);\n"], pass: ["saveMerged(x);\n"] },
 };
 
 const rules: Record<string, Cases> = {
@@ -503,6 +505,10 @@ const rules: Record<string, Cases> = {
   "rules/local-rule": {
     fail: { config: { localRules: [{ ...LOCAL, check: undefined }] } },
     pass: { config: { localRules: [LOCAL] }, files: { "src/a.ts": "saveMerged(x);\n" } },
+  },
+  "rules/local-cases": {
+    fail: { config: { localRules: [{ ...LOCAL, cases: { fail: ["save(x);\n"], pass: [] } }] } },
+    pass: { config: { localRules: [LOCAL] } },
   },
   "rules/no-error-spread": {
     fail: { files: { "src/a.ts": "const copy = { ...err, extra: 1 };\n" } },

@@ -3,7 +3,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { defineConfig, defineRule, type Node, walk } from "../../src/api/monkeyshape.ts";
-import { checkRules } from "../../src/core/rules/engine.ts";
+import { checkRules, localRuleHatches } from "../../src/core/rules/engine.ts";
 import type { ShapeConfig } from "../../src/schemas/config.ts";
 import { run as spawn } from "../integration/harness.ts";
 import { config, repo } from "../support.ts";
@@ -23,12 +23,20 @@ const noSave = defineRule({
     });
     return found;
   },
+  cases: {
+    fail: ["save(records);\n"],
+    pass: ["saveMerged(prior, records);\n", "store.save(records);\n"],
+  },
 });
 
-const run = (files: Record<string, string>, input: ShapeConfig = {}) =>
+const all = (files: Record<string, string>, input: ShapeConfig = {}) =>
   checkRules(config({ localRules: [noSave], ...input }), repo(files), []).map(
     (v) => `${v.rule} ${v.file}:${v.line} ${v.message}`,
   );
+
+/** Without `rules/local-cases`: rules built from noSave inherit cases written for it. */
+const run = (files: Record<string, string>, input: ShapeConfig = {}) =>
+  all(files, input).filter((line) => !line.startsWith("rules/local-cases "));
 
 const ids = (files: Record<string, string>, input: ShapeConfig = {}) =>
   run(files, input).map((line) => line.slice(0, line.indexOf(" ", line.indexOf(" ") + 1)));
@@ -126,6 +134,7 @@ describe("local rules", () => {
       ...noSave,
       id: "order",
       check: (file) => {
+        if (file.path !== "src/a.ts") return [];
         walk(file.program, {
           CallExpression: (node) => seen.push(`call ${file.text.slice(node.start, node.end)}`),
           Identifier: (node: Node & { type: "Identifier" }) => seen.push(`id ${node.name}`),
@@ -212,6 +221,122 @@ describe("local rules", () => {
   });
 });
 
+describe("a local rule's cases", () => {
+  const cases = (rule: unknown, input: ShapeConfig = {}) =>
+    all({}, { localRules: [rule], ...input }).filter((line) =>
+      line.startsWith("rules/local-cases "),
+    );
+
+  test("cases that hold are silent, and a turned-off rule's cases don't run", () => {
+    expect(cases(noSave)).toEqual([]);
+    expect(
+      cases(
+        { ...noSave, cases: { fail: ["x;"], pass: [] } },
+        { rules: { "local/no-save": { off: "retired for now" } } },
+      ),
+    ).toEqual([]);
+  });
+
+  test("a rule missing its must-pass or must-fail case fails the gate, saying why each is needed", () => {
+    expect(cases({ ...noSave, cases: { fail: ["save(x);"], pass: [] } })).toEqual([
+      expect.stringContaining(
+        "shape.config.ts:1 local/no-save has no must-pass case: add `cases.pass`, valid code close to the bug, so a rule that fires on valid code fails here",
+      ),
+    ]);
+    expect(cases({ ...noSave, cases: { pass: ["saveMerged(x);"] } })).toEqual([
+      expect.stringContaining("local/no-save has no must-fail case: add `cases.fail`"),
+    ]);
+    expect(cases({ ...noSave, cases: undefined })).toEqual([
+      expect.stringContaining(
+        "local/no-save has no `cases`: give it `cases: { fail: [...], pass: [...] }`",
+      ),
+    ]);
+  });
+
+  test("a must-fail case it misses, or a must-pass or allowed case it fires on, fails the gate", () => {
+    const wrong = {
+      ...noSave,
+      cases: {
+        fail: ["saveMerged(x);", "save(x);"],
+        pass: ["ok();\nsave(x);\n"],
+        allowed: [{ path: "src/merge.ts", source: "save(x);" }, 3],
+      },
+    };
+    expect(cases(wrong)).toEqual([
+      expect.stringContaining(
+        "local/no-save's must-fail case 1 reported nothing: the rule no longer catches the bug",
+      ),
+      expect.stringContaining(
+        "local/no-save's must-pass case 1 was reported at line 2: the rule fires on code it must accept",
+      ),
+      expect.stringContaining("local/no-save's allowed-exception case 1 was reported at line 1"),
+      expect.stringContaining(
+        "local/no-save's allowed-exception case 2 is neither source text nor `{ path, source }`",
+      ),
+    ]);
+  });
+
+  test("a case that doesn't parse is reported as broken, not run, whatever its kind", () => {
+    expect(
+      cases({
+        ...noSave,
+        cases: { fail: ["save(x"], pass: ["save(x;", "this is { not code"], allowed: ["a b"] },
+      }),
+    ).toEqual([
+      expect.stringContaining(
+        "local/no-save's must-fail case 1 doesn't parse: Expected `)` but found `EOF`; a case must be valid source",
+      ),
+      expect.stringContaining("local/no-save's must-pass case 1 doesn't parse:"),
+      expect.stringContaining("local/no-save's must-pass case 2 doesn't parse:"),
+      expect.stringContaining("local/no-save's allowed-exception case 1 doesn't parse:"),
+    ]);
+  });
+
+  test("an allowed case at a path the config allows reports nothing, as in a real run", () => {
+    const rule = {
+      ...noSave,
+      cases: { ...noSave.cases, allowed: [{ path: "src/store.ts", source: "save(x);" }] },
+    };
+    const allow = { allow: [{ path: "src/store.ts", reason: "the enforcement point" }] };
+    expect(cases(rule, { rules: { "local/no-save": allow } })).toEqual([]);
+    expect(cases(rule)).toEqual([
+      expect.stringContaining("allowed-exception case 1 was reported at line 1"),
+    ]);
+    // Must-fail and must-pass cases test the rule itself: an allowance covering their path
+    // neither blocks a must-fail case nor hides a rule that fires on a must-pass one.
+    const everywhere = {
+      rules: { "local/broad": { allow: [{ path: "src/**", reason: "the whole tree" }] } },
+    };
+    const broad = defineRule({
+      ...noSave,
+      id: "broad",
+      check: (file) => {
+        const found: Array<number> = [];
+        walk(file.program, { CallExpression: (node) => found.push(node.start) });
+        return found;
+      },
+      cases: { fail: ["save(x);"], pass: ["ok(x);"] },
+    });
+    expect(cases(broad, everywhere)).toEqual([
+      expect.stringContaining(
+        "local/broad's must-pass case 1 was reported at line 1: the rule fires on code it must accept",
+      ),
+    ]);
+    expect(
+      cases({ ...broad, cases: { fail: ["save(x);"], pass: ["const ok = 1;"] } }, everywhere),
+    ).toEqual([]);
+  });
+
+  test("an allowed case sees its own path, so a rule can exempt its enforcement point", () => {
+    const exempting = defineRule({
+      ...noSave,
+      check: (file) => (file.path === "src/merge.ts" ? [] : noSave.check(file)),
+      cases: { ...noSave.cases, allowed: [{ path: "src/merge.ts", source: "save(x);" }] },
+    });
+    expect(cases(exempting)).toEqual([]);
+  });
+});
+
 describe("local rules on disk", () => {
   const API = join(import.meta.dir, "..", "..", "src", "api", "monkeyshape.ts");
   const CLI = join(import.meta.dir, "..", "..", "src", "cli", "main.ts");
@@ -220,6 +345,7 @@ export default defineRule({
   id: "no-save",
   bugClass: "Writes that skip the merge, replacing what earlier runs recorded.",
   message: "calls save directly; write through saveMerged.",
+  cases: { fail: ["save(x);"], pass: ["saveMerged(x);"] },
   check: (file) => {
     const found: Array<{ offset: number }> = [];
     walk(file.program, {
@@ -275,6 +401,45 @@ export default { localRules: [noSave] };
     expect(missing.code).toBe(2);
   });
 
+  test("mshape rules lists the repo's own rules beside the registry's, and works with no config", async () => {
+    const rules = async (files: Record<string, string>) => {
+      const dir = await scratch(files);
+      try {
+        return await spawn(dir, [process.execPath, CLI, "rules"]);
+      } finally {
+        await rm(dir, { recursive: true, force: true });
+      }
+    };
+    const listed = await rules({ "shape.config.ts": CONFIG, "rules/noSave.ts": RULE });
+    expect(listed.output).toContain("no-throw ");
+    expect(listed.output).toMatch(
+      /\nlocal\/no-save +local +Writes that skip the merge, replacing what earlier runs recorded\.\n?$/,
+    );
+    expect(listed.code).toBe(0);
+    const typo = await (async () => {
+      const dir = await scratch({ "shape.config.ts": CONFIG, "rules/noSave.ts": RULE });
+      try {
+        return await spawn(dir, [process.execPath, CLI, "rules", "--config", "nope.ts"]);
+      } finally {
+        await rm(dir, { recursive: true, force: true });
+      }
+    })();
+    // The loader names the path it tried (adoption is changing it to the flag's path).
+    expect(typo.output).toMatch(/: not found/);
+    expect(typo.code).toBe(2);
+    const bare = await rules({});
+    expect(bare.output).toContain("no-throw ");
+    expect(bare.output).not.toContain("local/");
+    expect(bare.code).toBe(0);
+    const broken = await rules({
+      "shape.config.ts": CONFIG,
+      "rules/noSave.ts": "export default { id: 'no-save' };\n",
+    });
+    expect(broken.output).toContain(
+      "1 localRules entry is not a rule: `mshape check --only rules` says why",
+    );
+  });
+
   test("a module whose default export isn't a rule fails the gate, naming the shape", async () => {
     const result = await check({
       "shape.config.ts": CONFIG,
@@ -284,5 +449,26 @@ export default { localRules: [noSave] };
     expect(result.output).toContain("rules/local-rule");
     expect(result.output).toContain("needs a `bugClass`");
     expect(result.code).toBe(1);
+  });
+});
+
+describe("local rules in garden's numbers", () => {
+  test("each local rule's ignores and allowances, by name, including one with none", () => {
+    const other = defineRule({ ...noSave, id: "other" });
+    expect(
+      localRuleHatches(
+        config({
+          localRules: [noSave, other],
+          rules: { "local/no-save": { allow: [{ path: "src/merge.ts", reason: "the merge" }] } },
+        }),
+        repo({
+          "src/a.ts": `// shape-ignore local/no-save: ${"generated, reviewed"}\nsave(x);\n// shape-ignore no-throw: a registry rule's\nthrow x;\n`,
+          "src/a.test.ts": "// shape-ignore local/no-save: tests are out of scope\n",
+        }),
+      ),
+    ).toEqual([
+      { rule: "rules/local/no-save", ignores: 1, allowances: 1 },
+      { rule: "rules/local/other", ignores: 0, allowances: 0 },
+    ]);
   });
 });
