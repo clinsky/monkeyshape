@@ -19,7 +19,15 @@ import { checkRefs, REFS_RULES } from "./refs.ts";
 import { checkRules, ENGINE_RULES, type Rule } from "./rules/engine.ts";
 import { RULES } from "./rules/registry.ts";
 import { checkSkills, SKILLS_RULES } from "./skills.ts";
-import { checkSources, inSources, isTest, type Place, places, SOURCES_RULES } from "./sources.ts";
+import {
+  checkSources,
+  inSources,
+  isTest,
+  type Place,
+  places,
+  SOURCES_RULES,
+  tsToCover,
+} from "./sources.ts";
 import { checkSync, SYNC_RULES } from "./sync.ts";
 
 export const CHECKS: ReadonlyArray<CheckName> = CHECK_NAMES;
@@ -75,14 +83,6 @@ const prerequisitesOf = (
   if (check === "beads")
     return [{ name: "bd", integration: beads, required: config.beads === "required" }];
   return [];
-};
-
-/** The TypeScript coverage holds to tsc and biome: all of it, bar `coverage.exempt` segments. */
-const tsToCover = (config: ResolvedConfig, snapshot: Snapshot): ReadonlyArray<string> => {
-  const exempt = new Set(config.coverage.exempt);
-  return snapshot.files.filter(
-    (file) => isTsSource(file) && !file.split("/").some((segment) => exempt.has(segment)),
-  );
 };
 
 /** The first prerequisite that stops `check` from saying anything true, if any. */
