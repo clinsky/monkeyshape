@@ -118,6 +118,14 @@ Once the PR is merged (or the human says to start):
   no merged PR since the track started are always the human's to decide: `rm` doesn't
   refuse on the first or the last. If `rm` refuses, report the reason; never reach for
   `--force` without the human.
+- A track the new plan continues under the same name shows `done` `no`, because grooming
+  already labelled its new beads. Retire it and start it again, with
+  `mshape track rm <name> --keep-beads` and then `mshape track new <name>`, when all of
+  these hold: every open bead with its label is one the plan gives that track (any other
+  is grooming's, as above); `merged` says `yes`; `gh pr list --head track/<name>` lists no
+  open PR; and `gh pr list --head track/<name> --state merged` lists at least one. `rm`
+  checks neither PR fact, so check both; if either fails, the track is the human's, as
+  above. `--keep-beads` leaves those beads labelled for the new track, and lists them.
 - `mshape track new <name>` for each new track. Fill its handoff (`.handoffs/<name>.md`):
   the charter, the state ("not started", and how to start) with today's date in its
   heading, and the traps you already know. Change nothing else: there is no status line
