@@ -1,0 +1,102 @@
+/**
+ * File modes and declared commands against a real git repo and real programs: git's
+ * executable bit, the disk's for untracked files, and each way a command can turn out.
+ */
+import { afterAll, beforeAll, describe, expect, test } from "bun:test";
+import { chmod, mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { dirname, join } from "node:path";
+import { Effect } from "effect";
+import { loadModes, runCommands } from "../../src/adapters/commands.ts";
+import type { DeclaredCommand } from "../../src/schemas/config.ts";
+import { config } from "../support.ts";
+
+let repo = "";
+
+const write = async (path: string, text: string, mode = 0o644) => {
+  await mkdir(dirname(join(repo, path)), { recursive: true });
+  await writeFile(join(repo, path), text);
+  await chmod(join(repo, path), mode);
+};
+
+beforeAll(async () => {
+  repo = await mkdtemp(join(tmpdir(), "mshape-commands-"));
+  await write(".github/scripts/release", "#!/bin/sh\n", 0o755);
+  await write("tools/gen.py", "print(1)\n");
+  await write("scripts/check.sh", "#!/bin/sh\necho checked\n", 0o755);
+  await symlink("tools", join(repo, "linked"));
+  await Bun.$`git init -q && git add .github tools linked && git -c user.name=t -c user.email=t@t commit -qm init`.cwd(
+    repo,
+  );
+  // Untracked: only the disk can say.
+  await write("bin/run", "#!/bin/sh\n", 0o755);
+  // Tracked as plain, then made executable on disk: git's mode wins.
+  await write("tools/plain.sh", "", 0o644);
+  await Bun.$`git add tools/plain.sh && chmod 755 tools/plain.sh`.cwd(repo);
+});
+
+afterAll(async () => {
+  await rm(repo, { recursive: true, force: true });
+});
+
+describe("loadModes", () => {
+  test("git's mode for tracked files, the disk's for untracked ones", async () => {
+    const files = [
+      ".github/scripts/release",
+      "tools/gen.py",
+      "tools/plain.sh",
+      "linked",
+      "bin/run",
+      "scripts/check.sh",
+    ];
+    const modes = await Effect.runPromise(loadModes(repo, files));
+    expect(Object.fromEntries(modes)).toEqual({
+      ".github/scripts/release": "executable",
+      linked: "symlink",
+      "bin/run": "executable",
+      "scripts/check.sh": "executable",
+    });
+  });
+});
+
+describe("runCommands", () => {
+  const outcomes = async (commands: ReadonlyArray<DeclaredCommand>) => {
+    const shape = config({ coverage: { commands } });
+    const runs = await Effect.runPromise(runCommands(repo, shape, ["tools/gen.py"]));
+    return commands.map((_, index) => runs.get(index));
+  };
+
+  test("exit 0 and 1 ran; a missing program, a missing path and exit 127 are unavailable", async () => {
+    const tools = ["tools/**"];
+    const [ok, failed, notOnPath, noPath, notFound, unmatched] = await outcomes([
+      { files: tools, run: ["sh", "-c", "echo fine"] },
+      { files: tools, run: ["sh", "-c", "echo 'gen.py:1: error' >&2; exit 1"] },
+      { files: tools, run: ["mshape-no-such-tool"] },
+      { files: tools, run: ["./scripts/missing.sh"] },
+      { files: tools, run: ["sh", "-c", "mshape-no-such-tool --check"] },
+      { files: ["elsewhere/**"], run: ["sh", "-c", "exit 1"] },
+    ]);
+    expect(ok).toEqual({ state: "ran", code: 0, output: "fine\n" });
+    expect(failed).toEqual({ state: "ran", code: 1, output: "gen.py:1: error\n" });
+    expect(notOnPath).toEqual({
+      state: "unavailable",
+      reason: "`mshape-no-such-tool` is not on PATH",
+    });
+    expect(noPath).toEqual({
+      state: "unavailable",
+      reason: "`./scripts/missing.sh` does not exist",
+    });
+    expect(notFound?.state).toBe("unavailable");
+    expect(notFound?.state === "unavailable" && notFound.reason).toContain("exited 127");
+    expect(unmatched).toBeUndefined();
+  });
+
+  test("a repo script by path, and bun as the running bun", async () => {
+    const [script, bun] = await outcomes([
+      { files: ["tools/**"], run: ["scripts/check.sh"] },
+      { files: ["tools/**"], run: ["bun", "-e", "console.log(typeof Bun)"] },
+    ]);
+    expect(script).toEqual({ state: "ran", code: 0, output: "checked\n" });
+    expect(bun).toEqual({ state: "ran", code: 0, output: "object\n" });
+  });
+});

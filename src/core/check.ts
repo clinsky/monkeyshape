@@ -3,7 +3,7 @@ import type { ResolvedConfig } from "../schemas/config.ts";
 import { ARCH_RULES, checkArch } from "./arch.ts";
 import { BEADS_RULES, checkBeads } from "./beads.ts";
 import { BUDGETS_RULES, checkBudgets } from "./budgets.ts";
-import { COVERAGE_RULES, checkCoverage } from "./coverage.ts";
+import { COVERAGE_RULES, checkCoverage, commandReports } from "./coverage.ts";
 import type { CheckName, Integration, Snapshot, Violation } from "./model.ts";
 import { checkRefs, REFS_RULES } from "./refs.ts";
 import { checkRules, ENGINE_RULES, type Rule } from "./rules/engine.ts";
@@ -75,6 +75,9 @@ export const notices = (config: ResolvedConfig, snapshot: Snapshot): ReadonlyArr
       out.push(
         `coverage approximated ${name}'s file list from its config (${integration.reason}): inheritance and project references are not resolved`,
       );
+  for (const report of commandReports(config, snapshot))
+    if (report.optional && report.outcome === "unavailable")
+      out.push(`skipped optional command \`${report.label}\`: ${report.detail ?? "unavailable"}`);
   return out;
 };
 

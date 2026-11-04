@@ -9,6 +9,7 @@ import { type BeadSummary, type Integration, isTsSource, type Snapshot } from ".
 import { SYNCED_FILES } from "../core/sync.ts";
 import type { ResolvedConfig } from "../schemas/config.ts";
 import { WorkspaceError } from "../schemas/errors.ts";
+import { loadModes, runCommands } from "./commands.ts";
 import { run, runTool } from "./process.ts";
 import { loadSkills } from "./skills.ts";
 
@@ -330,6 +331,8 @@ export const loadSnapshot = (root: string, config: ResolvedConfig, packageRoot: 
     const unlisted = new Set<string>();
     for (const file of SYNCED_FILES)
       if (!listedNow.has(file) && (yield* exists(root, file))) unlisted.add(file);
+    const modes = yield* loadModes(root, present);
+    const commands = yield* runCommands(root, config, present);
     const snapshot: Snapshot = {
       files: present,
       texts,
@@ -347,6 +350,8 @@ export const loadSnapshot = (root: string, config: ResolvedConfig, packageRoot: 
       skills,
       shippedPrime,
       unlisted,
+      modes,
+      commands,
     };
     return snapshot;
   });

@@ -338,6 +338,70 @@ const coverage: Record<string, Cases> = {
       },
     },
   },
+  "coverage/uncovered": {
+    fail: { files: { ...TOOLS, "scripts/gen.py": "" } },
+    // Declared, exempt with a reason, or another tool's file.
+    pass: {
+      files: { ...TOOLS, "native/a.c": "", "scripts/gen.py": "", ".beads/hooks/pre-push": "" },
+      config: {
+        coverage: {
+          commands: [{ files: ["native/**"], run: ["make"] }],
+          exemptFiles: [{ path: "scripts/gen.py", reason: "run once, by hand, at release" }],
+        },
+      },
+      options: {
+        modes: { ".beads/hooks/pre-push": "executable" },
+        commands: [{ state: "ran", code: 0, output: "" }],
+      },
+    },
+  },
+  "coverage/command-failed": {
+    fail: {
+      files: { ...TOOLS, "a.c": "" },
+      config: { coverage: { commands: [{ files: ["a.c"], run: ["cc", "a.c"] }] } },
+      options: { commands: [{ state: "ran", code: 1, output: "a.c:1: error" }] },
+    },
+    pass: {
+      files: { ...TOOLS, "a.c": "" },
+      config: { coverage: { commands: [{ files: ["a.c"], run: ["cc", "a.c"] }] } },
+      options: { commands: [{ state: "ran", code: 0, output: "a.c:1: warning" }] },
+    },
+  },
+  "coverage/command-unavailable": {
+    fail: {
+      files: { ...TOOLS, "a.c": "" },
+      config: { coverage: { commands: [{ files: ["a.c"], run: ["cc", "a.c"] }] } },
+      options: { commands: [{ state: "unavailable", reason: "`cc` is not on PATH" }] },
+    },
+    pass: {
+      files: { ...TOOLS, "a.c": "" },
+      config: {
+        coverage: { commands: [{ files: ["a.c"], run: ["cc", "a.c"], optional: true }] },
+      },
+      options: { commands: [{ state: "unavailable", reason: "`cc` is not on PATH" }] },
+    },
+  },
+  "coverage/command-unmatched": {
+    fail: {
+      files: { ...TOOLS, "a.c": "" },
+      config: { coverage: { commands: [{ files: ["a.c", "b/**"], run: ["cc"] }] } },
+      options: { commands: [{ state: "ran", code: 0, output: "" }] },
+    },
+    pass: {
+      files: TOOLS,
+      config: { coverage: { commands: [{ files: ["b/**"], run: ["cc"], optional: true }] } },
+    },
+  },
+  "coverage/exempt-unmatched": {
+    fail: {
+      files: TOOLS,
+      config: { coverage: { exemptFiles: [{ path: "old.py", reason: "kept for the record" }] } },
+    },
+    pass: {
+      files: { ...TOOLS, "old.py": "" },
+      config: { coverage: { exemptFiles: [{ path: "old.py", reason: "kept for the record" }] } },
+    },
+  },
 };
 
 // rules: the engine's own kinds, then one per registry rule
