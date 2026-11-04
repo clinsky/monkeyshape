@@ -18,6 +18,7 @@ where the two differ.
 | `bun run fix` | Apply biome formatting and safe fixes |
 | `bun src/cli/main.ts garden` | Budgets and escape hatches |
 | `bun src/cli/main.ts rules` | Custom rules and the bug class each removes |
+| `bun run release pack\|tag\|verify` | Pack this checkout (a `-dev` version unless HEAD is a release tag); tag a merged commit `v<version>`, refused where npm already has that version with other content; check a tag reproduces npm. Pushing the tag and `bun publish` are the maintainer's. |
 
 ## Where to start
 
