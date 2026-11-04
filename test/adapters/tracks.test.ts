@@ -925,7 +925,7 @@ describe("track rm and list with beads", () => {
       const unfinished = mshape(repo, "rm", "docs", "--keep-beads");
       expect(unfinished.code).toBe(1);
       expect(unfinished.stderr).toContain(
-        "--keep-beads hands the beads to a new track of this name only once this one is done, and it isn't: PR #7 from `track/docs` is still open",
+        "--keep-beads hands the beads to a new track of this name only once this one is done, and that isn't shown: PR #7 from `track/docs` is still open",
       );
       await fakeGh([pr("MERGED")]);
 

@@ -129,16 +129,21 @@ describe("what track rm may do", () => {
     const why = (more: Partial<RmFacts>) =>
       planRm({ ...facts, beads, keepBeads: true, ownPrs: [merged], ...more }).refusals;
     expect(why({ ownPrs: [] })).toEqual([
-      "--keep-beads hands the beads to a new track of this name only once this one is done, and it isn't: no PR from `track/docs` has merged since the track started. Finish it first, or settle it with the human; --force doesn't override this",
+      "--keep-beads hands the beads to a new track of this name only once this one is done, and that isn't shown: no PR from `track/docs` has merged since the track started. Finish it first, or settle it with the human; --force doesn't override this",
     ]);
     expect(why({ ownPrs: [merged, { ...merged, number: 4, state: "OPEN" }] })[0]).toContain(
       "PR #4 from `track/docs` is still open",
     );
-    expect(why({ merged: false, unmerged: 2, force: true })[0]).toContain(
-      "`track/docs` has 2 commit(s) not in main",
-    );
-    expect(why({ ownPrs: { unknown: "`gh` is not on PATH" } })[0]).toContain(
-      "its PRs couldn't be read (`gh` is not on PATH), so whether it finished can't be told",
+    // Merged is judged against main or its upstream, and the refusal says both (#46's nit).
+    expect(
+      why({ merged: false, unmerged: 2, force: true, mergeTargets: ["main", "origin/main"] })[0],
+    ).toContain("`track/docs` has 2 commit(s) not in `main` or `origin/main`");
+    // PRs that can't be read: the fix is gh, not finishing a track that may well be done.
+    expect(why({ ownPrs: { unknown: "`gh` is not on PATH" } })).toEqual([
+      "--keep-beads hands the beads to a new track of this name only once this one is done, and that isn't shown: its PRs couldn't be read (`gh` is not on PATH), so whether it finished can't be told. Get `gh` working (`gh auth status`), then retry; --force doesn't override this",
+    ]);
+    expect(why({ ownPrs: { unknown: "x" }, merged: false, unmerged: 1, force: true })[0]).toContain(
+      "Get `gh` working (`gh auth status`), finish the rest, then retry",
     );
     // It speaks only to open beads: a failing bd still refuses.
     const failing = {

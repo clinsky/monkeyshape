@@ -306,7 +306,9 @@ export const planRm = (facts: RmFacts): RmPlan => {
     const branchName = `\`${branch}\``;
     const unfinished: Array<string> = [];
     if (facts.branchExists && !facts.merged)
-      unfinished.push(`${branchName} has ${facts.unmerged} commit(s) not in main`);
+      unfinished.push(
+        `${branchName} has ${facts.unmerged} commit(s) not in ${facts.mergeTargets.map((target) => `\`${target}\``).join(" or ")}`,
+      );
     const prs = facts.ownPrs;
     if (prs === undefined || "unknown" in prs)
       unfinished.push(
@@ -319,9 +321,16 @@ export const planRm = (facts: RmFacts): RmPlan => {
       if (!prs.some((pr) => pr.state === "MERGED"))
         unfinished.push(`no PR from ${branchName} has merged since the track started`);
     }
+    const unread = prs === undefined || "unknown" in prs;
     if (unfinished.length > 0)
       refusals.push(
-        `--keep-beads hands the beads to a new track of this name only once this one is done, and it isn't: ${unfinished.join("; ")}. Finish it first, or settle it with the human; --force doesn't override this`,
+        `--keep-beads hands the beads to a new track of this name only once this one is done, and that isn't shown: ${unfinished.join("; ")}. ${
+          unread && unfinished.length === 1
+            ? "Get `gh` working (`gh auth status`), then retry"
+            : unread
+              ? "Get `gh` working (`gh auth status`), finish the rest, then retry"
+              : "Finish it first, or settle it with the human"
+        }; --force doesn't override this`,
       );
   }
   // The repo has beads but bd can't run: `check` notes it and goes on, but removal can't be
