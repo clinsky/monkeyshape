@@ -13,9 +13,12 @@
  *   <repo>/.agents/handoffs                    gitignored symlink to that store
  *   <checkout>/.handoffs                       gitignored symlink to that store, in every checkout
  *   <repo>/.agents/worktrees/<name>.pr-<n>     gitignored: a pull request under review, detached
- *   <common>/monkeyshape/mail/<track>/<id>.json        a track's unread message
- *   <common>/monkeyshape/mail/<track>/read/<id>.json   moved there when read
- *   <common>/monkeyshape/sessions/<track>/<session>.json   a live session of the track
+ *   <common>/monkeyshape/mail/<address>/<id>.json        an address's unread message
+ *   <common>/monkeyshape/mail/<address>/read/<id>.json   moved there when read
+ *   <common>/monkeyshape/sessions/<address>/<session>.json   a live session at the address
+ *
+ * An address is what a session serves, and so where its mail goes: a track, `main` (the main
+ * checkout) or `review-<n>` (a pull request under review). No track may take the other two.
  *
  * The stores live under `.git` because they are live state: `git clean -fdx` deletes
  * ignored files, which would include a handoffs directory in the working tree, but it never
@@ -100,10 +103,22 @@ export const reviewPath = (repo: string, pr: string): string =>
 /** Where the pull request's head is fetched: a ref of its own, so parallel reviews never race. */
 export const reviewRef = (pr: string): string => `refs/monkeyshape/reviews/pr-${pr}`;
 
-/** The mailbox: one directory per track, under git's directory beside the handoffs store. */
+/** The main checkout's address. */
+export const MAIN_ADDRESS = "main";
+
+/** A review's address: the session reviewing pull request `pr`, wherever it runs. */
+export const reviewAddress = (pr: string): string => `review-${pr}`;
+
+/** The pull request a review address is for, or undefined for any other address. */
+export const reviewOf = (address: string): string | undefined => {
+  const pr = address.startsWith("review-") ? address.slice("review-".length) : "";
+  return PR_NUMBER.test(pr) ? pr : undefined;
+};
+
+/** The mailbox: one directory per address, under git's directory beside the handoffs store. */
 export const mailDir = (common: string): string => `${trim(common)}/monkeyshape/mail`;
 
-/** A track's unread mail, one `<id>.json` per message. */
+/** An address's unread mail, one `<id>.json` per message. */
 export const mailboxDir = (common: string, track: string): string => `${mailDir(common)}/${track}`;
 
 /** Where reading a message moves it, by atomic rename. */
@@ -113,7 +128,7 @@ export const mailboxReadDir = (common: string, track: string): string =>
 export const messagePath = (common: string, track: string, id: string): string =>
   `${mailboxDir(common, track)}/${id}.json`;
 
-/** The session registry: the live sessions of each track, for notices. */
+/** The session registry: the live sessions at each address, for notices. */
 export const sessionsDir = (common: string): string => `${trim(common)}/monkeyshape/sessions`;
 
 export const trackSessionsDir = (common: string, track: string): string =>

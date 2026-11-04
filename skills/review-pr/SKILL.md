@@ -39,6 +39,13 @@ cd <that path> && bun install --frozen-lockfile
 Never review in your own checkout. If the review's head and the API's differ, the author
 pushed meanwhile: run `mshape review $N` again.
 
+Start the review in a chat of its own in the main checkout. `mshape review $N` then moves
+this session's address from `main` to `review-$N` (it prints the move), so the mail and
+notices for the main checkout stay with the other sessions there, and the author can reach
+you with `mshape msg send review-$N`. Run from a track's chat, it moves nothing: that session
+keeps its track's mail. After `/clear`, the session is at `main` again until you rerun
+`mshape review $N`.
+
 **A follow-up PR** that answers an earlier review: read that PR's thread first
 (`gh pr view <earlier> --comments`, and its inline comments as in step 6). Each finding it
 claims to answer is a re-review item (step 6), on top of reviewing its own diff.
@@ -158,6 +165,7 @@ worktree to the new head; it prints the previous one too.
 **When nothing is open, say "LGTM"** explicitly, on the PR and to the human: every blocker
 resolved and verified, every nit settled. Never while a finding is open or unverified.
 Merging is the human's call. When the review is over, `mshape review rm $N`: it lists what
-it discards, which in a review worktree is only scratch, then removes it.
+it discards, which in a review worktree is only scratch, and the review's unread mail, then
+removes the worktree and the `review-$N` address. Then close the chat.
 
 Review this skill when a blocker it should have caught reaches `main`.

@@ -10,6 +10,7 @@ import { loadConfig } from "../adapters/config.ts";
 import { initRepo, vendoredSpec } from "../adapters/init.ts";
 import { mailInbox, mailInboxAll, mailRead, mailSend } from "../adapters/mail.ts";
 import {
+  type Caller,
   claudeCodeNotifier,
   liveSessions,
   notifyRecipient,
@@ -35,7 +36,7 @@ import { garden } from "../core/garden.ts";
 import { CLAUDE_SKILLS_LINK } from "../core/layout.ts";
 import { formatAllInboxes, formatInbox, formatMessage, formatSent } from "../core/mail.ts";
 import type { CheckName } from "../core/model.ts";
-import { formatDelivery } from "../core/notices.ts";
+import { formatDelivery, unregisteredNote } from "../core/notices.ts";
 import { applyBaseline, count, tighten } from "../core/ratchet.ts";
 import { formatCheck, formatGarden, formatViolation } from "../core/report.ts";
 import { RULES } from "../core/rules/registry.ts";
@@ -307,7 +308,7 @@ const msgSend = (root: string, args: ReadonlyArray<string>) =>
     const positional = [...before, ...(end === -1 ? [] : args.slice(end + 1))];
     if (subject === undefined || positional.length < 1 || positional.length > 2) return usage();
     const [to = "", body = ""] = positional;
-    const message = yield* mailSend(root, to, subject, body, new Date(), randomHex);
+    const message = yield* mailSend(root, to, subject, body, new Date(), randomHex, caller());
     // Stored first: whatever happens to the notices, the mail waits for them.
     const delivery = yield* notifyRecipient(
       root,
@@ -326,15 +327,20 @@ const msgSend = (root: string, args: ReadonlyArray<string>) =>
   });
 
 /**
- * `--quiet` is the hooks' form: nothing when there's nothing to read or this isn't a track,
+ * `--quiet` is the hooks' form: nothing when there's nothing to read or this has no address,
  * and never a failure, since a hook that fails would interrupt the session it serves. A
- * mailbox that can't be read is still said, as a note.
+ * mailbox that can't be read is still said, as a note, and so is a session that isn't
+ * registered, at every prompt, until it is.
  */
 const msgInbox = (root: string, quiet: boolean) =>
-  Effect.map(mailInbox(root), ({ track, messages, unreadable }) => ({
-    output: formatInbox(track, messages, unreadable, quiet),
-    code: 0,
-  })).pipe(
+  Effect.gen(function* () {
+    const who = quiet ? yield* Effect.promise(hookCaller) : caller();
+    const inbox = yield* mailInbox(root, who);
+    const listed = formatInbox(inbox.address, inbox.messages, inbox.unreadable, quiet);
+    const note =
+      inbox.unregistered === undefined ? [] : [unregisteredNote(inbox.unregistered, inbox.address)];
+    return { output: [...(listed === "" ? [] : [listed]), ...note].join("\n"), code: 0 };
+  }).pipe(
     Effect.catchTags({
       TrackError: (error) => (quiet ? Effect.succeed({ output: "", code: 0 }) : Effect.fail(error)),
       WorkspaceError: (error) =>
@@ -347,26 +353,36 @@ const msgInbox = (root: string, quiet: boolean) =>
 /** Claude Code's config directory, where it records each session: `~/.claude` by default. */
 const claudeDir = (): string => process.env["CLAUDE_CONFIG_DIR"] ?? `${homedir()}/.claude`;
 
+/** The caller, as Claude Code's environment says; `session` overrides its session id. */
+const caller = (session = process.env["CLAUDE_CODE_SESSION_ID"] ?? ""): Caller => {
+  const pid = Number(process.env["CLAUDE_PID"] ?? "");
+  return {
+    identity: {
+      ...(session === "" ? {} : { session }),
+      ...(Number.isSafeInteger(pid) && pid > 0 ? { pid } : {}),
+    },
+    claudeDir: claudeDir(),
+    now: new Date(),
+  };
+};
+
 /**
- * This session's id: from the hook's JSON on stdin when run as a hook, else from Claude
- * Code's environment. Never waits on a terminal.
+ * A hook's caller: the session id from the hook's JSON on stdin, else from Claude Code's
+ * environment. Only hooks read stdin, and never from a terminal, so nothing waits on one.
  */
-const sessionId = async (): Promise<string> => {
+const hookCaller = async (): Promise<Caller> => {
   if (!process.stdin.isTTY) {
     const input = await Bun.stdin.text();
     const match = /"session_id"\s*:\s*"([^"]+)"/.exec(input);
-    if (match?.[1] !== undefined) return match[1];
+    if (match?.[1] !== undefined) return caller(match[1]);
   }
-  return process.env["CLAUDE_CODE_SESSION_ID"] ?? "";
+  return caller();
 };
 
-/** The SessionStart hook's form: silent when done or outside a track, a note otherwise. */
+/** The SessionStart hook's form: silent when done or outside every address, a note otherwise. */
 const msgRegister = (root: string) =>
   Effect.gen(function* () {
-    const session = yield* Effect.promise(sessionId);
-    const pid = Number(process.env["CLAUDE_PID"] ?? "");
-    const claudePid = Number.isSafeInteger(pid) && pid > 0 ? pid : undefined;
-    const note = yield* register(root, session, claudePid, claudeDir(), new Date());
+    const note = yield* register(root, yield* Effect.promise(hookCaller));
     return { output: note ?? "", code: 0 };
   });
 
@@ -381,7 +397,7 @@ const msg = (root: string, args: ReadonlyArray<string>) =>
       return { output: formatAllInboxes(yield* mailInboxAll(root)), code: 0 };
     if (sub === "register" && rest.length === 0) return yield* msgRegister(root);
     if (sub === "read" && rest.length === 1) {
-      const { message, alreadyRead } = yield* mailRead(root, rest[0] ?? "");
+      const { message, alreadyRead } = yield* mailRead(root, rest[0] ?? "", caller());
       return { output: formatMessage(message, alreadyRead), code: 0 };
     }
     return usage();
@@ -391,8 +407,11 @@ const review = (root: string, args: ReadonlyArray<string>) =>
   Effect.gen(function* () {
     if (args.length === 1 && args[0] !== "rm")
       return {
-        output: yield* reviewNew(root, args[0] ?? "", (line) =>
-          Effect.sync(() => console.error(line)),
+        output: yield* reviewNew(
+          root,
+          args[0] ?? "",
+          (line) => Effect.sync(() => console.error(line)),
+          caller(),
         ),
         code: 0,
       };
@@ -597,29 +616,32 @@ export const COMMANDS: ReadonlyArray<Command> = [
       tracks.sharedPaths and the shared handoffs (.handoffs) linked in. Again later: put it
       exactly at the new head, printing the old one; edits to tracked files there are listed,
       then discarded.
+      A session at main (or at another review) moves to the address review-<n>, so its mail
+      is the review's; a session at a track stays there.
   mshape review rm <n>
-      Remove that worktree, listing what it discards, and its fetched ref. Never the shared data
-      or the handoffs.`,
+      Remove that worktree, listing what it discards and review-<n>'s unread mail, its fetched
+      ref and the sessions registered at review-<n>. Never the shared data or the handoffs.`,
     run: review,
   },
   {
     name: "msg",
     usage: `  mshape msg send <track> --subject <subject> [body]
-      Leave a message in <track>'s mailbox, from this track (or main, or review-<n>), then
-      push its subject to the track's live sessions. The subject is one line; it is all a
+      Leave a message in the mailbox of <track>, main or review-<n>, from this session's
+      address, then push its subject to the sessions registered there. The subject is one line; it is all a
       notice shows. Quote the body; put -- before a body
       that starts with --.
   mshape msg inbox [--quiet]
-      This track's unread messages, oldest first. --quiet, for hooks: nothing when there are
-      none or this isn't a track, and never a failure.
+      Unread messages at this session's address, oldest first. --quiet, for hooks: nothing
+      when there are none or there is no address, and never a failure.
   mshape msg inbox --all
-      Every track's unread mail, from any checkout, and mail left for a track that is gone.
+      Every address's unread mail, from any checkout, and mail left at one that is gone.
       For the milestone boundary; marks nothing read.
   mshape msg read <id>
-      Print a message and mark it read for the whole track. Nothing else marks one read.
+      Print a message and mark it read at this address. Nothing else marks one read.
   mshape msg register
-      Record this Claude Code session against its track, so send notifies it at once: the
-      SessionStart hook runs it. Silent outside a track; never fails.`,
+      Record this Claude Code session at its checkout's address (a track, main or review-<n>),
+      or where it already is, so send notifies it at once: the SessionStart hook runs it.
+      Silent outside every address; never fails.`,
     run: msg,
   },
 ];
