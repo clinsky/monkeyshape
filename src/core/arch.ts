@@ -16,6 +16,7 @@ import { isTsSource, lineAt, type Snapshot, type Violation } from "./model.ts";
 import { type Parsed, parse } from "./parse.ts";
 import { dirname, join } from "./paths.ts";
 import { scopes } from "./scope.ts";
+import { isTest } from "./sources.ts";
 
 type Arch = NonNullable<ResolvedConfig["arch"]>;
 
@@ -32,6 +33,7 @@ export const ARCH_RULES = [
   "unresolved-import",
   "forbidden-import",
   "cycle",
+  "empty-module",
 ] as const;
 
 const violation = (
@@ -105,6 +107,9 @@ const isRelative = (specifier: string): boolean =>
 
 export const checkArch = (config: ResolvedConfig, snapshot: Snapshot): ReadonlyArray<Violation> => {
   const arch = config.arch;
+  // A repo with no TypeScript source has nothing to layer: arch is not-applicable there.
+  if (arch === undefined && !snapshot.files.some((file) => isTsSource(file) && !isTest(file)))
+    return [];
   if (arch === undefined)
     return [
       violation(
@@ -129,6 +134,16 @@ export const checkArch = (config: ResolvedConfig, snapshot: Snapshot): ReadonlyA
   const files = snapshot.files.filter(
     (file) => file.startsWith(`${arch.root}/`) && isTsSource(file),
   );
+  for (const [name, rule] of Object.entries(arch.modules))
+    if (rule.optional !== true && !files.some((file) => file.startsWith(`${arch.root}/${name}/`)))
+      violations.push(
+        violation(
+          "empty-module",
+          "shape.config.ts",
+          `module '${name}' matches no TypeScript file under ${arch.root}/${name}/. Fix its name, remove it, or mark it \`optional: true\` if its code is still to come.`,
+        ),
+      );
+
   const known = new Set(snapshot.files);
   const edges = new Map<string, Array<string>>();
 

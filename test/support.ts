@@ -20,6 +20,9 @@ export const repo = (
     readonly beads?: Integration;
     readonly typechecked?: ReadonlyArray<string>;
     readonly linted?: ReadonlyArray<string>;
+    /** Overrides the state the lists above imply, e.g. a tool that ran and failed. */
+    readonly tsc?: Integration;
+    readonly biome?: Integration;
     readonly skills?: SkillsSnapshot;
     readonly shippedPrime?: string;
     readonly unlisted?: ReadonlyArray<string>;
@@ -46,8 +49,8 @@ export const repo = (
     linted: options.linted === undefined ? undefined : new Set(options.linted),
     integrations: {
       beads: options.beads ?? (beadsOk ? { state: "ok" } : { state: "absent" }),
-      tsc: tool(options.typechecked),
-      biome: tool(options.linted),
+      tsc: options.tsc ?? tool(options.typechecked),
+      biome: options.biome ?? tool(options.linted),
     },
     skills: options.skills ?? {
       link: { kind: "missing" },
