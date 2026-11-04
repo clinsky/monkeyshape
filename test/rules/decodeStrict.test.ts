@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { decodeStrict } from "../../src/core/rules/decodeStrict.ts";
-import { ruleLines } from "../support.ts";
+import { checkRules } from "../../src/core/rules/engine.ts";
+import { config, repo, ruleLines } from "../support.ts";
 
 describe("decode-strict", () => {
   test("fails: default decoders, however Schema is imported", () => {
@@ -176,5 +177,63 @@ describe("decode-strict: #58 review", () => {
         'export const f = (o: object) => Schema.decodeUnknownSync(User, { ...o, onExcessProperty: "error" });',
       ),
     ).toEqual([]);
+  });
+});
+
+describe("decode-strict: schemas imported from another file", () => {
+  const SCHEMAS = {
+    "src/schemas/case.ts": [
+      'import { Schema } from "effect";',
+      'export const Sha = Schema.String.pipe(Schema.brand("Sha"));',
+      'const Id = Schema.String.pipe(Schema.brand("Id"));',
+      "export { Id, Id as CaseId };",
+      "export const User = Schema.Struct({ name: Schema.String });",
+      'export { Ref } from "./ref.ts";',
+    ].join("\n"),
+    "src/schemas/ref.ts":
+      'import { Schema } from "effect";\nexport const Ref = Schema.String.pipe(Schema.brand("Ref"));\n',
+  };
+  const decodeFindings = (source: string) =>
+    checkRules(
+      config({}),
+      repo({
+        ...SCHEMAS,
+        "src/flow/a.ts": ['import { Schema } from "effect";', source].join("\n"),
+      }),
+      [decodeStrict],
+    )
+      .filter((v) => v.file === "src/flow/a.ts")
+      .map((v) => v.line);
+
+  test("passes: a branded string declared in another file, exported directly, by name, renamed or re-exported", () => {
+    expect(
+      decodeFindings(
+        [
+          'import { Sha, Id, CaseId, Ref } from "../schemas/case.ts";',
+          'import { Sha as Digest } from "../schemas/case.ts";',
+          "Schema.decodeSync(Sha)(x);",
+          "Schema.decodeSync(Id)(x);",
+          "Schema.decodeSync(CaseId)(x);",
+          "Schema.decodeSync(Ref)(x);",
+          "Schema.decodeSync(Digest)(x);",
+        ].join("\n"),
+      ),
+    ).toEqual([]);
+  });
+
+  test("fails: a struct from another file, a name it doesn't export, a package, or a file not read", () => {
+    expect(
+      decodeFindings(
+        [
+          'import { User, Missing } from "../schemas/case.ts";',
+          'import { Pkg } from "some-package";',
+          'import { Gone } from "../schemas/gone.ts";',
+          "Schema.decodeSync(User)(x);",
+          "Schema.decodeSync(Missing)(x);",
+          "Schema.decodeSync(Pkg)(x);",
+          "Schema.decodeSync(Gone)(x);",
+        ].join("\n"),
+      ),
+    ).toEqual([5, 6, 7, 8]);
   });
 });
