@@ -363,7 +363,7 @@ describe("review of the merge with #53", () => {
       coverage: { commands: [{ files: ["native/**"], run: ["cc", "native/a.c"] }] },
     };
     const snapshot = repo(
-      { ...configs({}, {}), "src/a.ts": "", "native/a.c": "" },
+      { ...configs({}, {}), "src/a.ts": "", "native/a.c": "", "gen.py": "" },
       { commands: [{ state: "ran", code: 1, output: "native/a.c:1: error" }] },
     );
     const got = report("coverage", config(shape), snapshot);
@@ -372,8 +372,12 @@ describe("review of the merge with #53", () => {
       { label: "cc native/a.c", outcome: { state: "failed", examined: "1 file" } },
     ]);
     // Why it failed is on screen too: the command's violations need neither tool.
-    expect(got.violations.map((v) => v.rule)).toEqual(["coverage/command-failed"]);
-    expect(got.violations[0]?.message).toContain("native/a.c:1: error");
+    // So is uncovered source: everything that needs neither tool.
+    expect(got.violations.map((v) => `${v.rule} ${v.file}`)).toEqual([
+      "coverage/uncovered gen.py",
+      "coverage/command-failed shape.config.ts",
+    ]);
+    expect(got.violations[1]?.message).toContain("native/a.c:1: error");
   });
 
   test("no TypeScript: no tsconfig.json or biome.json is asked for", () => {

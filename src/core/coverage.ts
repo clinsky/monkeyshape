@@ -98,7 +98,7 @@ export const checkCoverage = (
   const typescript = snapshot.files.filter(
     (file) => isTsSource(file) && !file.split("/").some((segment) => exempt.has(segment)),
   );
-  const others = [...uncovered(config, snapshot), ...commandViolations(config, snapshot)];
+  const others = withoutTools(config, snapshot);
   // No TypeScript to cover: tsc's and biome's configs answer for nothing, so none is needed.
   if (typescript.length === 0) return others;
   const typechecked = snapshot.typechecked;
@@ -206,11 +206,8 @@ export const commandReports = (
     };
   });
 
-/** What the declared commands found: none of it depends on tsc or biome. */
-export const commandViolations = (
-  config: ResolvedConfig,
-  snapshot: Snapshot,
-): ReadonlyArray<Violation> =>
+/** What the declared commands found. */
+const commandViolations = (config: ResolvedConfig, snapshot: Snapshot): ReadonlyArray<Violation> =>
   config.coverage.commands.flatMap((command, index): ReadonlyArray<Violation> => {
     const label = commandLabel(command);
     const optional = command.optional === true;
@@ -290,3 +287,15 @@ const uncovered = (config: ResolvedConfig, snapshot: Snapshot): ReadonlyArray<Vi
       );
   return out;
 };
+
+/**
+ * What coverage finds without tsc or biome: uncovered source and the declared commands'
+ * results. A report blocked by a missing tool still shows these.
+ */
+export const withoutTools = (
+  config: ResolvedConfig,
+  snapshot: Snapshot,
+): ReadonlyArray<Violation> => [
+  ...uncovered(config, snapshot),
+  ...commandViolations(config, snapshot),
+];

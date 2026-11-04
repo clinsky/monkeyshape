@@ -7,8 +7,8 @@ import {
   COVERAGE_RULES,
   checkCoverage,
   commandReports,
-  commandViolations,
   executableSources,
+  withoutTools,
 } from "./coverage.ts";
 import { matchesAny } from "./glob.ts";
 import {
@@ -218,14 +218,14 @@ export const report = (
     return { check, outcome: { state: "exempt", reason: off }, violations: [] };
   const blocked = blocker(check, config, snapshot);
   if (blocked !== undefined) {
-    // Each command still ran, and needs neither tsc nor biome: its line and its error show
-    // under the blocked check, so the reader can fix it before installing the tools.
+    // What needs neither tsc nor biome still shows under the blocked check (uncovered
+    // source, each command's line and error), so the reader can fix it before installing them.
     const coverage = check === "coverage";
     const parts = coverage ? commandReports(config, snapshot) : [];
     return {
       check,
       outcome: blocked,
-      violations: coverage ? commandViolations(config, snapshot) : [],
+      violations: coverage ? withoutTools(config, snapshot) : [],
       ...(parts.length === 0 ? {} : { parts }),
     };
   }
