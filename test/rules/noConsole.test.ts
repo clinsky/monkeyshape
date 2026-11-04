@@ -55,3 +55,45 @@ describe("no-console", () => {
     ).toEqual(["rules/no-console"]);
   });
 });
+
+describe("no-console: #60 review, names that aren't the global console", () => {
+  test("passes: each position where console is a name, not a value", () => {
+    for (const source of [
+      "export interface Deps { console: Console }",
+      "export type Deps = { readonly console?: boolean };",
+      "export interface Io { console(): void }",
+      "export class A { console() { return 1; } }",
+      "export class A { console = 1; }",
+      "export class A { get console() { return 1; } }",
+      "export enum E { console = 1 }",
+      "export type C = typeof console;",
+      "export type L = typeof console.log;",
+      "console: for (;;) { break console; }",
+      "outer: for (;;) { console: for (;;) { continue console; } }",
+      'import { console as c } from "./io.ts";\nexport const d = c;',
+      "const out = 1;\nexport { out as console };",
+    ])
+      expect([source, ruleLines(noConsole, source)]).toEqual([source, []]);
+  });
+
+  test("fails: globalThis['console'], computed with a literal", () => {
+    expect(ruleLines(noConsole, 'globalThis["console"].log(1);')).toEqual([1]);
+  });
+});
+
+describe("no-console: values inside those same constructs are still caught", () => {
+  test("fails: console as a property value, an initializer, inside a label, and a call on a member", () => {
+    expect(
+      ruleLines(
+        noConsole,
+        [
+          "export class A { log = console.log; }",
+          "export const o = { console: console };",
+          "export enum E { a = console.length }",
+          "work: for (;;) { console.log(1); break work; }",
+          "export const io = { console }; ",
+        ].join("\n"),
+      ),
+    ).toEqual([1, 2, 3, 4, 5]);
+  });
+});
