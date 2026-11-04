@@ -493,26 +493,29 @@ const configFlag = (root: string, args: ReadonlyArray<string>): string | undefin
   return path === undefined ? undefined : path.startsWith("/") ? path : `${root}/${path}`;
 };
 
-const load = (root: string, args: ReadonlyArray<string>) =>
+/** `checks`: what the caller will run, so the loader skips tools nothing will read. */
+const load = (root: string, args: ReadonlyArray<string>, checks: ReadonlyArray<CheckName>) =>
   Effect.gen(function* () {
     const config = yield* loadConfig(root, configFlag(root, args));
-    const snapshot = yield* loadSnapshot(root, config, PACKAGE_ROOT);
+    const snapshot = yield* loadSnapshot(root, config, PACKAGE_ROOT, { checks });
     const baseline = yield* readBaseline(root);
     return { config, snapshot, baseline };
   });
 
 const check = (root: string, args: ReadonlyArray<string>) =>
   Effect.gen(function* () {
-    const { config, snapshot, baseline } = yield* load(root, args);
+    // Before loading: an unknown check is a usage error, and the selection decides what runs.
     const only = parseOnly(args);
     if (typeof only === "string") return { output: only, code: 2 };
+    const { config, snapshot, baseline } = yield* load(root, args, only);
     const result = assess(config, snapshot, baseline, only);
     return { output: formatCheck(result), code: result.green ? 0 : 1 };
   });
 
 const baseline = (root: string, args: ReadonlyArray<string>) =>
   Effect.gen(function* () {
-    const loaded = yield* load(root, args);
+    // A baseline counts every check, so everything runs.
+    const loaded = yield* load(root, args, CHECKS);
     const { config, snapshot } = loaded;
     const blocked = prerequisites(config, snapshot);
     // A baseline written without a required integration would grandfather an incomplete count.
@@ -545,7 +548,8 @@ const baseline = (root: string, args: ReadonlyArray<string>) =>
   });
 
 const gardenCommand = (root: string, args: ReadonlyArray<string>) =>
-  Effect.map(load(root, args), ({ config, snapshot, baseline }) => ({
+  // Garden reads no tool's or command's results: none of them run.
+  Effect.map(load(root, args, []), ({ config, snapshot, baseline }) => ({
     output: formatGarden(garden(config, snapshot, baseline)),
     code: 0,
   }));

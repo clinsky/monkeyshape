@@ -100,3 +100,36 @@ describe("runCommands", () => {
     expect(bun).toEqual({ state: "ran", code: 0, output: "object\n" });
   });
 });
+
+describe("declared commands run only when coverage is selected", () => {
+  test("check --only budgets and garden run none; coverage and everything run each once", async () => {
+    const { loadSnapshot } = await import("../../src/adapters/workspace.ts");
+    const { CHECK_NAMES } = await import("../../src/schemas/config.ts");
+    await writeFile(join(repo, ".gitignore"), "runs.log\n");
+    const shape = config({
+      coverage: { commands: [{ files: ["tools/**"], run: ["sh", "-c", "echo ran >> runs.log"] }] },
+    });
+    const runs = async () =>
+      (
+        await Bun.file(join(repo, "runs.log"))
+          .text()
+          .catch(() => "")
+      )
+        .split("\n")
+        .filter(Boolean).length;
+    const load = (checks: ReadonlyArray<(typeof CHECK_NAMES)[number]>) =>
+      Effect.runPromise(loadSnapshot(repo, shape, `${repo}/no-package`, { checks }));
+
+    const budgets = await load(["budgets"]);
+    await load([]);
+    expect(await runs()).toBe(0);
+    expect(budgets.commands.size).toBe(0);
+    expect(budgets.integrations.tsc.state).toBe("unavailable");
+
+    const coverage = await load(["coverage"]);
+    expect(await runs()).toBe(1);
+    expect(coverage.commands.get(0)).toEqual({ state: "ran", code: 0, output: "" });
+    await load(CHECK_NAMES);
+    expect(await runs()).toBe(2);
+  });
+});

@@ -1,7 +1,7 @@
 /** File modes and declared commands: what `coverage` judges of source it doesn't analyze. */
 import { lstat } from "node:fs/promises";
 import { Effect } from "effect";
-import { commandFiles, commandLabel } from "../core/coverage.ts";
+import { commandFiles } from "../core/coverage.ts";
 import type { CommandRun, FileMode } from "../core/model.ts";
 import type { DeclaredCommand, ResolvedConfig } from "../schemas/config.ts";
 import { run, runTool } from "./process.ts";
@@ -84,7 +84,7 @@ const runCommand = (root: string, command: DeclaredCommand) =>
     if (ran.code === COMMAND_NOT_FOUND)
       return {
         state: "unavailable",
-        reason: `\`${commandLabel(command)}\` exited 127, a command it runs was not found${output === "" ? "" : `: ${output.trim().split("\n").at(-1)}`}`,
+        reason: `it exited 127, so a program it runs was not found${output === "" ? "" : `: ${output.trim().split("\n").at(-1)}`}`,
       } satisfies CommandRun;
     return { state: "ran", code: ran.code, output } satisfies CommandRun;
   });

@@ -86,7 +86,7 @@ const arch: Record<string, Cases> = {
     pass: {
       files: {
         "src/core/a.ts":
-          'const process = { cwd: () => "/" };\nprocess.cwd();\nnew Bun.Glob("*");\n',
+          'const process = { cwd: () => "/" };\nprocess.cwd();\nnew Bun.Glob("*");\nBun.YAML.parse("a: 1");\nBun.TOML.parse("");\nBun.JSONC.parse("{}");\n',
         "src/adapters/b.ts": 'import { readFile } from "node:fs/promises";\nprocess.cwd();\n',
       },
     },
@@ -413,6 +413,27 @@ const coverage: Record<string, Cases> = {
       config: {
         ...NO_TOOLS,
         coverage: { commands: [{ files: ["b/**"], run: ["cc"], optional: true }] },
+      },
+    },
+  },
+  "coverage/data": {
+    fail: { files: { ...TOOLS, ".github/workflows/ci.yml": "jobs:\n\t- build\n" } },
+    // Whole data in each format, comments where the tool allows them, a reasoned fixture.
+    pass: {
+      files: {
+        ...TOOLS,
+        ".github/workflows/ci.yml": "on: push\n",
+        "tsconfig.build.json": "// c\n{}",
+        "config.toml": "a = 1\n",
+        "test/fixtures/bad.json": "{",
+      },
+      config: {
+        ...NO_TOOLS,
+        coverage: {
+          exemptFiles: [
+            { path: "test/fixtures/bad.json", reason: "broken on purpose: parser tests" },
+          ],
+        },
       },
     },
   },

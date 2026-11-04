@@ -5,9 +5,15 @@ import { Effect } from "effect";
 import { PRIME_FILE } from "../core/conventions.ts";
 import { parseJsonc } from "../core/coverage.ts";
 import { SETTINGS_FILE } from "../core/hooks.ts";
-import { type BeadSummary, type Integration, isTsSource, type Snapshot } from "../core/model.ts";
+import {
+  type BeadSummary,
+  classify,
+  type Integration,
+  isTsSource,
+  type Snapshot,
+} from "../core/model.ts";
 import { SYNCED_FILES } from "../core/sync.ts";
-import type { ResolvedConfig } from "../schemas/config.ts";
+import { CHECK_NAMES, type CheckName, type ResolvedConfig } from "../schemas/config.ts";
 import { WorkspaceError } from "../schemas/errors.ts";
 import { loadModes, runCommands } from "./commands.ts";
 import { loadSizes, loadVendored } from "./files.ts";
@@ -286,8 +292,27 @@ const linted = (root: string) =>
  * `packageRoot` is the running monkeyshape: its `skills/` and `template/.beads/PRIME.md` are
  * what a synced repo is compared with.
  */
-export const loadSnapshot = (root: string, config: ResolvedConfig, packageRoot: string) =>
+/** Not asked: coverage alone reads tsc's, biome's and the declared commands' results. */
+const NOT_SELECTED: Loaded<never> = {
+  integration: {
+    state: "unavailable",
+    reason: "not run: coverage is not among the selected checks",
+  },
+  value: undefined,
+};
+
+/**
+ * `checks` are the checks the caller will run: tsc, biome and the declared commands run only
+ * when it holds `coverage`, since they can take minutes and nothing else reads them.
+ */
+export const loadSnapshot = (
+  root: string,
+  config: ResolvedConfig,
+  packageRoot: string,
+  { checks }: { readonly checks: ReadonlyArray<CheckName> } = { checks: CHECK_NAMES },
+) =>
   Effect.gen(function* () {
+    const coverage = checks.includes("coverage");
     const listed = yield* listFiles(root);
     // A file deleted but not yet staged is still listed; it isn't part of the repo now.
     const found = yield* Effect.forEach(listed, (file) => exists(root, file), { concurrency: 32 });
@@ -299,7 +324,11 @@ export const loadSnapshot = (root: string, config: ResolvedConfig, packageRoot: 
       SETTINGS_FILE,
     ]);
     const wanted = present.filter(
-      (file) => isTsSource(file) || file.endsWith(".md") || configs.has(file),
+      (file) =>
+        isTsSource(file) ||
+        file.endsWith(".md") ||
+        configs.has(file) ||
+        classify(file, undefined) === "data",
     );
     const texts = new Map(
       yield* Effect.forEach(
@@ -320,8 +349,10 @@ export const loadSnapshot = (root: string, config: ResolvedConfig, packageRoot: 
         : [];
     const realRoot = yield* Effect.promise(() => realpath(root));
     const loadedBeads = yield* beads(root);
-    const loadedTsc = yield* typechecked(root, realRoot, config.coverage.tsconfigs);
-    const loadedBiome = yield* linted(root);
+    const loadedTsc = coverage
+      ? yield* typechecked(root, realRoot, config.coverage.tsconfigs)
+      : NOT_SELECTED;
+    const loadedBiome = coverage ? yield* linted(root) : NOT_SELECTED;
     const skills = yield* loadSkills(`${packageRoot}/skills`, root);
     const shippedPrime = yield* Effect.promise(() =>
       Bun.file(`${packageRoot}/template/${PRIME_FILE}`)
@@ -333,7 +364,7 @@ export const loadSnapshot = (root: string, config: ResolvedConfig, packageRoot: 
     for (const file of SYNCED_FILES)
       if (!listedNow.has(file) && (yield* exists(root, file))) unlisted.add(file);
     const modes = yield* loadModes(root, present);
-    const commands = yield* runCommands(root, config, present);
+    const commands = coverage ? yield* runCommands(root, config, present) : new Map();
     const sizes = yield* loadSizes(root, present);
     const vendored = yield* loadVendored(root, config, present);
     const snapshot: Snapshot = {

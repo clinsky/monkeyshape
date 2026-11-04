@@ -320,7 +320,7 @@ describe("coverage's report under the outcome contract", () => {
     const got = report("coverage", config(shape), snapshot);
     expect(got.outcome).toEqual({
       state: "passed",
-      examined: "3 other source files against 2 declared commands",
+      examined: "3 other source files against 2 declared commands; 2 data files parsed",
     });
     expect(got.parts).toEqual([
       { label: "cc -fsyntax-only native/a.c", outcome: { state: "passed", examined: "2 files" } },
@@ -338,7 +338,7 @@ describe("coverage's report under the outcome contract", () => {
 
   test("no TypeScript, no other source, no command: not-applicable, and no parts", () => {
     const none = config({ prerequisites: { tsc: "optional", biome: "optional" } });
-    const got = report("coverage", none, repo({ ...TOOLS, "README.md": "" }));
+    const got = report("coverage", none, repo({ "README.md": "" }));
     expect(got.outcome.state).toBe("not-applicable");
     expect(got.parts).toBeUndefined();
   });
@@ -398,5 +398,129 @@ describe("review of the merge with #53", () => {
     expect(
       checkCoverage(config(), repo({ "src/a.ts": "" })).map((v) => `${v.rule} ${v.file}`),
     ).toEqual(["coverage/config tsconfig.json", "coverage/config biome.json"]);
+  });
+});
+
+describe("structured data parses", () => {
+  const NO_TOOLS: ShapeConfig = { prerequisites: { tsc: "optional", biome: "optional" } };
+  const found = (files: Record<string, string>, shape: ShapeConfig = NO_TOOLS) =>
+    checkCoverage(config(shape), repo(files)).map((v) => `${v.rule} ${v.file}`);
+
+  test("each format, broken and whole", () => {
+    expect(
+      found({
+        "a.json": '{ "a": 1 }',
+        "b.json": '{ "a": 1, }',
+        "c.yml": "on: push\njobs: {}\n",
+        ".github/workflows/ci.yml": "jobs:\n\t- x\n",
+        "d.toml": "[x]\na = 1\n",
+        "e.toml": "a = \n",
+        "f.jsonc": '{ // ok\n "a": 1, }',
+        "g.yaml": "a: 1\n---\nb: 2\n",
+      }),
+    ).toEqual([
+      "coverage/data b.json",
+      "coverage/data .github/workflows/ci.yml",
+      "coverage/data e.toml",
+    ]);
+  });
+
+  test("JSONC by convention: tsconfig, biome and editor configs may hold comments", () => {
+    const comments = '{ // a comment\n "a": 1 }';
+    expect(
+      found({
+        "packages/api/tsconfig.build.json": comments,
+        "config/biome.base.json": comments,
+        ".vscode/settings.json": comments,
+        "app/.devcontainer/devcontainer.json": comments,
+        "package.json": comments,
+      }),
+    ).toEqual(["coverage/data package.json"]);
+  });
+
+  test("a strict-JSON failure suggests .jsonc; bd's and symlinked data are another tool's", () => {
+    const [v] = checkCoverage(config(NO_TOOLS), repo({ "x.json": "{ // c\n}" }));
+    expect(v?.message).toContain("does not parse as JSON");
+    expect(v?.message).toContain("name the file `.jsonc`");
+    expect(
+      checkCoverage(
+        config(NO_TOOLS),
+        repo({ ".beads/config.yaml": "a: [", "l.json": "{" }, { modes: { "l.json": "symlink" } }),
+      ),
+    ).toEqual([]);
+  });
+
+  test("a fixture broken on purpose is exempt with a reason", () => {
+    const shape: ShapeConfig = {
+      ...NO_TOOLS,
+      coverage: {
+        exemptFiles: [{ path: "test/fixtures", reason: "broken on purpose: parser tests" }],
+      },
+    };
+    expect(
+      found({ "test/fixtures/bad.json": "{", "test/fixtures/bad.yml": "a: [" }, shape),
+    ).toEqual([]);
+  });
+
+  test("with TypeScript to cover, a broken tsconfig is coverage/config's alone; without, it's data", () => {
+    expect(found({ "tsconfig.json": "{", "biome.json": "{}", "src/a.ts": "" })).toEqual([
+      "coverage/config tsconfig.json",
+    ]);
+    expect(found({ "tsconfig.json": "{" })).toEqual(["coverage/data tsconfig.json"]);
+  });
+});
+
+describe("a long command's line", () => {
+  test("is cut to one short line under coverage; its finding keeps the whole command", () => {
+    const run = [
+      "sh",
+      "-c",
+      'test -n "$HOME_DIR" ||\n exit 127; javac -d out "$@"',
+      "x",
+      ...Array(5).fill("scripts/Some.java"),
+    ];
+    const shape: ShapeConfig = {
+      prerequisites: { tsc: "optional", biome: "optional" },
+      coverage: { commands: [{ files: ["scripts/**"], run }] },
+    };
+    const snapshot = repo(
+      { "scripts/Some.java": "" },
+      { commands: [{ state: "ran", code: 1, output: "error" }] },
+    );
+    const [part] = commandReports(config(shape), snapshot);
+    expect(part?.label.length).toBe(60);
+    expect(part?.label.endsWith("…")).toBe(true);
+    expect(part?.label).not.toContain("\n");
+    const [found] = checkCoverage(config(shape), snapshot);
+    expect(found?.message).toContain(run.join(" "));
+  });
+});
+
+describe("review of #61: JSON whose tool reads comments", () => {
+  const NO_TOOLS: ShapeConfig = { prerequisites: { tsc: "optional", biome: "optional" } };
+  const comment = '{ // a comment\n "a": 1 }';
+
+  test("a root .devcontainer.json and the common JSONC tool configs pass with a comment", () => {
+    const files = Object.fromEntries(
+      [
+        ".devcontainer.json",
+        "app/.devcontainer.json",
+        "turbo.json",
+        "packages/web/turbo.json",
+        ".eslintrc.json",
+        "deno.json",
+        "cspell.json",
+        "api-extractor.json",
+      ].map((name) => [name, comment]),
+    );
+    expect(checkCoverage(config(NO_TOOLS), repo(files))).toEqual([]);
+  });
+
+  test("any other commented .json: the message offers an exemption for a name its tool fixes", () => {
+    const [found] = checkCoverage(config(NO_TOOLS), repo({ "renovate.json": comment }));
+    expect(found?.rule).toBe("coverage/data");
+    expect(found?.message).toContain("name the file `.jsonc`");
+    expect(found?.message).toContain("needs this exact name");
+    expect(found?.message).toContain("`coverage.exemptFiles`");
   });
 });
