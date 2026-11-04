@@ -142,9 +142,13 @@ const scopeOf = (check: CheckName, config: ResolvedConfig, snapshot: Snapshot): 
     }
     case "rules": {
       const files = snapshot.files.filter((file) => inSources(config, file));
-      return files.length === 0
-        ? { notApplicable: "no file in sources" }
-        : { examined: `${plural(files.length, "file")} in sources` };
+      const outside = typescript.filter(({ place }) => place.kind === "outside").length;
+      // not-applicable means there is no TypeScript source, never that sources missed it.
+      return files.length === 0 && outside === 0
+        ? { notApplicable: "no TypeScript source" }
+        : {
+            examined: `${plural(files.length, "file")} in sources${outside > 0 ? `; ${outside} TypeScript outside it, not analyzed` : ""}`,
+          };
     }
     case "refs": {
       const docs = snapshot.files.filter((file) =>
@@ -229,9 +233,13 @@ export const unevaluated = (
   const ran = only.filter(
     (check) => config.checks[check] === undefined && blocker(check, config, snapshot) === undefined,
   ) as ReadonlyArray<string>;
+  // Every id a check that didn't run could report, not only those the caller's baseline
+  // names: `tighten` must keep a turned-off check's entries whoever calls it.
   return new Set([
     ...(snapshot.integrations.beads.state === "ok" ? [] : NEEDS_BD),
-    ...[...baselineRules].filter((rule) => !ran.includes(rule.split("/")[0] ?? "")),
+    ...[...ruleIds(), ...baselineRules]
+      .filter((rule) => !rule.startsWith("prerequisites/"))
+      .filter((rule) => !ran.includes(rule.split("/")[0] ?? "")),
   ]);
 };
 

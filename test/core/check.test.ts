@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { notices, prerequisites, runChecks, unevaluated } from "../../src/core/check.ts";
-import { applyBaseline, count } from "../../src/core/ratchet.ts";
+import { applyBaseline, count, tighten } from "../../src/core/ratchet.ts";
 import type { ShapeConfig } from "../../src/schemas/config.ts";
 import { config, repo } from "../support.ts";
 
@@ -44,9 +44,27 @@ describe("check --only with a baseline", () => {
   });
 });
 
+describe("a check that didn't run", () => {
+  test("a check turned off keeps its baseline entries through --tighten", () => {
+    const off = config({
+      ...shape,
+      checks: { rules: { off: "paused while the parser is replaced" } },
+    });
+    const snapshot = repo(files, tools);
+    const baseline = { "rules/no-throw": { "src/core/a.ts": 2 } };
+    // As `mshape baseline --tighten` calls it: no baseline rules passed.
+    expect(tighten(baseline, runChecks(off, snapshot), unevaluated(off, snapshot))).toEqual(
+      baseline,
+    );
+  });
+});
+
 describe("integrations", () => {
   test("bd unavailable: its rules are unevaluated and the run says so", () => {
-    const snapshot = repo({}, { beads: { state: "unavailable", reason: "bd is not on PATH" } });
+    const snapshot = repo(
+      {},
+      { beads: { state: "unavailable", reason: "bd is not on PATH" }, typechecked: [], linted: [] },
+    );
     expect([...unevaluated(config(), snapshot)]).toEqual([
       "refs/bead-in-code",
       "budgets/memories-count",

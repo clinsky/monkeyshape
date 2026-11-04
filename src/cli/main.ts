@@ -479,7 +479,11 @@ const baseline = (root: string, args: ReadonlyArray<string>) =>
     if (args.includes("--tighten")) {
       yield* writeBaseline(
         root,
-        tighten(loaded.baseline, violations, unevaluated(config, snapshot)),
+        tighten(
+          loaded.baseline,
+          violations,
+          unevaluated(config, snapshot, CHECKS, Object.keys(loaded.baseline)),
+        ),
       );
       return { output: `${BASELINE_FILE}: tightened`, code: 0 };
     }

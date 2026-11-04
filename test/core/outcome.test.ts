@@ -78,9 +78,13 @@ const ROWS: ReadonlyArray<Row> = [
     name: "TypeScript outside default sources (no src/): failed, naming the files",
     files: { "server/a.ts": "export const a = 1;\n", "lib/b.ts": "export const b = 1;\n" },
     only: ["sources", "rules"],
-    outcomes: { sources: "failed" },
+    // rules is never not-applicable while TypeScript exists: it says what it didn't look at.
+    outcomes: { sources: "failed", rules: "passed" },
     green: false,
     also: (run) => {
+      expect(outcomeOf(run, "rules")).toMatchObject({
+        examined: "0 files in sources; 2 TypeScript outside it, not analyzed",
+      });
       const outside = run.result.failing.filter((v) => v.rule === "sources/outside");
       expect(outside.map((v) => v.file).sort()).toEqual(["lib/b.ts", "server/a.ts"]);
       expect(outside[0]?.message).toContain("sources.include");

@@ -66,11 +66,18 @@ export const places = (
     .filter((file) => TS_SOURCE.test(file))
     .map((file) => ({ file, place: placeOf(config, file) }));
 
-/** The glob a fix would add for `file`: its top-level directory, or the root's own files. */
+/** The glob a fix would add for `file`: its top-level directory, or the root, by its extension. */
 const suggestedGlob = (file: string): string => {
+  const extension = file.slice(file.lastIndexOf(".") + 1);
   const slash = file.indexOf("/");
-  return slash === -1 ? "*.ts" : `${file.slice(0, slash)}/**/*.ts`;
+  return slash === -1 ? `*.${extension}` : `${file.slice(0, slash)}/**/*.${extension}`;
 };
+
+/** How to fix one file outside the rules' scope, which depends on why it is outside. */
+const outsideMessage = (config: ResolvedConfig, file: string): string =>
+  matchesAny(file, config.sources.include)
+    ? "is TypeScript in `sources.include` but removed by `sources.exclude`, so no rule analyzes it. `exclude` is for tests; move the glob to `sources.exempt` in shape.config.ts with the reason this code needn't be analyzed, or drop it from `exclude`."
+    : `is TypeScript outside \`sources\`, so no rule analyzes it. Add a glob such as '${suggestedGlob(file)}' to \`sources.include\` in shape.config.ts, or list it in \`sources.exempt\` with the reason it needn't be.`;
 
 export const checkSources = (
   config: ResolvedConfig,
@@ -88,12 +95,6 @@ export const checkSources = (
       );
   for (const { file, place } of places(config, snapshot))
     if (place.kind === "outside")
-      violations.push(
-        violation(
-          "outside",
-          file,
-          `is TypeScript outside \`sources\`, so no rule analyzes it. Add a glob such as '${suggestedGlob(file)}' to \`sources.include\` in shape.config.ts, or list it in \`sources.exempt\` with the reason it needn't be.`,
-        ),
-      );
+      violations.push(violation("outside", file, outsideMessage(config, file)));
   return violations;
 };

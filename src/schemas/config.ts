@@ -200,7 +200,10 @@ export interface ResolvedConfig {
     readonly exempt: ReadonlyArray<Allowance>;
   };
   readonly entry: ReadonlyArray<string>;
-  /** The globs the config wrote itself (not defaults): each must match a file unless optional. */
+  /**
+   * The globs the config wrote itself (not defaults): each must match a file unless optional.
+   * `sources.exclude` isn't held to it: an exclude that matches nothing hides nothing.
+   */
   readonly declared: ReadonlyArray<Declared>;
   readonly checks: { readonly [C in CheckName]?: { readonly off: string } };
   readonly prerequisites: {
@@ -270,7 +273,6 @@ export const resolveConfig = (config: ShapeConfig): ResolvedConfig => ({
   entry: globsOf(config.entry ?? ["src/cli/**", "tools/**"]),
   declared: [
     ...declared("sources.include", config.sources?.include),
-    ...declared("sources.exclude", config.sources?.exclude),
     ...declared(
       "sources.exempt",
       config.sources?.exempt?.map((allowance) => allowance.path),
