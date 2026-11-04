@@ -27,4 +27,13 @@ describe("loadConfig", () => {
     expect(error.message).toContain(`${join(dir, "rules", "broken.ts")}:1:`);
     expect(error.message).toContain("Unexpected");
   });
+
+  test("names the file it tried: --config's path, not shape.config.ts", async () => {
+    const given = await Effect.runPromise(Effect.flip(loadConfig(dir, join(dir, "nope.ts"))));
+    expect(given.message).toBe("nope.ts: not found");
+    const own = await Effect.runPromise(Effect.flip(loadConfig(dir)));
+    expect(own.message).toBe("shape.config.ts: not found; every adopting repo has one");
+    const outside = await Effect.runPromise(Effect.flip(loadConfig(dir, "/nowhere/x.ts")));
+    expect(outside.message).toBe("/nowhere/x.ts: not found");
+  });
 });
