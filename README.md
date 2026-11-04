@@ -16,6 +16,16 @@ src/core/cache.ts:1  rules/no-nondeterminism
 src/core/client.ts  arch/host-access
   imports 'node:fs/promises', but module 'core' has no hostAccess. Reach the host through a service in an adapter module.
 
+  arch      failed          3 files in 2 modules
+  sources   passed          4 TypeScript files: 3 in sources, 1 exempt
+  refs      passed          1 doc, and comments in TypeScript
+  budgets   passed          the loaded docs, decisions, memories and 4 TypeScript files' lengths
+  coverage  passed          4 TypeScript files against tsc's and biome's own file lists
+  rules     failed          3 files in sources
+  skills    not-applicable  no installed skills
+  sync      passed          PRIME.md, the PR template and the hook settings
+  beads     not-applicable  no .beads/
+
 mshape check failed: 2 problems
 ```
 
@@ -43,6 +53,7 @@ The conventions in full: [docs/workflow.md](docs/workflow.md). An existing repo:
 | Check | Removes |
 |---|---|
 | `arch` | Layering drift, host access from pure code (common paths, statically; not a sandbox), unvetted packages, import cycles |
+| `sources` | TypeScript no rule analyzes: each file is in `sources`, a test, a declaration, or exempt with a reason |
 | `rules` | Silent decoding, hidden clocks/env/timers, thrown errors, nested runtimes, spread errors |
 | `refs` | Docs and comments that point at paths, scripts or decisions that don't exist |
 | `budgets` | Bloated `AGENTS.md`, decision logs and memories; oversized files |

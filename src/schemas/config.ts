@@ -10,6 +10,54 @@ const Reason = Schema.String.check(Schema.isMinLength(8));
 
 const Globs = Schema.Array(Schema.String);
 
+/** Every check `mshape check` runs, in the order it reports them. */
+export const CHECK_NAMES = [
+  "arch",
+  "sources",
+  "refs",
+  "budgets",
+  "coverage",
+  "rules",
+  "skills",
+  "sync",
+  "beads",
+] as const;
+export type CheckName = (typeof CHECK_NAMES)[number];
+
+/**
+ * A glob that must match some file, or one that may not yet: `{ path, optional: true }`
+ * names a layout still to come, and fails nothing while it matches nothing.
+ */
+const DeclaredGlob = Schema.Union([
+  Schema.String,
+  Schema.Struct({ path: Schema.String, optional: Schema.optionalKey(Schema.Boolean) }),
+]);
+type DeclaredGlob = typeof DeclaredGlob.Type;
+const DeclaredGlobs = Schema.Array(DeclaredGlob);
+
+/** Where a configured glob came from, so a glob matching nothing can be named. */
+export interface Declared {
+  readonly section: string;
+  readonly glob: string;
+  readonly optional: boolean;
+}
+
+const declared = (
+  section: string,
+  globs: ReadonlyArray<DeclaredGlob> | undefined,
+): Array<Declared> =>
+  (globs ?? []).map((glob) =>
+    typeof glob === "string"
+      ? { section, glob, optional: false }
+      : { section, glob: glob.path, optional: glob.optional === true },
+  );
+
+const globsOf = (globs: ReadonlyArray<DeclaredGlob>): ReadonlyArray<string> =>
+  globs.map((glob) => (typeof glob === "string" ? glob : glob.path));
+
+/** A prerequisite is required unless the config says otherwise. */
+const Requirement = Schema.Literals(["optional", "required"]);
+
 export const Allowance = Schema.Struct({
   /** A glob, relative to the repo root. */
   path: Schema.String,
@@ -27,6 +75,8 @@ export const ModuleRule = Schema.Struct({
   packages: Schema.optionalKey(Schema.Array(Schema.String)),
   /** May import the package manifest (for the released version). */
   manifest: Schema.optionalKey(Schema.Boolean),
+  /** Matching no file is not a failure: the module is still to come. */
+  optional: Schema.optionalKey(Schema.Boolean),
 });
 export type ModuleRule = typeof ModuleRule.Type;
 
@@ -52,12 +102,37 @@ export const ForbiddenPattern = Schema.Struct({
 
 export const ShapeConfig = Schema.Struct({
   layers: Schema.optionalKey(Schema.Array(Schema.Literals(["core", "agentic"]))),
-  /** Files the custom rules apply to. Tests are out by default: they may throw and run effects. */
+  /**
+   * Files the custom rules apply to. Every other TypeScript file is a test, a declaration
+   * file, or in `exempt` with a reason; the `sources` check fails on any that is none of them.
+   */
   sources: Schema.optionalKey(
-    Schema.Struct({ include: Schema.optionalKey(Globs), exclude: Schema.optionalKey(Globs) }),
+    Schema.Struct({
+      include: Schema.optionalKey(DeclaredGlobs),
+      exclude: Schema.optionalKey(DeclaredGlobs),
+      exempt: Schema.optionalKey(Schema.Array(Allowance)),
+    }),
   ),
   /** Composition roots: where effects run and the host's clock, env and timers may be read. */
-  entry: Schema.optionalKey(Globs),
+  entry: Schema.optionalKey(DeclaredGlobs),
+  /** A whole check turned off, with the reason. Its line in `mshape check` says `exempt`. */
+  checks: Schema.optionalKey(
+    Schema.Struct(
+      Object.fromEntries(
+        CHECK_NAMES.map((name) => [name, Schema.optionalKey(Schema.Struct({ off: Reason }))]),
+      ) as { readonly [C in CheckName]: Schema.optionalKey<Schema.Struct<{ off: typeof Reason }>> },
+    ),
+  ),
+  /**
+   * The tools `coverage` asks. Required by default: a missing or broken one fails the gate.
+   * `optional` falls back to reading their configs when the tool isn't installed, with a note.
+   */
+  prerequisites: Schema.optionalKey(
+    Schema.Struct({
+      tsc: Schema.optionalKey(Requirement),
+      biome: Schema.optionalKey(Requirement),
+    }),
+  ),
   arch: Schema.optionalKey(
     Schema.Struct({
       root: Schema.optionalKey(Schema.String),
@@ -67,6 +142,12 @@ export const ShapeConfig = Schema.Struct({
     }),
   ),
   rules: Schema.optionalKey(Schema.Record(Schema.String, RuleSetting)),
+  /**
+   * The repo's own rules: each a module's default export, imported here
+   * (`import indexWrites from "./rules/indexWrites.ts"`). The rules check validates each and
+   * runs it as `local/<id>`; `rules` configures it under that id.
+   */
+  localRules: Schema.optionalKey(Schema.Array(Schema.Unknown)),
   /** `required` fails the check when bd can't answer, so a green CI run means beads was checked. */
   beads: Schema.optionalKey(Schema.Literals(["optional", "required"])),
   tracks: Schema.optionalKey(
@@ -122,8 +203,19 @@ export interface ResolvedConfig {
   readonly sources: {
     readonly include: ReadonlyArray<string>;
     readonly exclude: ReadonlyArray<string>;
+    readonly exempt: ReadonlyArray<Allowance>;
   };
   readonly entry: ReadonlyArray<string>;
+  /**
+   * The globs the config wrote itself (not defaults): each must match a file unless optional.
+   * `sources.exclude` isn't held to it: an exclude that matches nothing hides nothing.
+   */
+  readonly declared: ReadonlyArray<Declared>;
+  readonly checks: { readonly [C in CheckName]?: { readonly off: string } };
+  readonly prerequisites: {
+    readonly tsc: "optional" | "required";
+    readonly biome: "optional" | "required";
+  };
   readonly beads: "optional" | "required";
   readonly tracks: { readonly sharedPaths: ReadonlyArray<string> };
   readonly arch:
@@ -137,6 +229,8 @@ export interface ResolvedConfig {
   readonly rules: Readonly<
     Record<string, { readonly off?: string; readonly allow?: ReadonlyArray<Allowance> }>
   >;
+  /** Validated by the rules check, not here, so a misshaped one fails the gate with a reason. */
+  readonly localRules: ReadonlyArray<unknown>;
   readonly refs: {
     readonly docs: ReadonlyArray<string>;
     readonly narrativeDocs: ReadonlyArray<string>;
@@ -175,10 +269,29 @@ export const DEFAULT_DOCS: ReadonlyArray<string> = [
 export const resolveConfig = (config: ShapeConfig): ResolvedConfig => ({
   layers: config.layers ?? ["core"],
   sources: {
-    include: config.sources?.include ?? ["src/**/*.{ts,tsx}", "tools/**/*.{ts,tsx}"],
-    exclude: config.sources?.exclude ?? ["**/*.test.ts", "**/*.test.tsx"],
+    include: globsOf(config.sources?.include ?? ["src/**/*.{ts,tsx}", "tools/**/*.{ts,tsx}"]),
+    // An exempt file is counted, never analyzed: excluding it here keeps the rules engine,
+    // and any later reader of `sources`, from analyzing it.
+    exclude: [
+      ...globsOf(config.sources?.exclude ?? ["**/*.test.ts", "**/*.test.tsx"]),
+      ...(config.sources?.exempt ?? []).map((allowance) => allowance.path),
+    ],
+    exempt: config.sources?.exempt ?? [],
   },
-  entry: config.entry ?? ["src/cli/**", "tools/**"],
+  entry: globsOf(config.entry ?? ["src/cli/**", "tools/**"]),
+  declared: [
+    ...declared("sources.include", config.sources?.include),
+    ...declared(
+      "sources.exempt",
+      config.sources?.exempt?.map((allowance) => allowance.path),
+    ),
+    ...declared("entry", config.entry),
+  ],
+  checks: config.checks ?? {},
+  prerequisites: {
+    tsc: config.prerequisites?.tsc ?? "required",
+    biome: config.prerequisites?.biome ?? "required",
+  },
   beads: config.beads ?? "optional",
   tracks: { sharedPaths: config.tracks?.sharedPaths ?? [] },
   arch:
@@ -196,6 +309,7 @@ export const resolveConfig = (config: ShapeConfig): ResolvedConfig => ({
           ],
         },
   rules: config.rules ?? {},
+  localRules: config.localRules ?? [],
   refs: {
     docs: config.refs?.docs ?? DEFAULT_DOCS,
     narrativeDocs: config.refs?.narrativeDocs ?? ["README.md"],

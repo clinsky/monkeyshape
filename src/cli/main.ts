@@ -29,14 +29,14 @@ import {
   trackRm,
 } from "../adapters/tracks.ts";
 import { loadSnapshot } from "../adapters/workspace.ts";
-import { CHECKS, notices, prerequisites, runChecks, unevaluated } from "../core/check.ts";
+import { assess, CHECKS, prerequisites, runChecks, unevaluated } from "../core/check.ts";
 import { OWNABLE_FILES } from "../core/conventions.ts";
 import { garden } from "../core/garden.ts";
 import { CLAUDE_SKILLS_LINK, SKILLS_DIR } from "../core/layout.ts";
 import { formatAllInboxes, formatInbox, formatMessage, formatSent } from "../core/mail.ts";
 import type { CheckName } from "../core/model.ts";
 import { formatDelivery } from "../core/notices.ts";
-import { applyBaseline, count, tighten } from "../core/ratchet.ts";
+import { count, tighten } from "../core/ratchet.ts";
 import { formatCheck, formatGarden, formatViolation } from "../core/report.ts";
 import { RULES } from "../core/rules/registry.ts";
 import { nextStep, REPO_NAME } from "../core/scaffold.ts";
@@ -472,20 +472,10 @@ const load = (root: string, args: ReadonlyArray<string>) =>
 const check = (root: string, args: ReadonlyArray<string>) =>
   Effect.gen(function* () {
     const { config, snapshot, baseline } = yield* load(root, args);
-    const blocked = prerequisites(config, snapshot);
     const only = parseOnly(args);
     if (typeof only === "string") return { output: only, code: 2 };
-    const ratcheted = applyBaseline(
-      runChecks(config, snapshot, only),
-      baseline,
-      unevaluated(snapshot, only, Object.keys(baseline)),
-    );
-    const result = { ...ratcheted, failing: [...blocked, ...ratcheted.failing] };
-    const said = notices(config, snapshot).map((notice) => `note: ${notice}`);
-    return {
-      output: [...said, formatCheck(result)].join("\n"),
-      code: result.failing.length + result.loose.length > 0 ? 1 : 0,
-    };
+    const result = assess(config, snapshot, baseline, only);
+    return { output: formatCheck(result), code: result.green ? 0 : 1 };
   });
 
 const baseline = (root: string, args: ReadonlyArray<string>) =>
@@ -511,7 +501,14 @@ const baseline = (root: string, args: ReadonlyArray<string>) =>
       };
     }
     if (args.includes("--tighten")) {
-      yield* writeBaseline(root, tighten(loaded.baseline, violations, unevaluated(snapshot)));
+      yield* writeBaseline(
+        root,
+        tighten(
+          loaded.baseline,
+          violations,
+          unevaluated(config, snapshot, CHECKS, Object.keys(loaded.baseline)),
+        ),
+      );
       return { output: `${BASELINE_FILE}: tightened`, code: 0 };
     }
     return usage();
