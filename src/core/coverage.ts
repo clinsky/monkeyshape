@@ -14,7 +14,7 @@
 import type { DeclaredCommand, ResolvedConfig } from "../schemas/config.ts";
 import { matchesPathOrBelow } from "./glob.ts";
 import { stripJsonc } from "./jsonc.ts";
-import { classify, isTsSource, type Snapshot, type Violation } from "./model.ts";
+import { classify, isTsSource, type Outcome, type Snapshot, type Violation } from "./model.ts";
 import { dirname } from "./paths.ts";
 
 /** Every rule this check reports, as `coverage/<kind>`; test/core/ruleCases.test.ts covers each. */
@@ -146,19 +146,10 @@ export const commandLabel = (command: DeclaredCommand): string => command.run.jo
 export const commandFiles = (command: DeclaredCommand, files: ReadonlyArray<string>) =>
   files.filter((file) => command.files.some((pattern) => matchesPathOrBelow(file, pattern)));
 
-/**
- * What one declared command came to, under the outcome contract: `not-applicable` when its
- * files match nothing and it is optional, `unavailable` when its program is missing.
- */
-export type CommandOutcome = "passed" | "failed" | "unavailable" | "not-applicable";
-
+/** One declared command's line under `coverage`, in the outcome contract's terms. */
 export interface CommandReport {
   readonly label: string;
-  readonly files: number;
-  readonly outcome: CommandOutcome;
-  /** Why it failed or was unavailable; the command's own output's tail for a failure. */
-  readonly detail?: string;
-  readonly optional: boolean;
+  readonly outcome: Outcome;
 }
 
 const TAIL_LINES = 30;
@@ -169,29 +160,45 @@ const tail = (output: string): string => {
   return lines.length > TAIL_LINES ? `(last ${TAIL_LINES} lines)\n${kept}` : kept;
 };
 
-/** One report per declared command, in config order: what `mshape check` prints for each. */
+const plural = (n: number, word: string): string => `${n} ${word}${n === 1 ? "" : "s"}`;
+
+/**
+ * One report per declared command, in config order: `coverage`'s parts. `failed` when it
+ * exited non-zero or a required command's files match nothing; the violation says why.
+ */
 export const commandReports = (
   config: ResolvedConfig,
   snapshot: Snapshot,
 ): ReadonlyArray<CommandReport> =>
-  config.coverage.commands.map((command, index) => {
+  config.coverage.commands.map((command, index): CommandReport => {
     const label = commandLabel(command);
     const optional = command.optional === true;
-    const files = commandFiles(command, snapshot.files).length;
+    const examined = plural(commandFiles(command, snapshot.files).length, "file");
     const ran = snapshot.commands.get(index);
-    if (files === 0 || ran === undefined)
-      return { label, files, optional, outcome: optional ? "not-applicable" : "failed" };
+    if (ran === undefined)
+      return {
+        label,
+        outcome: optional
+          ? { state: "not-applicable", reason: "its files match nothing" }
+          : { state: "failed", examined },
+      };
     if (ran.state === "unavailable")
-      return { label, files, optional, outcome: "unavailable", detail: ran.reason };
-    return ran.code === 0
-      ? { label, files, optional, outcome: "passed" }
-      : {
-          label,
-          files,
-          optional,
-          outcome: "failed",
-          detail: `exited ${ran.code}${ran.output.trim() === "" ? "" : `:\n${tail(ran.output)}`}`,
-        };
+      return {
+        label,
+        outcome: {
+          state: "unavailable",
+          prerequisite: command.run[0] ?? label,
+          reason: ran.reason,
+          required: !optional,
+        },
+      };
+    const unmatched =
+      !optional &&
+      command.files.some((pattern) => !snapshot.files.some((f) => matchesPathOrBelow(f, pattern)));
+    return {
+      label,
+      outcome: { state: ran.code === 0 && !unmatched ? "passed" : "failed", examined },
+    };
   });
 
 const commandViolations = (config: ResolvedConfig, snapshot: Snapshot): ReadonlyArray<Violation> =>
@@ -233,9 +240,18 @@ const commandViolations = (config: ResolvedConfig, snapshot: Snapshot): Readonly
     ];
   });
 
+/** Executable source outside `coverage.exempt` segments: what the declared commands answer for. */
+export const executableSources = (config: ResolvedConfig, snapshot: Snapshot) => {
+  const segments = new Set(config.coverage.exempt);
+  return snapshot.files.filter(
+    (file) =>
+      classify(file, snapshot.modes.get(file)) === "executable" &&
+      !file.split("/").some((segment) => segments.has(segment)),
+  );
+};
+
 /** Executable source no declared command covers, unless exempt by segment or with a reason. */
 const uncovered = (config: ResolvedConfig, snapshot: Snapshot): ReadonlyArray<Violation> => {
-  const segments = new Set(config.coverage.exempt);
   const exemptPaths = config.coverage.exemptFiles.map((entry) => entry.path);
   const exempted = (file: string) =>
     exemptPaths.some((pattern) => matchesPathOrBelow(file, pattern));
@@ -244,9 +260,7 @@ const uncovered = (config: ResolvedConfig, snapshot: Snapshot): ReadonlyArray<Vi
       command.files.some((pattern) => matchesPathOrBelow(file, pattern)),
     );
   const out: Array<Violation> = [];
-  for (const file of snapshot.files) {
-    if (classify(file, snapshot.modes.get(file)) !== "executable") continue;
-    if (file.split("/").some((segment) => segments.has(segment))) continue;
+  for (const file of executableSources(config, snapshot)) {
     if (exempted(file) || covered(file)) continue;
     out.push(
       violation(

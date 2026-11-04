@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { notices } from "../../src/core/check.ts";
+import { assess, notices, report } from "../../src/core/check.ts";
 import {
   biomeCovers,
   checkCoverage,
@@ -7,6 +7,8 @@ import {
   tsconfigCovers,
 } from "../../src/core/coverage.ts";
 import { stripJsonc } from "../../src/core/jsonc.ts";
+import { formatCheck } from "../../src/core/report.ts";
+import type { ShapeConfig } from "../../src/schemas/config.ts";
 import { config, repo } from "../support.ts";
 
 const configs = (tsconfig: object, biome: object) => ({
@@ -179,11 +181,9 @@ describe("executable source and declared commands", () => {
     expect(found[0]?.message).toContain("`ruff check b` exited 1");
     expect(found[0]?.message).toContain("E999 SyntaxError");
     expect(found[1]?.message).toContain("`go` is not on PATH");
-    expect(commandReports(config(shape), snapshot).map((r) => `${r.label}: ${r.outcome}`)).toEqual([
-      "cc a/x.c: passed",
-      "ruff check b: failed",
-      "go vet: unavailable",
-    ]);
+    expect(
+      commandReports(config(shape), snapshot).map((r) => `${r.label}: ${r.outcome.state}`),
+    ).toEqual(["cc a/x.c: passed", "ruff check b: failed", "go vet: unavailable"]);
   });
 
   test("optional: a missing toolchain is a note, and no matching file is not-applicable", () => {
@@ -203,7 +203,7 @@ describe("executable source and declared commands", () => {
     expect(checkCoverage(config(shape), snapshot).map((v) => `${v.rule} ${v.message}`)).toEqual([
       "coverage/command-unmatched declared command `cc` covers 'gone/**', which matches no file. Fix the glob, remove it, or set `optional: true` if its files may be absent.",
     ]);
-    expect(commandReports(config(shape), snapshot).map((r) => r.outcome)).toEqual([
+    expect(commandReports(config(shape), snapshot).map((r) => r.outcome.state)).toEqual([
       "unavailable",
       "not-applicable",
       "failed",
@@ -247,7 +247,7 @@ describe("review of #51", () => {
     expect(checkCoverage(config(shape), snapshot).map((v) => v.rule)).toEqual([
       "coverage/command-failed",
     ]);
-    expect(commandReports(config(shape), snapshot).map((r) => r.outcome)).toEqual(["failed"]);
+    expect(commandReports(config(shape), snapshot).map((r) => r.outcome.state)).toEqual(["failed"]);
   });
 
   test("the mirror: optional, one glob unmatched, the run passes: green", () => {
@@ -290,5 +290,69 @@ describe("review of #51", () => {
     expect(found?.message).toContain("a compiled binary");
     const [source] = checkCoverage(config(), repo({ ...TOOLS, "a.py": "" }));
     expect(source?.message).not.toContain("a compiled binary");
+  });
+});
+
+describe("coverage's report under the outcome contract", () => {
+  const TOOLS = configs({}, {});
+  const shape: ShapeConfig = {
+    prerequisites: { tsc: "optional", biome: "optional" },
+    coverage: {
+      commands: [
+        { files: ["native/**"], run: ["cc", "-fsyntax-only", "native/a.c"] },
+        { files: ["tools/**"], run: ["ruff", "check"], optional: true },
+      ],
+    },
+  };
+
+  test("a repo whose only source is C is examined, not not-applicable", () => {
+    const snapshot = repo(
+      { ...TOOLS, "native/a.c": "", "native/a.h": "", "tools/x.py": "" },
+      {
+        commands: [
+          { state: "ran", code: 0, output: "" },
+          { state: "unavailable", reason: "`ruff` is not on PATH" },
+        ],
+      },
+    );
+    const got = report("coverage", config(shape), snapshot);
+    expect(got.outcome).toEqual({
+      state: "passed",
+      examined: "3 other source files against 2 declared commands",
+    });
+    expect(got.parts).toEqual([
+      { label: "cc -fsyntax-only native/a.c", outcome: { state: "passed", examined: "2 files" } },
+      {
+        label: "ruff check",
+        outcome: {
+          state: "unavailable",
+          prerequisite: "ruff",
+          reason: "`ruff` is not on PATH",
+          required: false,
+        },
+      },
+    ]);
+  });
+
+  test("no TypeScript, no other source, no command: not-applicable, and no parts", () => {
+    const none = config({ prerequisites: { tsc: "optional", biome: "optional" } });
+    const got = report("coverage", none, repo({ ...TOOLS, "README.md": "" }));
+    expect(got.outcome.state).toBe("not-applicable");
+    expect(got.parts).toBeUndefined();
+  });
+
+  test("each command is one line under coverage in mshape check's output", () => {
+    const snapshot = repo(
+      { ...TOOLS, "native/a.c": "" },
+      { commands: [{ state: "ran", code: 1, output: "native/a.c:1: error" }] },
+    );
+    const output = formatCheck(assess(config(shape), snapshot, {}, ["coverage"]));
+    const lines = output.split("\n");
+    const at = lines.findIndex((l) => l.trimStart().startsWith("coverage"));
+    expect(lines[at]).toMatch(/^\s+coverage\s+failed/);
+    // The states line up, however long a command is.
+    expect(lines[at + 1]?.indexOf("failed")).toBe(lines[at]?.indexOf("failed"));
+    expect(lines[at + 1]).toMatch(/^\s+cc -fsyntax-only native\/a\.c\s+failed\s+1 file/);
+    expect(lines[at + 2]).toMatch(/^\s+ruff check\s+not-applicable\s+its files match nothing/);
   });
 });

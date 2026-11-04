@@ -7,33 +7,18 @@
  *
  * An ignore comment covers its own line and the next one.
  */
-import type { VisitorObject } from "oxc-parser";
 import { Visitor } from "oxc-parser";
 import type { ResolvedConfig } from "../../schemas/config.ts";
 import { matchesAny } from "../glob.ts";
 import { lineAt, type Snapshot, type Violation } from "../model.ts";
 import { type Parsed, parse } from "../parse.ts";
+import { localRules } from "./local.ts";
+import type { Finding, Rule } from "./rule.ts";
 
-export interface Finding {
-  readonly offset: number;
-  /** Overrides the rule's message for this finding. */
-  readonly message?: string;
-}
-
-export interface Rule {
-  readonly id: string;
-  readonly layer: "core" | "agentic";
-  /** The class of bug this rule removes, for the registry and `mshape rules`. */
-  readonly bugClass: string;
-  /** Why, and what to do instead. Shown with every violation. */
-  readonly message: string;
-  /** Whether composition roots (`entry`) are exempt. */
-  readonly entryExempt: boolean;
-  readonly visit: (parsed: Parsed, report: (finding: Finding) => void) => VisitorObject;
-}
+export type { Finding, Rule } from "./rule.ts";
 
 /** Only a line comment that starts with the directive counts, so prose can mention it. */
-const IGNORE = /^\s*shape-ignore\s+([a-z0-9-]+)(?::\s*(.*))?/;
+const IGNORE = /^\s*shape-ignore\s+((?:local\/)?[a-z0-9-]+)(?::\s*(.*))?/;
 
 interface Ignore {
   readonly rule: string;
@@ -52,6 +37,7 @@ export const ENGINE_RULES = [
   "ignore-without-reason",
   "unused-ignore",
   "unused-allowance",
+  "local-rule",
 ] as const;
 
 const reported = (rule: string, file: string, line: number, message: string): Violation => ({
@@ -69,10 +55,20 @@ const violation = (
   message: string,
 ): Violation => reported(kind, file, line, message);
 
-export const runRule = (rule: Rule, parsed: Parsed): ReadonlyArray<Finding> => {
+const results = (
+  rule: Rule,
+  parsed: Parsed,
+): ReadonlyArray<Finding> | { readonly broken: string } => {
+  if (rule.run !== undefined) return rule.run(parsed);
   const findings: Array<Finding> = [];
   new Visitor(rule.visit(parsed, (finding) => findings.push(finding))).visit(parsed.program);
   return findings;
+};
+
+/** A rule's findings on one file; none when an adopter's rule broke on it. */
+export const runRule = (rule: Rule, parsed: Parsed): ReadonlyArray<Finding> => {
+  const found = results(rule, parsed);
+  return "broken" in found ? [] : found;
 };
 
 export const checkRules = (
@@ -81,11 +77,17 @@ export const checkRules = (
   rules: ReadonlyArray<Rule>,
 ): ReadonlyArray<Violation> => {
   const violations: Array<Violation> = [];
-  const active = rules.filter(
+  const local = localRules(config.localRules);
+  for (const reason of local.broken)
+    violations.push(violation("local-rule", "shape.config.ts", 1, reason));
+  const all = [...rules, ...local.rules];
+  const active = all.filter(
     (rule) => config.layers.includes(rule.layer) && config.rules[rule.id]?.off === undefined,
   );
   const usedAllowances = new Set<string>();
-  const known = new Set(rules.map((rule) => rule.id));
+  const known = new Set([...all.map((rule) => rule.id), ...local.brokenIds]);
+  /** A local rule that broke: reported once, at the first file, with how many it broke on. */
+  const brokeOn = new Map<string, { file: string; reason: string; files: number }>();
 
   for (const id of Object.keys(config.rules))
     if (!known.has(id))
@@ -126,7 +128,17 @@ export const checkRules = (
       const allowance = (config.rules[rule.id]?.allow ?? []).find((a) =>
         matchesAny(file, [a.path]),
       );
-      for (const finding of runRule(rule, parsed)) {
+      const found = results(rule, parsed);
+      if ("broken" in found) {
+        // Its escape hatches here may be right: unchecked, they aren't unused.
+        if (allowance !== undefined) usedAllowances.add(`${rule.id}\0${allowance.path}`);
+        for (const ignore of ignores) if (ignore.rule === rule.id) ignore.used = true;
+        const first = brokeOn.get(rule.id);
+        if (first === undefined) brokeOn.set(rule.id, { file, reason: found.broken, files: 1 });
+        else first.files++;
+        continue;
+      }
+      for (const finding of found) {
         if (allowance !== undefined) {
           usedAllowances.add(`${rule.id}\0${allowance.path}`);
           continue;
@@ -154,8 +166,20 @@ export const checkRules = (
         );
   }
 
+  for (const [id, { file, reason, files }] of brokeOn)
+    violations.push(
+      violation(
+        "local-rule",
+        file,
+        1,
+        `the rule ${id} broke on ${files === 1 ? "this file" : `${files} files, this one first`}: ${reason}. Fix the rule's check in its module; the files may be fine.`,
+      ),
+    );
+
+  // A misshaped local rule never ran, so its allowances weren't tested, not unused.
+  const unrun = new Set(local.brokenIds);
   for (const [id, setting] of Object.entries(config.rules))
-    for (const allowance of setting.allow ?? [])
+    for (const allowance of unrun.has(id) ? [] : (setting.allow ?? []))
       if (!usedAllowances.has(`${id}\0${allowance.path}`))
         violations.push(
           violation(

@@ -24,9 +24,27 @@ const layered = config({
   },
 });
 
-const rules = (files: Record<string, string>) => checkArch(layered, repo(files)).map((v) => v.rule);
+/** What a fixture reports besides modules it has no file for, which most fixtures don't need. */
+const rules = (files: Record<string, string>) =>
+  checkArch(layered, repo(files))
+    .map((v) => v.rule)
+    .filter((rule) => rule !== "arch/empty-module");
 
 describe("arch", () => {
+  test("a module with no file fails, naming it, unless it is optional", () => {
+    const map = (optional: boolean) =>
+      config({
+        arch: {
+          modules: { core: { description: "logic" }, later: { description: "soon", optional } },
+        },
+      });
+    const files = repo({ "src/core/a.ts": "export const a = 1;\n" });
+    expect(checkArch(map(false), files).map((v) => v.message)).toEqual([
+      expect.stringContaining("module 'later' matches no TypeScript file under src/later/"),
+    ]);
+    expect(checkArch(map(true), files)).toEqual([]);
+  });
+
   test("the longest module key wins", () => {
     const arch = layered.arch;
     if (arch === undefined) return expect(arch).toBeDefined();
@@ -74,7 +92,9 @@ describe("arch", () => {
       'const response = await fetch("https://x.dev");',
       "Bun.spawn(['ls']);",
     ].join("\n");
-    const found = checkArch(layered, repo({ "src/core/b.ts": source }));
+    const found = checkArch(layered, repo({ "src/core/b.ts": source })).filter(
+      (v) => v.rule !== "arch/empty-module",
+    );
     expect(found.map((v) => `${v.rule}:${v.line}`)).toEqual([
       "arch/host-access:1",
       "arch/host-access:2",
@@ -101,7 +121,9 @@ describe("arch", () => {
       "}",
       "export const cwd = process.cwd();",
     ].join("\n");
-    const found = checkArch(layered, repo({ "src/core/b.ts": source }));
+    const found = checkArch(layered, repo({ "src/core/b.ts": source })).filter(
+      (v) => v.rule !== "arch/empty-module",
+    );
     expect(found.map((v) => `${v.rule}:${v.line}`)).toEqual(["arch/host-access:4"]);
   });
 
@@ -131,11 +153,17 @@ describe("arch", () => {
   });
 
   test("a missing module map is itself a violation", () => {
-    expect(checkArch(config(), repo({})).map((v) => v.rule)).toEqual(["arch/no-module-map"]);
+    expect(checkArch(config(), repo({ "src/a.ts": "" })).map((v) => v.rule)).toEqual([
+      "arch/no-module-map",
+    ]);
+    // With no TypeScript source there is nothing to layer, and arch is not-applicable.
+    expect(checkArch(config(), repo({ "README.md": "" }))).toEqual([]);
   });
 
   test("mayImport naming an unknown module is a config error", () => {
     const bad = config({ arch: { modules: { core: { description: "x", mayImport: ["nope"] } } } });
-    expect(checkArch(bad, repo({})).map((v) => v.rule)).toEqual(["arch/config"]);
+    expect(checkArch(bad, repo({ "src/core/a.ts": "" })).map((v) => v.rule)).toEqual([
+      "arch/config",
+    ]);
   });
 });

@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { notices, prerequisites, runChecks, unevaluated } from "../../src/core/check.ts";
-import { applyBaseline, count } from "../../src/core/ratchet.ts";
+import { applyBaseline, count, tighten } from "../../src/core/ratchet.ts";
 import type { ShapeConfig } from "../../src/schemas/config.ts";
 import { config, repo } from "../support.ts";
 
@@ -27,7 +27,7 @@ describe("check --only with a baseline", () => {
     const result = applyBaseline(
       refsOnly,
       baseline,
-      unevaluated(snapshot, ["refs"], Object.keys(baseline)),
+      unevaluated(config(shape), snapshot, ["refs"], Object.keys(baseline)),
     );
     expect(result).toEqual({ failing: [], loose: [], grandfathered: 1 });
   });
@@ -38,16 +38,34 @@ describe("check --only with a baseline", () => {
     const result = applyBaseline(
       runChecks(config(shape), worse, ["refs"]),
       baseline,
-      unevaluated(worse, ["refs"], Object.keys(baseline)),
+      unevaluated(config(shape), worse, ["refs"], Object.keys(baseline)),
     );
     expect(result.failing.length).toBe(2);
   });
 });
 
+describe("a check that didn't run", () => {
+  test("a check turned off keeps its baseline entries through --tighten", () => {
+    const off = config({
+      ...shape,
+      checks: { rules: { off: "paused while the parser is replaced" } },
+    });
+    const snapshot = repo(files, tools);
+    const baseline = { "rules/no-throw": { "src/core/a.ts": 2 } };
+    // As `mshape baseline --tighten` calls it: no baseline rules passed.
+    expect(tighten(baseline, runChecks(off, snapshot), unevaluated(off, snapshot))).toEqual(
+      baseline,
+    );
+  });
+});
+
 describe("integrations", () => {
   test("bd unavailable: its rules are unevaluated and the run says so", () => {
-    const snapshot = repo({}, { beads: { state: "unavailable", reason: "bd is not on PATH" } });
-    expect([...unevaluated(snapshot)]).toEqual([
+    const snapshot = repo(
+      {},
+      { beads: { state: "unavailable", reason: "bd is not on PATH" }, typechecked: [], linted: [] },
+    );
+    expect([...unevaluated(config(), snapshot)]).toEqual([
       "refs/bead-in-code",
       "budgets/memories-count",
       "budgets/memories-bytes",
@@ -59,14 +77,20 @@ describe("integrations", () => {
   });
 
   test("bd failing is a prerequisite failure, not a skip", () => {
-    const snapshot = repo({ "AGENTS.md": "" }, { beads: { state: "failed", reason: "exit 1" } });
+    const snapshot = repo(
+      { "AGENTS.md": "" },
+      { beads: { state: "failed", reason: "exit 1" }, typechecked: [], linted: [] },
+    );
     expect(prerequisites(config(), snapshot).map((v) => v.rule)).toEqual([
       "prerequisites/beads-failed",
     ]);
   });
 
   test("prerequisite failures never reach the checks a baseline can count", () => {
-    const snapshot = repo({ "AGENTS.md": "" }, { beads: { state: "failed", reason: "exit 1" } });
+    const snapshot = repo(
+      { "AGENTS.md": "" },
+      { beads: { state: "failed", reason: "exit 1" }, typechecked: [], linted: [] },
+    );
     const counted = runChecks(config(), snapshot).map((v) => v.rule);
     expect(counted.filter((rule) => rule.startsWith("prerequisites/"))).toEqual([]);
   });
@@ -75,16 +99,13 @@ describe("integrations", () => {
     const required = config({ beads: "required" });
     const missing = repo(
       { "AGENTS.md": "" },
-      { beads: { state: "unavailable", reason: "bd is not on PATH" } },
+      { beads: { state: "unavailable", reason: "bd is not on PATH" }, typechecked: [], linted: [] },
     );
     expect(prerequisites(required, missing).map((v) => v.rule)).toEqual([
       "prerequisites/beads-required",
     ]);
-    expect(notices(required, missing)).toEqual([
-      "coverage approximated tsc's file list from its config (not run in unit tests): inheritance and project references are not resolved",
-      "coverage approximated biome's file list from its config (not run in unit tests): inheritance and project references are not resolved",
-    ]);
-    const absent = repo({ "AGENTS.md": "" });
+    expect(notices(required, missing)).toEqual([]);
+    const absent = repo({ "AGENTS.md": "" }, { typechecked: [], linted: [] });
     expect(prerequisites(required, absent).map((v) => v.rule)).toEqual([
       "prerequisites/beads-required",
     ]);

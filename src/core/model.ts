@@ -1,14 +1,7 @@
 /** The data every check reads and the findings it returns. Pure: no I/O lives here. */
+import type { CheckName } from "../schemas/config.ts";
 
-export type CheckName =
-  | "arch"
-  | "refs"
-  | "budgets"
-  | "coverage"
-  | "rules"
-  | "skills"
-  | "sync"
-  | "beads";
+export type { CheckName } from "../schemas/config.ts";
 
 type ViolationOf<C extends CheckName | "prerequisites"> = {
   /**
@@ -28,6 +21,33 @@ type ViolationOf<C extends CheckName | "prerequisites"> = {
 export type Violation = { [C in CheckName | "prerequisites"]: ViolationOf<C> }[
   | CheckName
   | "prerequisites"];
+
+/**
+ * What a check reports beside its violations, so a green gate says what it looked at.
+ * `passed` and `failed` follow from the violations left after the baseline; `examined`
+ * names what the check ran over, in words. `unavailable` names the prerequisite that
+ * couldn't run; it turns the gate red only when `required`.
+ */
+export type Outcome =
+  | { readonly state: "passed"; readonly examined: string }
+  | { readonly state: "failed"; readonly examined: string }
+  | { readonly state: "not-applicable"; readonly reason: string }
+  | {
+      readonly state: "unavailable";
+      readonly prerequisite: string;
+      readonly reason: string;
+      readonly required: boolean;
+    }
+  | { readonly state: "exempt"; readonly reason: string };
+
+/** One check's result: its violations, and the one outcome they and its inputs make. */
+export interface CheckReport {
+  readonly check: CheckName;
+  readonly outcome: Outcome;
+  readonly violations: ReadonlyArray<Violation>;
+  /** Parts a check runs separately, such as each declared command: one line each, under it. */
+  readonly parts?: ReadonlyArray<{ readonly label: string; readonly outcome: Outcome }>;
+}
 
 /** What the beads check reads of a bead, from `bd list --json`. */
 export interface BeadSummary {
