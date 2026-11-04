@@ -26,6 +26,7 @@ convention: rewritten in place at each milestone boundary, and never cited by co
 | The remaining starter rules | Later: `monkeyshape-hh2` |
 | The agentic layer | Later: `monkeyshape-v56` |
 | `mshape validate`: the real-data loop | Later: `monkeyshape-97o` |
+| Effect: correct use in monkeyshape, and enforcement for adopters | Later: an epic filed with milestone 3 |
 | Selectable policy bundles | Idea: when an outside adopter needs it (`monkeyshape-8h4`) |
 
 "Shipped" means on `main`. npm has 0.2.0, published before milestone 2's mailbox merged;
@@ -152,6 +153,20 @@ Opt-in rules and helpers for repos whose code calls models:
 | Paid runs go through a spend ledger with a daily cap; above it, a short run plan agreed with the human (question, expected cost, targets, what result would change the plan) | Unreviewed spend |
 
 Evidence for a prompt or agent change is a run graded against the adopter's evaluation set.
+
+### Effect: guarantees, not style (epic filed with milestone 3)
+
+Effect belongs where it buys an execution guarantee: typed operational failures,
+cancellation, resource lifetimes, concurrency supervision, dependency composition and
+testability. Pure transformations, parsers and deterministic analysis stay ordinary
+TypeScript. monkeyshape keeps its shape (a pure core, operational adapters, schemas for
+contracts, execution at composition roots) and works in two directions that inform each
+other: its own Effect use (subprocess cancellation, resource cleanup, typed failures,
+interruption and failure-injection tests), and enforcement for adopters (rule corrections,
+type-aware diagnostics tried through Effect's own tooling before any syntax heuristic,
+execution boundaries declared in the existing module map, checks for recurring resource and
+concurrency mistakes). A real bug fixed in one becomes a regression test or a rule in the
+other. It waits for a reproduced failure on an adopter's path.
 
 ### `mshape validate` (`monkeyshape-97o`)
 
