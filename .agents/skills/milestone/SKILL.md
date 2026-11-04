@@ -119,17 +119,13 @@ Once the PR is merged (or the human says to start):
   refuse on the first or the last. If `rm` refuses, report the reason; never reach for
   `--force` without the human.
 - A track the new plan continues under the same name shows `done` `no`, because grooming
-  already labelled its new beads. Retire it and start it again, with
-  `mshape track rm <name> --keep-beads` and then `mshape track new <name>`, when all of
-  these hold: every open bead with its label is one the plan gives that track (any other
-  is grooming's, as above); `merged` says `yes`; `gh pr list --head track/<name>` lists no
-  open PR; and at least one PR from it merged **since this track started**.
-  `gh pr list --head track/<name> --state merged --json number,createdAt` also lists the
-  PRs of earlier tracks that had the name, so count only those created on or after the
-  start: `git config branch.track/<name>.mshape-started`, or when that is empty, the date
-  of the oldest entry in `git reflog show --date=iso track/<name>`. `rm` checks neither
-  PR fact; if either fails, or you can't place the start, the track is the human's, as
-  above. `--keep-beads` leaves those beads labelled for the new track, and lists them.
+  already labelled its new beads. When every open bead with its label is one the plan gives
+  that track (any other is grooming's, as above), retire it with
+  `mshape track rm <name> --keep-beads`, then start it again with `mshape track new <name>`.
+  `--keep-beads` checks the rest of `done` itself and names each fact that fails, and
+  `--force` doesn't override it. If it refuses only because `gh` couldn't be read, get `gh`
+  working and retry; on any other refusal, the track is the human's, as above. It leaves
+  those beads labelled for the new track, and lists them.
 - `mshape track new <name>` for each new track. Fill its handoff (`.handoffs/<name>.md`):
   the charter, the state ("not started", and how to start) with today's date in its
   heading, and the traps you already know. Change nothing else: there is no status line
