@@ -82,7 +82,26 @@ export interface Snapshot {
   readonly shippedPrime: string | undefined;
   /** Files `mshape sync` manages that are on disk but not in `files`: git ignores them. */
   readonly unlisted: ReadonlySet<string>;
+  /** The files in `files` that aren't plain: git's mode when tracked, the disk's otherwise. */
+  readonly modes: ReadonlyMap<string, FileMode>;
+  /**
+   * Each declared command's run, by its index in `coverage.commands`. A command whose files
+   * match nothing isn't run, and has no entry.
+   */
+  readonly commands: ReadonlyMap<number, CommandRun>;
 }
+
+/** Git's executable bit (mode 100755) or a symlink (120000). */
+export type FileMode = "executable" | "symlink";
+
+/**
+ * How a declared command fared. `unavailable`: its program isn't installed here, or it
+ * exited 127, the shell's "command not found", so a wrapper script missing its toolchain
+ * says so too. Otherwise it ran: exit 0 passes, any other code fails.
+ */
+export type CommandRun =
+  | { readonly state: "ran"; readonly code: number; readonly output: string }
+  | { readonly state: "unavailable"; readonly reason: string };
 
 /** File bytes keyed by path relative to a skills directory: `<skill>/SKILL.md`. Bytes, so a
  * skill's images or binaries are copied and compared exactly. */
@@ -123,6 +142,59 @@ export interface Integrations {
 }
 
 export const TS_SOURCE = /\.(ts|tsx|mts|cts)$/;
+
+/**
+ * Source in a language monkeyshape doesn't analyze: a declared command must check it, or a
+ * reason must exempt it. With the executable bit, the extension doesn't matter.
+ */
+export const EXECUTABLE_EXTENSIONS: ReadonlyArray<string> = [
+  "c",
+  "h",
+  "cc",
+  "cpp",
+  "hpp",
+  "py",
+  "sh",
+  "bash",
+  "java",
+  "go",
+  "rs",
+  "rb",
+  "js",
+  "mjs",
+  "cjs",
+];
+
+/** Structured data, parsed with Bun's own parsers. */
+export const DATA_EXTENSIONS: ReadonlyArray<string> = ["json", "jsonc", "yaml", "yml", "toml"];
+
+/** git's own files, by name in any directory. Never `.git*`: `.github/` holds code. */
+const GIT_FILES = new Set([".gitignore", ".gitattributes", ".gitmodules", ".gitkeep"]);
+
+/**
+ * What a file is to the gate. `builtin`: another tool owns it (bd's `.beads/`, git's own
+ * files, symlinks, whose target is classified where it lives). `typescript`: the deep
+ * checks. `executable`: source in another language, which a declared command covers.
+ * `data`: must parse. `metadata`: everything else (docs, lockfiles, licences, images, other
+ * assets), held only to the size cap.
+ */
+export type FileClass = "builtin" | "typescript" | "executable" | "data" | "metadata";
+
+const extension = (path: string): string => {
+  const name = path.slice(path.lastIndexOf("/") + 1);
+  const dot = name.lastIndexOf(".");
+  return dot <= 0 ? "" : name.slice(dot + 1).toLowerCase();
+};
+
+export const classify = (path: string, mode: FileMode | undefined): FileClass => {
+  const name = path.slice(path.lastIndexOf("/") + 1);
+  if (mode === "symlink" || path.startsWith(".beads/") || GIT_FILES.has(name)) return "builtin";
+  if (TS_SOURCE.test(path)) return "typescript";
+  const ext = extension(path);
+  if (mode === "executable" || EXECUTABLE_EXTENSIONS.includes(ext)) return "executable";
+  if (DATA_EXTENSIONS.includes(ext)) return "data";
+  return "metadata";
+};
 
 export const isTsSource = (path: string): boolean =>
   TS_SOURCE.test(path) && !path.endsWith(".d.ts");
