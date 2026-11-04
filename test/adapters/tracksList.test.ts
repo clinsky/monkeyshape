@@ -138,6 +138,25 @@ describe("track list", () => {
   });
 });
 
+describe("track migrate", () => {
+  test("a handoff it can't migrate is left as it was, said, and fails the command", async () => {
+    // #57 review, probe P1: the mail its Messages go to can't be written.
+    await setup();
+    mshape(repo, "new", "docs");
+    const old = `${await Bun.file(handoff("docs")).text()}\n## Messages\n\n- From init: hello.\n`;
+    await writeFile(handoff("docs"), old);
+    await mkdir(`${repo}/.git/monkeyshape`, { recursive: true });
+    await writeFile(`${repo}/.git/monkeyshape/mail`, "not a directory\n");
+    const migrated = mshape(repo, "migrate");
+    expect(migrated.code).toBe(1);
+    // A failing command speaks on stderr, like every other.
+    expect(migrated.stderr).toContain(
+      "note: .handoffs/docs.md is in the older format and wasn't migrated: its Messages couldn't be mailed to docs",
+    );
+    expect(await Bun.file(handoff("docs")).text()).toBe(old);
+  });
+});
+
 describe("track rm and list with beads", () => {
   const bead = (id: string, status: string, labels: ReadonlyArray<string>) => ({
     id,

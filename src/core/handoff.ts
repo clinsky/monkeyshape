@@ -145,10 +145,10 @@ const saysNothing = (body: string): boolean =>
     body.split("\n").every((line) => line.trim() !== "" && !/^\s*([-*+]|\d+[.)]|#|>)/.test(line)));
 
 /**
- * The older format, upgraded: the `Status:` line dropped, and the `## Messages` section
- * removed, its body returned as `carried` unless it said nothing, so the caller can mail it to
- * the track before writing `text`. Undefined when the text has neither, so a handoff is
- * migrated once. The result is not checked here: `parseHandoff` says what is still wrong.
+ * The older format, upgraded: the `Status:` line dropped, and every `## Messages` section
+ * removed, their bodies returned together as `carried` unless they said nothing, so the
+ * caller can mail them to the track before writing `text`. Undefined when the text has
+ * neither, so a handoff is migrated once. The result is not checked here: `parseHandoff` says what is still wrong.
  */
 export const migrateHandoff = (
   text: string,
@@ -161,30 +161,31 @@ export const migrateHandoff = (
   const status = lines.findIndex(
     (line, index) => index < firstHeading && /^Status:/.test(line.trim()),
   );
-  const messages = headings.findIndex(({ name }) => name === "Messages");
-  if (status < 0 && messages < 0) return undefined;
+  // Every Messages section, so one run of `track migrate` leaves none behind.
+  const sections = headings.flatMap((heading, index) =>
+    heading.name === "Messages"
+      ? [{ from: heading.line, to: headings[index + 1]?.line ?? lines.length }]
+      : [],
+  );
+  if (status < 0 && sections.length === 0) return undefined;
   const changes: Array<string> = [];
-  let carried: string | undefined;
-  let kept = lines;
-  if (messages >= 0) {
-    const from = headings[messages]?.line ?? 0;
-    const to = headings[messages + 1]?.line ?? lines.length;
-    const body = lines
-      .slice(from + 1, to)
-      .join("\n")
-      .trim();
-    if (!saysNothing(body)) carried = body;
+  const bodies = sections
+    .map(({ from, to }) =>
+      lines
+        .slice(from + 1, to)
+        .join("\n")
+        .trim(),
+    )
+    .filter((body) => !saysNothing(body));
+  const carried = bodies.length === 0 ? undefined : bodies.join("\n\n");
+  if (sections.length > 0)
     changes.push(
-      carried === undefined
-        ? "removed `## Messages`, which held nothing"
-        : "moved `## Messages` into the track's mailbox",
+      `${carried === undefined ? "removed" : "moved"} ${sections.length === 1 ? "`## Messages`" : `${sections.length} \`## Messages\` sections`}${carried === undefined ? `, which held nothing` : " into the track's mailbox"}`,
     );
-    kept = [...lines.slice(0, from), ...lines.slice(to)];
-  }
-  if (status >= 0) {
-    changes.push(`removed \`${lines[status]?.trim()}\``);
-    kept = kept.filter((_, index) => index !== status);
-  }
+  if (status >= 0) changes.push(`removed \`${lines[status]?.trim()}\``);
+  const dropped = (index: number) =>
+    index === status || sections.some(({ from, to }) => index >= from && index < to);
+  const kept = lines.filter((_, index) => !dropped(index));
   const migrated = `${kept.join("\n").trimEnd()}\n`;
   return carried === undefined ? { text: migrated, changes } : { text: migrated, changes, carried };
 };
@@ -243,7 +244,7 @@ export const parseHandoff = (text: string): Handoff | Problems => {
   const sections: Partial<Record<HandoffSection, string>> = {};
   if (names.includes("Messages"))
     problems.push(
-      "`## Messages` is gone: tracks message each other with `mshape msg send`. Run `mshape track list`, which moves the section into the track's mailbox",
+      "`## Messages` is gone: tracks message each other with `mshape msg send`. Run `mshape track migrate`, which moves the section into the track's mailbox",
     );
   else if (names.join("\n") !== HANDOFF_SECTIONS.join("\n"))
     problems.push(

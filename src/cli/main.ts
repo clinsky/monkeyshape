@@ -218,8 +218,11 @@ const track = (root: string, args: ReadonlyArray<string>) =>
         code: 0,
       };
     if (sub === "list") return { output: yield* trackList(root), code: 0 };
-    if (sub === "migrate")
-      return { output: yield* trackMigrate(root, carryMessages(root)), code: 0 };
+    if (sub === "migrate") {
+      // The deliberate step: a handoff left in the older format fails it, so a script stops.
+      const { output, unmigrated } = yield* trackMigrate(root, carryMessages(root));
+      return { output, code: unmigrated === 0 ? 0 : 1 };
+    }
     if (sub === "current") return { output: yield* trackCurrent(root), code: 0 };
     if (sub === "rm")
       return {
@@ -598,7 +601,8 @@ export const COMMANDS: ReadonlyArray<Command> = [
       handoff: one in an older format is noted, with what track migrate would change.
   mshape track migrate
       Upgrade every handoff in an older format in place, printing what changed in each; a
-      retired Messages section is mailed to its track first.
+      retired Messages section is mailed to its track first. Exit 1 when a handoff had to be
+      left as it was, saying why.
   mshape track current
       The track of this directory, name only; exit 1, saying why, outside a track.
   mshape track pr [--title <title>] [--body-file <path>]

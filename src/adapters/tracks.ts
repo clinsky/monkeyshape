@@ -622,7 +622,7 @@ export type CarryMessages = (
 const migrate = (track: string, handoff: string, text: string, carry: CarryMessages) =>
   Effect.gen(function* () {
     const migration = migrateHandoff(text);
-    if (migration === undefined) return { text, notes: [] };
+    if (migration === undefined) return { text, notes: [], unmigrated: false };
     const shown = `${HANDOFFS_LINK}/${track}.md`;
     let mailed = "";
     if (migration.carried !== undefined) {
@@ -630,6 +630,7 @@ const migrate = (track: string, handoff: string, text: string, carry: CarryMessa
       if ("reason" in sent)
         return {
           text,
+          unmigrated: true,
           notes: [
             `note: ${shown} is in the older format and wasn't migrated: its Messages couldn't be mailed to ${track} (${sent.reason})`,
           ],
@@ -641,6 +642,7 @@ const migrate = (track: string, handoff: string, text: string, carry: CarryMessa
     yield* fs("write", handoff, () => rename(temporary, handoff));
     return {
       text: migration.text,
+      unmigrated: false,
       notes: [`migrated ${shown}: ${migration.changes.join("; ")}${mailed}`],
     };
   });
@@ -648,6 +650,7 @@ const migrate = (track: string, handoff: string, text: string, carry: CarryMessa
 /**
  * `mshape track migrate`: every handoff in the older format upgraded in place, and what
  * changed, one line each. The only command that rewrites a handoff's format; `list` reports.
+ * `unmigrated` counts the handoffs it had to leave as they were, for the exit code.
  */
 export const trackMigrate = (cwd: string, carry: CarryMessages) =>
   Effect.gen(function* () {
@@ -666,14 +669,19 @@ export const trackMigrate = (cwd: string, carry: CarryMessages) =>
       ),
     );
     const said: Array<string> = [];
+    let unmigrated = 0;
     for (const track of tracks) {
       const handoff = handoffPath(common, track);
       const text = yield* fs("read", handoff, () => Bun.file(handoff).text());
-      said.push(...(yield* migrate(track, handoff, text, carry)).notes);
+      const result = yield* migrate(track, handoff, text, carry);
+      if (result.unmigrated) unmigrated++;
+      said.push(...result.notes);
     }
-    return said.length === 0
-      ? "every handoff is in the current format; nothing changed"
-      : said.join("\n");
+    const output =
+      said.length === 0
+        ? "every handoff is in the current format; nothing changed"
+        : said.join("\n");
+    return { output, unmigrated };
   });
 
 export const trackList = (cwd: string) =>
