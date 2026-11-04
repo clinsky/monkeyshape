@@ -604,6 +604,16 @@ const rules: Record<string, Cases> = {
     fail: { files: { "src/a.ts": "Date.now();\n" } },
     pass: { files: { "src/a.ts": 'new Date("2026-01-01");\nEffect.all(effects);\n' } },
   },
+  "rules/no-console": {
+    fail: { files: { "src/core/a.ts": 'console.log("x");\n' } },
+    // An entry file (src/cli/** by default) may; a local named console isn't the global.
+    pass: {
+      files: {
+        "src/cli/main.ts": 'console.log("x");\n',
+        "src/core/a.ts": "export const f = (console: { log: () => void }) => console.log();\n",
+      },
+    },
+  },
   "rules/no-throw": {
     fail: { files: { "src/a.ts": 'throw new Error("x");\n' } },
     pass: {
