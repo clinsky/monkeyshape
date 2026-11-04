@@ -101,6 +101,33 @@ describe("what track rm may do", () => {
     ]);
   });
 
+  test("open beads for the next track of the same name: --keep-beads removes the track and keeps them", () => {
+    const beads = {
+      integration: { state: "ok" } as Integration,
+      setting: "optional" as const,
+      open: [{ id: "x-9", title: "next milestone's work", status: "open" }],
+    };
+    const refused = planRm({ ...facts, beads });
+    expect(refused.refusals[0]).toContain(
+      "If they are for a new track of this same name that you'll start next (a milestone reusing it), pass --keep-beads to leave them labelled for it. --force doesn't override this",
+    );
+    expect(planRm({ ...facts, beads, force: true }).steps).toEqual([]);
+    const kept = planRm({ ...facts, beads, keepBeads: true });
+    expect(kept.refusals).toEqual([]);
+    expect(kept.steps.map((step) => step.kind)).toEqual(["worktree", "branch", "handoff"]);
+    expect(kept.kept).toEqual([
+      "1 open bead(s) labelled `track:docs`, for the next track of that name (--keep-beads): start it with `mshape track new docs`\n      x-9 (open) next milestone's work",
+    ]);
+    // It speaks only to open beads: a failing bd still refuses.
+    const failing = {
+      ...beads,
+      integration: { state: "failed", reason: "locked" } as Integration,
+    };
+    expect(planRm({ ...facts, beads: failing, keepBeads: true }).refusals[0]).toContain(
+      "bd failed",
+    );
+  });
+
   describe("the mailbox", () => {
     const unread = [
       { id: "20261103-134704-e7e3", about: "from review: the format" },

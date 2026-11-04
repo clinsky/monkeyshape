@@ -787,6 +787,8 @@ export const trackRm = (
   options: {
     readonly force: boolean;
     readonly keepHandoff: boolean;
+    /** Leave the track's open beads labelled for the next track of the same name. */
+    readonly keepBeads?: boolean;
     /** The environment for fetching `main`'s upstream: one where git can't prompt. */
     readonly fetchEnv: Readonly<Record<string, string | undefined>>;
     readonly sessions: TrackSessions;
@@ -852,6 +854,7 @@ export const trackRm = (
       sessions,
       force: options.force,
       keepHandoff: options.keepHandoff,
+      keepBeads: options.keepBeads ?? false,
     });
     yield* Effect.forEach(plan.notes, (note) => say(`note: ${note}`));
     if (plan.refusals.length > 0)
