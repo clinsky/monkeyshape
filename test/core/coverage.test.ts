@@ -371,6 +371,9 @@ describe("review of the merge with #53", () => {
     expect(got.parts).toEqual([
       { label: "cc native/a.c", outcome: { state: "failed", examined: "1 file" } },
     ]);
+    // Why it failed is on screen too: the command's violations need neither tool.
+    expect(got.violations.map((v) => v.rule)).toEqual(["coverage/command-failed"]);
+    expect(got.violations[0]?.message).toContain("native/a.c:1: error");
   });
 
   test("no TypeScript: no tsconfig.json or biome.json is asked for", () => {

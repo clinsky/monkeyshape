@@ -3,7 +3,13 @@ import { CHECK_NAMES, type ResolvedConfig } from "../schemas/config.ts";
 import { ARCH_RULES, checkArch } from "./arch.ts";
 import { BEADS_RULES, checkBeads } from "./beads.ts";
 import { BUDGETS_RULES, checkBudgets } from "./budgets.ts";
-import { COVERAGE_RULES, checkCoverage, commandReports, executableSources } from "./coverage.ts";
+import {
+  COVERAGE_RULES,
+  checkCoverage,
+  commandReports,
+  commandViolations,
+  executableSources,
+} from "./coverage.ts";
 import { matchesAny } from "./glob.ts";
 import {
   type CheckName,
@@ -212,9 +218,16 @@ export const report = (
     return { check, outcome: { state: "exempt", reason: off }, violations: [] };
   const blocked = blocker(check, config, snapshot);
   if (blocked !== undefined) {
-    // Each command still ran: its line shows under the blocked check, so its error isn't hidden.
-    const parts = check === "coverage" ? commandReports(config, snapshot) : [];
-    return { check, outcome: blocked, violations: [], ...(parts.length === 0 ? {} : { parts }) };
+    // Each command still ran, and needs neither tsc nor biome: its line and its error show
+    // under the blocked check, so the reader can fix it before installing the tools.
+    const coverage = check === "coverage";
+    const parts = coverage ? commandReports(config, snapshot) : [];
+    return {
+      check,
+      outcome: blocked,
+      violations: coverage ? commandViolations(config, snapshot) : [],
+      ...(parts.length === 0 ? {} : { parts }),
+    };
   }
   const violations = run[check](config, snapshot);
   const scope = scopeOf(check, config, snapshot);

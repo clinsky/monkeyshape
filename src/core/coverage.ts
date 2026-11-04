@@ -206,7 +206,11 @@ export const commandReports = (
     };
   });
 
-const commandViolations = (config: ResolvedConfig, snapshot: Snapshot): ReadonlyArray<Violation> =>
+/** What the declared commands found: none of it depends on tsc or biome. */
+export const commandViolations = (
+  config: ResolvedConfig,
+  snapshot: Snapshot,
+): ReadonlyArray<Violation> =>
   config.coverage.commands.flatMap((command, index): ReadonlyArray<Violation> => {
     const label = commandLabel(command);
     const optional = command.optional === true;
