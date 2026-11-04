@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
+import { parse } from "../../src/core/parse.ts";
 import { decodeStrict } from "../../src/core/rules/decodeStrict.ts";
-import { checkRules } from "../../src/core/rules/engine.ts";
+import { checkRules, runRule } from "../../src/core/rules/engine.ts";
 import { config, repo, ruleLines } from "../support.ts";
 
 describe("decode-strict", () => {
@@ -235,5 +236,29 @@ describe("decode-strict: schemas imported from another file", () => {
         ].join("\n"),
       ),
     ).toEqual([5, 6, 7, 8]);
+  });
+});
+
+describe("decode-strict: the fix names a helper that fits the call", () => {
+  const messages = (source: string) =>
+    runRule(
+      decodeStrict,
+      parse(
+        `fixture-msg-${source.length}.ts`,
+        ['import { Schema } from "effect";', source].join("\n"),
+      ),
+    ).map((finding) => finding.message ?? decodeStrict.message);
+
+  test("a sync decode is pointed at decodeStrictSync, an Effect decode at decodeStrict", () => {
+    expect(messages("Schema.decodeUnknownSync(User)(x);")[0]).toContain("decodeStrictSync");
+    expect(messages("Schema.decodeSync(User)(x);")[0]).toContain("decodeStrictSync");
+    expect(messages("Schema.decodeUnknownEffect(User)(x);")[0]).toContain("decodeStrict(");
+    expect(messages("Schema.decodeUnknownEffect(User)(x);")[0]).not.toContain("decodeStrictSync");
+  });
+
+  test("a decoder with no helper is told the options to pass", () => {
+    const [message] = messages("Schema.decodeUnknownExit(User)(x);");
+    expect(message).not.toContain("decodeStrict");
+    expect(message).toContain('onExcessProperty: "error"');
   });
 });

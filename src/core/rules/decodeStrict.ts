@@ -313,13 +313,40 @@ const decodes = (ctx: Context, program: Program) => {
   return [...found.values()];
 };
 
+const OPTIONS = '{ errors: "all", onExcessProperty: "error" }';
+
+/** The helper that replaces a decoder of this form, or the options to pass where none does. */
+const fixFor = (decoder: string | undefined): string => {
+  const helper = decoder?.endsWith("Sync")
+    ? "decodeStrictSync"
+    : decoder?.endsWith("Effect")
+      ? "decodeStrict"
+      : undefined;
+  return helper === undefined
+    ? `decodes without onExcessProperty: "error", so unknown keys are dropped silently. Pass ${OPTIONS} (inline, or in a const in this file).`
+    : `decodes without onExcessProperty: "error", so unknown keys are dropped silently. Use ${helper}(schema) from monkeyshape, or pass ${OPTIONS} (inline, or in a const in this file).`;
+};
+
+/** The decoder's own name (`decodeUnknownSync`), through aliases, for choosing the fix. */
+const decoderName = (ctx: Context, callee: unknown, depth = 0): string | undefined => {
+  const n = unwrap(callee);
+  if (n === undefined || depth > DEPTH) return undefined;
+  const member = schemaMember(ctx, n);
+  if (member !== undefined) return member;
+  if (n.type !== "Identifier") return undefined;
+  const binding = ctx.bindings.get(n["name"] as string);
+  if (ctx.local.bindingAt(n["name"] as string, n.start)?.kind === "import")
+    return binding?.imported;
+  const aliased = constValue(ctx, n);
+  return aliased === undefined ? undefined : decoderName(ctx, aliased, depth + 1);
+};
+
 export const decodeStrict: Rule = {
   id: "decode-strict",
   layer: "core",
   bugClass:
     "Unknown keys silently dropped while decoding, so a misspelt or stale field is ignored.",
-  message:
-    'decodes without onExcessProperty: "error". Use decodeStrict from monkeyshape, or pass { errors: "all", onExcessProperty: "error" } (inline or in a const in this file).',
+  message: fixFor("decodeUnknownEffect"),
   entryExempt: false,
   visit: (parsed, report, context) => {
     const ctx = contextOf(parsed, context.resolve);
@@ -328,7 +355,8 @@ export const decodeStrict: Rule = {
       const atCall = excessSetting(ctx, invokedWith);
       const strict =
         (atCall !== undefined ? atCall : excessSetting(ctx, call.arguments[1])) === "error";
-      if (!strict && !propertyless(ctx, call.arguments[0])) report({ offset: call.start });
+      if (!strict && !propertyless(ctx, call.arguments[0]))
+        report({ offset: call.start, message: fixFor(decoderName(ctx, call.callee)) });
     }
     return {};
   },
