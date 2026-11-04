@@ -325,10 +325,10 @@ export const planRm = (facts: RmFacts): RmPlan => {
     } else if ("unplaced" in prs) {
       if (prs.unplaced === "no-start") {
         unfinished.push(
-          `its start isn't recorded and its branch's reflog doesn't go back to its creation (reflogs expire), so which PRs are its own can't be told`,
+          `its start isn't recorded and its branch's reflog no longer reaches its creation (git expires reflog entries), so which PRs are its own can't be told`,
         );
         fixes.push(
-          `record when it started, if you know (\`git config ${STARTED_KEY(facts.track)} <YYYY-MM-DD>\`)`,
+          `record when it started (\`git config ${STARTED_KEY(facts.track)} <YYYY-MM-DD>\`): if unsure, a later date is safe, and an earlier one may count an earlier track's PRs of this name`,
         );
       } else {
         unfinished.push(

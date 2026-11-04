@@ -722,12 +722,46 @@ describe("track rm and list with beads", () => {
     const refused = mshapeWith(env, repo, "rm", "old", "--keep-beads");
     expect(refused.code).toBe(1);
     expect(refused.stderr).toContain(
-      "Record when it started, if you know (`git config branch.track/old.mshape-started <YYYY-MM-DD>`), then retry",
+      "Record when it started (`git config branch.track/old.mshape-started <YYYY-MM-DD>`): if unsure, a later date is safe",
     );
     expect(refused.stderr).not.toContain("gh auth status");
     // Recorded, as the refusal says: the merged PR is its own, and the bead is handed on.
     sh(repo, "config", "branch.track/old.mshape-started", "2026-10-31");
     expect(mshapeWith(env, repo, "rm", "old", "--keep-beads").code).toBe(0);
+  });
+
+  test("a reflog git expired in part doesn't date the start: only the branch's creation does (#48)", async () => {
+    // The probe from #48's review: made 200 days ago, a commit 10 days ago, merged, and git's
+    // default 90-day expiry has dropped the creation entry but kept the recent one.
+    await setup();
+    const daysAgo = (n: number) => new Date(Date.now() - n * 86_400_000).toISOString();
+    const git = (env: Record<string, string>, cwd: string, ...args: ReadonlyArray<string>) =>
+      Bun.spawnSync(["git", ...args], { cwd, env: { ...process.env, ...env } });
+    mshapeWith({ GIT_COMMITTER_DATE: daysAgo(200) }, repo, "new", "old");
+    sh(repo, "config", "--unset", "branch.track/old.mshape-started");
+    await writeFile(`${wt("old")}/b.md`, "b\n");
+    sh(wt("old"), "add", ".");
+    git(
+      { GIT_COMMITTER_DATE: daysAgo(10), GIT_AUTHOR_DATE: daysAgo(10) },
+      wt("old"),
+      "commit",
+      "-qm",
+      "b",
+    );
+    sh(repo, "merge", "-q", "--no-edit", "track/old");
+    sh(repo, "reflog", "expire", "--expire=90.days.ago", "--all");
+    expect(sh(repo, "log", "--walk-reflogs", "--format=%gs", "track/old")).not.toContain(
+      "Created from",
+    );
+
+    const env = await fakeBd([bead("x-1", "open", ["track:old"])]);
+    await fakeGh([
+      { number: 7, state: "MERGED", headRefName: "track/old", body: "", createdAt: daysAgo(150) },
+    ]);
+    const refused = mshapeWith(env, repo, "rm", "old", "--keep-beads");
+    expect(refused.code).toBe(1);
+    expect(refused.stderr).toContain("its branch's reflog no longer reaches its creation");
+    expect(refused.stderr).not.toContain("no PR from `track/old` has merged");
   });
 
   test("a branch made before track new recorded its start falls back to its reflog", async () => {

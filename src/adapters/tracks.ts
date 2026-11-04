@@ -462,7 +462,7 @@ const leftoverRemoteBranch = (
 
 /**
  * When the track started: as `track new` recorded it, or, for a branch made before it did,
- * when the branch's reflog says it was created. Both go with the branch, so `track rm` then
+ * when the branch's reflog says it was created, if that entry survives. Both go with the branch, so `track rm` then
  * `track new` starts a new one. Undefined when neither is there.
  */
 const trackStarted = (repo: string, track: string) =>
@@ -473,11 +473,16 @@ const trackStarted = (repo: string, track: string) =>
       "log",
       "--walk-reflogs",
       "--date=unix",
-      "--format=%gd",
+      "--format=%gd %gs",
       head(trackBranch(track)),
     ]);
-    const oldest = /@\{(\d+)\}\s*$/.exec(reflog.stdout.trim())?.[1];
-    return oldest === undefined ? undefined : new Date(Number(oldest) * 1000);
+    // Only the branch's creation dates its start. git expires reflog entries one by one, so
+    // a long-lived branch can keep recent entries and lose that one: its oldest survivor
+    // would date the start too late and drop the track's own PRs.
+    const oldest = /@\{(\d+)\} (.*)$/.exec(reflog.stdout.trim().split("\n").at(-1) ?? "");
+    return oldest?.[2]?.startsWith("branch: Created from")
+      ? new Date(Number(oldest[1]) * 1000)
+      : undefined;
   });
 
 /**

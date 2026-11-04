@@ -147,7 +147,7 @@ describe("what track rm may do", () => {
     );
     // A start that can't be placed isn't a gh failure: its fix is recording it (z2m).
     expect(why({ ownPrs: { unplaced: "no-start" } })).toEqual([
-      "--keep-beads hands the beads to a new track of this name only once this one is done, and that isn't shown: its start isn't recorded and its branch's reflog doesn't go back to its creation (reflogs expire), so which PRs are its own can't be told. Record when it started, if you know (`git config branch.track/docs.mshape-started <YYYY-MM-DD>`), then retry; --force doesn't override this",
+      "--keep-beads hands the beads to a new track of this name only once this one is done, and that isn't shown: its start isn't recorded and its branch's reflog no longer reaches its creation (git expires reflog entries), so which PRs are its own can't be told. Record when it started (`git config branch.track/docs.mshape-started <YYYY-MM-DD>`): if unsure, a later date is safe, and an earlier one may count an earlier track's PRs of this name, then retry; --force doesn't override this",
     ]);
     expect(why({ ownPrs: { unplaced: "no-branch" } })[0]).toContain(
       "its branch is gone, so its start, and which PRs are its own, can't be read. Settle it with the human, then retry",
