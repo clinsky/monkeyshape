@@ -252,6 +252,20 @@ const ROWS: ReadonlyArray<Row> = [
     },
   },
   {
+    name: "a repo with no TypeScript to cover needs neither tsc nor biome",
+    // The configs are there: whether coverage asks for them without TypeScript is coverage's.
+    files: {
+      "AGENTS.md": "# A\n",
+      "tools/build.sh": "echo\n",
+      "tsconfig.json": "{}",
+      "biome.json": "{}",
+    },
+    options: {},
+    only: ["coverage"],
+    outcomes: { coverage: "not-applicable" },
+    green: true,
+  },
+  {
     name: "a prerequisite of a check --only didn't select: no effect",
     files: { "src/a.ts": "export const a = 1;\n" },
     only: ["rules"],

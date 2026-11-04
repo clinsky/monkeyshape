@@ -16,7 +16,7 @@ import { isTsSource, lineAt, type Snapshot, type Violation } from "./model.ts";
 import { type Parsed, parse } from "./parse.ts";
 import { dirname, join } from "./paths.ts";
 import { scopes } from "./scope.ts";
-import { isTest } from "./sources.ts";
+import { isTest, placeOf } from "./sources.ts";
 
 type Arch = NonNullable<ResolvedConfig["arch"]>;
 
@@ -79,10 +79,21 @@ export const hostGlobals = (parsed: Parsed): ReadonlyArray<{ offset: number; nam
   return found;
 };
 
+/** `path` relative to `arch.root`, or undefined when it is outside it. `.` is the repo root. */
+const underRoot = (arch: Arch, path: string): string | undefined =>
+  arch.root === "."
+    ? path
+    : path.startsWith(`${arch.root}/`)
+      ? path.slice(arch.root.length + 1)
+      : undefined;
+
+/** A module's directory from the repo root: its key is a path below `arch.root`. */
+const directoryOf = (arch: Arch, name: string): string =>
+  arch.root === "." ? name : `${arch.root}/${name}`;
+
 export const moduleOf = (arch: Arch, path: string): string | undefined => {
-  const prefix = `${arch.root}/`;
-  if (!path.startsWith(prefix)) return undefined;
-  const rest = path.slice(prefix.length);
+  const rest = underRoot(arch, path);
+  if (rest === undefined) return undefined;
   let best: string | undefined;
   for (const name of Object.keys(arch.modules))
     if (
@@ -91,6 +102,22 @@ export const moduleOf = (arch: Arch, path: string): string | undefined => {
     )
       best = name;
   return best;
+};
+
+/**
+ * The files arch layers: the code under `arch.root`, and any code in `sources` outside it,
+ * which belongs to no module. Tests, declaration files and exempt files are not code here,
+ * so a root of `.` doesn't ask a module for `tests/` or `shape.config.ts`.
+ */
+export const archFiles = (config: ResolvedConfig, snapshot: Snapshot): ReadonlyArray<string> => {
+  const arch = config.arch;
+  if (arch === undefined) return [];
+  return snapshot.files.filter((file) => {
+    if (!isTsSource(file)) return false;
+    const kind = placeOf(config, file).kind;
+    if (kind !== "source" && kind !== "outside") return false;
+    return underRoot(arch, file) !== undefined || kind === "source";
+  });
 };
 
 const packageName = (specifier: string): string => {
@@ -131,16 +158,20 @@ export const checkArch = (config: ResolvedConfig, snapshot: Snapshot): ReadonlyA
           ),
         );
 
-  const files = snapshot.files.filter(
-    (file) => file.startsWith(`${arch.root}/`) && isTsSource(file),
-  );
+  const files = archFiles(config, snapshot);
   for (const [name, rule] of Object.entries(arch.modules))
-    if (rule.optional !== true && !files.some((file) => file.startsWith(`${arch.root}/${name}/`)))
+    if (
+      rule.optional !== true &&
+      !files.some(
+        (file) =>
+          file === directoryOf(arch, name) || file.startsWith(`${directoryOf(arch, name)}/`),
+      )
+    )
       violations.push(
         violation(
           "empty-module",
           "shape.config.ts",
-          `module '${name}' matches no TypeScript file under ${arch.root}/${name}/. Fix its name, remove it, or mark it \`optional: true\` if its code is still to come.`,
+          `module '${name}' matches no TypeScript file under ${directoryOf(arch, name)}/. Fix its name, remove it, or mark it \`optional: true\` if its code is still to come.`,
         ),
       );
 
@@ -154,7 +185,9 @@ export const checkArch = (config: ResolvedConfig, snapshot: Snapshot): ReadonlyA
         violation(
           "unknown-module",
           file,
-          "is not inside any module in `arch.modules` (shape.config.ts)",
+          underRoot(arch, file) === undefined
+            ? `is in \`sources\` but outside \`arch.root\` ('${arch.root}'), so no module owns it. Set \`arch.root: "."\` and map its directory as a module, or move it under ${arch.root}/.`
+            : `is not inside any module in \`arch.modules\` (shape.config.ts). Add a module for its directory (a key is a path below \`arch.root\`, e.g. '${(underRoot(arch, file) ?? file).split("/").slice(0, -1).join("/") || "."}').`,
         ),
       );
       continue;

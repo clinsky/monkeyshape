@@ -30,7 +30,7 @@ import {
   trackRm,
 } from "../adapters/tracks.ts";
 import { loadSnapshot } from "../adapters/workspace.ts";
-import { assess, CHECKS, prerequisites, runChecks, unevaluated } from "../core/check.ts";
+import { assess, CHECKS, evaluate, prerequisites } from "../core/check.ts";
 import { garden } from "../core/garden.ts";
 import { CLAUDE_SKILLS_LINK } from "../core/layout.ts";
 import { formatAllInboxes, formatInbox, formatMessage, formatSent } from "../core/mail.ts";
@@ -468,7 +468,12 @@ const baseline = (root: string, args: ReadonlyArray<string>) =>
         ].join("\n\n"),
         code: 1,
       };
-    const violations = runChecks(config, snapshot);
+    const { violations, unevaluated: skipped } = evaluate(
+      config,
+      snapshot,
+      CHECKS,
+      Object.keys(loaded.baseline),
+    );
     if (args.includes("--init")) {
       yield* writeBaseline(root, count(violations));
       return {
@@ -477,14 +482,7 @@ const baseline = (root: string, args: ReadonlyArray<string>) =>
       };
     }
     if (args.includes("--tighten")) {
-      yield* writeBaseline(
-        root,
-        tighten(
-          loaded.baseline,
-          violations,
-          unevaluated(config, snapshot, CHECKS, Object.keys(loaded.baseline)),
-        ),
-      );
+      yield* writeBaseline(root, tighten(loaded.baseline, violations, skipped));
       return { output: `${BASELINE_FILE}: tightened`, code: 0 };
     }
     return usage();
@@ -527,7 +525,7 @@ export const COMMANDS: ReadonlyArray<Command> = [
   },
   {
     name: "check",
-    usage: `  mshape check [--only arch,refs,budgets,coverage,rules,skills,sync,beads]
+    usage: `  mshape check [--only ${CHECKS.join(",")}]
       Run the checks; violations above .shape/baseline.json fail.`,
     run: check,
   },

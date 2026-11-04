@@ -258,6 +258,10 @@ export const DEFAULT_DOCS: ReadonlyArray<string> = [
   ".github/pull_request_template.md",
 ];
 
+/** `./src/`, `src/` and `src` are one root; `./`, `.` and `` are the repo root, `.`. */
+const normalRoot = (root: string): string =>
+  root.replace(/^(\.\/)+/, "").replace(/\/+$/, "") || ".";
+
 export const resolveConfig = (config: ShapeConfig): ResolvedConfig => ({
   layers: config.layers ?? ["core"],
   sources: {
@@ -267,6 +271,8 @@ export const resolveConfig = (config: ShapeConfig): ResolvedConfig => ({
     exclude: [
       ...globsOf(config.sources?.exclude ?? ["**/*.test.ts", "**/*.test.tsx"]),
       ...(config.sources?.exempt ?? []).map((allowance) => allowance.path),
+      // monkeyshape's own config is data for mshape, even under a root glob like `*.ts`.
+      "shape.config.ts",
     ],
     exempt: config.sources?.exempt ?? [],
   },
@@ -290,7 +296,7 @@ export const resolveConfig = (config: ShapeConfig): ResolvedConfig => ({
     config.arch === undefined
       ? undefined
       : {
-          root: config.arch.root ?? "src",
+          root: normalRoot(config.arch.root ?? "src"),
           modules: config.arch.modules,
           allowedPackages: config.arch.allowedPackages ?? ["effect"],
           hostSpecifiers: config.arch.hostSpecifiers ?? [

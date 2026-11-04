@@ -46,9 +46,9 @@ export const inSources = (config: ResolvedConfig, file: string): boolean =>
 /** Where one TypeScript file stands with the rules. */
 export const placeOf = (config: ResolvedConfig, file: string): Place => {
   if (isDeclaration(file)) return { kind: "declaration" };
+  if (file === CONFIG_FILE) return { kind: "exempt", reason: "monkeyshape's own config" };
   if (inSources(config, file)) return { kind: "source" };
   if (isTest(file)) return { kind: "test" };
-  if (file === CONFIG_FILE) return { kind: "exempt", reason: "monkeyshape's own config" };
   const exempt = config.sources.exempt.find((allowance) => matches(file, allowance.path));
   if (exempt !== undefined) return { kind: "exempt", reason: exempt.reason };
   const segments = new Set(config.coverage.exempt);
