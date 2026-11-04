@@ -1,6 +1,6 @@
 {
   "name": "monkeyshape",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Opinionated checks, configs and conventions for humans and coding agents building together on Bun, TypeScript, Effect and beads.",
   "keywords": [
     "bun",
