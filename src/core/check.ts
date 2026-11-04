@@ -10,6 +10,7 @@ import {
   executableSources,
   withoutTools,
 } from "./coverage.ts";
+import { checkFiles, FILES_RULES, heldFiles } from "./files.ts";
 import { matchesAny } from "./glob.ts";
 import {
   type CheckName,
@@ -39,6 +40,7 @@ const run: Record<
   refs: checkRefs,
   budgets: checkBudgets,
   coverage: checkCoverage,
+  files: checkFiles,
   rules: (config, snapshot) => checkRules(config, snapshot, RULES),
   skills: checkSkills,
   sync: checkSync,
@@ -195,6 +197,12 @@ const scopeOf = (check: CheckName, config: ResolvedConfig, snapshot: Snapshot): 
         ? { notApplicable: "no installed skills" }
         : { examined: plural(skills.size, "installed skill") };
     }
+    case "files": {
+      const vendored = config.files.vendored.length;
+      return {
+        examined: `${plural(heldFiles(snapshot).length, "file")} against the ${(config.files.maxBytes / (1024 * 1024)).toFixed(1)} MiB cap${vendored === 0 ? "" : `, ${plural(vendored, "vendored artifact")}`}`,
+      };
+    }
     case "sync":
       return { examined: "PRIME.md, the PR template and the hook settings" };
     case "beads":
@@ -314,6 +322,7 @@ const KINDS: { readonly [C in Violation["check"]]: ReadonlyArray<string> } = {
   refs: REFS_RULES,
   budgets: BUDGETS_RULES,
   coverage: COVERAGE_RULES,
+  files: FILES_RULES,
   rules: ENGINE_RULES,
   skills: SKILLS_RULES,
   sync: SYNC_RULES,
