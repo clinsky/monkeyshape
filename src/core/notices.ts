@@ -1,19 +1,21 @@
 /**
- * Live notices: which sessions of a track get one, and what it says. A session registers
- * itself at start (`mshape msg register`, from its SessionStart hook), so which session is
- * which track is recorded by the session, never guessed from a socket or a directory; a
- * session that isn't in a track never registers, so other work on the machine never gets a
- * notice. At send time each registration is matched against Claude Code's own record of the
+ * Session addresses and live notices. A session registers itself at start (`mshape msg
+ * register`, from its SessionStart hook) at the address of the checkout it runs in: a track,
+ * `main` or `review-<n>`. From then on its address is its registration, never its directory:
+ * a session at `main` that runs `mshape review <n>` moves to `review-<n>`, and its mail and
+ * notices follow. A session outside every address never registers, so other work on the
+ * machine never gets a notice. At send time each registration is matched against Claude Code's own record of the
  * session (`~/.claude/sessions/<pid>.json`, undocumented, so read strictly and by protocol
  * version), and the socket and token come from there, never from the mailbox.
  * `src/adapters/notices.ts` does the I/O. Claude Code's socket never replies, so a session is
  * live when its record matches and its socket accepts the connection; nothing more is known.
  */
 import { mshapeCommand } from "./hooks.ts";
-import type { Message } from "./mail.ts";
+import { MAIN_ADDRESS, reviewAddress, reviewOf } from "./layout.ts";
+import { addressLabel, type Message } from "./mail.ts";
 
 /**
- * One live session of a track, as `register` records it under the session registry. Only
+ * One live session at an address, as `register` records it under the session registry. Only
  * what the session knows of itself when its SessionStart hook runs: nothing here depends on
  * Claude Code having written its own record yet. Everything else is read at send time.
  */
@@ -198,6 +200,82 @@ export const planNotice = (
     },
   };
 };
+
+/** What Claude Code tells a command about the session running it; either may be missing. */
+export interface Identity {
+  readonly session?: string;
+  readonly pid?: number;
+}
+
+/** A registration, and the address it is filed under. */
+export interface Placed {
+  readonly address: string;
+  readonly registration: Registration;
+}
+
+/**
+ * Which registration is the caller's own. By session id when Claude Code gave one: a session
+ * filed twice (a move cut short between its write and its delete) is where it was filed last.
+ * By pid alone only among registrations still running, and more than one is ambiguous (a
+ * `/clear` just now: the process's old session and its new one). Without either, nobody:
+ * the caller is never guessed from a directory or from who else is registered.
+ */
+export type Self =
+  | { readonly kind: "anonymous" }
+  | { readonly kind: "unregistered" }
+  | { readonly kind: "registered"; readonly placed: Placed }
+  | { readonly kind: "ambiguous"; readonly placed: ReadonlyArray<Placed> };
+
+export const findSelf = (
+  placed: ReadonlyArray<Placed>,
+  identity: Identity,
+  running: (entry: Placed) => boolean,
+): Self => {
+  const newest = (a: Placed, b: Placed) =>
+    b.registration.registered.localeCompare(a.registration.registered);
+  if (identity.session !== undefined) {
+    const [mine] = placed
+      .filter((entry) => entry.registration.session === identity.session)
+      .sort(newest);
+    return mine === undefined ? { kind: "unregistered" } : { kind: "registered", placed: mine };
+  }
+  if (identity.pid === undefined) return { kind: "anonymous" };
+  const mine = placed.filter((entry) => entry.registration.pid === identity.pid && running(entry));
+  if (mine.length > 1) return { kind: "ambiguous", placed: mine };
+  return mine[0] === undefined ? { kind: "unregistered" } : { kind: "registered", placed: mine[0] };
+};
+
+/**
+ * Where `mshape review <pr>` puts a session at `from`: a session at `main` or at another
+ * review moves to `review-<pr>`; one at a track stays, since its track's mail is its work.
+ * Undefined is no move.
+ */
+export const reviewMove = (from: string, pr: string): string | undefined =>
+  (from === MAIN_ADDRESS || reviewOf(from) !== undefined) && from !== reviewAddress(pr)
+    ? reviewAddress(pr)
+    : undefined;
+
+export const NO_IDENTITY =
+  "no session identity: Claude Code gave no session id (hook input or CLAUDE_CODE_SESSION_ID) and no CLAUDE_PID, so this has no address of its own and none is guessed";
+
+export const ambiguousSelf = (placed: ReadonlyArray<Placed>): string =>
+  `which session runs this is ambiguous: process ${placed[0]?.registration.pid} has ${placed.length} running registrations (${placed.map((entry) => `session ${entry.registration.session} at ${entry.address}`).join(", ")}). Run it again from the session itself, where Claude Code sets CLAUDE_CODE_SESSION_ID`;
+
+/**
+ * What the inbox hook adds for a session that has an id but no registration: how to register,
+ * or, when there is no pid to register with, why it can't, so it isn't asked to at every prompt
+ * for a step that would fail.
+ */
+export const unregisteredNote = (session: string, address: string, registrable: boolean): string =>
+  `note: this session (${session}) isn't registered, so it gets no live notices, and its mail is taken from its directory's address, ${addressLabel(address)}. ${
+    registrable
+      ? `Run \`${mshapeCommand(["msg", "register"])}\` to register it.`
+      : "It can't register: Claude Code gave no CLAUDE_PID and has no record of it, so it gets only these unread subjects at each prompt."
+  }`;
+
+/** What `register` says when other running sessions share the address. */
+export const alsoRegistered = (address: string, others: ReadonlyArray<string>): string =>
+  `note: ${others.map((id) => `session ${id}`).join(", ")} ${others.length === 1 ? "is" : "are"} also registered at ${address}: each gets its notices, and a message one of you reads is read for all`;
 
 /** One line, never the body: the recipient decides when to read it. */
 export const noticeLine = (message: Message): string =>

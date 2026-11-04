@@ -1,10 +1,12 @@
 /**
- * `mshape msg register`, and the notices `msg send` pushes to a track's live sessions. The
- * registry lives under git's common directory (`sessions/<track>/<session>.json`); Claude
+ * Session addresses: `mshape msg register`, where a session's mail goes, the move `mshape
+ * review` makes, and the notices `msg send` pushes to an address's live sessions. The
+ * registry lives under git's common directory (`sessions/<address>/<session>.json`); Claude
  * Code's own records live in its config directory (`sessions/<pid>.json` and the published
  * `<pid>.<hash>.key`), read here only to match a registration and fetch where and how to send.
- * Nothing in this file fails a send: the mail is already stored, so every problem becomes a
- * note. The decisions are in `src/core/notices.ts`.
+ * Nothing here fails a send: the mail is already stored, so every problem becomes a note.
+ * Only `send` prunes the registry, and `review` and `register` move or replace a session's
+ * own registration; reads never change it. The decisions are in `src/core/notices.ts`.
  */
 
 import {
@@ -19,9 +21,19 @@ import {
 } from "node:fs/promises";
 import { connect } from "node:net";
 import { Effect } from "effect";
-import { sessionPath, TRACK_NAME, trackSessionsDir, worktreePath } from "../core/layout.ts";
-import type { Message } from "../core/mail.ts";
 import {
+  reviewOf,
+  reviewPath,
+  sessionPath,
+  sessionsDir,
+  TRACK_NAME,
+  trackSessionsDir,
+  worktreePath,
+} from "../core/layout.ts";
+import { directoryAddress, type Message } from "../core/mail.ts";
+import {
+  alsoRegistered,
+  ambiguousSelf,
   type ClaudeKey,
   type ClaudeSession,
   type Delivery,
@@ -29,16 +41,22 @@ import {
   decodeClaudeSession,
   decodeRegistration,
   encodeRegistration,
+  findSelf,
+  type Identity,
+  NO_IDENTITY,
   noticeLine,
+  type Placed,
   planNotice,
   type Registration,
+  reviewMove,
   SESSION_ID,
+  type Self,
   sessionStatus,
   sessionsIn,
   socketPayload,
   type Target,
 } from "../core/notices.ts";
-import { fs, locate, refuse, trackCurrent } from "./tracks.ts";
+import { fs, gitOk, locate, refuse, trackCurrent, worktrees } from "./tracks.ts";
 
 /** Symlinks resolved; a path that doesn't exist stays as it is. */
 const real = (path: string) => Effect.promise(() => realpath(path).catch(() => path));
@@ -77,45 +95,208 @@ const claudeSession = (claudeDir: string, id: string) =>
     return undefined as ClaudeSession | undefined;
   });
 
-/**
- * Records this session against its track, so `send` can reach it. Outside a track it does
- * nothing (undefined); a problem is returned as a note, never a failure, since it runs as a
- * SessionStart hook. The pid comes from Claude Code's environment (`claudePid`) when it is
- * there, so the hook doesn't depend on Claude Code having written or updated its record
- * first; else from that record. `send` checks the session against the record anyway.
- */
-export const register = (
-  cwd: string,
-  session: string,
-  claudePid: number | undefined,
-  claudeDir: string,
-  now: Date,
-) =>
+/** Who runs a command, and how to tell whether a registration's session still runs. */
+export interface Caller {
+  readonly identity: Identity;
+  readonly claudeDir: string;
+  readonly now: Date;
+}
+
+/** The address of the checkout `cwd` is in, or why it has none. */
+export const directoryAddressOf = (cwd: string) =>
   Effect.gen(function* () {
-    if (!SESSION_ID.test(session))
-      return `note: mshape msg register: \`${session}\` is not a Claude Code session id; this session gets no live notices`;
+    const { repo } = yield* locate(cwd);
+    const registered = yield* worktrees(repo);
+    const here = yield* real(yield* gitOk(cwd, ["rev-parse", "--show-toplevel"]));
+    // git's path for this checkout, in the layout's terms (worktrees() resolved them alike).
+    let toplevel = here;
+    for (const worktree of registered)
+      if ((yield* real(worktree.path)) === here) toplevel = worktree.path;
     const track = yield* trackCurrent(cwd).pipe(
-      Effect.catchTag("TrackError", () => Effect.succeed(undefined)),
+      Effect.map((name) => ({ track: name })),
+      Effect.catchTag("TrackError", (error) => Effect.succeed({ reason: error.reason })),
     );
-    if (track === undefined) return undefined;
-    const pid = claudePid ?? (yield* claudeSession(claudeDir, session))?.pid;
-    if (pid === undefined)
-      return `note: mshape msg register: Claude Code gave no CLAUDE_PID and has no record of session ${session} in ${claudeDir}/sessions; this session gets no live notices, only the unread subjects at each prompt`;
-    const { common } = yield* locate(cwd);
-    const registration: Registration = { session, pid, registered: now.toISOString() };
-    const dir = trackSessionsDir(common, track);
-    const path = sessionPath(common, track, session);
-    const temporary = `${dir}/.${session}.${process.pid}.tmp`;
+    return directoryAddress(repo, toplevel, registered, track);
+  });
+
+/** Every registration at every address, decoded; files that aren't one are left alone. */
+const allPlaced = (common: string) =>
+  Effect.gen(function* () {
+    const placed: Array<Placed> = [];
+    for (const address of yield* list(sessionsDir(common))) {
+      if (!TRACK_NAME.test(address)) continue;
+      for (const { registration } of yield* registrations(trackSessionsDir(common, address)))
+        if (registration !== undefined) placed.push({ address, registration });
+    }
+    return placed;
+  });
+
+/** Whether a registration's session still runs, by the rule `send` and `track rm` use. */
+const runningNow = (caller: Caller, registration: Registration) =>
+  Effect.map(
+    claudeRecord(caller.claudeDir, registration.pid),
+    ({ session }) => sessionStatus(registration, session, caller.now).kind !== "gone",
+  );
+
+/** The caller's own registration, found by `findSelf` over the whole registry. */
+const selfIn = (placed: ReadonlyArray<Placed>, caller: Caller) =>
+  Effect.gen(function* () {
+    const running = new Set<Placed>();
+    if (caller.identity.session === undefined && caller.identity.pid !== undefined)
+      for (const entry of placed)
+        if (
+          entry.registration.pid === caller.identity.pid &&
+          (yield* runningNow(caller, entry.registration))
+        )
+          running.add(entry);
+    return findSelf(placed, caller.identity, (entry) => running.has(entry));
+  });
+
+/** Writes a registration under `address` by atomic rename, so a reader never sees half one. */
+const writeRegistration = (common: string, address: string, registration: Registration) =>
+  Effect.gen(function* () {
+    const dir = trackSessionsDir(common, address);
+    const path = sessionPath(common, address, registration.session);
+    const temporary = `${dir}/.${registration.session}.${process.pid}.tmp`;
     yield* fs("create", dir, () => mkdir(dir, { recursive: true }));
     yield* fs("write", temporary, () => writeFile(temporary, encodeRegistration(registration)));
     yield* fs("write", path, () => rename(temporary, path));
-    return undefined;
+  });
+
+const removeRegistration = (common: string, placed: Placed) => {
+  const path = sessionPath(common, placed.address, placed.registration.session);
+  return Effect.promise(() => unlink(path).catch(() => undefined));
+};
+
+/**
+ * Where the caller's mail is: its registration's address, or else its checkout's.
+ * `unregistered` is set for a caller Claude Code identified that has no registration, for the
+ * inbox hook to say so, with whether `register` could find its pid. Fails only when neither
+ * address exists, with the directory's reason.
+ */
+export const sessionAddress = (cwd: string, caller: Caller) =>
+  Effect.gen(function* () {
+    const directory = yield* directoryAddressOf(cwd);
+    const { common } = yield* locate(cwd);
+    const self = yield* selfIn(yield* allPlaced(common), caller);
+    if (self.kind === "registered") return { address: self.placed.address };
+    if ("reason" in directory) return yield* refuse(directory.reason);
+    const { session } = caller.identity;
+    if (self.kind !== "unregistered" || session === undefined)
+      return { address: directory.address };
+    const registrable =
+      caller.identity.pid !== undefined ||
+      (yield* claudeSession(caller.claudeDir, session)) !== undefined;
+    return { address: directory.address, unregistered: { session, registrable } };
+  });
+
+/**
+ * Records this session at its address, so `send` can reach it: where it is already
+ * registered (a compaction or a resume keeps the session id, and with it a review's address),
+ * else its checkout's. Outside every address it does nothing (undefined); a problem is
+ * returned as a note, never a failure, since it runs as a SessionStart hook. The pid comes
+ * from Claude Code's environment when it is there, so the hook doesn't depend on Claude Code
+ * having written or updated its record first; else from that record.
+ */
+export const register = (cwd: string, caller: Caller) =>
+  Effect.gen(function* () {
+    const { session } = caller.identity;
+    if (session === undefined) return `note: mshape msg register: ${NO_IDENTITY}`;
+    if (!SESSION_ID.test(session))
+      return `note: mshape msg register: \`${session}\` is not a Claude Code session id; this session gets no live notices`;
+    // Outside a repo, as outside every address: nothing to register, and nothing to say.
+    const directory = yield* directoryAddressOf(cwd).pipe(
+      Effect.catchTag("TrackError", (error) => Effect.succeed({ reason: error.reason })),
+    );
+    if ("reason" in directory) return undefined;
+    const pid = caller.identity.pid ?? (yield* claudeSession(caller.claudeDir, session))?.pid;
+    if (pid === undefined)
+      return `note: mshape msg register: Claude Code gave no CLAUDE_PID and has no record of session ${session} in ${caller.claudeDir}/sessions; this session gets no live notices, only the unread subjects at each prompt`;
+    const { common } = yield* locate(cwd);
+    const placed = yield* allPlaced(common);
+    const self = yield* selfIn(placed, caller);
+    // A review whose worktree went without `review rm` is no address any more: start over here.
+    const { repo } = yield* locate(cwd);
+    const pr = self.kind === "registered" ? reviewOf(self.placed.address) : undefined;
+    const reviewGone =
+      pr !== undefined &&
+      !(yield* worktrees(repo)).some((worktree) => worktree.path === reviewPath(repo, pr));
+    const address =
+      self.kind === "registered" && !reviewGone ? self.placed.address : directory.address;
+    yield* writeRegistration(common, address, {
+      session,
+      pid,
+      registered: caller.now.toISOString(),
+    });
+    // A move cut short left a copy elsewhere: this session is where it was just written.
+    for (const entry of placed)
+      if (entry.registration.session === session && entry.address !== address)
+        yield* removeRegistration(common, entry);
+    const others: Array<string> = [];
+    for (const entry of placed)
+      if (
+        entry.address === address &&
+        entry.registration.session !== session &&
+        entry.registration.pid !== pid &&
+        (yield* runningNow(caller, entry.registration))
+      )
+        others.push(entry.registration.session);
+    return others.length === 0 ? undefined : alsoRegistered(address, others);
   }).pipe(
     Effect.catchTags({
       TrackError: (error) => Effect.succeed(`note: mshape msg register: ${error.reason}`),
       WorkspaceError: (error) => Effect.succeed(`note: mshape msg register: ${error.message}`),
     }),
   );
+
+/**
+ * The move `mshape review <pr>` makes, worked out before the review's worktree is touched,
+ * so an ambiguous caller is refused before anything happens. `apply` moves the session (a
+ * write at the new address, then the delete) and says what it did.
+ */
+export const planReviewMove = (cwd: string, caller: Caller, pr: string) =>
+  Effect.gen(function* () {
+    const { common } = yield* locate(cwd);
+    const directory = yield* directoryAddressOf(cwd);
+    const self: Self = yield* selfIn(yield* allPlaced(common), caller);
+    if (self.kind === "ambiguous") return yield* refuse(ambiguousSelf(self.placed));
+    const from =
+      self.kind === "registered"
+        ? self.placed.address
+        : "address" in directory
+          ? directory.address
+          : undefined;
+    const to = from === undefined ? undefined : reviewMove(from, pr);
+    const none = Effect.succeed([] as ReadonlyArray<string>);
+    if (to === undefined || from === undefined) return { apply: none };
+    if (self.kind === "anonymous")
+      return { apply: Effect.succeed([`note: no session moved to ${to}: ${NO_IDENTITY}`]) };
+    const { session } = caller.identity;
+    const apply = Effect.gen(function* () {
+      if (self.kind === "registered") {
+        // Stamped now, so a copy a cut-short move leaves behind is the older one.
+        yield* writeRegistration(common, to, {
+          ...self.placed.registration,
+          registered: caller.now.toISOString(),
+        });
+        yield* removeRegistration(common, self.placed);
+        return [`session ${self.placed.registration.session}: ${from} -> ${to}`];
+      }
+      // Identified but never registered: it starts at the review.
+      const pid =
+        caller.identity.pid ??
+        (session === undefined
+          ? undefined
+          : (yield* claudeSession(caller.claudeDir, session))?.pid);
+      if (session === undefined || pid === undefined)
+        return [
+          `note: no session moved to ${to}: this session isn't registered, and Claude Code gave ${session === undefined ? "no session id" : "no CLAUDE_PID"} to register it with`,
+        ];
+      yield* writeRegistration(common, to, { session, pid, registered: caller.now.toISOString() });
+      return [`session ${session}: ${from} -> ${to} (it wasn't registered; now it is)`];
+    });
+    return { apply };
+  });
 
 /** How one notice went: the session is gone (prune it), or it couldn't be told (say why). */
 export type Sent =
@@ -178,11 +359,11 @@ const registrations = (dir: string) =>
     return found;
   });
 
-/** Only a track name reaches the registry: an empty or odd one would address all of it. */
+/** Only an address reaches the registry: an empty or odd one would address all of it. */
 const validTrack = (track: string) =>
   TRACK_NAME.test(track)
     ? Effect.void
-    : refuse(`\`${track}\` is not a track name, so its session registry can't be read`);
+    : refuse(`\`${track}\` is not an address, so its session registry can't be read`);
 
 /** Whether a process exists. Signal 0 checks without sending anything. */
 const alive = (pid: number): boolean => {
@@ -216,8 +397,7 @@ const runningRecords = (claudeDir: string) =>
  * would lose its worktree. Two sources: the track's registrations that are still running
  * (live, or registered just now ahead of Claude Code's record), by the same rule `send` uses;
  * and any live session whose directory is inside the track's worktree, registered or not. No
- * socket is touched. Registrations whose session is gone, and files that aren't
- * registrations, are removed on the way.
+ * socket is touched, and nothing is removed: only `send` prunes.
  */
 export const liveSessions = (cwd: string, track: string, claudeDir: string, now: Date) =>
   Effect.gen(function* () {
@@ -225,21 +405,20 @@ export const liveSessions = (cwd: string, track: string, claudeDir: string, now:
     const { common, repo } = yield* locate(cwd);
     const dir = trackSessionsDir(common, track);
     const live = new Set<string>();
-    for (const { file, registration } of yield* registrations(dir)) {
+    for (const { registration } of yield* registrations(dir)) {
       const { session } =
         registration === undefined
           ? { session: undefined }
           : yield* claudeRecord(claudeDir, registration.pid);
       if (registration !== undefined && sessionStatus(registration, session, now).kind !== "gone")
         live.add(registration.session);
-      else yield* Effect.promise(() => unlink(`${dir}/${file}`).catch(() => undefined));
     }
     const worktree = yield* real(worktreePath(repo, track));
     for (const id of sessionsIn(worktree, yield* runningRecords(claudeDir))) live.add(id);
     return [...live].sort();
   });
 
-/** Deletes `track`'s session registry; how many registrations it held. For `track rm`. */
+/** Deletes an address's session registry; how many registrations it held. For `track rm` and `review rm`. */
 export const removeSessions = (cwd: string, track: string) =>
   Effect.gen(function* () {
     yield* validTrack(track);

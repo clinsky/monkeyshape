@@ -9,6 +9,8 @@ import { beadsBlocker } from "./check.ts";
 import {
   AGENTS_HANDOFFS_LINK,
   HANDOFFS_LINK,
+  MAIN_ADDRESS,
+  reviewOf,
   TRACK_NAME,
   trackBranch,
   trackLabel,
@@ -46,10 +48,13 @@ export const parseWorktrees = (porcelain: string): ReadonlyArray<Worktree> =>
           ];
     });
 
-export const nameProblem = (track: string): string | undefined =>
-  TRACK_NAME.test(track)
-    ? undefined
-    : `\`${track}\` is not a track name: use lowercase words joined by hyphens, like \`docs\` or \`cross-module\``;
+export const nameProblem = (track: string): string | undefined => {
+  if (!TRACK_NAME.test(track))
+    return `\`${track}\` is not a track name: use lowercase words joined by hyphens, like \`docs\` or \`cross-module\``;
+  if (track === MAIN_ADDRESS || reviewOf(track) !== undefined)
+    return `\`${track}\` is a session address (the main checkout's, or a review's), never a track's name: its mail and sessions belong to that address. Name the track something else`;
+  return undefined;
+};
 
 /**
  * `tracks.sharedPaths` as a whole. The schema has already made each entry normal; here the
