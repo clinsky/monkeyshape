@@ -21,6 +21,7 @@ src/core/client.ts:1  arch/host-access
   refs      passed          1 doc, and comments in TypeScript
   budgets   passed          the loaded docs, decisions, memories and 4 TypeScript files' lengths
   coverage  passed          4 TypeScript files against tsc's and biome's own file lists
+  files     passed          9 files against the 1.0 MiB cap
   rules     failed          3 files in sources
   skills    not-applicable  no installed skills
   sync      passed          PRIME.md, the PR template and the hook settings
