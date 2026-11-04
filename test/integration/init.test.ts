@@ -296,6 +296,19 @@ describe("mshape init", () => {
     expect(check.code).toBe(0);
   }, 60_000);
 
+  test("from a checkout that isn't the release, init vendors a pack of it, and its gate passes", async () => {
+    // No --from: npm's package of this version isn't this checkout's code.
+    const born = await fromSource(["from-checkout"]);
+    expect(born.code).toBe(0);
+    expect(unexpectedNotes(born.output)).toEqual([]);
+    const repo = join(work, "from-checkout");
+    const spec = (await Bun.file(join(repo, "package.json")).json()).devDependencies.monkeyshape;
+    expect(spec).toMatch(/^file:\.\/vendor\/monkeyshape-\d+\.\d+\.\d+-dev\.[0-9a-f]{7}/);
+    const check = await run(repo, [process.execPath, "run", "check"]);
+    expect(check.output).toContain("mshape check passed");
+    expect(check.code).toBe(0);
+  }, 120_000);
+
   test("the installed package carries the template: its init makes the same repo", async () => {
     const bin = join(work, "demo", "node_modules", ".bin", "mshape");
     const again = await run(work, [process.execPath, bin, "init", "--from", tarball, "again"]);

@@ -165,7 +165,7 @@ export const initRepo = (
       });
       done.push(`monkeyshape from vendor/${basename(tarball)}`);
       notes.push(
-        `monkeyshape is installed from vendor/${basename(tarball)}, which is committed so every clone and CI resolve it. Once that version is on npm, run \`bun add -d monkeyshape@<version>\`, delete vendor/ and commit`,
+        `monkeyshape is installed from vendor/${basename(tarball)}, which is committed so every clone and CI resolve it. Once a release of it is on npm, run \`bun add -d monkeyshape@<version>\`, delete vendor/ and commit`,
       );
     }
     // init wrote PRIME.md and the PR template from the package, so sync owns them from the start.
@@ -192,6 +192,13 @@ export const initRepo = (
     const install = yield* run(target, [process.execPath, "install"]);
     if (install.code === 0) {
       done.push("bun install");
+      // The installed package's own sync: skills, PRIME.md and hooks then match the version
+      // the repo depends on, even when this mshape is another one.
+      const synced = yield* run(target, [process.execPath, "node_modules/.bin/mshape", "sync"]);
+      if (synced.code !== 0)
+        notes.push(
+          `the installed monkeyshape's sync failed, so the first gate may fail; run \`bun run --silent mshape sync\`:\n  ${tail(synced.output)}`,
+        );
       // The generated JSON is laid out by JSON.stringify; the repo's own biome has the last word.
       const format = yield* run(target, [
         process.execPath,
