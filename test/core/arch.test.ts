@@ -167,3 +167,226 @@ describe("arch", () => {
     ]);
   });
 });
+
+describe("arch at the repo root and across top-level directories", () => {
+  const rooted = config({
+    sources: { include: ["*.ts", "server/**/*.ts", "lib/**/*.ts", "packages/**/*.ts"] },
+    arch: {
+      root: ".",
+      modules: {
+        lib: { description: "shared logic" },
+        server: { description: "the service", mayImport: ["lib"], hostAccess: true },
+        "packages/api": { description: "the client", mayImport: ["lib"] },
+        main: { description: "never matched by a directory" },
+      },
+    },
+  });
+  const arch = rooted.arch;
+
+  test("a module names its directory by a path from the root", () => {
+    if (arch === undefined) return expect(arch).toBeDefined();
+    expect(moduleOf(arch, "server/a.ts")).toBe("server");
+    expect(moduleOf(arch, "packages/api/b.ts")).toBe("packages/api");
+    expect(moduleOf(arch, "packages/other/c.ts")).toBeUndefined();
+    expect(moduleOf(arch, "serverless/d.ts")).toBeUndefined();
+  });
+
+  test("finds the real cross-module imports, and fails a forbidden one", () => {
+    const files = {
+      "lib/util.ts": "export const u = 1;\n",
+      "server/a.ts":
+        'import { u } from "../lib/util.ts";\nimport { b } from "../packages/api/b.ts";\n',
+      "packages/api/b.ts": 'import { u } from "../../lib/util.ts";\nexport const b = u;\n',
+    };
+    const found = checkArch(rooted, repo(files)).filter((v) => v.rule !== "arch/empty-module");
+    expect(found.map((v) => `${v.rule} ${v.file}: ${v.message}`)).toEqual([
+      expect.stringMatching(
+        /^arch\/forbidden-import server\/a\.ts: module 'server' may not import module 'packages\/api'/,
+      ),
+    ]);
+  });
+
+  test("a root file in no module is reported; tests, declarations, config and exempt files aren't", () => {
+    const files = {
+      "lib/util.ts": "",
+      "index.ts": 'import "./lib/util.ts";\n',
+      "tests/a.test.ts": 'import "../server/x.ts";\n',
+      "types/g.d.ts": "",
+      "shape.config.ts": "",
+    };
+    expect(
+      checkArch(rooted, repo(files))
+        .filter((v) => v.rule !== "arch/empty-module")
+        .map((v) => `${v.rule} ${v.file}`),
+    ).toEqual(["arch/unknown-module index.ts"]);
+  });
+
+  test("a map entry matching nothing fails, naming it", () => {
+    const files = { "lib/util.ts": "", "server/a.ts": "", "packages/api/b.ts": "" };
+    expect(checkArch(rooted, repo(files)).map((v) => v.message)).toEqual([
+      expect.stringContaining("module 'main' matches no TypeScript file under main/"),
+    ]);
+  });
+
+  test("a root written ./, src/ or ./src means the same as . or src", () => {
+    for (const [root, include, module, file] of [
+      ["./", "server/**/*.ts", "server", "server/a.ts"],
+      ["", "server/**/*.ts", "server", "server/a.ts"],
+      ["src/", "src/**/*.ts", "core", "src/core/b.ts"],
+      ["./src", "src/**/*.ts", "core", "src/core/b.ts"],
+    ] as const) {
+      const files = repo({ [file]: "" });
+      const shape = config({
+        sources: { include: [include] },
+        arch: { root, modules: { [module]: { description: "m" } } },
+      });
+      expect([root, checkArch(shape, files).map((v) => v.rule)]).toEqual([root, []]);
+    }
+  });
+
+  test("a module may name a single file at the root, and is not empty", () => {
+    const one = config({
+      sources: { include: ["*.ts"] },
+      arch: { root: ".", modules: { "harness.ts": { description: "the harness" } } },
+    });
+    expect(checkArch(one, repo({ "harness.ts": "export const h = 1;\n" }))).toEqual([]);
+  });
+
+  test("code in sources but outside arch.root is in no module, so it fails", () => {
+    const narrow = config({
+      sources: { include: ["src/**/*.ts", "tools/**/*.ts"] },
+      arch: { modules: { core: { description: "logic" } } },
+    });
+    expect(
+      checkArch(narrow, repo({ "src/core/a.ts": "", "tools/gen.ts": "" })).map(
+        (v) => `${v.rule} ${v.file}`,
+      ),
+    ).toEqual(["arch/unknown-module tools/gen.ts"]);
+  });
+});
+
+describe("host access is judged per operation", () => {
+  const pure = config({ arch: { modules: { core: { description: "logic" } } } });
+  const found = (source: string) =>
+    checkArch(pure, repo({ "src/core/a.ts": source })).map((v) => `${v.rule}: ${v.message}`);
+
+  test("passes: pure operations by name, by namespace member, and type-only imports", () => {
+    expect(
+      found(
+        [
+          'import { createHash, createHmac } from "node:crypto";',
+          'import * as zlib from "node:zlib";',
+          'import path from "node:path";',
+          'import { Duplex } from "node:stream";',
+          'import { Glob } from "bun";',
+          'import type { Stats } from "node:fs";',
+          'import { type Dirent } from "node:fs";',
+          'export const h = createHash("sha256").update("x").digest("hex");',
+          "export const z = zlib.inflateRawSync(Buffer.from([]), { flush: zlib.constants.Z_SYNC_FLUSH });",
+          'export const p = path.join("a", path.basename("b/c"));',
+          "export type S = Stats | Dirent | Duplex | Glob;",
+          'export const g = new Glob("*.ts");',
+        ].join("\n"),
+      ),
+    ).toEqual([]);
+  });
+
+  test("fails: a host operation, named in the message", () => {
+    expect(found('import { createHash, randomBytes } from "node:crypto";')).toEqual([
+      expect.stringMatching(/^arch\/host-access: imports randomBytes from 'node:crypto'/),
+    ]);
+  });
+
+  test("fails: a namespace used for a host operation, or passed whole", () => {
+    expect(
+      found(
+        [
+          'import * as crypto from "node:crypto";',
+          'import path from "node:path";',
+          'export const h = crypto.createHash("sha256");',
+          "export const r = crypto.randomBytes(8);",
+          'export const abs = path.resolve("x");',
+          "export const all = path;",
+        ].join("\n"),
+      ),
+    ).toEqual([
+      expect.stringContaining("uses crypto.randomBytes from 'node:crypto'"),
+      expect.stringContaining("uses path.resolve from 'node:path'"),
+      expect.stringContaining("uses path from 'node:path'"),
+    ]);
+  });
+
+  test("fails: a module with nothing pure, a side-effect import, a re-export, a literal dynamic import", () => {
+    expect(
+      found(
+        [
+          'import { readFileSync } from "node:fs";',
+          'import "node:crypto";',
+          'import { spawn } from "bun";',
+          'export { join } from "node:path";',
+          'export const fs = () => import("node:fs");',
+        ].join("\n"),
+      ).length,
+    ).toBe(5);
+  });
+
+  test("fails: a dynamic import computed at runtime, in a module without hostAccess", () => {
+    expect(found("export const load = (name: string) => import(name);")).toEqual([
+      expect.stringContaining("computed at runtime"),
+    ]);
+    const host = config({
+      arch: { modules: { core: { description: "logic", hostAccess: true } } },
+    });
+    expect(
+      checkArch(host, repo({ "src/core/a.ts": "export const load = (n: string) => import(n);" })),
+    ).toEqual([]);
+  });
+});
+
+describe("host access: #58 review", () => {
+  const pure = config({ arch: { modules: { core: { description: "logic" } } } });
+  const rulesOf = (source: string) =>
+    checkArch(pure, repo({ "src/core/a.ts": source })).map((v) => `${v.rule}:${v.line}`);
+
+  test("fails: a Glob that scans the disk, imported or global, by scan or scanSync", () => {
+    for (const source of [
+      'import { Glob } from "bun";\nexport const f = () => new Glob("*").scan(".");',
+      'import { Glob } from "bun";\nexport const f = () => new Glob("*").scanSync(".");',
+      'export const f = () => new Bun.Glob("*").scan(".");',
+      'export const f = () => new Bun.Glob("*").scanSync(".");',
+    ])
+      expect([source, rulesOf(source).length > 0]).toEqual([source, true]);
+  });
+
+  test("passes: a Glob that only matches strings, and Bun's hashing and compression", () => {
+    expect(
+      rulesOf(
+        [
+          'import { Glob } from "bun";',
+          'export const m = (p: string) => new Glob("*.ts").match(p) || new Bun.Glob("*").match(p);',
+          'export const h = new Bun.CryptoHasher("sha256").update("x").digest("hex");',
+          "export const z = Bun.zstdDecompressSync(Bun.zstdCompressSync(new Uint8Array()));",
+          "export const g = Bun.gunzipSync(Bun.gzipSync(new Uint8Array()));",
+          "export const d = Bun.inflateSync(Bun.deflateSync(new Uint8Array()));",
+        ].join("\n"),
+      ),
+    ).toEqual([]);
+  });
+
+  test("a host namespace exported by name is one finding, not two", () => {
+    expect(rulesOf('import * as path from "node:path";\nexport { path };')).toEqual([
+      "arch/host-access:2",
+    ]);
+  });
+
+  test("a root file in no module is told to map the file itself, and that fixes it", () => {
+    const at = (modules: Record<string, { description: string }>) =>
+      config({ sources: { include: ["*.ts", "lib/**/*.ts"] }, arch: { root: ".", modules } });
+    const files = repo({ "harness.ts": "export const h = 1;\n", "lib/a.ts": "" });
+    const [found] = checkArch(at({ lib: { description: "l" } }), files);
+    expect(found?.message).toContain("'harness.ts'");
+    expect(
+      checkArch(at({ lib: { description: "l" }, "harness.ts": { description: "h" } }), files),
+    ).toEqual([]);
+  });
+});

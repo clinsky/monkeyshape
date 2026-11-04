@@ -1,6 +1,6 @@
 /** Runs the selected checks over a snapshot. Pure: the CLI loads, this decides. */
 import { CHECK_NAMES, type ResolvedConfig } from "../schemas/config.ts";
-import { ARCH_RULES, checkArch } from "./arch.ts";
+import { ARCH_RULES, archFiles, checkArch } from "./arch.ts";
 import { BEADS_RULES, checkBeads } from "./beads.ts";
 import { BUDGETS_RULES, checkBudgets } from "./budgets.ts";
 import {
@@ -25,7 +25,15 @@ import { checkRefs, REFS_RULES } from "./refs.ts";
 import { checkRules, ENGINE_RULES, type Rule } from "./rules/engine.ts";
 import { RULES } from "./rules/registry.ts";
 import { checkSkills, SKILLS_RULES } from "./skills.ts";
-import { checkSources, inSources, isTest, type Place, places, SOURCES_RULES } from "./sources.ts";
+import {
+  checkSources,
+  inSources,
+  isTest,
+  type Place,
+  places,
+  SOURCES_RULES,
+  tsToCover,
+} from "./sources.ts";
 import { checkSync, SYNC_RULES } from "./sync.ts";
 
 export const CHECKS: ReadonlyArray<CheckName> = CHECK_NAMES;
@@ -71,6 +79,8 @@ const prerequisitesOf = (
   snapshot: Snapshot,
 ): ReadonlyArray<Prerequisite> => {
   const { tsc, biome, beads } = snapshot.integrations;
+  // tsc and biome cover TypeScript: a repo with none to cover doesn't need them.
+  if (check === "coverage" && tsToCover(config, snapshot).length === 0) return [];
   if (check === "coverage")
     return [
       { name: "tsc", integration: tsc, required: config.prerequisites.tsc === "required" },
@@ -124,11 +134,11 @@ const scopeOf = (check: CheckName, config: ResolvedConfig, snapshot: Snapshot): 
         return code.length === 0
           ? { notApplicable: "no TypeScript source, and no module map" }
           : { examined: "no module map" };
-      const files = snapshot.files.filter(
-        (file) => file.startsWith(`${arch.root}/`) && isTsSource(file),
-      );
+      const files = archFiles(config, snapshot);
       return files.length === 0
-        ? { notApplicable: `no TypeScript file under ${arch.root}/` }
+        ? {
+            notApplicable: `no TypeScript source under ${arch.root === "." ? "the repo root" : `${arch.root}/`}`,
+          }
         : {
             examined: `${plural(files.length, "file")} in ${plural(Object.keys(arch.modules).length, "module")}`,
           };
@@ -167,10 +177,7 @@ const scopeOf = (check: CheckName, config: ResolvedConfig, snapshot: Snapshot): 
         examined: `the loaded docs, decisions, memories and ${plural(typescript.length, "TypeScript file")}' lengths`,
       };
     case "coverage": {
-      const exempt = new Set(config.coverage.exempt);
-      const files = snapshot.files.filter(
-        (file) => isTsSource(file) && !file.split("/").some((segment) => exempt.has(segment)),
-      );
+      const files = tsToCover(config, snapshot);
       const guessed = (["tsc", "biome"] as const).filter(
         (tool) => snapshot.integrations[tool].state !== "ok",
       );
@@ -256,18 +263,55 @@ export const unevaluated = (
   snapshot: Snapshot,
   only: ReadonlyArray<CheckName> = CHECKS,
   baselineRules: Iterable<string> = [],
-): ReadonlySet<string> => {
-  const ran = only.filter(
-    (check) => config.checks[check] === undefined && blocker(check, config, snapshot) === undefined,
-  ) as ReadonlyArray<string>;
+): ReadonlySet<string> =>
+  unevaluatedBy(
+    only.filter(
+      (check) =>
+        config.checks[check] === undefined && blocker(check, config, snapshot) === undefined,
+    ),
+    snapshot,
+    baselineRules,
+  );
+
+/** What `report` decided ran; `unevaluated` and `evaluate` both derive the set from it. */
+const unevaluatedBy = (
+  ran: ReadonlyArray<CheckName>,
+  snapshot: Snapshot,
+  baselineRules: Iterable<string>,
+): ReadonlySet<string> =>
   // Every id a check that didn't run could report, not only those the caller's baseline
   // names: `tighten` must keep a turned-off check's entries whoever calls it.
-  return new Set([
+  new Set([
     ...(snapshot.integrations.beads.state === "ok" ? [] : NEEDS_BD),
     ...[...ruleIds(), ...baselineRules]
       .filter((rule) => !rule.startsWith("prerequisites/"))
-      .filter((rule) => !ran.includes(rule.split("/")[0] ?? "")),
+      .filter((rule) => !(ran as ReadonlyArray<string>).includes(rule.split("/")[0] ?? "")),
   ]);
+
+const didRun = (r: CheckReport): boolean =>
+  r.outcome.state !== "exempt" && r.outcome.state !== "unavailable";
+
+/**
+ * One pass over the selected checks: their reports, every violation, and the rules no check
+ * evaluated. `assess` and `mshape baseline` both read it, so whether a check ran is decided
+ * in one place, by its report.
+ */
+export const evaluate = (
+  config: ResolvedConfig,
+  snapshot: Snapshot,
+  only: ReadonlyArray<CheckName> = CHECKS,
+  baselineRules: Iterable<string> = [],
+) => {
+  const reports = only.map((check) => report(check, config, snapshot));
+  return {
+    reports,
+    violations: reports.flatMap((r) => r.violations),
+    unevaluated: unevaluatedBy(
+      reports.filter(didRun).map((r) => r.check),
+      snapshot,
+      baselineRules,
+    ),
+  };
 };
 
 /** What this run could not do, said out loud so a green result has one meaning. */
@@ -439,12 +483,12 @@ export const assess = (
   baseline: Counts = {},
   only: ReadonlyArray<CheckName> = CHECKS,
 ): CheckRun => {
-  const reports = only.map((check) => report(check, config, snapshot));
-  const ratcheted = applyBaseline(
-    reports.flatMap((r) => r.violations),
-    baseline,
-    unevaluated(config, snapshot, only, Object.keys(baseline)),
-  );
+  const {
+    reports,
+    violations,
+    unevaluated: skipped,
+  } = evaluate(config, snapshot, only, Object.keys(baseline));
+  const ratcheted = applyBaseline(violations, baseline, skipped);
   const result = {
     ...ratcheted,
     failing: [...prerequisites(config, snapshot, only), ...ratcheted.failing],

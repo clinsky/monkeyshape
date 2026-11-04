@@ -7,7 +7,7 @@
  */
 import type { ResolvedConfig } from "../schemas/config.ts";
 import { matches, matchesAny } from "./glob.ts";
-import { type Snapshot, TS_SOURCE, type Violation } from "./model.ts";
+import { isTsSource, type Snapshot, TS_SOURCE, type Violation } from "./model.ts";
 
 /** Every rule this check reports, as `sources/<kind>`; test/core/ruleCases.test.ts covers each. */
 export const SOURCES_RULES = ["outside", "unmatched"] as const;
@@ -46,15 +46,26 @@ export const inSources = (config: ResolvedConfig, file: string): boolean =>
 /** Where one TypeScript file stands with the rules. */
 export const placeOf = (config: ResolvedConfig, file: string): Place => {
   if (isDeclaration(file)) return { kind: "declaration" };
+  if (file === CONFIG_FILE) return { kind: "exempt", reason: "monkeyshape's own config" };
   if (inSources(config, file)) return { kind: "source" };
   if (isTest(file)) return { kind: "test" };
-  if (file === CONFIG_FILE) return { kind: "exempt", reason: "monkeyshape's own config" };
   const exempt = config.sources.exempt.find((allowance) => matches(file, allowance.path));
   if (exempt !== undefined) return { kind: "exempt", reason: exempt.reason };
   const segments = new Set(config.coverage.exempt);
   if (file.split("/").some((segment) => segments.has(segment)))
     return { kind: "exempt", reason: "generated or vendored (coverage.exempt)" };
   return { kind: "outside" };
+};
+
+/**
+ * The TypeScript coverage holds to tsc and biome: all of it, bar `coverage.exempt` segments.
+ * Here, not in check.ts, so coverage.ts can share it without an import cycle.
+ */
+export const tsToCover = (config: ResolvedConfig, snapshot: Snapshot): ReadonlyArray<string> => {
+  const exempt = new Set(config.coverage.exempt);
+  return snapshot.files.filter(
+    (file) => isTsSource(file) && !file.split("/").some((segment) => exempt.has(segment)),
+  );
 };
 
 /** Every TypeScript file in the snapshot, by where it stands. */

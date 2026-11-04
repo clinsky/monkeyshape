@@ -784,11 +784,14 @@ const prerequisitesCases: Record<string, Cases> = {
     pass: { config: { beads: "required" }, options: { ...TOOLS_RAN, beads: { state: "ok" } } },
   },
   "prerequisites/tool-failed": {
-    fail: { options: { linted: [], tsc: { state: "failed", reason: "`tsc` exited 2" } } },
+    fail: {
+      files: { "src/a.ts": "" },
+      options: { linted: [], tsc: { state: "failed", reason: "`tsc` exited 2" } },
+    },
     pass: { options: TOOLS_RAN },
   },
   "prerequisites/tool-unavailable": {
-    fail: { options: { linted: [] } },
+    fail: { files: { "src/a.ts": "" }, options: { linted: [] } },
     // The same missing tsc, declared optional: coverage reads tsconfig instead.
     pass: { config: { prerequisites: { tsc: "optional" } }, options: { linted: [] } },
   },
