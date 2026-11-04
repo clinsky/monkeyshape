@@ -43,8 +43,9 @@ Start the review in a chat of its own in the main checkout. `mshape review $N` t
 this session's address from `main` to `review-$N` (it prints the move), so the mail and
 notices for the main checkout stay with the other sessions there, and the author can reach
 you with `mshape msg send review-$N`. Run from a track's chat, it moves nothing: that session
-keeps its track's mail. After `/clear`, the session is at `main` again until you rerun
-`mshape review $N`.
+keeps its track's mail. A `/clear` registers the new session by the directory the chat is
+in: still `review-$N` in the review worktree, `main` again in the main checkout (then rerun
+`mshape review $N`).
 
 **A follow-up PR** that answers an earlier review: read that PR's thread first
 (`gh pr view <earlier> --comments`, and its inline comments as in step 6). Each finding it

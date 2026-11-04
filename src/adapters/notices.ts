@@ -22,6 +22,8 @@ import {
 import { connect } from "node:net";
 import { Effect } from "effect";
 import {
+  reviewOf,
+  reviewPath,
   sessionPath,
   sessionsDir,
   TRACK_NAME,
@@ -167,9 +169,10 @@ const removeRegistration = (common: string, placed: Placed) => {
 };
 
 /**
- * Where the caller's mail is: its registration's address, or else its checkout's. `unregistered`
- * is the session id of a caller Claude Code identified but that has no registration, for the
- * inbox hook to say so. Fails only when neither exists, with the directory's reason.
+ * Where the caller's mail is: its registration's address, or else its checkout's.
+ * `unregistered` is set for a caller Claude Code identified that has no registration, for the
+ * inbox hook to say so, with whether `register` could find its pid. Fails only when neither
+ * address exists, with the directory's reason.
  */
 export const sessionAddress = (cwd: string, caller: Caller) =>
   Effect.gen(function* () {
@@ -179,9 +182,12 @@ export const sessionAddress = (cwd: string, caller: Caller) =>
     if (self.kind === "registered") return { address: self.placed.address };
     if ("reason" in directory) return yield* refuse(directory.reason);
     const { session } = caller.identity;
-    return self.kind === "unregistered" && session !== undefined
-      ? { address: directory.address, unregistered: session }
-      : { address: directory.address };
+    if (self.kind !== "unregistered" || session === undefined)
+      return { address: directory.address };
+    const registrable =
+      caller.identity.pid !== undefined ||
+      (yield* claudeSession(caller.claudeDir, session)) !== undefined;
+    return { address: directory.address, unregistered: { session, registrable } };
   });
 
 /**
@@ -209,7 +215,14 @@ export const register = (cwd: string, caller: Caller) =>
     const { common } = yield* locate(cwd);
     const placed = yield* allPlaced(common);
     const self = yield* selfIn(placed, caller);
-    const address = self.kind === "registered" ? self.placed.address : directory.address;
+    // A review whose worktree went without `review rm` is no address any more: start over here.
+    const { repo } = yield* locate(cwd);
+    const pr = self.kind === "registered" ? reviewOf(self.placed.address) : undefined;
+    const reviewGone =
+      pr !== undefined &&
+      !(yield* worktrees(repo)).some((worktree) => worktree.path === reviewPath(repo, pr));
+    const address =
+      self.kind === "registered" && !reviewGone ? self.placed.address : directory.address;
     yield* writeRegistration(common, address, {
       session,
       pid,
@@ -261,7 +274,11 @@ export const planReviewMove = (cwd: string, caller: Caller, pr: string) =>
     const { session } = caller.identity;
     const apply = Effect.gen(function* () {
       if (self.kind === "registered") {
-        yield* writeRegistration(common, to, self.placed.registration);
+        // Stamped now, so a copy a cut-short move leaves behind is the older one.
+        yield* writeRegistration(common, to, {
+          ...self.placed.registration,
+          registered: caller.now.toISOString(),
+        });
         yield* removeRegistration(common, self.placed);
         return [`session ${self.placed.registration.session}: ${from} -> ${to}`];
       }

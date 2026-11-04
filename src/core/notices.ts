@@ -261,9 +261,17 @@ export const NO_IDENTITY =
 export const ambiguousSelf = (placed: ReadonlyArray<Placed>): string =>
   `which session runs this is ambiguous: process ${placed[0]?.registration.pid} has ${placed.length} running registrations (${placed.map((entry) => `session ${entry.registration.session} at ${entry.address}`).join(", ")}). Run it again from the session itself, where Claude Code sets CLAUDE_CODE_SESSION_ID`;
 
-/** What the inbox hook adds for a session that has an id but no registration. */
-export const unregisteredNote = (session: string, address: string): string =>
-  `note: this session (${session}) isn't registered, so it gets no live notices, and its mail is taken from its directory's address, ${addressLabel(address)}. Run \`${mshapeCommand(["msg", "register"])}\` to register it.`;
+/**
+ * What the inbox hook adds for a session that has an id but no registration: how to register,
+ * or, when there is no pid to register with, why it can't, so it isn't asked to at every prompt
+ * for a step that would fail.
+ */
+export const unregisteredNote = (session: string, address: string, registrable: boolean): string =>
+  `note: this session (${session}) isn't registered, so it gets no live notices, and its mail is taken from its directory's address, ${addressLabel(address)}. ${
+    registrable
+      ? `Run \`${mshapeCommand(["msg", "register"])}\` to register it.`
+      : "It can't register: Claude Code gave no CLAUDE_PID and has no record of it, so it gets only these unread subjects at each prompt."
+  }`;
 
 /** What `register` says when other running sessions share the address. */
 export const alsoRegistered = (address: string, others: ReadonlyArray<string>): string =>

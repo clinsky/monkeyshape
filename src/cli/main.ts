@@ -338,7 +338,15 @@ const msgInbox = (root: string, quiet: boolean) =>
     const inbox = yield* mailInbox(root, who);
     const listed = formatInbox(inbox.address, inbox.messages, inbox.unreadable, quiet);
     const note =
-      inbox.unregistered === undefined ? [] : [unregisteredNote(inbox.unregistered, inbox.address)];
+      inbox.unregistered === undefined
+        ? []
+        : [
+            unregisteredNote(
+              inbox.unregistered.session,
+              inbox.address,
+              inbox.unregistered.registrable,
+            ),
+          ];
     return { output: [...(listed === "" ? [] : [listed]), ...note].join("\n"), code: 0 };
   }).pipe(
     Effect.catchTags({

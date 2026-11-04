@@ -316,6 +316,16 @@ describe("session addresses: the plan's case table", () => {
     expect(await registered("review-12")).toContain(`${uuid(5)}.json`);
   });
 
+  test("`/clear` in a review session whose chat is in the review worktree: stays at review-<n>", async () => {
+    // Claude Code follows the chat's `cd`, so the hook runs where the reviewer went (#55, probe D).
+    await claudeSession(1);
+    await start(repo, 1);
+    await mshape(repo, ["review", "12"], 1);
+    expect((await hook(reviewWt(12), ["msg", "register"], 5, "clear", 1001)).code).toBe(0);
+    expect(await registered("main")).toEqual([]);
+    expect(await registered("review-12")).toEqual(at(1, 5));
+  });
+
   test("a second live session registers where one already is: both registered; `register` warns", async () => {
     await claudeSession(1, wt("docs"));
     await claudeSession(2, wt("docs"));
@@ -404,6 +414,40 @@ describe("session addresses: the plan's case table", () => {
 });
 
 describe("addresses beyond the table", () => {
+  test("a copy a cut-short move leaves at the old address: the moved one is the session's", async () => {
+    // A crash between the move's write and its delete (#55, probe A).
+    await claudeSession(1);
+    await start(repo, 1);
+    const before = await Bun.file(`${registry("main")}/${uuid(1)}.json`).text();
+    await mshape(repo, ["review", "12"], 1);
+    await writeFile(`${registry("main")}/${uuid(1)}.json`, before);
+    await send(wt("docs"), "review-12", "for the reviewer");
+    expect((await prompt(repo, 1)).stdout).toContain("for the reviewer");
+    expect((await hook(repo, ["msg", "register"], 1, "compact")).code).toBe(0);
+    expect(await registered("main")).toEqual([]);
+    expect(await registered("review-12")).toEqual(at(1));
+  });
+
+  test("a review whose worktree went without `review rm`: the next register starts at the directory's address", async () => {
+    // #55, probe E: otherwise the session stays at an address nobody can send to.
+    await claudeSession(1);
+    await start(repo, 1);
+    await mshape(repo, ["review", "12"], 1);
+    sh(repo, "worktree", "remove", "--force", reviewWt(12));
+    expect((await hook(repo, ["msg", "register"], 1, "resume")).code).toBe(0);
+    expect(await registered("review-12")).toEqual([]);
+    expect(await registered("main")).toEqual(at(1));
+  });
+
+  test("an identified session with no pid to register with is told why, not asked to register", async () => {
+    // #55, probe C: no CLAUDE_PID and no record, so `msg register` would fail the same way.
+    const stdin = JSON.stringify({ session_id: uuid(6), hook_event_name: "UserPromptSubmit" });
+    const inbox = await mshape(wt("docs"), ["msg", "inbox", "--quiet"], undefined, stdin);
+    expect(inbox.stdout).toContain("isn't registered");
+    expect(inbox.stdout).toContain("It can't register: Claude Code gave no CLAUDE_PID");
+    expect(inbox.stdout).not.toContain("msg register");
+  });
+
   test("a track can't take an address's name", async () => {
     for (const name of ["main", "review-12"]) {
       const made = await mshape(repo, ["track", "new", name], undefined);
