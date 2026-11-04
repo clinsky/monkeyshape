@@ -15,7 +15,6 @@ export const FILES_RULES = [
   "too-large",
   "large-unmatched",
   "env",
-  "vendored-unrecorded",
   "vendored-missing",
   "vendored-digest",
   "vendored-package",
@@ -31,11 +30,6 @@ const violation = (
 
 /** `.env` and `.env.<anything>`, except the conventional templates that hold no secret. */
 const ENV_FILE = /^\.env(\.(?!(example|sample|template)$)[^/]+)?$/;
-
-/** What a release tarball looks like when nothing records it. */
-const ARCHIVE = /\.(tgz|tar\.gz)$/;
-
-const VENDOR = "vendor/";
 
 const mib = (bytes: number): string => `${(bytes / (1024 * 1024)).toFixed(1)} MiB`;
 
@@ -73,14 +67,6 @@ export const checkFiles = (
           "env",
           file,
           "is an environment file, which holds secrets and must never be tracked. Remove it from the index (`git rm --cached`), add `.env*` to .gitignore, and rotate anything it held if it was ever pushed. A template without secrets is `.env.example`.",
-        ),
-      );
-    if (file.startsWith(VENDOR) && ARCHIVE.test(file) && !recorded.has(file))
-      out.push(
-        violation(
-          "vendored-unrecorded",
-          file,
-          `is a vendored archive with no record. Add \`{ path, package, sha256 }\` for it to \`files.vendored\` in ${CONFIG_FILE}, with the digest from its upstream release (\`sha256sum\` prints it), or remove it.`,
         ),
       );
   }

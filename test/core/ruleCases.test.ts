@@ -484,15 +484,6 @@ const filesCases: Record<string, Cases> = {
     fail: { files: { "app/.env.local": "" } },
     pass: { files: { ".env.example": "", "app/.env.sample": "", ".envrc": "", "env.ts": "" } },
   },
-  "files/vendored-unrecorded": {
-    fail: { files: { "vendor/lib-1.0.0.tgz": "" } },
-    // Recorded; and an archive outside vendor/ is someone's data, not a dependency.
-    pass: {
-      files: { "vendor/lib-1.0.0.tgz": "", "fixtures/sample.tar.gz": "" },
-      config: VENDORED,
-      options: { vendored: { "vendor/lib-1.0.0.tgz": READ } },
-    },
-  },
   "files/vendored-missing": {
     fail: { config: VENDORED },
     pass: {
