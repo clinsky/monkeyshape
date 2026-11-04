@@ -78,13 +78,24 @@ milestone: that adoption decides what monkeyshape needs next.
 
 ## Goal, and how we'll know
 
-Goals 1 to 6 are **must-have before adoption** (P1). Goal 7 is **worth doing if contained**
-(P2): a track drops what doesn't fit, and says so.
+**The cut line.** This milestone must make monkeyshape safe and useful to adopt in a mature
+Bun, TypeScript, Effect and beads repo: no silent passes, no excessive false positives, no
+destructive `init` or `sync`, and a place for the adopter's own rules. Goals 1 to 6 are
+that (P1). Goal 7 is **worth doing if contained** (P2): a track drops what doesn't fit, and
+says so. A feature being useful is not a reason to make it a prerequisite for adoption: no
+new must-have scope is added during implementation unless a real acceptance run shows the
+need, and the session system and the adopter-rule API grow no further than the cases this
+plan names and the first consumer needs.
 
 1. **A green gate means what it says.** Every check reports an outcome (the contract and its
    cases are under Interfaces), and `mshape check` prints one line per check with its
    outcome and what it examined. A configured glob or module that matches nothing fails
-   unless declared optional; a required prerequisite that couldn't run fails.
+   unless declared optional; a required prerequisite that couldn't run fails. Every tracked
+   TypeScript file is in the rules' scope, or is a test or a declaration file, or is exempt
+   with a reason: a repo with TypeScript source whose rules analyzed none of it fails, and
+   `not-applicable` means there is no TypeScript source, not that discovery missed it. This
+   is separate from typecheck and lint coverage: a file can be typechecked and linted and
+   still be outside the rules.
 2. **Checks tell the truth on a real layout.** A module map at the repo root or across
    several top-level directories. `decode-strict` resolves same-file options and skips
    schemas with no properties, with aliases and shadowing handled. `host-access` judges an
@@ -118,7 +129,7 @@ Goals 1 to 6 are **must-have before adoption** (P1). Goal 7 is **worth doing if 
    migration is its own command, never a side effect; the `milestone` skill gives each
    lifecycle or workflow fact a plan introduces as a case table, which the owning track
    turns into its test first; `mshape dep bump` updates a dependency on another repo's
-   release tarball.
+   release tarball. Its acceptance lines below are conditional on its delivery.
 
 **Acceptance on real data:**
 - **The existing application, at a pinned commit** (a private repo; a scratch clone, run by
@@ -133,16 +144,18 @@ Goals 1 to 6 are **must-have before adoption** (P1). Goal 7 is **worth doing if 
   - every remaining `decode-strict` and `host-access` finding is a real one, each listed;
   - an adopter rule fails on two different bugs of one class from its history (replayed from
     its git log) and passes on the commits that fixed them;
-  - a fresh agent following `docs/adopting.md` reaches a green gate; every step it had to
-    improvise is a defect fixed in this milestone.
-- **This repo** stays green under goals 1 and 4 with nothing new declared (bd's hooks,
-  `bun.lock`, `LICENSE`, dotfiles and `template/` placeholders need no configuration), and
-  an undeclared Python script turns it red.
+  - a fresh agent following `docs/adopting.md` reaches a green gate without an undocumented
+    command, a manual repair or a change to monkeyshape; each such step is a defect fixed
+    in this milestone. Application-specific choices the guide asks it to make are not.
+- **This repo** stays green under goals 1 and 4 with no declared command and one reasoned
+  exemption (`template/`'s TypeScript, which is scaffold data); bd's hooks, `bun.lock`,
+  `LICENSE`, git's own files and `.gitkeep` need no configuration. An undeclared Python
+  script turns it red, and so does an executable script under `.github/scripts/`.
 - **A new repo born from the release**, through npm and through `init --from` a tarball:
   green on its first gate, its `files` check included; its real data directory linked in
-  from outside the repo through `sharedPaths`, never tracked; and a dependency on the
-  application's release tarball that `dep bump` refuses with a wrong digest and moves with
-  the right one. Deliberately broken files (a C file that doesn't compile, a 30 MB binary,
+  from outside the repo through `sharedPaths`, never tracked; and, if `dep bump` (goal 7) is
+  delivered, a dependency on the application's release tarball that it refuses with a wrong
+  digest and moves with the right one. Deliberately broken files (a C file that doesn't compile, a 30 MB binary,
   an unrecorded tarball) are the tests' fixtures, not the acceptance.
 - **Two real Claude Code sessions, run by the maintainer:** a review started from one of two
   sessions in the main checkout gets none of the reviewed track's mail and leaves the other
@@ -152,7 +165,8 @@ Goals 1 to 6 are **must-have before adoption** (P1). Goal 7 is **worth doing if 
 
 **Closing:** `adoption`'s literal run comes last. A P1 defect it finds is fixed before the
 milestone closes, by the track that owns the file (restarted if it has finished); a P2
-limitation is deferred with a reason and the maintainer's yes.
+limitation is deferred with a reason and the maintainer's yes. The run catches regressions
+against this plan; it is not a source of new capabilities.
 
 ## Non-goals
 
@@ -188,6 +202,7 @@ limitation is deferred with a reason and the maintainer's yes.
 | Area | Today |
 |---|---|
 | A pass | means "no violation found", including when nothing was examined |
+| TypeScript outside `src/` | with default `sources`, the rules analyze none of it and pass |
 | `arch` without `src/` | `root: "."` matches 0 files and passes; with the code moved under `src/`, 14 findings |
 | `decode-strict` | 32 findings on the application, about 20 false (options in a `const`, branded strings) |
 | `host-access` | 11 findings on the application, 9 of them `createHash` |
@@ -212,7 +227,9 @@ limitation is deferred with a reason and the maintainer's yes.
 - Narrowed in review: language handling is the adopter's command, not analysis, and only
   executable source must be covered; Effect moved out entirely; handoff backup deferred;
   adoption keeps history rather than retiring it; acceptance counts coverage and uses real
-  code; the outcome contract got its own case table; addresses became must-have.
+  code; the outcome contract got its own case table; addresses became must-have; TypeScript
+  outside the rules' scope fails; git's own files are exempt by name, not `.git*`; an
+  explicit cut line.
 
 ## Phase 0: the milestone-2 boundary (before the tracks start)
 
@@ -263,6 +280,9 @@ maintainer.
   | the check ran over its files, no violations | `passed` | green |
   | the check ran, a violation | `failed` | red |
   | nothing in the repo is the check's to look at, and no config asked for anything | `not-applicable` | green |
+  | the repo has TypeScript source, and the rules' `sources` match none of it (a layout without `src/`, default config) | `failed`, naming the files outside scope | red |
+  | TypeScript source at the repo root or in several top-level directories, `sources` set to cover it | `passed` | green |
+  | a TypeScript file outside `sources` that is a test, a declaration file, or exempt with a reason | counted, not analyzed | green |
   | a configured glob or module matches no file | `failed`, naming it | red |
   | the same, declared `optional: true` | `not-applicable` | green |
   | `optional: true` on a glob that does match | as if not optional | as the check |
@@ -277,12 +297,17 @@ maintainer.
 
   Lands in `checks`' first PR; the others build on it.
 - **Declared commands and file classes (owner `languages`, consumer `adoption`'s docs).**
-  Executable source is a short built-in list of source extensions (C, C++, Python, shell,
-  Java, Go, Rust, Ruby, JavaScript) plus any file with the executable bit. A repo declares,
+  Executable source is a built-in list of extensions (`.c`, `.h`, `.cc`, `.cpp`, `.hpp`,
+  `.py`, `.sh`, `.bash`, `.java`, `.go`, `.rs`, `.rb`, `.js`, `.mjs`, `.cjs`) plus any
+  file git records as executable. The executable bit is a heuristic: a script with an
+  unusual extension and no executable bit needs a declared command or a reasoned exemption,
+  and the docs say so. A repo declares,
   in `shape.config.ts`, globs and the command that checks them (`{ files, run, optional? }`);
   `mshape check` runs each and reports its outcome under the contract. An executable source
   file that is neither TypeScript, nor declared, nor exempt with a reason fails `coverage`.
-  Built in, with no configuration: paths a tool manages (`.beads/`, `.git*`) and symlinks.
+  Built in, with no configuration: `.beads/` (bd manages it), git's own files (`.gitignore`,
+  `.gitattributes`, `.gitmodules`, `.gitkeep`) and symlinks. `.github/` is not exempt: a
+  script there is executable source, and its workflows are structured data that must parse.
   Everything else is metadata: lockfiles, licences, dotfiles, `.gitkeep`, docs, images and
   other assets, held only to the size cap; JSON, YAML and TOML must parse. This repo and
   the template declare nothing and stay green. Lands in `languages`' first PR.
@@ -312,9 +337,13 @@ maintainer.
   (PRIME.md, the PR template, a skill) only where it is absent or one `sync` wrote before.
   A pre-existing file that differs is left alone: `sync` names it, says where its content
   goes (the repo's own decisions in AGENTS.md, old PR sections into the narrative), and
-  `mshape sync --replace <file>` is the deliberate step. After that, sync is automatic.
+  `mshape sync --replace <file>` is the deliberate step. After that, sync is automatic. How
+  `sync` knows which files it wrote is the implementation's choice; its tests cover a fresh
+  clone and a version bump.
 - **Session addresses (owner `loop`).** A session's address is the checkout it serves. Mail
-  and notices follow the address; nothing is delivered by directory. Separately, `track rm`'s
+  and live notices go only to registered sessions, by address. The inbox hooks list the
+  unread mail of the session's address, or of its checkout when it has none: that is
+  discovery for a session that missed registering, not delivery. Separately, `track rm`'s
   safety check counts any live session inside the worktree, registered or not (#30). Its
   cases, which `loop` turns into a table test first:
 
@@ -331,7 +360,7 @@ maintainer.
   | a second live session registers where one already is | both registered; `register` warns |
   | no session identity (no session id or pid) | no address, and a note; never a guess |
   | which session to move is ambiguous | refuses, naming the sessions |
-  | a live session that never registered (its hook didn't run) | gets nothing live; its inbox hook still lists mail by its checkout and says it isn't registered and to run `mshape msg register` |
+  | a live session that never registered (its hook didn't run) | no live notices; its inbox hook lists its checkout's unread mail, says it isn't registered, and says to run `mshape msg register` |
   | `track rm <name>` while an unregistered session runs in its worktree | refuses, naming the session |
   | a registration whose session ended | pruned by `send`, never by a read |
 
@@ -344,10 +373,10 @@ maintainer.
 
 | Track | Serves | Charter | Acceptance |
 |---|---|---|---|
-| `checks` | goals 1, 2 | The outcome contract, its case-table test and its output (first PR); `arch` at the root and across directories; `decode-strict` false positives (same-file options, property-less schemas, aliases, shadowing); `decodeStrict` helper variants for sync decodes; `host-access` per operation; `noConsole` from declared entry files | On the pinned application clone: the coverage table's TypeScript rows; `arch` finds its real cross-module imports; each remaining `decode-strict` and `host-access` finding is real, listed in the PR |
+| `checks` | goals 1, 2 | The outcome contract, its case-table test and its output (first PR), including TypeScript source outside the rules' scope; `arch` at the root and across directories; `decode-strict` false positives (same-file options, property-less schemas, aliases, shadowing); `decodeStrict` helper variants for sync decodes; `host-access` per operation; `noConsole` from declared entry files | On the pinned application clone: with the default config the gate fails, naming the TypeScript outside `sources`; configured, the coverage table's TypeScript rows; `arch` finds its real cross-module imports; each remaining `decode-strict` and `host-access` finding is real, listed in the PR |
 | `rules` | goal 3 | The adopter-rule interface and loader (first PR), with `mshape rules`, garden and rule-cases covering adopter rules; the enforcement-point pattern, documented with its example rule | An adopter rule in the clone fails on two different historical bugs of one class and passes on their fixes; a broken rule module fails the gate |
-| `languages` | goal 4 | Declared commands and file classes (first PR); coverage of executable source; structured-data parsing; line budgets and garden over any text source; refs over any doc; the `files` check, including vendored-artifact verification | The clone's real secondary code: each declared command's outcome, red on a real compile error, `unavailable` without its toolchain; this repo green with nothing declared, red with an undeclared script; fixtures for a non-compiling C file and a 30 MB binary as tests |
-| `adoption` | goals 5, 7 (`dep bump`) | `docs/adopting.md` rewritten from a literal run on the pinned clone, with the four kinds of knowledge and each defect above; `sync` that leaves an adopter's files alone; the AGENTS.md gotcha for the outcome contract; `init` green from a checkout, tarball or npm, recording its vendored tarball, with versions that say what they contain; hooks before install; a release reproducible from its tag; `mshape dep bump`; the fresh-agent test over an adopted repo | A fresh agent following `docs/adopting.md` on the clone reaches a green gate, improvising nothing; repos born from npm and from a tarball are green on their first gate; `dep bump` refuses a wrong digest and moves a right one |
+| `languages` | goal 4 | Declared commands and file classes (first PR); coverage of executable source; structured-data parsing; line budgets and garden over any text source; refs over any doc; the `files` check, including vendored-artifact verification | The clone's real secondary code: each declared command's outcome, red on a real compile error, `unavailable` without its toolchain; this repo green with no declared command, red with an undeclared script or one under `.github/scripts/`; fixtures for a non-compiling C file and a 30 MB binary as tests |
+| `adoption` | goals 5, 7 (`dep bump`) | `docs/adopting.md` rewritten from a literal run on the pinned clone, with the four kinds of knowledge and each defect above; `sync` that leaves an adopter's files alone; the AGENTS.md gotcha for the outcome contract; `init` green from a checkout, tarball or npm, recording its vendored tarball, with versions that say what they contain; hooks before install; a release reproducible from its tag; `mshape dep bump`; the fresh-agent test over an adopted repo | A fresh agent following `docs/adopting.md` on the clone reaches a green gate, without an undocumented command, manual repair or change to monkeyshape; repos born from npm and from a tarball are green on their first gate; if delivered, `dep bump` refuses a wrong digest and moves a right one |
 | `loop` | goals 6, 7 | Session addresses (the case table) with `track rm`'s safety kept, the inbox hooks by address, and `review-pr`'s step that moves the reviewer (P1); then `liveSessions` reads only, `mshape track migrate`, case tables for lifecycle facts in the `milestone` skill, and splitting `test/adapters/tracks.test.ts` (1172 lines, near the cap) by command (P2) | The maintainer's two-session run above; `track list` never rewrites a handoff |
 
 **Order:** each track's first PR lands its interface (the outcome contract, adopter rules,
@@ -356,7 +385,8 @@ declared commands and file classes); the rest build on them, and nothing else wa
 
 ## Proposed beads (filed after approval)
 
-- **checks:** the outcome contract, its case table and output; `arch` at the root and across
+- **checks:** the outcome contract, its case table and output; TypeScript source outside
+  the rules' scope fails; `arch` at the root and across
   directories; `decode-strict` false positives; `decodeStrict` sync variants; `host-access`
   per operation; `noConsole` from declared entry files.
 - **rules:** the adopter-rule interface and loader; `mshape rules`, garden and rule-cases
