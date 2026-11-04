@@ -9,6 +9,8 @@
  */
 import type { Expression, Node, Program, VisitorObject } from "oxc-parser";
 import { Visitor } from "oxc-parser";
+import { lineAt } from "../model.ts";
+import { parse } from "../parse.ts";
 import type { Finding, Rule } from "./rule.ts";
 
 export type { Expression, Finding, Node, Program };
@@ -37,7 +39,25 @@ export interface LocalRule {
    * to say more than the rule's message for this one.
    */
   readonly check: (file: SourceFile) => Iterable<number | Finding>;
+  /**
+   * Sources the rule is run on at every `mshape check`, so it can't silently stop catching its
+   * bug or start firing on valid code. A case is source text, or `{ path, source }` when the
+   * rule looks at the path (default path `src/case.ts`).
+   */
+  readonly cases: {
+    /** Each has the bug, and must be reported at least once. At least one. */
+    readonly fail: ReadonlyArray<Case>;
+    /** Valid code close to the bug, on which nothing may be reported. At least one. */
+    readonly pass: ReadonlyArray<Case>;
+    /**
+     * The exceptions the rule makes on purpose, such as the enforcement point itself: code
+     * that looks like the bug and must not be reported. Needed when the rule makes one.
+     */
+    readonly allowed?: ReadonlyArray<Case>;
+  };
 }
+
+export type Case = string | { readonly path: string; readonly source: string };
 
 /** Identity, for type-checking a rule module: `export default defineRule({ ... })`. */
 export const defineRule = (rule: LocalRule): LocalRule => rule;
@@ -154,8 +174,68 @@ const toRule = (local: LocalRule): Rule => ({
   },
 });
 
+const CASE_PATH = "src/case.ts";
+
+const KINDS = {
+  fail: "must-fail",
+  pass: "must-pass",
+  allowed: "allowed-exception",
+} as const;
+
+/**
+ * What is wrong with a rule's cases: a required kind missing, a case of the wrong shape, a
+ * must-fail case it doesn't report, or a must-pass or allowed case it does.
+ */
+const caseProblems = (local: LocalRule, rule: Rule): ReadonlyArray<string> => {
+  const id = `${LOCAL_PREFIX}${local.id}`;
+  const cases: unknown = local.cases;
+  const why = {
+    fail: "source with the bug, so a rule that stops catching it fails here",
+    pass: "valid code close to the bug, so a rule that fires on valid code fails here before it fails a real file",
+  };
+  if (typeof cases !== "object" || cases === null)
+    return [
+      `${id} has no \`cases\`: give it \`cases: { fail: [...], pass: [...] }\` (${why.fail}; ${why.pass})`,
+    ];
+  const out: Array<string> = [];
+  for (const kind of ["fail", "pass", "allowed"] as const) {
+    const list: unknown = (cases as Record<string, unknown>)[kind];
+    if (list === undefined && kind === "allowed") continue;
+    if (!Array.isArray(list) || (kind !== "allowed" && list.length === 0)) {
+      out.push(
+        `${id} has no ${KINDS[kind]} case: add \`cases.${kind}\`, ${kind === "allowed" ? "a list of sources" : why[kind]}`,
+      );
+      continue;
+    }
+    list.forEach((entry: unknown, index) => {
+      const at = `${id}'s ${KINDS[kind]} case ${index + 1}`;
+      const { path, source } =
+        typeof entry === "string"
+          ? { path: CASE_PATH, source: entry }
+          : typeof entry === "object" && entry !== null
+            ? (entry as { path?: unknown; source?: unknown })
+            : {};
+      if (typeof path !== "string" || typeof source !== "string") {
+        out.push(`${at} is neither source text nor \`{ path, source }\``);
+        return;
+      }
+      const found = rule.run?.(parse(path, source)) ?? [];
+      if ("broken" in found) out.push(`${at}: the rule broke on it: ${found.broken}`);
+      else if (kind === "fail" && found.length === 0)
+        out.push(`${at} reported nothing: the rule no longer catches the bug this case shows`);
+      else if (kind !== "fail" && found.length > 0)
+        out.push(
+          `${at} was reported at line ${found.map((f) => lineAt(source, f.offset)).join(", ")}: the rule fires on code it must accept`,
+        );
+    });
+  }
+  return out;
+};
+
 export interface LocalRules {
   readonly rules: ReadonlyArray<Rule>;
+  /** By `local/<id>`: what is wrong with each valid rule's cases, run when the rule is on. */
+  readonly cases: ReadonlyMap<string, () => ReadonlyArray<string>>;
   /** One reason per entry of `localRules` that isn't a usable rule, by its index. */
   readonly broken: ReadonlyArray<string>;
   /** The ids, as `local/<id>`, of broken entries whose id is valid: configuring them is fine. */
@@ -170,6 +250,7 @@ export const localRules = (entries: ReadonlyArray<unknown>): LocalRules => {
   const rules: Array<Rule> = [];
   const broken: Array<string> = [];
   const brokenIds: Array<string> = [];
+  const cases = new Map<string, () => ReadonlyArray<string>>();
   const seen = new Set<string>();
   entries.forEach((entry, index) => {
     const reason = problem(entry);
@@ -186,7 +267,9 @@ export const localRules = (entries: ReadonlyArray<unknown>): LocalRules => {
       return;
     }
     seen.add(local.id);
-    rules.push(toRule(local));
+    const rule = toRule(local);
+    rules.push(rule);
+    cases.set(rule.id, () => caseProblems(local, rule));
   });
-  return { rules, broken, brokenIds };
+  return { rules, cases, broken, brokenIds };
 };

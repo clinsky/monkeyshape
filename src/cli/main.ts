@@ -6,7 +6,7 @@ import { fileURLToPath } from "node:url";
 import { Effect } from "effect";
 import pkg from "../../package.json" with { type: "json" };
 import { BASELINE_FILE, readBaseline, writeBaseline } from "../adapters/baseline.ts";
-import { loadConfig } from "../adapters/config.ts";
+import { CONFIG_FILE, loadConfig } from "../adapters/config.ts";
 import { initRepo, vendoredSpec } from "../adapters/init.ts";
 import { mailInbox, mailInboxAll, mailRead, mailSend } from "../adapters/mail.ts";
 import {
@@ -38,6 +38,7 @@ import type { CheckName } from "../core/model.ts";
 import { formatDelivery } from "../core/notices.ts";
 import { count, tighten } from "../core/ratchet.ts";
 import { formatCheck, formatGarden, formatViolation } from "../core/report.ts";
+import { formatRules } from "../core/rules/engine.ts";
 import { RULES } from "../core/rules/registry.ts";
 import { nextStep, REPO_NAME } from "../core/scaffold.ts";
 import { formatCollisions, formatSync } from "../core/skills.ts";
@@ -65,7 +66,7 @@ interface Command {
   ) => Effect.Effect<Outcome, ConfigError | WorkspaceError | TrackError>;
 }
 
-const FLAGS = `  --config <path>   For check, baseline and garden: use this config instead of ./shape.config.ts
+const FLAGS = `  --config <path>   For check, baseline, garden and rules: use this config instead of ./shape.config.ts
                     (trying a repo before adopting).`;
 
 /** Every command's usage, in table order. A function, since the table is declared below. */
@@ -428,18 +429,16 @@ const skills = (root: string, args: ReadonlyArray<string>) =>
   args.length === 1 && args[0] === "sync" ? sync(root, []) : Effect.succeed(usage());
 
 /** What `check`, `baseline` and `garden` all read: the config, the snapshot, the baseline. */
+/** `--config <path>`, resolved from the repo root, or undefined for ./shape.config.ts. */
+const configFlag = (root: string, args: ReadonlyArray<string>): string | undefined => {
+  const at = args.indexOf("--config");
+  const path = at === -1 ? undefined : args[at + 1];
+  return path === undefined ? undefined : path.startsWith("/") ? path : `${root}/${path}`;
+};
+
 const load = (root: string, args: ReadonlyArray<string>) =>
   Effect.gen(function* () {
-    const configFlag = args.indexOf("--config");
-    const configPath = configFlag === -1 ? undefined : args[configFlag + 1];
-    const config = yield* loadConfig(
-      root,
-      configPath === undefined
-        ? undefined
-        : configPath.startsWith("/")
-          ? configPath
-          : `${root}/${configPath}`,
-    );
+    const config = yield* loadConfig(root, configFlag(root, args));
     const snapshot = yield* loadSnapshot(root, config, PACKAGE_ROOT);
     const baseline = yield* readBaseline(root);
     return { config, snapshot, baseline };
@@ -496,10 +495,13 @@ const gardenCommand = (root: string, args: ReadonlyArray<string>) =>
     code: 0,
   }));
 
-const rules = () =>
-  Effect.succeed({
-    output: RULES.map((r) => `${r.id.padEnd(22)}${r.layer.padEnd(9)}${r.bugClass}`).join("\n"),
-    code: 0,
+/** Works before adopting: with no config, the registry's rules alone. */
+const rules = (root: string, args: ReadonlyArray<string>) =>
+  Effect.gen(function* () {
+    const path = configFlag(root, args) ?? `${root}/${CONFIG_FILE}`;
+    const present = yield* Effect.promise(() => Bun.file(path).exists());
+    const config = present ? yield* loadConfig(root, path) : undefined;
+    return { output: formatRules(RULES, config?.localRules), code: 0 };
   });
 
 /** Every command, in the order the help lists them. */
@@ -547,8 +549,8 @@ export const COMMANDS: ReadonlyArray<Command> = [
   },
   {
     name: "rules",
-    usage: `  mshape rules
-      List the custom rules and the bug class each one removes.`,
+    usage: `  mshape rules [--config <path>]
+      List the custom rules, the repo's own (localRules) included, and the bug class each removes.`,
     run: rules,
   },
   {

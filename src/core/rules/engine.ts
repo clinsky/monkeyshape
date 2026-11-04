@@ -38,6 +38,7 @@ export const ENGINE_RULES = [
   "unused-ignore",
   "unused-allowance",
   "local-rule",
+  "local-cases",
 ] as const;
 
 const reported = (rule: string, file: string, line: number, message: string): Violation => ({
@@ -84,6 +85,9 @@ export const checkRules = (
   const active = all.filter(
     (rule) => config.layers.includes(rule.layer) && config.rules[rule.id]?.off === undefined,
   );
+  for (const rule of active)
+    for (const problem of local.cases.get(rule.id)?.() ?? [])
+      violations.push(violation("local-cases", "shape.config.ts", 1, problem));
   const usedAllowances = new Set<string>();
   const known = new Set([...all.map((rule) => rule.id), ...local.brokenIds]);
   /** A local rule that broke: reported once, at the first file, with how many it broke on. */
@@ -190,4 +194,64 @@ export const checkRules = (
           ),
         );
   return violations;
+};
+
+/**
+ * `mshape rules`: each rule with its layer (`local` for the repo's own) and the bug class it
+ * removes, then a line for any `localRules` entry that isn't a rule, which `check` explains.
+ */
+export const formatRules = (
+  rules: ReadonlyArray<Rule>,
+  localEntries: ReadonlyArray<unknown> = [],
+): string => {
+  const local = localRules(localEntries);
+  const width = Math.max(22, ...local.rules.map((rule) => rule.id.length + 2));
+  const rows = [
+    ...rules.map((rule) => `${rule.id.padEnd(width)}${rule.layer.padEnd(9)}${rule.bugClass}`),
+    ...local.rules.map((rule) => `${rule.id.padEnd(width)}${"local".padEnd(9)}${rule.bugClass}`),
+  ];
+  const broken = local.broken.length;
+  return broken === 0
+    ? rows.join("\n")
+    : [
+        ...rows,
+        "",
+        `${broken} localRules ${broken === 1 ? "entry is" : "entries are"} not a rule: \`mshape check --only rules\` says why`,
+      ].join("\n");
+};
+
+export interface RuleHatches {
+  /** As violations carry it: `rules/<id>`, `rules/local/<id>` for the repo's own. */
+  readonly rule: string;
+  readonly ignores: number;
+  readonly allowances: number;
+}
+
+/**
+ * For garden: each local rule's escape hatches, the `shape-ignore` comments naming it in the
+ * sources and its allowances in the config, so growth in one domain rule shows by name. A
+ * local rule with none still has a row: garden lists every one the repo runs.
+ */
+export const localRuleHatches = (
+  config: ResolvedConfig,
+  snapshot: Snapshot,
+): ReadonlyArray<RuleHatches> => {
+  const ids = localRules(config.localRules).rules.map((rule) => rule.id);
+  const ignores = new Map(ids.map((id) => [id, 0]));
+  for (const file of snapshot.files) {
+    if (!matchesAny(file, config.sources.include) || matchesAny(file, config.sources.exclude))
+      continue;
+    const text = snapshot.texts.get(file);
+    if (text === undefined) continue;
+    for (const comment of parse(file, text).comments) {
+      const id = comment.type === "Line" ? IGNORE.exec(comment.value)?.[1] : undefined;
+      const count = id === undefined ? undefined : ignores.get(id);
+      if (id !== undefined && count !== undefined) ignores.set(id, count + 1);
+    }
+  }
+  return ids.map((id) => ({
+    rule: `rules/${id}`,
+    ignores: ignores.get(id) ?? 0,
+    allowances: config.rules[id]?.allow?.length ?? 0,
+  }));
 };
