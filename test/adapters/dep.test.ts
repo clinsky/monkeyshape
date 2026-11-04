@@ -34,14 +34,14 @@ beforeEach(async () => {
       name: "born",
       private: true,
       scripts: { check: "bun -e 'process.exit(0)'" },
-      dependencies: { app: "file:./vendor/app-1.0.0.tgz" },
     }),
   );
   await Bun.write(
     join(repo(), "shape.config.ts"),
     `export default { files: { vendored: [{ path: "vendor/app-1.0.0.tgz", package: "app", sha256: "${old.sha256}" }] } };\n`,
   );
-  Bun.spawnSync([process.execPath, "install"], { cwd: repo() });
+  // The dependency as an adopter adds it, so bump meets the spec bun writes.
+  Bun.spawnSync([process.execPath, "add", "./vendor/app-1.0.0.tgz"], { cwd: repo() });
 });
 
 afterEach(async () => {
@@ -74,7 +74,8 @@ describe("depBump on a born repo's vendored dependency", () => {
     expect(await Bun.file(join(repo(), "vendor", "app-1.0.0.tgz")).exists()).toBe(false);
     expect(await Bun.file(join(repo(), "vendor", "app-1.1.0.tgz")).exists()).toBe(true);
     const pkg = await Bun.file(join(repo(), "package.json")).json();
-    expect(pkg.dependencies.app).toBe("file:./vendor/app-1.1.0.tgz");
+    // In the form bun add wrote it.
+    expect(pkg.dependencies.app).toBe("./vendor/app-1.1.0.tgz");
     const config = await Bun.file(join(repo(), "shape.config.ts")).text();
     expect(config).toContain(`path: "vendor/app-1.1.0.tgz"`);
     expect(config).toContain(next.sha256);

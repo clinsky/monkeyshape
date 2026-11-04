@@ -6,6 +6,7 @@ import { copyFile, mkdir, mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
 import { Effect } from "effect";
+import { GATE_SCRIPT } from "../core/conventions.ts";
 import { planBump, type VendoredEntry } from "../core/dep.ts";
 import { WorkspaceError } from "../schemas/errors.ts";
 import { run } from "./process.ts";
@@ -96,7 +97,7 @@ export const depBump = (
         code: 1,
       } satisfies BumpResult;
     lines.push("bun install: bun.lock updated");
-    const gate = yield* run(repo, [process.execPath, "run", "check"]);
+    const gate = yield* run(repo, [process.execPath, "run", GATE_SCRIPT]);
     const tail = `${gate.stdout}${gate.stderr}`.trim().split("\n").slice(-15).join("\n");
     return gate.code === 0
       ? ({

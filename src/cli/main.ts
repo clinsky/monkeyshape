@@ -521,7 +521,7 @@ const skills = (root: string, args: ReadonlyArray<string>) =>
 const configFlag = (root: string, args: ReadonlyArray<string>): string | undefined => {
   const at = args.indexOf("--config");
   const path = at === -1 ? undefined : args[at + 1];
-  return path === undefined ? undefined : path.startsWith("/") ? path : `${root}/${path}`;
+  return path === undefined ? undefined : resolve(root, path);
 };
 
 const load = (root: string, args: ReadonlyArray<string>) =>

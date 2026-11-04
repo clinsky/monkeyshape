@@ -66,6 +66,21 @@ const DEPENDENCY_KEYS = [
 /** The vendored spec `mshape init --from` and bump write: relative, so every clone resolves it. */
 export const vendoredSpecOf = (path: string): string => `file:./${path}`;
 
+/**
+ * The repo-relative path a dependency spec names, for the forms that name a local file:
+ * `file:./vendor/x`, `file:vendor/x` (init writes these) and `./vendor/x`, `vendor/x` (bun
+ * add writes these). Undefined for anything else, such as a registry range.
+ */
+export const specPath = (spec: string): string | undefined => {
+  const bare = spec.startsWith("file:") ? spec.slice("file:".length) : spec;
+  const path = bare.replace(/^(\.\/)+/, "");
+  return path.startsWith(`${VENDOR_DIR}/`) && !path.includes("..") ? path : undefined;
+};
+
+/** `spec` moved to `path`, in the form the adopter wrote it. */
+const respec = (spec: string, from: string, to: string): string =>
+  `${spec.slice(0, spec.length - from.length)}${to}`;
+
 /** What bumping `name` to the tarball takes, or every reason it can't: nothing is written then. */
 export const planBump = (
   input: BumpInput,
@@ -120,9 +135,10 @@ export const planBump = (
     if (typeof deps !== "object" || deps === null) continue;
     const moved = Object.fromEntries(
       Object.entries(deps).map(([dep, spec]) => {
-        if (dep !== input.name || spec !== vendoredSpecOf(from.path)) return [dep, spec];
+        if (dep !== input.name || typeof spec !== "string" || specPath(spec) !== from.path)
+          return [dep, spec];
         specs += 1;
-        return [dep, vendoredSpecOf(to.path)];
+        return [dep, respec(spec, from.path, to.path)];
       }),
     );
     next[key] = moved;
@@ -130,7 +146,7 @@ export const planBump = (
   if (pkg === undefined) refused.push("package.json isn't a JSON object.");
   else if (specs === 0)
     refused.push(
-      `package.json doesn't depend on ${input.name} as ${vendoredSpecOf(from.path)}, the recorded tarball, so bump can't tell which dependency it is. Make it that spec, then bump again.`,
+      `package.json doesn't depend on ${input.name} as the recorded tarball ${from.path} (as \`${vendoredSpecOf(from.path)}\` or \`./${from.path}\`), so bump can't tell which dependency it is. Point it at that file, then bump again.`,
     );
 
   let configText = input.configText;

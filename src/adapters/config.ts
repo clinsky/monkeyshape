@@ -35,9 +35,10 @@ export const loadFailure = (cause: unknown): string => {
 const OWN_ROOT = `${import.meta.dir}/../..`;
 
 /** Where `specifier`, imported by a file in `dir`, resolves as if that file sat in `root`. */
-const resolveAt = (specifier: string, dir: string, root: string): string | undefined => {
-  if (specifier.includes(":")) return undefined;
-  if (specifier.startsWith(".") || specifier.startsWith("/")) return resolve(dir, specifier);
+const SOURCE = /\.(?:[cm]?[jt]sx?)$/;
+
+/** Bare specifiers as if imported from `root`, falling back to the running monkeyshape. */
+const resolveBare = (specifier: string, root: string): string | undefined => {
   for (const from of [root, OWN_ROOT])
     try {
       return Bun.resolveSync(specifier, from);
@@ -47,35 +48,56 @@ const resolveAt = (specifier: string, dir: string, root: string): string | undef
   return undefined;
 };
 
+const escapeRegExp = (text: string): string => text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
 /**
- * A config outside the repo (`--config`, for trying monkeyshape before adopting), as a copy
- * whose imports are absolute: bare ones resolved from the repo, relative ones from the
- * config's own directory. Imported where it is, Bun would resolve `monkeyshape` from the
- * config's directory upward and fall back to its global cache, where it may be another version
- * that can't see the repo's `effect`; its runtime plugins never see those imports.
+ * A config outside the repo (`--config`, for trying monkeyshape before adopting), as copies
+ * in `dir` of it and every module it reaches by relative import outside the repo, with their
+ * imports made absolute: bare ones resolved from the repo, relative ones to the copies (or,
+ * inside the repo, to the files themselves). Imported where they are, Bun would resolve
+ * `monkeyshape` from their directory upward and fall back to its global cache, where it may
+ * be another version that can't see the repo's `effect`; runtime plugins never see those
+ * imports. Returns each original's copy, the config's first.
  */
-const outsideCopy = async (path: string, root: string): Promise<string> => {
+const outsideCopies = async (
+  path: string,
+  root: string,
+  dir: string,
+  copies: Map<string, string> = new Map(),
+): Promise<Map<string, string>> => {
+  const copy = join(dir, `${copies.size}-${basename(path)}`);
+  copies.set(path, copy);
   const text = await Bun.file(path).text();
-  let imports: ReturnType<Bun.Transpiler["scanImports"]>;
+  let imports: ReturnType<Bun.Transpiler["scanImports"]> = [];
   try {
-    imports = new Bun.Transpiler({ loader: "ts" }).scanImports(text);
+    imports = new Bun.Transpiler({ loader: "tsx" }).scanImports(text);
   } catch {
-    // It doesn't parse: importing the file itself reports why, under its own name.
-    return path;
+    // It doesn't parse: copied as it is, so importing it reports why; the error is renamed.
   }
   let rewritten = text;
   for (const specifier of new Set(imports.map((found) => found.path))) {
-    const target = resolveAt(specifier, dirname(path), root);
+    if (specifier.includes(":")) continue;
+    let target: string | undefined;
+    if (specifier.startsWith(".") || specifier.startsWith("/")) {
+      let file: string;
+      try {
+        file = Bun.resolveSync(specifier, dirname(path));
+      } catch {
+        file = resolve(dirname(path), specifier);
+      }
+      const outside = relative(root, file).startsWith("..");
+      if (outside && SOURCE.test(file))
+        target = copies.get(file) ?? (await outsideCopies(file, root, dir, copies)).get(file);
+      else target = file;
+    } else target = resolveBare(specifier, root);
     if (target === undefined) continue;
     rewritten = rewritten.replace(
-      new RegExp(`(["'])${specifier.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\1`, "g"),
+      new RegExp(`(["'])${escapeRegExp(specifier)}\\1`, "g"),
       JSON.stringify(target),
     );
   }
-  const dir = await mkdtemp(join(tmpdir(), "mshape-config-"));
-  const copy = join(dir, basename(path));
   await Bun.write(copy, rewritten);
-  return copy;
+  return copies;
 };
 
 /** `path` overrides the repo's own config, e.g. to try monkeyshape on a repo before adopting it. */
@@ -95,14 +117,19 @@ export const loadConfig = (root: string, path = `${root}/${CONFIG_FILE}`) =>
     const module = yield* Effect.tryPromise({
       try: async () => {
         if (!outside) return (await import(path)) as { readonly default?: unknown };
-        const copy = await outsideCopy(path, root);
+        const dir = await mkdtemp(join(tmpdir(), "mshape-config-"));
         try {
-          return (await import(copy)) as { readonly default?: unknown };
-        } catch (cause) {
-          // Errors in the copy name the file the user gave.
-          throw new Error(loadFailure(cause).replaceAll(copy, path));
+          const copies = await outsideCopies(path, root, dir);
+          try {
+            return (await import(copies.get(path) ?? path)) as { readonly default?: unknown };
+          } catch (cause) {
+            // Errors in a copy name the file the user wrote.
+            let message = loadFailure(cause);
+            for (const [original, copy] of copies) message = message.replaceAll(copy, original);
+            throw new Error(message);
+          }
         } finally {
-          if (copy !== path) await rm(dirname(copy), { recursive: true, force: true });
+          await rm(dir, { recursive: true, force: true });
         }
       },
       catch: (cause) =>
