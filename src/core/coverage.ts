@@ -3,18 +3,31 @@
  * tsconfig and linted by biome, unless it sits under an exempt segment (generated or
  * vendored code). Excluding real code needs a config change a reviewer will see.
  *
+ * Source in any other language is the adopter's to check: each executable file (see
+ * `classify`) is covered by a declared command, which `mshape check` runs and judges here,
+ * or exempt with a reason. monkeyshape never analyzes it.
+ *
  * The tools are the authority: when the adapter could run them, `snapshot.typechecked` and
  * `snapshot.linted` are their own file lists, with inheritance and project references
  * resolved. Reading the configs here is the fallback, and approximates both.
  */
-import type { ResolvedConfig } from "../schemas/config.ts";
+import type { DeclaredCommand, ResolvedConfig } from "../schemas/config.ts";
 import { matchesPathOrBelow } from "./glob.ts";
 import { stripJsonc } from "./jsonc.ts";
-import { isTsSource, type Snapshot, type Violation } from "./model.ts";
+import { classify, isTsSource, type Outcome, type Snapshot, type Violation } from "./model.ts";
 import { dirname } from "./paths.ts";
 
 /** Every rule this check reports, as `coverage/<kind>`; test/core/ruleCases.test.ts covers each. */
-export const COVERAGE_RULES = ["config", "typecheck", "lint"] as const;
+export const COVERAGE_RULES = [
+  "config",
+  "typecheck",
+  "lint",
+  "uncovered",
+  "command-failed",
+  "command-unavailable",
+  "command-unmatched",
+  "exempt-unmatched",
+] as const;
 
 const violation = (
   rule: (typeof COVERAGE_RULES)[number],
@@ -81,6 +94,13 @@ export const checkCoverage = (
 ): ReadonlyArray<Violation> => {
   const violations: Array<Violation> = [];
   const tsconfigs: Array<{ path: string; value: unknown }> = [];
+  const exempt = new Set(config.coverage.exempt);
+  const typescript = snapshot.files.filter(
+    (file) => isTsSource(file) && !file.split("/").some((segment) => exempt.has(segment)),
+  );
+  const others = withoutTools(config, snapshot);
+  // No TypeScript to cover: tsc's and biome's configs answer for nothing, so none is needed.
+  if (typescript.length === 0) return others;
   const typechecked = snapshot.typechecked;
   const linted = snapshot.linted;
   for (const path of typechecked === undefined ? config.coverage.tsconfigs : []) {
@@ -101,9 +121,7 @@ export const checkCoverage = (
   const isLinted = (file: string) =>
     linted !== undefined ? linted.has(file) : biome === undefined || biomeCovers(biome, file);
 
-  const exempt = new Set(config.coverage.exempt);
-  for (const file of snapshot.files) {
-    if (!isTsSource(file) || file.split("/").some((segment) => exempt.has(segment))) continue;
+  for (const file of typescript) {
     if (!isTypechecked(file))
       violations.push(
         violation(
@@ -121,5 +139,163 @@ export const checkCoverage = (
         ),
       );
   }
-  return violations;
+  return [...violations, ...others];
 };
+
+const CONFIG_FILE = "shape.config.ts";
+
+/** The command as a reader types it, for messages and the per-command line. */
+export const commandLabel = (command: DeclaredCommand): string => command.run.join(" ");
+
+/** The files a declared command covers, in `snapshot.files` order. */
+export const commandFiles = (command: DeclaredCommand, files: ReadonlyArray<string>) =>
+  files.filter((file) => command.files.some((pattern) => matchesPathOrBelow(file, pattern)));
+
+/** One declared command's line under `coverage`, in the outcome contract's terms. */
+export interface CommandReport {
+  readonly label: string;
+  readonly outcome: Outcome;
+}
+
+const TAIL_LINES = 30;
+
+const tail = (output: string): string => {
+  const lines = output.trimEnd().split("\n");
+  const kept = lines.slice(-TAIL_LINES).join("\n");
+  return lines.length > TAIL_LINES ? `(last ${TAIL_LINES} lines)\n${kept}` : kept;
+};
+
+const plural = (n: number, word: string): string => `${n} ${word}${n === 1 ? "" : "s"}`;
+
+/**
+ * One report per declared command, in config order: `coverage`'s parts. `failed` when it
+ * exited non-zero or a required command's files match nothing; the violation says why.
+ */
+export const commandReports = (
+  config: ResolvedConfig,
+  snapshot: Snapshot,
+): ReadonlyArray<CommandReport> =>
+  config.coverage.commands.map((command, index): CommandReport => {
+    const label = commandLabel(command);
+    const optional = command.optional === true;
+    const examined = plural(commandFiles(command, snapshot.files).length, "file");
+    const ran = snapshot.commands.get(index);
+    if (ran === undefined)
+      return {
+        label,
+        outcome: optional
+          ? { state: "not-applicable", reason: "its files match nothing" }
+          : { state: "failed", examined },
+      };
+    if (ran.state === "unavailable")
+      return {
+        label,
+        outcome: {
+          state: "unavailable",
+          prerequisite: command.run[0] ?? label,
+          reason: ran.reason,
+          required: !optional,
+        },
+      };
+    const unmatched =
+      !optional &&
+      command.files.some((pattern) => !snapshot.files.some((f) => matchesPathOrBelow(f, pattern)));
+    return {
+      label,
+      outcome: { state: ran.code === 0 && !unmatched ? "passed" : "failed", examined },
+    };
+  });
+
+/** What the declared commands found. */
+const commandViolations = (config: ResolvedConfig, snapshot: Snapshot): ReadonlyArray<Violation> =>
+  config.coverage.commands.flatMap((command, index): ReadonlyArray<Violation> => {
+    const label = commandLabel(command);
+    const optional = command.optional === true;
+    const unmatched = command.files.filter(
+      (pattern) => !snapshot.files.some((file) => matchesPathOrBelow(file, pattern)),
+    );
+    // `optional` is about absence only: it drops the unmatched globs, never the run's result.
+    const own = (optional ? [] : unmatched).map((pattern) =>
+      violation(
+        "command-unmatched",
+        CONFIG_FILE,
+        `declared command \`${label}\` covers '${pattern}', which matches no file. Fix the glob, remove it, or set \`optional: true\` if its files may be absent.`,
+      ),
+    );
+    const ran = snapshot.commands.get(index);
+    if (ran === undefined) return own;
+    if (ran.state === "unavailable")
+      return optional
+        ? own
+        : [
+            ...own,
+            violation(
+              "command-unavailable",
+              CONFIG_FILE,
+              `declared command \`${label}\` could not run: ${ran.reason}. Install its toolchain here (and in CI), or set \`optional: true\` on it if this machine may lack it.`,
+            ),
+          ];
+    if (ran.code === 0) return own;
+    return [
+      ...own,
+      violation(
+        "command-failed",
+        CONFIG_FILE,
+        `declared command \`${label}\` exited ${ran.code}. Fix what it reports:${ran.output.trim() === "" ? " it printed nothing." : `\n${tail(ran.output)}`}`,
+      ),
+    ];
+  });
+
+/** Executable source outside `coverage.exempt` segments: what the declared commands answer for. */
+export const executableSources = (config: ResolvedConfig, snapshot: Snapshot) => {
+  const segments = new Set(config.coverage.exempt);
+  return snapshot.files.filter(
+    (file) =>
+      classify(file, snapshot.modes.get(file)) === "executable" &&
+      !file.split("/").some((segment) => segments.has(segment)),
+  );
+};
+
+/** Executable source no declared command covers, unless exempt by segment or with a reason. */
+const uncovered = (config: ResolvedConfig, snapshot: Snapshot): ReadonlyArray<Violation> => {
+  const exemptPaths = config.coverage.exemptFiles.map((entry) => entry.path);
+  const exempted = (file: string) =>
+    exemptPaths.some((pattern) => matchesPathOrBelow(file, pattern));
+  const covered = (file: string) =>
+    config.coverage.commands.some((command) =>
+      command.files.some((pattern) => matchesPathOrBelow(file, pattern)),
+    );
+  const out: Array<Violation> = [];
+  for (const file of executableSources(config, snapshot)) {
+    if (exempted(file) || covered(file)) continue;
+    out.push(
+      violation(
+        "uncovered",
+        file,
+        `is ${snapshot.modes.get(file) === "executable" ? "an executable file" : "source"} that monkeyshape doesn't analyze, and no declared command checks it. Add a command that does to \`coverage.commands\` in ${CONFIG_FILE} (\`{ files, run }\`), or list it in \`coverage.exemptFiles\` with the reason it needs none.${snapshot.modes.get(file) === "executable" ? " If it is a compiled binary, no command checks it: exempt it with that reason, or stop tracking it and build it instead." : ""}`,
+      ),
+    );
+  }
+  for (const entry of config.coverage.exemptFiles)
+    if (!snapshot.files.some((file) => matchesPathOrBelow(file, entry.path)))
+      out.push(
+        violation(
+          "exempt-unmatched",
+          CONFIG_FILE,
+          `\`coverage.exemptFiles\` lists '${entry.path}', which matches no file. Remove the entry, or fix its glob.`,
+        ),
+      );
+  return out;
+};
+
+/**
+ * What coverage finds without tsc or biome: uncovered source and the declared commands'
+ * results. A report blocked by a missing tool still shows these.
+ */
+export const withoutTools = (
+  config: ResolvedConfig,
+  snapshot: Snapshot,
+): ReadonlyArray<Violation> => [
+  ...uncovered(config, snapshot),
+  ...commandViolations(config, snapshot),
+];

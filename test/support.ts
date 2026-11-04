@@ -1,5 +1,12 @@
 /** In-memory repos for tests: checks are pure, so no temp directories are needed. */
-import type { BeadSummary, Integration, SkillsSnapshot, Snapshot } from "../src/core/model.ts";
+import type {
+  BeadSummary,
+  CommandRun,
+  FileMode,
+  Integration,
+  SkillsSnapshot,
+  Snapshot,
+} from "../src/core/model.ts";
 import { lineAt } from "../src/core/model.ts";
 import { parse } from "../src/core/parse.ts";
 import { type Rule, runRule } from "../src/core/rules/engine.ts";
@@ -26,6 +33,10 @@ export const repo = (
     readonly skills?: SkillsSnapshot;
     readonly shippedPrime?: string;
     readonly unlisted?: ReadonlyArray<string>;
+    /** Files that aren't plain, by path. */
+    readonly modes?: Readonly<Record<string, FileMode>>;
+    /** Declared commands' runs, by their index in `coverage.commands`. */
+    readonly commands?: ReadonlyArray<CommandRun | undefined>;
   } = {},
 ): Snapshot => {
   const beadsOk =
@@ -60,6 +71,12 @@ export const repo = (
     },
     shippedPrime: options.shippedPrime,
     unlisted: new Set(options.unlisted ?? []),
+    modes: new Map(Object.entries(options.modes ?? {})),
+    commands: new Map(
+      (options.commands ?? []).flatMap((ran, index) =>
+        ran === undefined ? [] : [[index, ran] as const],
+      ),
+    ),
   };
 };
 

@@ -94,6 +94,22 @@ export const SharedPath = Schema.String.check(
   Schema.isPattern(/^(?!\.\.?(?:\/|$))[^/\0]+(?:\/(?!\.\.?(?:\/|$))[^/\0]+)*$/),
 );
 
+/**
+ * A command that checks source monkeyshape doesn't analyze: `mshape check` runs it from the
+ * repo root and reports its outcome. `files` are the globs it covers; it checks them itself.
+ */
+export const DeclaredCommand = Schema.Struct({
+  files: Schema.Array(Schema.String).check(Schema.isMinLength(1)),
+  /** argv, not a shell line: `["make", "-C", "native", "check"]` or `["bun", "run", "check:c"]`. */
+  run: Schema.Array(Schema.String).check(Schema.isMinLength(1)),
+  /**
+   * Green when its program isn't installed here (a toolchain CI lacks), and when its files
+   * match nothing. Otherwise both fail.
+   */
+  optional: Schema.optionalKey(Schema.Boolean),
+});
+export type DeclaredCommand = typeof DeclaredCommand.Type;
+
 export const ForbiddenPattern = Schema.Struct({
   /** A regular expression source, matched against docs and code comments. */
   pattern: Schema.String,
@@ -193,6 +209,9 @@ export const ShapeConfig = Schema.Struct({
       biome: Schema.optionalKey(Schema.String),
       /** Path segments whose files need not be typechecked or linted (generated, vendored). */
       exempt: Schema.optionalKey(Schema.Array(Schema.String)),
+      commands: Schema.optionalKey(Schema.Array(DeclaredCommand)),
+      /** Executable source no command checks, each with the reason it needs none. */
+      exemptFiles: Schema.optionalKey(Schema.Array(Allowance)),
     }),
   ),
 });
@@ -252,6 +271,8 @@ export interface ResolvedConfig {
     readonly tsconfigs: ReadonlyArray<string>;
     readonly biome: string;
     readonly exempt: ReadonlyArray<string>;
+    readonly commands: ReadonlyArray<DeclaredCommand>;
+    readonly exemptFiles: ReadonlyArray<Allowance>;
   };
 }
 
@@ -339,5 +360,7 @@ export const resolveConfig = (config: ShapeConfig): ResolvedConfig => ({
       "vendor",
       "generated",
     ],
+    commands: config.coverage?.commands ?? [],
+    exemptFiles: config.coverage?.exemptFiles ?? [],
   },
 });

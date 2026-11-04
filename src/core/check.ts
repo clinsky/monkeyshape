@@ -3,7 +3,13 @@ import { CHECK_NAMES, type ResolvedConfig } from "../schemas/config.ts";
 import { ARCH_RULES, checkArch } from "./arch.ts";
 import { BEADS_RULES, checkBeads } from "./beads.ts";
 import { BUDGETS_RULES, checkBudgets } from "./budgets.ts";
-import { COVERAGE_RULES, checkCoverage } from "./coverage.ts";
+import {
+  COVERAGE_RULES,
+  checkCoverage,
+  commandReports,
+  executableSources,
+  withoutTools,
+} from "./coverage.ts";
 import { matchesAny } from "./glob.ts";
 import {
   type CheckName,
@@ -168,11 +174,19 @@ const scopeOf = (check: CheckName, config: ResolvedConfig, snapshot: Snapshot): 
       const guessed = (["tsc", "biome"] as const).filter(
         (tool) => snapshot.integrations[tool].state !== "ok",
       );
-      return files.length === 0
-        ? { notApplicable: "no TypeScript file" }
-        : {
-            examined: `${plural(files.length, "TypeScript file")} against ${guessed.length === 0 ? "tsc's and biome's own file lists" : `tsc and biome, ${guessed.join(" and ")} read from its config`}`,
-          };
+      const other = executableSources(config, snapshot).length;
+      const commands = config.coverage.commands.length;
+      const declared =
+        other + commands === 0
+          ? ""
+          : `${plural(other, "other source file")} against ${plural(commands, "declared command")}`;
+      if (files.length === 0)
+        return declared === ""
+          ? { notApplicable: "no TypeScript or other source file" }
+          : { examined: declared };
+      return {
+        examined: `${plural(files.length, "TypeScript file")} against ${guessed.length === 0 ? "tsc's and biome's own file lists" : `tsc and biome, ${guessed.join(" and ")} read from its config`}${declared === "" ? "" : `; ${declared}`}`,
+      };
     }
     case "skills": {
       const { link, installed } = snapshot.skills;
@@ -203,13 +217,26 @@ export const report = (
   if (off !== undefined)
     return { check, outcome: { state: "exempt", reason: off }, violations: [] };
   const blocked = blocker(check, config, snapshot);
-  if (blocked !== undefined) return { check, outcome: blocked, violations: [] };
+  if (blocked !== undefined) {
+    // What needs neither tsc nor biome still shows under the blocked check (uncovered
+    // source, each command's line and error), so the reader can fix it before installing them.
+    const coverage = check === "coverage";
+    const parts = coverage ? commandReports(config, snapshot) : [];
+    return {
+      check,
+      outcome: blocked,
+      violations: coverage ? withoutTools(config, snapshot) : [],
+      ...(parts.length === 0 ? {} : { parts }),
+    };
+  }
   const violations = run[check](config, snapshot);
   const scope = scopeOf(check, config, snapshot);
   const examined = "examined" in scope ? scope.examined : scope.notApplicable;
+  const parts = check === "coverage" ? commandReports(config, snapshot) : [];
   return {
     check,
     violations,
+    ...(parts.length === 0 ? {} : { parts }),
     outcome:
       violations.length > 0
         ? { state: "failed", examined }
@@ -262,6 +289,10 @@ export const notices = (
         out.push(
           `coverage approximated ${name}'s file list from its config (${integration.reason}): inheritance and project references are not resolved`,
         );
+  if (only.includes("coverage") && config.checks.coverage === undefined)
+    for (const { label, outcome } of commandReports(config, snapshot))
+      if (outcome.state === "unavailable" && !outcome.required)
+        out.push(`skipped optional command \`${label}\`: ${outcome.reason}`);
   return out;
 };
 

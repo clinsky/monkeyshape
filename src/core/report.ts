@@ -43,12 +43,20 @@ export const formatCheck = ({ reports, result, notes }: CheckRun): string => {
     problems === 0
       ? `mshape check passed${suffix}`
       : `mshape check failed: ${plural(problems, "problem")}${suffix}`;
-  const width = Math.max(0, ...reports.map((r) => r.check.length)) + 2;
-  const line = (label: string, outcome: Outcome) =>
-    `${label.padEnd(width)}${outcome.state.padEnd(16)}${detail(outcome)}`;
+  // Parts sit two columns deeper, so their labels count two longer: every state lines up.
+  const width =
+    Math.max(
+      0,
+      ...reports.flatMap((r) => [
+        r.check.length,
+        ...(r.parts ?? []).map((p) => p.label.length + 2),
+      ]),
+    ) + 2;
+  const line = (label: string, outcome: Outcome, indent: number) =>
+    `${label.padEnd(width - indent)}${outcome.state.padEnd(16)}${detail(outcome)}`;
   const lines = reports.flatMap((r) => [
-    `  ${line(r.check, r.outcome)}`,
-    ...(r.parts ?? []).map((part) => `    ${line(part.label, part.outcome)}`),
+    `  ${line(r.check, r.outcome, 0)}`,
+    ...(r.parts ?? []).map((part) => `    ${line(part.label, part.outcome, 2)}`),
   ]);
   return [
     ...notes.map((note) => `note: ${note}`),
