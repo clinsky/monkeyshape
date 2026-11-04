@@ -7,6 +7,7 @@ import {
   COVERAGE_RULES,
   checkCoverage,
   commandReports,
+  dataFiles,
   executableSources,
   withoutTools,
 } from "./coverage.ts";
@@ -185,17 +186,23 @@ const scopeOf = (check: CheckName, config: ResolvedConfig, snapshot: Snapshot): 
       );
       const other = executableSources(config, snapshot).length;
       const commands = config.coverage.commands.length;
-      const declared =
-        other + commands === 0
-          ? ""
-          : `${plural(other, "other source file")} against ${plural(commands, "declared command")}`;
-      if (files.length === 0)
-        return declared === ""
-          ? { notApplicable: "no TypeScript or other source file" }
-          : { examined: declared };
-      return {
-        examined: `${plural(files.length, "TypeScript file")} against ${guessed.length === 0 ? "tsc's and biome's own file lists" : `tsc and biome, ${guessed.join(" and ")} read from its config`}${declared === "" ? "" : `; ${declared}`}`,
-      };
+      const data = dataFiles(config, snapshot).length;
+      const parts = [
+        ...(files.length === 0
+          ? []
+          : [
+              `${plural(files.length, "TypeScript file")} against ${guessed.length === 0 ? "tsc's and biome's own file lists" : `tsc and biome, ${guessed.join(" and ")} read from its config`}`,
+            ]),
+        ...(other + commands === 0
+          ? []
+          : [
+              `${plural(other, "other source file")} against ${plural(commands, "declared command")}`,
+            ]),
+        ...(data === 0 ? [] : [`${plural(data, "data file")} parsed`]),
+      ];
+      return parts.length === 0
+        ? { notApplicable: "no TypeScript, other source or data file" }
+        : { examined: parts.join("; ") };
     }
     case "skills": {
       const { link, installed } = snapshot.skills;

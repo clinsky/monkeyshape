@@ -65,6 +65,10 @@ const PURE_BUN: ReadonlySet<string> = new Set([
   "gunzipSync",
   "deflateSync",
   "inflateSync",
+  // Parsers of a string already in memory.
+  "JSONC",
+  "YAML",
+  "TOML",
 ]);
 
 /**

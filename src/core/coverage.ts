@@ -12,10 +12,12 @@
  * resolved. Reading the configs here is the fallback, and approximates both.
  */
 import type { DeclaredCommand, ResolvedConfig } from "../schemas/config.ts";
+import { dataFormat, parseError } from "./data.ts";
 import { matchesPathOrBelow } from "./glob.ts";
 import { stripJsonc } from "./jsonc.ts";
-import { classify, isTsSource, type Outcome, type Snapshot, type Violation } from "./model.ts";
+import { classify, type Outcome, type Snapshot, type Violation } from "./model.ts";
 import { dirname } from "./paths.ts";
+import { tsToCover } from "./sources.ts";
 
 /** Every rule this check reports, as `coverage/<kind>`; test/core/ruleCases.test.ts covers each. */
 export const COVERAGE_RULES = [
@@ -27,6 +29,7 @@ export const COVERAGE_RULES = [
   "command-unavailable",
   "command-unmatched",
   "exempt-unmatched",
+  "data",
 ] as const;
 
 const violation = (
@@ -94,10 +97,7 @@ export const checkCoverage = (
 ): ReadonlyArray<Violation> => {
   const violations: Array<Violation> = [];
   const tsconfigs: Array<{ path: string; value: unknown }> = [];
-  const exempt = new Set(config.coverage.exempt);
-  const typescript = snapshot.files.filter(
-    (file) => isTsSource(file) && !file.split("/").some((segment) => exempt.has(segment)),
-  );
+  const typescript = tsToCover(config, snapshot);
   const others = withoutTools(config, snapshot);
   // No TypeScript to cover: tsc's and biome's configs answer for nothing, so none is needed.
   if (typescript.length === 0) return others;
@@ -292,10 +292,49 @@ const uncovered = (config: ResolvedConfig, snapshot: Snapshot): ReadonlyArray<Vi
  * What coverage finds without tsc or biome: uncovered source and the declared commands'
  * results. A report blocked by a missing tool still shows these.
  */
+/** The structured data coverage parses: data by class, in a format it knows, not exempt. */
+export const dataFiles = (config: ResolvedConfig, snapshot: Snapshot): ReadonlyArray<string> =>
+  snapshot.files.filter(
+    (file) =>
+      classify(file, snapshot.modes.get(file)) === "data" &&
+      dataFormat(file) !== undefined &&
+      !config.coverage.exemptFiles.some((entry) => matchesPathOrBelow(file, entry.path)),
+  );
+
+/**
+ * Structured data that doesn't parse, unless exempt (a deliberately broken fixture). The
+ * tool configs are `coverage/config`'s whenever it reads them, which is whenever there is
+ * TypeScript to cover: one finding per broken file.
+ */
+const unparsable = (config: ResolvedConfig, snapshot: Snapshot): ReadonlyArray<Violation> => {
+  const judged = new Set(
+    tsToCover(config, snapshot).length === 0
+      ? []
+      : [...config.coverage.tsconfigs, config.coverage.biome],
+  );
+  return dataFiles(config, snapshot).flatMap((file) => {
+    if (judged.has(file)) return [];
+    const format = dataFormat(file);
+    const text = snapshot.texts.get(file);
+    if (format === undefined || text === undefined) return [];
+    const error = parseError(format, text);
+    return error === undefined
+      ? []
+      : [
+          violation(
+            "data",
+            file,
+            `does not parse as ${format.toUpperCase()}: ${error}. Fix it; if it is broken on purpose (a test fixture), list it in \`coverage.exemptFiles\` with that reason.${format === "json" ? " If its tool reads comments, name the file `.jsonc`." : ""}`,
+          ),
+        ];
+  });
+};
+
 export const withoutTools = (
   config: ResolvedConfig,
   snapshot: Snapshot,
 ): ReadonlyArray<Violation> => [
   ...uncovered(config, snapshot),
+  ...unparsable(config, snapshot),
   ...commandViolations(config, snapshot),
 ];
