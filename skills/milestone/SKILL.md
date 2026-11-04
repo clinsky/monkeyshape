@@ -124,8 +124,9 @@ Once the PR is merged (or the human says to start):
   `mshape track rm <name> --keep-beads`, then start it again with `mshape track new <name>`.
   `--keep-beads` checks the rest of `done` itself and names each fact that fails, and
   `--force` doesn't override it. If it refuses only because `gh` couldn't be read, get `gh`
-  working and retry; on any other refusal, the track is the human's, as above. It leaves
-  those beads labelled for the new track, and lists them.
+  working and retry once; if the same refusal comes back, or on any other refusal, the
+  track is the human's, as above. It leaves those beads labelled for the new track, and
+  lists them.
 - `mshape track new <name>` for each new track. Fill its handoff (`.handoffs/<name>.md`):
   the charter, the state ("not started", and how to start) with today's date in its
   heading, and the traps you already know. Change nothing else: there is no status line
