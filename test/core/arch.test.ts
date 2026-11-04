@@ -342,3 +342,51 @@ describe("host access is judged per operation", () => {
     ).toEqual([]);
   });
 });
+
+describe("host access: #58 review", () => {
+  const pure = config({ arch: { modules: { core: { description: "logic" } } } });
+  const rulesOf = (source: string) =>
+    checkArch(pure, repo({ "src/core/a.ts": source })).map((v) => `${v.rule}:${v.line}`);
+
+  test("fails: a Glob that scans the disk, imported or global, by scan or scanSync", () => {
+    for (const source of [
+      'import { Glob } from "bun";\nexport const f = () => new Glob("*").scan(".");',
+      'import { Glob } from "bun";\nexport const f = () => new Glob("*").scanSync(".");',
+      'export const f = () => new Bun.Glob("*").scan(".");',
+      'export const f = () => new Bun.Glob("*").scanSync(".");',
+    ])
+      expect([source, rulesOf(source).length > 0]).toEqual([source, true]);
+  });
+
+  test("passes: a Glob that only matches strings, and Bun's hashing and compression", () => {
+    expect(
+      rulesOf(
+        [
+          'import { Glob } from "bun";',
+          'export const m = (p: string) => new Glob("*.ts").match(p) || new Bun.Glob("*").match(p);',
+          'export const h = new Bun.CryptoHasher("sha256").update("x").digest("hex");',
+          "export const z = Bun.zstdDecompressSync(Bun.zstdCompressSync(new Uint8Array()));",
+          "export const g = Bun.gunzipSync(Bun.gzipSync(new Uint8Array()));",
+          "export const d = Bun.inflateSync(Bun.deflateSync(new Uint8Array()));",
+        ].join("\n"),
+      ),
+    ).toEqual([]);
+  });
+
+  test("a host namespace exported by name is one finding, not two", () => {
+    expect(rulesOf('import * as path from "node:path";\nexport { path };')).toEqual([
+      "arch/host-access:2",
+    ]);
+  });
+
+  test("a root file in no module is told to map the file itself, and that fixes it", () => {
+    const at = (modules: Record<string, { description: string }>) =>
+      config({ sources: { include: ["*.ts", "lib/**/*.ts"] }, arch: { root: ".", modules } });
+    const files = repo({ "harness.ts": "export const h = 1;\n", "lib/a.ts": "" });
+    const [found] = checkArch(at({ lib: { description: "l" } }), files);
+    expect(found?.message).toContain("'harness.ts'");
+    expect(
+      checkArch(at({ lib: { description: "l" }, "harness.ts": { description: "h" } }), files),
+    ).toEqual([]);
+  });
+});

@@ -142,15 +142,23 @@ const isDecoder = (ctx: Context, callee: unknown, depth = 0): boolean => {
 };
 
 /**
- * What an options object says of `onExcessProperty`, in source order so a later key or
- * spread wins: `"error"`, another value, or undefined when it doesn't say or can't be seen.
+ * What options say of `onExcessProperty`, in source order so a later key or spread wins:
+ * its value (`"error"`, `"ignore"`, ...), undefined when they are absent or don't mention
+ * it, or `"unknown"` when the file can't show them (a parameter, a call, a spread of one).
  */
 const excessSetting = (ctx: Context, value: unknown, depth = 0): unknown => {
+  if (value === undefined) return undefined;
   const n = unwrap(value);
-  if (n === undefined || depth > DEPTH) return undefined;
+  if (n === undefined || depth > DEPTH) return "unknown";
+  if (
+    n.type === "Identifier" &&
+    n["name"] === "undefined" &&
+    !ctx.local.isLocal("undefined", n.start)
+  )
+    return undefined;
   const aliased = constValue(ctx, n);
   if (aliased !== undefined) return excessSetting(ctx, aliased, depth + 1);
-  if (n.type !== "ObjectExpression") return undefined;
+  if (n.type !== "ObjectExpression") return "unknown";
   let setting: unknown;
   for (const property of n["properties"] as ReadonlyArray<Node>) {
     if (property.type === "SpreadElement") {
@@ -235,9 +243,10 @@ export const decodeStrict: Rule = {
       local: scopes(parsed.program),
     };
     for (const { call, invokedWith } of decodes(ctx, parsed.program)) {
+      // Effect merges the call's options over the decoder's: the call's say wins, if any.
+      const atCall = excessSetting(ctx, invokedWith);
       const strict =
-        excessSetting(ctx, call.arguments[1]) === "error" ||
-        excessSetting(ctx, invokedWith) === "error";
+        (atCall !== undefined ? atCall : excessSetting(ctx, call.arguments[1])) === "error";
       if (!strict && !propertyless(ctx, call.arguments[0])) report({ offset: call.start });
     }
     return {};

@@ -141,3 +141,40 @@ describe("decode-strict: aliases", () => {
     ).toEqual([]);
   });
 });
+
+describe("decode-strict: #58 review", () => {
+  test("fails: the call's options override the decoder's, so a later ignore wins", () => {
+    expect(
+      lines(
+        'Schema.decodeUnknownSync(User, { onExcessProperty: "error" })(x, { onExcessProperty: "ignore" });',
+      ),
+    ).toEqual([2]);
+  });
+
+  test("passes: the call's options say error, or say nothing of it", () => {
+    expect(
+      lines(
+        'Schema.decodeUnknownSync(User, { errors: "all" })(x, { onExcessProperty: "error" });',
+        'Schema.decodeUnknownSync(User, { onExcessProperty: "error" })(x, { errors: "all" });',
+        'Schema.decodeUnknownSync(User, { onExcessProperty: "error" })(x, undefined);',
+      ),
+    ).toEqual([]);
+  });
+
+  test("fails: a spread the file can't see, after the key, may undo it", () => {
+    expect(
+      lines(
+        'export const f = (o: object) => Schema.decodeUnknownSync(User, { onExcessProperty: "error", ...o });',
+        "export const g = (o: object) => Schema.decodeUnknownSync(User)(x, { ...o });",
+      ),
+    ).toEqual([2, 3]);
+  });
+
+  test("passes: a spread the file can't see, before the key", () => {
+    expect(
+      lines(
+        'export const f = (o: object) => Schema.decodeUnknownSync(User, { ...o, onExcessProperty: "error" });',
+      ),
+    ).toEqual([]);
+  });
+});

@@ -50,7 +50,46 @@ const violation = (
 });
 
 /** Bun's pure utilities: string and data functions with no I/O. */
-const PURE_BUN = new Set(["Glob", "deepEquals", "escapeHTML", "stringWidth", "hash", "inspect"]);
+const PURE_BUN: ReadonlySet<string> = new Set([
+  "Glob",
+  "deepEquals",
+  "escapeHTML",
+  "stringWidth",
+  "hash",
+  "inspect",
+  "CryptoHasher",
+  "sha",
+  "zstdCompressSync",
+  "zstdDecompressSync",
+  "gzipSync",
+  "gunzipSync",
+  "deflateSync",
+  "inflateSync",
+]);
+
+/**
+ * `Glob` is pure for `.match`, but `.scan` and `.scanSync` read directories. Which object a
+ * call is on isn't tracked, so any such call in a file makes every `Glob` there host access.
+ */
+const scansDisk = (parsed: Parsed): boolean => {
+  let found = false;
+  new Visitor({
+    CallExpression: (node) => {
+      const callee = node.callee;
+      if (
+        callee.type === "MemberExpression" &&
+        !callee.computed &&
+        callee.property.type === "Identifier" &&
+        (callee.property.name === "scan" || callee.property.name === "scanSync")
+      )
+        found = true;
+    },
+  }).visit(parsed.program);
+  return found;
+};
+
+const pureBun = (name: string, scans: boolean): boolean =>
+  PURE_BUN.has(name) && !(name === "Glob" && scans);
 const HOST_OBJECTS = new Set(["Bun", "process", "Deno"]);
 const HOST_FUNCTIONS = new Set(["fetch", "require"]);
 
@@ -58,13 +97,14 @@ const HOST_FUNCTIONS = new Set(["fetch", "require"]);
 export const hostGlobals = (parsed: Parsed): ReadonlyArray<{ offset: number; name: string }> => {
   const found: Array<{ offset: number; name: string }> = [];
   const local = scopes(parsed.program);
+  const scans = scansDisk(parsed);
   new Visitor({
     MemberExpression: (node) => {
       if (node.object.type !== "Identifier" || !HOST_OBJECTS.has(node.object.name)) return;
       if (local.isLocal(node.object.name, node.start)) return;
       const property =
         !node.computed && node.property.type === "Identifier" ? node.property.name : "";
-      if (node.object.name === "Bun" && PURE_BUN.has(property)) return;
+      if (node.object.name === "Bun" && pureBun(property, scans)) return;
       found.push({ offset: node.start, name: `${node.object.name}.${property || "[...]"}` });
     },
     CallExpression: (node) => {
@@ -138,10 +178,8 @@ export const PURE_OPERATIONS: Readonly<Record<string, ReadonlySet<string>>> = {
 };
 
 /** `import { Glob } from "bun"` is the same operation as `Bun.Glob`, and as pure. */
-const pureIn = (specifier: string): ReadonlySet<string> | undefined =>
-  specifier === "bun" ? PURE_BUN : PURE_OPERATIONS[specifier];
-
-const isPure = (specifier: string, name: string): boolean => pureIn(specifier)?.has(name) === true;
+const isPure = (specifier: string, name: string, scans: boolean): boolean =>
+  specifier === "bun" ? pureBun(name, scans) : PURE_OPERATIONS[specifier]?.has(name) === true;
 
 interface HostUse {
   readonly offset: number;
@@ -160,6 +198,7 @@ export const hostUses = (
 ): ReadonlyArray<HostUse> => {
   const uses: Array<HostUse> = [];
   const namespaces = new Map<string, string>();
+  const scans = scansDisk(parsed);
   const declarations: Array<{ start: number; end: number }> = [];
   for (const statement of parsed.program.body) {
     if (statement.type === "ImportDeclaration") {
@@ -175,7 +214,7 @@ export const hostUses = (
             specifier.imported.type === "Identifier"
               ? specifier.imported.name
               : String(specifier.imported.value);
-          if (!isPure(source, name))
+          if (!isPure(source, name, scans))
             uses.push({ offset: specifier.start, what: `imports ${name} from '${source}'` });
         } else namespaces.set(specifier.local.name, source);
       }
@@ -207,7 +246,7 @@ export const hostUses = (
       const source = namespaces.get(node.object.name) ?? "";
       const property =
         !node.computed && node.property.type === "Identifier" ? node.property.name : "[...]";
-      if (!isPure(source, property))
+      if (!isPure(source, property, scans))
         uses.push({
           offset: node.start,
           what: `uses ${node.object.name}.${property} from '${source}'`,
@@ -238,7 +277,18 @@ export const hostUses = (
         uses.push({ offset: node.start, what: `imports '${literal}' dynamically` });
     },
   }).visit(parsed.program);
-  return uses.sort((a, b) => a.offset - b.offset);
+  // `export { ns }` holds `ns` twice at one offset (local and exported): one use, not two.
+  const byOffset = new Map<number, HostUse>();
+  for (const use of uses) if (!byOffset.has(use.offset)) byOffset.set(use.offset, use);
+  return [...byOffset.values()].sort((a, b) => a.offset - b.offset);
+};
+
+/** The module key that would own a file: its directory below the root, or the file itself. */
+const suggestModule = (rest: string): string => {
+  const directory = rest.split("/").slice(0, -1).join("/");
+  return directory === ""
+    ? `Map the file itself as a module: a key may name one file, e.g. '${rest}'.`
+    : `Add a module for its directory (a key is a path below \`arch.root\`, e.g. '${directory}').`;
 };
 
 export const moduleOf = (arch: Arch, path: string): string | undefined => {
@@ -337,7 +387,7 @@ export const checkArch = (config: ResolvedConfig, snapshot: Snapshot): ReadonlyA
           file,
           underRoot(arch, file) === undefined
             ? `is in \`sources\` but outside \`arch.root\` ('${arch.root}'), so no module owns it. Set \`arch.root: "."\` and map its directory as a module, or move it under ${arch.root}/.`
-            : `is not inside any module in \`arch.modules\` (shape.config.ts). Add a module for its directory (a key is a path below \`arch.root\`, e.g. '${(underRoot(arch, file) ?? file).split("/").slice(0, -1).join("/") || "."}').`,
+            : `is not inside any module in \`arch.modules\` (shape.config.ts). ${suggestModule(underRoot(arch, file) ?? file)}`,
         ),
       );
       continue;
