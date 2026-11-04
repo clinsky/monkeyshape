@@ -6,7 +6,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bd prime --hook-json"
+            "command": "bd prime --hook-json || echo 'note: bd could not run here, so this session has no beads primer. Install bd: https://github.com/steveyegge/beads'"
           }
         ]
       },
@@ -15,7 +15,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bun run --silent mshape msg register"
+            "command": "bun run --silent mshape msg register || echo 'note: mshape could not run here, so this hook did nothing. Run `bun install`; package.json needs the script `\"mshape\": \"mshape\"`.'"
           }
         ]
       },
@@ -24,7 +24,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bun run --silent mshape msg inbox --quiet"
+            "command": "bun run --silent mshape msg inbox --quiet || echo 'note: mshape could not run here, so this hook did nothing. Run `bun install`; package.json needs the script `\"mshape\": \"mshape\"`.'"
           }
         ]
       }
@@ -35,7 +35,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bun run --silent mshape msg inbox --quiet"
+            "command": "bun run --silent mshape msg inbox --quiet || echo 'note: mshape could not run here, so this hook did nothing. Run `bun install`; package.json needs the script `\"mshape\": \"mshape\"`.'"
           }
         ]
       }

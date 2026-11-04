@@ -9,7 +9,12 @@ import {
   SKILLS_MANIFEST,
 } from "../core/layout.ts";
 import type { SkillFiles, SkillsLink, SkillsSnapshot } from "../core/model.ts";
-import { parseManifest, type SkillSync, syncSkills } from "../core/skills.ts";
+import {
+  parseManifest,
+  type SkillSync,
+  type SkillSyncOptions,
+  syncSkills,
+} from "../core/skills.ts";
 import { WorkspaceError } from "../schemas/errors.ts";
 
 /** Whether anything is at `path`, a dangling link included. */
@@ -46,7 +51,7 @@ export interface SkillsInstall {
  * `.claude/skills` link if it is missing. An existing link or directory there is left alone:
  * `mshape check` says what is wrong with it.
  */
-export const installSkills = (shippedDir: string, repo: string) =>
+export const installSkills = (shippedDir: string, repo: string, options: SkillSyncOptions = {}) =>
   Effect.gen(function* () {
     const installedDir = `${repo}/${SKILLS_DIR}`;
     const installed = yield* readTree(installedDir);
@@ -60,7 +65,7 @@ export const installSkills = (shippedDir: string, repo: string) =>
           reason: `is not the list sync writes, so nothing was changed. Restore it with \`git checkout -- ${SKILLS_DIR}/${SKILLS_MANIFEST}\``,
         }),
       );
-    const sync = syncSkills(yield* readTree(shippedDir), installed);
+    const sync = syncSkills(yield* readTree(shippedDir), installed, options);
     const link = `${repo}/${CLAUDE_SKILLS_LINK}`;
     const linked = yield* Effect.tryPromise({
       try: async () => {

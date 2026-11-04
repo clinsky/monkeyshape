@@ -1,5 +1,7 @@
 /** What the integration tests that create repos with `mshape init` share. */
 import { join } from "node:path";
+import { Effect } from "effect";
+import { packWorkingTree } from "../../src/adapters/release.ts";
 
 export const ROOT = join(import.meta.dir, "..", "..");
 
@@ -32,11 +34,11 @@ export const run = async (
   return { code: await child.exited, output: `${stdout}${stderr}` };
 };
 
-/** Packs this package into `dir`, as npm would publish it; returns the tarball's path. */
-export const pack = async (dir: string): Promise<string> => {
-  const packed = await Bun.$`bun pm pack --destination ${dir} --quiet`.cwd(ROOT).text();
-  return join(dir, packed.trim().split("\n").at(-1)?.split("/").at(-1) ?? "");
-};
+/**
+ * Packs this checkout into `dir` as `bun run release pack` does, with a development version
+ * unless it is the release itself; returns the tarball's path.
+ */
+export const pack = (dir: string): Promise<string> => Effect.runPromise(packWorkingTree(ROOT, dir));
 
 /** `mshape init` from this checkout's source, run in `cwd`. */
 export const initFromSource = (
