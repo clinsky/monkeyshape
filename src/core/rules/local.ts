@@ -9,6 +9,7 @@
  */
 import type { Expression, Node, Program, VisitorObject } from "oxc-parser";
 import { Visitor } from "oxc-parser";
+import { matchesAny } from "../glob.ts";
 import { lineAt } from "../model.ts";
 import { parse } from "../parse.ts";
 import type { Finding, Rule } from "./rule.ts";
@@ -51,7 +52,9 @@ export interface LocalRule {
     readonly pass: ReadonlyArray<Case>;
     /**
      * The exceptions the rule makes on purpose, such as the enforcement point itself: code
-     * that looks like the bug and must not be reported. Needed when the rule makes one.
+     * that looks like the bug and must not be reported. Needed when the rule makes one. The
+     * exception may be in `check` or in the config's `rules["local/<id>"].allow`: a case
+     * whose path the config allows reports nothing, as in a real run.
      */
     readonly allowed?: ReadonlyArray<Case>;
   };
@@ -186,7 +189,11 @@ const KINDS = {
  * What is wrong with a rule's cases: a required kind missing, a case of the wrong shape, a
  * must-fail case it doesn't report, or a must-pass or allowed case it does.
  */
-const caseProblems = (local: LocalRule, rule: Rule): ReadonlyArray<string> => {
+const caseProblems = (
+  local: LocalRule,
+  rule: Rule,
+  allowed: ReadonlyArray<string>,
+): ReadonlyArray<string> => {
   const id = `${LOCAL_PREFIX}${local.id}`;
   const cases: unknown = local.cases;
   const why = {
@@ -219,7 +226,24 @@ const caseProblems = (local: LocalRule, rule: Rule): ReadonlyArray<string> => {
         out.push(`${at} is neither source text nor \`{ path, source }\``);
         return;
       }
-      const found = rule.run?.(parse(path, source)) ?? [];
+      const parsed = parse(path, source);
+      const error = parsed.syntaxErrors[0];
+      if (error !== undefined) {
+        // Else a broken must-pass case passes, testing nothing, and a broken must-fail case
+        // blames the rule.
+        out.push(`${at} doesn't parse: ${error}; a case must be valid source`);
+        return;
+      }
+      // As in a real run: a path the config allows reports nothing.
+      const run = rule.run?.(parsed) ?? [];
+      const allowedHere = matchesAny(path, allowed);
+      if (kind === "fail" && allowedHere && !("broken" in run) && run.length > 0) {
+        out.push(
+          `${at} is at ${path}, which rules["${id}"].allow allows, so it can't fail; give the case another \`path\``,
+        );
+        return;
+      }
+      const found = "broken" in run || !allowedHere ? run : [];
       if ("broken" in found) out.push(`${at}: the rule broke on it: ${found.broken}`);
       else if (kind === "fail" && found.length === 0)
         out.push(`${at} reported nothing: the rule no longer catches the bug this case shows`);
@@ -234,8 +258,11 @@ const caseProblems = (local: LocalRule, rule: Rule): ReadonlyArray<string> => {
 
 export interface LocalRules {
   readonly rules: ReadonlyArray<Rule>;
-  /** By `local/<id>`: what is wrong with each valid rule's cases, run when the rule is on. */
-  readonly cases: ReadonlyMap<string, () => ReadonlyArray<string>>;
+  /**
+   * By `local/<id>`: what is wrong with each valid rule's cases, run when the rule is on and
+   * given the paths its config allows, which report nothing in a case as in a real run.
+   */
+  readonly cases: ReadonlyMap<string, (allowed: ReadonlyArray<string>) => ReadonlyArray<string>>;
   /** One reason per entry of `localRules` that isn't a usable rule, by its index. */
   readonly broken: ReadonlyArray<string>;
   /** The ids, as `local/<id>`, of broken entries whose id is valid: configuring them is fine. */
@@ -250,7 +277,7 @@ export const localRules = (entries: ReadonlyArray<unknown>): LocalRules => {
   const rules: Array<Rule> = [];
   const broken: Array<string> = [];
   const brokenIds: Array<string> = [];
-  const cases = new Map<string, () => ReadonlyArray<string>>();
+  const cases = new Map<string, (allowed: ReadonlyArray<string>) => ReadonlyArray<string>>();
   const seen = new Set<string>();
   entries.forEach((entry, index) => {
     const reason = problem(entry);
@@ -269,7 +296,7 @@ export const localRules = (entries: ReadonlyArray<unknown>): LocalRules => {
     seen.add(local.id);
     const rule = toRule(local);
     rules.push(rule);
-    cases.set(rule.id, () => caseProblems(local, rule));
+    cases.set(rule.id, (allowed) => caseProblems(local, rule, allowed));
   });
   return { rules, cases, broken, brokenIds };
 };

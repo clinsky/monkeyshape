@@ -276,6 +276,41 @@ describe("a local rule's cases", () => {
     ]);
   });
 
+  test("a case that doesn't parse is reported as broken, not run, whatever its kind", () => {
+    expect(
+      cases({
+        ...noSave,
+        cases: { fail: ["save(x"], pass: ["save(x;", "this is { not code"], allowed: ["a b"] },
+      }),
+    ).toEqual([
+      expect.stringContaining(
+        "local/no-save's must-fail case 1 doesn't parse: Expected `)` but found `EOF`; a case must be valid source",
+      ),
+      expect.stringContaining("local/no-save's must-pass case 1 doesn't parse:"),
+      expect.stringContaining("local/no-save's must-pass case 2 doesn't parse:"),
+      expect.stringContaining("local/no-save's allowed-exception case 1 doesn't parse:"),
+    ]);
+  });
+
+  test("an allowed case at a path the config allows reports nothing, as in a real run", () => {
+    const rule = {
+      ...noSave,
+      cases: { ...noSave.cases, allowed: [{ path: "src/store.ts", source: "save(x);" }] },
+    };
+    const allow = { allow: [{ path: "src/store.ts", reason: "the enforcement point" }] };
+    expect(cases(rule, { rules: { "local/no-save": allow } })).toEqual([]);
+    expect(cases(rule)).toEqual([
+      expect.stringContaining("allowed-exception case 1 was reported at line 1"),
+    ]);
+    // The mirror: an allowance that covers a must-fail case's path names the allowance.
+    const everywhere = { allow: [{ path: "src/**", reason: "the whole tree, by mistake" }] };
+    expect(cases(noSave, { rules: { "local/no-save": everywhere } })).toEqual([
+      expect.stringContaining(
+        "local/no-save's must-fail case 1 is at src/case.ts, which rules[\"local/no-save\"].allow allows, so it can't fail; give the case another `path`",
+      ),
+    ]);
+  });
+
   test("an allowed case sees its own path, so a rule can exempt its enforcement point", () => {
     const exempting = defineRule({
       ...noSave,
@@ -365,6 +400,16 @@ export default { localRules: [noSave] };
       /\nlocal\/no-save +local +Writes that skip the merge, replacing what earlier runs recorded\.\n?$/,
     );
     expect(listed.code).toBe(0);
+    const typo = await (async () => {
+      const dir = await scratch({ "shape.config.ts": CONFIG, "rules/noSave.ts": RULE });
+      try {
+        return await spawn(dir, [process.execPath, CLI, "rules", "--config", "nope.ts"]);
+      } finally {
+        await rm(dir, { recursive: true, force: true });
+      }
+    })();
+    expect(typo.output).toContain("shape.config.ts: not found");
+    expect(typo.code).toBe(2);
     const bare = await rules({});
     expect(bare.output).toContain("no-throw ");
     expect(bare.output).not.toContain("local/");

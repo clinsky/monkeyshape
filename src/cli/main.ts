@@ -546,11 +546,15 @@ const gardenCommand = (root: string, args: ReadonlyArray<string>) =>
     code: 0,
   }));
 
-/** Works before adopting: with no config, the registry's rules alone. */
+/**
+ * Works before adopting: with no ./shape.config.ts, the registry's rules alone. A `--config`
+ * that can't load is an error, as for `check`, so a typo can't read as "no local rules".
+ */
 const rules = (root: string, args: ReadonlyArray<string>) =>
   Effect.gen(function* () {
-    const path = configFlag(root, args) ?? `${root}/${CONFIG_FILE}`;
-    const present = yield* Effect.promise(() => Bun.file(path).exists());
+    const flagged = configFlag(root, args);
+    const path = flagged ?? `${root}/${CONFIG_FILE}`;
+    const present = flagged !== undefined || (yield* Effect.promise(() => Bun.file(path).exists()));
     const config = present ? yield* loadConfig(root, path) : undefined;
     return { output: formatRules(RULES, config?.localRules), code: 0 };
   });

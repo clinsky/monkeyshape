@@ -103,7 +103,9 @@ export const checkRules = (
     (rule) => config.layers.includes(rule.layer) && config.rules[rule.id]?.off === undefined,
   );
   for (const rule of active)
-    for (const problem of local.cases.get(rule.id)?.() ?? [])
+    for (const problem of local.cases.get(rule.id)?.(
+      (config.rules[rule.id]?.allow ?? []).map((allowance) => allowance.path),
+    ) ?? [])
       violations.push(violation("local-cases", "shape.config.ts", 1, problem));
   const usedAllowances = new Set<string>();
   const known = new Set([...all.map((rule) => rule.id), ...local.brokenIds]);

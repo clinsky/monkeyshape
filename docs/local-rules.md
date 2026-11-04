@@ -25,10 +25,10 @@ export const saveIndex = (name: string, records: ReadonlyArray<IndexRecord>) =>
   writeDataset({ kind: "index", name, records: mergeIndex(readIndex(name), records) });
 ```
 
-The rule. `check` gets each file in `sources`, parsed, and returns the offset of each violation.
-`cases` are run at every `mshape check`. A rule with no must-fail case, or no must-pass case,
-fails the gate, and so does one that misses a must-fail case or fires on a must-pass or allowed
-case. That way the rule can't quietly stop working.
+The rule. `check` gets each file in `sources`, parsed, and returns the offset of each
+violation. `cases` are run at every `mshape check`, and every case must parse. A rule with no
+must-fail case, or no must-pass case, fails the gate, and so does one that misses a must-fail
+case or fires on a must-pass or allowed case. That way the rule can't quietly stop working.
 
 ```ts
 // rules/indexWrites.ts
@@ -133,6 +133,12 @@ Everything comes from `monkeyshape`:
   `Expression`. The tree is ESTree, with TypeScript nodes, as oxc produces it. Offsets are
   UTF-16 code units, the same as string indices. Read the tree, never change it: every rule
   gets the same one.
+
+The example makes its exception in `check`. It could instead leave `check` to report
+everything and exempt the enforcement point in the config, with
+`rules["local/index-writes-merge"].allow`. An `allowed` case at an allowed path then reports
+nothing, as in a real run. In the code, the exception sits beside the rule and its cases;
+in the config, garden counts it as an escape hatch.
 
 In `shape.config.ts`, `rules["local/<id>"]` takes `off` and `allow` like any rule, and
 `// shape-ignore local/<id>: <reason>` covers its own line and the next. `mshape rules` lists
