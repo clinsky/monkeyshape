@@ -92,11 +92,21 @@ describe("handoff format", () => {
 
   test("the older format is refused with the way out: Status and Messages are gone", () => {
     expect(problems(active.replace("Queue:", "Status: active\nQueue:"))).toEqual([
-      "`Status:` is gone: a stub is a handoff with an empty charter, and done is derived. Run `mshape track list`, which migrates the old format",
+      "`Status:` is gone: a stub is a handoff with an empty charter, and done is derived. Run `mshape track migrate`, which upgrades the old format",
     ]);
     expect(problems(`${active}\n## Messages\n\nNone yet.\n`)).toEqual([
-      "`## Messages` is gone: tracks message each other with `mshape msg send`. Run `mshape track list`, which moves the section into the track's mailbox",
+      "`## Messages` is gone: tracks message each other with `mshape msg send`. Run `mshape track migrate`, which moves the section into the track's mailbox",
     ]);
+  });
+
+  test("migration takes every Messages section in one run, carrying each that says something", () => {
+    // #57 review, probe P2: a handoff with two sections needed two runs.
+    const two = `${active}\n## Messages\n\n- first\n\n## Messages\n\nNone yet.\n\n## Messages\n\n- third\n`;
+    const migrated = migrateHandoff(two);
+    expect(migrated?.text).toBe(active);
+    expect(migrated?.carried).toBe("- first\n\n- third");
+    expect(migrated?.changes).toEqual(["moved 3 `## Messages` sections into the track's mailbox"]);
+    expect(migrateHandoff(migrated?.text ?? "")).toBeUndefined();
   });
 
   test("migration drops Status and Messages, carrying any messages, and runs once", () => {

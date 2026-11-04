@@ -15,7 +15,8 @@ Run this in the main checkout, on an up-to-date `main`, in a fresh chat.
 
 - plan/MILESTONE.md (the milestone ending), docs/roadmap.md, AGENTS.md.
 - `mshape track list`, and every track's handoff in `.handoffs`: state, lessons not yet
-  promoted. Then every track's unread mail, in one step: `mshape msg inbox --all`, from
+  promoted. If list notes a handoff in an older format, run `mshape track migrate` first,
+  so you read it as the tracks will. Then every track's unread mail, in one step: `mshape msg inbox --all`, from
   here. A message still unread at the boundary is a question nobody answered.
 - The milestone's epic and its children (`bd list --parent <epic> --all`), and
   `bd list --label process` for what got in the way.
@@ -60,6 +61,13 @@ charter, a reviewer's "Fit" and the next retrospective all read them, so none is
 - **Interfaces the tracks share:** every path, command, format or schema two tracks both
   touch, with its owner and consumer, settled before anyone starts. This is the section
   that keeps parallel work from colliding; spend the effort here.
+  - **A case table for each lifecycle or workflow fact** the plan introduces or changes: a
+    state something is in, derived from other facts (a track is done, a session's address,
+    a check's outcome). One sentence defining it hides its edge cases, and each one costs a
+    review round. Write a table of `| Case | Result |`: the ordinary cases, then the ones
+    a reviewer would try (a reused name, something just made, a half-finished step, nothing
+    to go on, an ambiguous match). The owning track turns the table into its test first,
+    one test per row. A plain value (a path, a size limit, a flag's name) needs no table.
 - **Tracks:** a table of name, **Serves** (the goal steps it serves), charter, beads and
   acceptance. Each track serves at least one step, and every step is served by a track; a
   track that serves none is out of scope. Split into as many parallel

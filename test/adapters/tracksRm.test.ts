@@ -1,0 +1,395 @@
+/**
+ * `mshape track rm`, and how it judges a branch merged upstream: real git, temp repos with real
+ * worktrees, driven through the CLI. The shared harness is `./tracksHarness.ts`.
+ */
+import { describe, expect, test } from "bun:test";
+import { chmod, mkdir, rename, rm, writeFile } from "node:fs/promises";
+import { join } from "node:path";
+import { Effect } from "effect";
+import { patchMerged } from "../../src/adapters/tracks.ts";
+import {
+  base,
+  branches,
+  CLI,
+  exists,
+  handoff,
+  mshape,
+  mshapeWith,
+  repo,
+  setup,
+  sh,
+  useTrackRepo,
+  wt,
+} from "./tracksHarness.ts";
+
+useTrackRepo();
+
+describe("track rm", () => {
+  test("a clean, merged track: worktree, branch and handoff go; main, others and shared data stay", async () => {
+    await setup(["data"]);
+    await mkdir(join(repo, "data"));
+    await writeFile(join(repo, "data", "big.bin"), "x");
+    mshape(repo, "new", "docs");
+    mshape(repo, "new", "other");
+    await writeFile(`${wt("docs")}/page.md`, "page");
+    sh(wt("docs"), "add", ".");
+    sh(wt("docs"), "commit", "-qm", "page");
+    sh(repo, "merge", "-q", "--no-edit", "track/docs");
+
+    const removed = mshape(repo, "rm", "docs");
+    expect(removed.code).toBe(0);
+    expect(await exists(wt("docs"))).toBe(false);
+    expect(await exists(handoff("docs"))).toBe(false);
+    expect(branches()).toEqual(["main", "track/other"]);
+    expect(await exists(join(repo, "data", "big.bin"))).toBe(true);
+    expect(await exists(wt("other"))).toBe(true);
+    expect(await exists(handoff("other"))).toBe(true);
+    expect(await exists(`${repo}/.git/monkeyshape/handoffs`)).toBe(true);
+    expect(sh(repo, "worktree", "list", "--porcelain")).not.toContain("repo@docs");
+
+    expect(mshape(repo, "rm", "docs").stderr).toContain("there is no track `docs`");
+  });
+
+  test("uncommitted or untracked changes and unmerged commits refuse, touching nothing", async () => {
+    await setup();
+    mshape(repo, "new", "docs");
+    await writeFile(`${wt("docs")}/draft.md`, "draft");
+    const dirty = mshape(repo, "rm", "docs");
+    expect(dirty.code).toBe(1);
+    expect(dirty.stderr).toContain("uncommitted or untracked changes (?? draft.md)");
+
+    sh(wt("docs"), "add", ".");
+    sh(wt("docs"), "commit", "-qm", "draft");
+    const unmerged = mshape(repo, "rm", "docs");
+    expect(unmerged.code).toBe(1);
+    expect(unmerged.stderr).toContain("1 commit(s) not in `main`");
+    expect(await exists(wt("docs"))).toBe(true);
+    expect(await exists(handoff("docs"))).toBe(true);
+    expect(branches()).toEqual(["main", "track/docs"]);
+  });
+
+  test("--force discards changes and unmerged commits, saying so first; --keep-handoff keeps it", async () => {
+    await setup();
+    mshape(repo, "new", "docs");
+    await writeFile(`${wt("docs")}/a.md`, "a");
+    sh(wt("docs"), "add", ".");
+    sh(wt("docs"), "commit", "-qm", "a");
+    await writeFile(`${wt("docs")}/b.md`, "b");
+
+    const forced = mshape(repo, "rm", "docs", "--force", "--keep-handoff");
+    expect(forced.code).toBe(0);
+    expect(forced.stderr).toContain("--force: discarding uncommitted changes");
+    expect(forced.stderr).toContain(
+      "--force: deleting `track/docs` with 1 commit(s) not in `main`",
+    );
+    expect(await exists(wt("docs"))).toBe(false);
+    expect(branches()).toEqual(["main"]);
+    expect(await exists(handoff("docs"))).toBe(true);
+    expect(forced.stdout).toContain("kept handoff");
+  });
+
+  test("unread mail refuses rm; read or forced, the mailbox goes, so a new track of the name starts empty", async () => {
+    await setup();
+    mshape(repo, "new", "docs");
+    const msg = (cwd: string, ...args: ReadonlyArray<string>) => {
+      const result = Bun.spawnSync([process.execPath, CLI, "msg", ...args], {
+        cwd,
+        env: { ...process.env, CLAUDE_CODE_SESSION_ID: "", CLAUDE_PID: "" },
+        stdout: "pipe",
+        stderr: "pipe",
+      });
+      return result.stdout.toString();
+    };
+    const id = (sent: string) => /^Sent (\S+)/.exec(sent)?.[1] ?? "";
+    const first = id(msg(repo, "send", "docs", "--subject", "first", "body"));
+    const second = id(msg(repo, "send", "docs", "--subject", "second", "body"));
+    msg(wt("docs"), "read", first);
+
+    const refused = mshape(repo, "rm", "docs");
+    expect(refused.code).toBe(1);
+    expect(refused.stderr).toContain(
+      "1 message(s) to `docs` are unread, and removing the track would delete them:",
+    );
+    expect(refused.stderr).toContain(`${second} from main: second`);
+    expect(await exists(wt("docs"))).toBe(true);
+
+    const forced = mshape(repo, "rm", "docs", "--force");
+    expect(forced.code).toBe(0);
+    expect(forced.stderr).toContain(
+      `--force: deleting 1 unread message(s):\n    ${second} from main: second`,
+    );
+    expect(forced.stdout).toContain(
+      `removed mailbox ${repo}/.git/monkeyshape/mail/docs (1 unread, 1 read)`,
+    );
+    expect(await exists(`${repo}/.git/monkeyshape/mail/docs`)).toBe(false);
+
+    mshape(repo, "new", "docs");
+    expect(msg(wt("docs"), "inbox")).not.toContain("second");
+    expect(await exists(`${repo}/.git/monkeyshape/mail/docs`)).toBe(false);
+  });
+
+  test("a running Claude Code session refuses rm; --force removes the track and its registry", async () => {
+    await setup();
+    mshape(repo, "new", "docs");
+    // A fake Claude Code: this test's own process, as a session running in the worktree, and
+    // registered for the track. Never the real ~/.claude, whose registry rm would prune.
+    const claude = join(base, "claude");
+    await mkdir(`${claude}/sessions`, { recursive: true });
+    const session = "00000000-0000-4000-8000-000000000001";
+    await writeFile(
+      `${claude}/sessions/${process.pid}.json`,
+      JSON.stringify({
+        pid: process.pid,
+        cwd: wt("docs"),
+        sessionId: session,
+        procStart: "p",
+        peerProtocol: 1,
+        messagingSocketPath: join(base, "none.sock"),
+      }),
+    );
+    const registry = `${repo}/.git/monkeyshape/sessions/docs`;
+    await mkdir(registry, { recursive: true });
+    await writeFile(
+      `${registry}/${session}.json`,
+      JSON.stringify({ session, pid: process.pid, registered: "2026-01-01T00:00:00.000Z" }),
+    );
+    const env = { CLAUDE_CONFIG_DIR: claude };
+
+    const refused = mshapeWith(env, repo, "rm", "docs");
+    expect(refused.code).toBe(1);
+    expect(refused.stderr).toContain(
+      `1 Claude Code session(s) still running in \`docs\` would lose their worktree: ${session}. Quit each one (\`/exit\`), or pass --force`,
+    );
+    expect(await exists(wt("docs"))).toBe(true);
+
+    const forced = mshapeWith(env, repo, "rm", "docs", "--force");
+    expect(forced.code).toBe(0);
+    expect(forced.stderr).toContain(
+      `--force: removing the track from under 1 running Claude Code session(s): ${session}`,
+    );
+    expect(forced.stdout).toContain("removed 1 session registration(s)");
+    expect(await exists(registry)).toBe(false);
+    expect(await exists(wt("docs"))).toBe(false);
+  });
+
+  test("a failure partway stops, reports what was removed and what remains; a rerun finishes", async () => {
+    await setup();
+    mshape(repo, "new", "docs");
+    // A held ref lock makes deleting the branch, the second step, fail.
+    const lock = `${repo}/.git/refs/heads/track/docs.lock`;
+    await writeFile(lock, "");
+
+    const stopped = mshape(repo, "rm", "docs");
+    expect(stopped.code).toBe(1);
+    expect(stopped.stderr).toContain("stopped at branch `track/docs`");
+    expect(stopped.stderr).toContain(`removed: worktree ${wt("docs")}`);
+    expect(stopped.stderr).toContain(`remains: branch \`track/docs\`, handoff ${handoff("docs")}`);
+    expect(await exists(wt("docs"))).toBe(false);
+    expect(branches()).toEqual(["main", "track/docs"]);
+    expect(await exists(handoff("docs"))).toBe(true);
+
+    await rm(lock);
+    const finished = mshape(repo, "rm", "docs");
+    expect(finished.code).toBe(0);
+    expect(branches()).toEqual(["main"]);
+    expect(await exists(handoff("docs"))).toBe(false);
+  });
+
+  test("never removes a worktree on another branch, or a branch checked out elsewhere", async () => {
+    await setup();
+    mshape(repo, "new", "docs");
+    sh(wt("docs"), "switch", "-qc", "elsewhere");
+    expect(mshape(repo, "rm", "docs", "--force").stderr).toContain("is on `elsewhere`");
+    expect(await exists(wt("docs"))).toBe(true);
+
+    sh(wt("docs"), "switch", "-q", "track/docs");
+    sh(repo, "switch", "-q", "elsewhere");
+    sh(wt("docs"), "switch", "-q", "--detach");
+    sh(repo, "switch", "-q", "track/docs");
+    expect(mshape(repo, "rm", "docs", "--force").stderr).toContain(
+      `\`track/docs\` is checked out at ${repo}`,
+    );
+    expect(branches()).toContain("track/docs");
+  });
+
+  test("a tag named like the branch hides nothing: unmerged commits still refuse", async () => {
+    await setup();
+    mshape(repo, "new", "docs");
+    await writeFile(`${wt("docs")}/a.md`, "a");
+    sh(wt("docs"), "add", ".");
+    sh(wt("docs"), "commit", "-qm", "a");
+    // Short names resolve tags first: `main..track/docs` would count zero commits here.
+    sh(repo, "tag", "track/docs", "main");
+
+    const refused = mshape(repo, "rm", "docs");
+    expect(refused.code).toBe(1);
+    expect(refused.stderr).toContain("1 commit(s) not in `main`");
+    expect(branches()).toEqual(["main", "track/docs"]);
+    expect(mshape(repo, "list").stdout).toMatch(/^docs\s+stub\s+-\s+1\s+no/m);
+  });
+
+  test("a stale registration of the branch elsewhere asks for a prune", async () => {
+    await setup();
+    sh(repo, "worktree", "add", "-q", "-b", "track/docs", `${base}/elsewhere`, "main");
+    await rm(`${base}/elsewhere`, { recursive: true });
+    const refused = mshape(repo, "rm", "docs");
+    expect(refused.code).toBe(1);
+    expect(refused.stderr).toContain("which no longer exists: run `git worktree prune`");
+  });
+});
+
+describe("merged upstream, before anyone pulls main", () => {
+  /** The track's two commits reach origin's main by `style`, after main has moved on there. */
+  const merged = async (style: "merge" | "squash" | "rebase" | "squash-nearby" = "merge") => {
+    await setup();
+    const lines = Array.from({ length: 20 }, (_, i) => `line ${i + 1}`);
+    await writeFile(`${repo}/lines.txt`, `${lines.join("\n")}\n`);
+    sh(repo, "add", ".");
+    sh(repo, "commit", "-qm", "lines");
+    const origin = `${base}/origin.git`;
+    sh(base, "init", "-q", "--bare", "-b", "main", origin);
+    sh(repo, "remote", "add", "origin", origin);
+    sh(repo, "push", "-q", "-u", "origin", "main");
+    mshape(repo, "new", "docs");
+    for (const page of ["one", "two"]) {
+      await writeFile(`${wt("docs")}/${page}.md`, page);
+      sh(wt("docs"), "add", ".");
+      sh(wt("docs"), "commit", "-qm", page);
+    }
+    if (style === "squash-nearby") {
+      const edited = lines.map((line, i) => (i === 9 ? "line 10, by the track" : line));
+      await writeFile(`${wt("docs")}/lines.txt`, `${edited.join("\n")}\n`);
+      sh(wt("docs"), "commit", "-qam", "line 10");
+    }
+    sh(wt("docs"), "push", "-q", "origin", "track/docs");
+
+    const github = `${base}/github`;
+    sh(base, "clone", "-q", origin, github);
+    sh(github, "config", "user.name", "Test");
+    sh(github, "config", "user.email", "test@example.com");
+    await writeFile(`${github}/other.md`, "meanwhile");
+    // Two lines from the track's change: inside the three lines of context a patch carries.
+    if (style === "squash-nearby")
+      await writeFile(
+        `${github}/lines.txt`,
+        `${lines.map((line, i) => (i === 11 ? "line 12, by main" : line)).join("\n")}\n`,
+      );
+    sh(github, "add", ".");
+    sh(github, "commit", "-qm", "main moves on");
+    if (style === "merge") sh(github, "merge", "-q", "--no-ff", "--no-edit", "origin/track/docs");
+    if (style === "squash" || style === "squash-nearby") {
+      sh(github, "merge", "-q", "--squash", "origin/track/docs");
+      sh(github, "commit", "-qm", "docs (#1)");
+    }
+    if (style === "rebase") {
+      sh(github, "switch", "-qc", "rebased", "origin/track/docs");
+      sh(github, "rebase", "-q", "main");
+      sh(github, "switch", "-q", "main");
+      sh(github, "merge", "-q", "--ff-only", "rebased");
+    }
+    sh(github, "push", "-q", "origin", "main");
+    return origin;
+  };
+
+  test("rm fetches main's upstream, sees the merge and removes the track; local main is untouched", async () => {
+    await merged();
+    const mainBefore = sh(repo, "rev-parse", "main");
+    const removed = mshape(repo, "rm", "docs");
+    expect(removed.code).toBe(0);
+    expect(removed.stdout).toContain("removed branch `track/docs`");
+    expect(await exists(wt("docs"))).toBe(false);
+    expect(sh(repo, "rev-parse", "main")).toBe(mainBefore);
+  });
+
+  test("list counts a branch merged into origin/main as merged, once that ref is fetched", async () => {
+    await merged();
+    expect(mshape(repo, "list").stdout).toMatch(/^docs\s+stub\s+-\s+2\s+no/m);
+    sh(repo, "fetch", "-q", "origin");
+    expect(mshape(repo, "list").stdout).toMatch(/^docs\s+stub\s+-\s+0\s+yes/m);
+  });
+
+  test("a remote it can't reach is a note, and rm judges on the refs it has", async () => {
+    const origin = await merged();
+    await rename(origin, `${base}/gone.git`);
+    const refused = mshape(repo, "rm", "docs");
+    expect(refused.code).toBe(1);
+    expect(refused.stderr).toContain("note: couldn't fetch `main` from `origin`");
+    expect(refused.stderr).toContain("2 commit(s) not in `main` or `origin/main`");
+    expect(await exists(wt("docs"))).toBe(true);
+  });
+
+  test.each(["squash", "rebase"] as const)(
+    "a %s merge counts as merged: rm removes the track, list says so",
+    async (style) => {
+      await merged(style);
+      sh(repo, "fetch", "-q", "origin");
+      // The original commits are in neither main, yet the work is.
+      expect(mshape(repo, "list").stdout).toMatch(/^docs\s+stub\s+-\s+2\s+yes/m);
+      expect(mshape(repo, "rm", "docs").code).toBe(0);
+      expect(branches()).toEqual(["main"]);
+    },
+  );
+
+  test("work that differs from what was squashed stays unmerged", async () => {
+    await merged("squash");
+    await writeFile(`${wt("docs")}/three.md`, "after the merge");
+    sh(wt("docs"), "add", ".");
+    sh(wt("docs"), "commit", "-qm", "three");
+    const refused = mshape(repo, "rm", "docs");
+    expect(refused.code).toBe(1);
+    expect(refused.stderr).toContain("isn't there by a merge, a rebase or a squash either");
+    expect(branches()).toEqual(["main", "track/docs"]);
+  });
+
+  test("the fetch uses the user's own core.sshCommand", async () => {
+    await setup();
+    mshape(repo, "new", "docs");
+    sh(repo, "remote", "add", "origin", "ssh://git.invalid/repo.git");
+    sh(repo, "config", "branch.main.remote", "origin");
+    sh(repo, "config", "branch.main.merge", "refs/heads/main");
+    // Their SSH command, as a deploy key or a second account would set it: here it logs and fails.
+    await writeFile(`${base}/ssh`, `#!/bin/sh\necho called >> "${base}/ssh.log"\nexit 1\n`);
+    await chmod(`${base}/ssh`, 0o755);
+    sh(repo, "config", "core.sshCommand", `${base}/ssh`);
+
+    const result = mshape(repo, "rm", "docs");
+    expect(result.stderr).toContain("note: couldn't fetch `main` from `origin`");
+    expect(await exists(`${base}/ssh.log`)).toBe(true);
+  });
+
+  test("a squash after main edited a nearby line counts as merged; older git's patch ids refuse it", async () => {
+    await merged("squash-nearby");
+    sh(repo, "fetch", "-q", "origin");
+    expect(mshape(repo, "list").stdout).toMatch(/^docs\s+stub\s+-\s+3\s+yes/m);
+    // Without merge-tree (git before 2.38), patches with context don't match: rm asks for --force.
+    expect(
+      await Effect.runPromise(patchMerged(repo, "track/docs", "refs/remotes/origin/main")),
+    ).toBe(false);
+    expect(mshape(repo, "rm", "docs").code).toBe(0);
+  });
+
+  test("one copy of a repeated line fixed on each side: unmerged, and rm refuses", async () => {
+    await setup();
+    // The same line twice, far apart: without context, the two fixes would look like one patch.
+    const code = [
+      "  retrun x;",
+      ...Array.from({ length: 30 }, (_, i) => `  step(${i});`),
+      "  retrun x;",
+    ];
+    await writeFile(`${repo}/code.txt`, `${code.join("\n")}\n`);
+    sh(repo, "add", ".");
+    sh(repo, "commit", "-qm", "code");
+    mshape(repo, "new", "dup");
+    const fixed = (index: number) =>
+      `${code.map((line, i) => (i === index ? "  return x;" : line)).join("\n")}\n`;
+    await writeFile(`${wt("dup")}/code.txt`, fixed(0));
+    sh(wt("dup"), "commit", "-qam", "fix the first");
+    await writeFile(`${repo}/code.txt`, fixed(code.length - 1));
+    sh(repo, "commit", "-qam", "fix the last");
+
+    expect(mshape(repo, "list").stdout).toMatch(/^dup\s+stub\s+-\s+1\s+no/m);
+    expect(await Effect.runPromise(patchMerged(repo, "track/dup", "refs/heads/main"))).toBe(false);
+    expect(mshape(repo, "rm", "dup").code).toBe(1);
+    expect(branches()).toEqual(["main", "track/dup"]);
+  });
+});
