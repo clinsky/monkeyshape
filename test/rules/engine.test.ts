@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { checkRules } from "../../src/core/rules/engine.ts";
+import { checkRules, type Rule } from "../../src/core/rules/engine.ts";
 import { RULES } from "../../src/core/rules/registry.ts";
 import type { ShapeConfig } from "../../src/schemas/config.ts";
 import { config, repo } from "../support.ts";
@@ -60,5 +60,47 @@ describe("rule engine", () => {
 
   test("files that don't parse are reported", () => {
     expect(run({ "src/a.ts": "const = ;" })[0]).toStartWith("rules/syntax src/a.ts");
+  });
+});
+
+describe("a rule's context", () => {
+  test("resolve gives the parsed file a relative import names, and nothing for anything else", () => {
+    const seen: Array<string> = [];
+    const probe: Rule = {
+      id: "probe",
+      layer: "core",
+      bugClass: "none: a probe of the context",
+      message: "none: a probe of the context",
+      entryExempt: false,
+      visit: (parsed, _report, context) => ({
+        ImportDeclaration: (node) => {
+          const target = context.resolve(node.source.value);
+          seen.push(`${parsed.path} ${node.source.value} -> ${target?.path ?? "undefined"}`);
+        },
+      }),
+    };
+    const source = [
+      'import { X } from "../schemas/case.ts";',
+      'import { Y } from "./y.ts";',
+      'import { Schema } from "effect";',
+      'import { Z } from "./missing.ts";',
+      'import { W } from "../../../outside.ts";',
+    ].join("\n");
+    checkRules(
+      config(),
+      repo({
+        "src/core/a.ts": source,
+        "src/core/y.ts": "",
+        "src/schemas/case.ts": "export const X = 1;\n",
+      }),
+      [probe],
+    );
+    expect(seen.filter((line) => line.startsWith("src/core/a.ts"))).toEqual([
+      "src/core/a.ts ../schemas/case.ts -> src/schemas/case.ts",
+      "src/core/a.ts ./y.ts -> src/core/y.ts",
+      "src/core/a.ts effect -> undefined",
+      "src/core/a.ts ./missing.ts -> undefined",
+      "src/core/a.ts ../../../outside.ts -> undefined",
+    ]);
   });
 });

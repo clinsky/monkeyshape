@@ -33,7 +33,7 @@ import { WorkspaceError } from "../schemas/errors.ts";
 import { type Caller, sessionAddress } from "./notices.ts";
 import { fs, locate, refuse, worktrees } from "./tracks.ts";
 
-/** A caller Claude Code said nothing about: a terminal, or `track list`'s migration. */
+/** A caller Claude Code said nothing about: a terminal, or `track migrate`. */
 const nobody = (now: Date): Caller => ({ identity: {}, claudeDir: "", now });
 
 /** `run`, with one expected error code (`ENOENT`, `EEXIST`) as `fallback`, not a failure. */

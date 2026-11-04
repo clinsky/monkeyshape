@@ -7,7 +7,7 @@ import { fileURLToPath } from "node:url";
 import { Effect } from "effect";
 import pkg from "../../package.json" with { type: "json" };
 import { BASELINE_FILE, readBaseline, writeBaseline } from "../adapters/baseline.ts";
-import { loadConfig } from "../adapters/config.ts";
+import { CONFIG_FILE, loadConfig } from "../adapters/config.ts";
 import { initRepo, vendoredSpec } from "../adapters/init.ts";
 import { mailInbox, mailInboxAll, mailRead, mailSend } from "../adapters/mail.ts";
 import {
@@ -29,11 +29,12 @@ import {
   type TrackSessions,
   trackCurrent,
   trackList,
+  trackMigrate,
   trackNew,
   trackRm,
 } from "../adapters/tracks.ts";
 import { loadSnapshot } from "../adapters/workspace.ts";
-import { assess, CHECKS, prerequisites, runChecks, unevaluated } from "../core/check.ts";
+import { assess, CHECKS, evaluate, prerequisites } from "../core/check.ts";
 import { OWNABLE_FILES } from "../core/conventions.ts";
 import { garden } from "../core/garden.ts";
 import { CLAUDE_SKILLS_LINK, SKILLS_DIR } from "../core/layout.ts";
@@ -43,6 +44,7 @@ import { formatDelivery, unregisteredNote } from "../core/notices.ts";
 import { count, tighten } from "../core/ratchet.ts";
 import { packVersion } from "../core/release.ts";
 import { formatCheck, formatGarden, formatViolation } from "../core/report.ts";
+import { formatRules } from "../core/rules/engine.ts";
 import { RULES } from "../core/rules/registry.ts";
 import { nextStep, REPO_NAME } from "../core/scaffold.ts";
 import { formatCollisions, formatSync, SKILL_NAME } from "../core/skills.ts";
@@ -70,7 +72,7 @@ interface Command {
   ) => Effect.Effect<Outcome, ConfigError | WorkspaceError | TrackError>;
 }
 
-const FLAGS = `  --config <path>   For check, baseline and garden: use this config instead of ./shape.config.ts
+const FLAGS = `  --config <path>   For check, baseline, garden and rules: use this config instead of ./shape.config.ts
                     (trying a repo before adopting).`;
 
 /** Every command's usage, in table order. A function, since the table is declared below. */
@@ -246,7 +248,12 @@ const track = (root: string, args: ReadonlyArray<string>) =>
         ),
         code: 0,
       };
-    if (sub === "list") return { output: yield* trackList(root, carryMessages(root)), code: 0 };
+    if (sub === "list") return { output: yield* trackList(root), code: 0 };
+    if (sub === "migrate") {
+      // The deliberate step: a handoff left in the older format fails it, so a script stops.
+      const { output, unmigrated } = yield* trackMigrate(root, carryMessages(root));
+      return { output, code: unmigrated === 0 ? 0 : 1 };
+    }
     if (sub === "current") return { output: yield* trackCurrent(root), code: 0 };
     if (sub === "rm")
       return {
@@ -288,7 +295,7 @@ const trackSessions = (root: string): TrackSessions => {
 
 /**
  * A retired handoff Messages section, mailed to its track from the main checkout (so from
- * `main`) by `track list`'s migration. No live notice: it shows at the track's next prompt.
+ * `main`) by `track migrate`. No live notice: it shows at the track's next prompt.
  */
 const carryMessages =
   (root: string): CarryMessages =>
@@ -299,7 +306,7 @@ const carryMessages =
         repo,
         track,
         "Messages carried over from your handoff",
-        `${body}\n\nMoved here by \`mshape track list\` when handoffs stopped having a Messages section.`,
+        `${body}\n\nMoved here by \`mshape track migrate\` when handoffs stopped having a Messages section.`,
         new Date(),
         randomHex,
       );
@@ -509,18 +516,16 @@ const skills = (root: string, args: ReadonlyArray<string>) =>
   args.length === 1 && args[0] === "sync" ? sync(root, []) : Effect.succeed(usage());
 
 /** What `check`, `baseline` and `garden` all read: the config, the snapshot, the baseline. */
+/** `--config <path>`, resolved from the repo root, or undefined for ./shape.config.ts. */
+const configFlag = (root: string, args: ReadonlyArray<string>): string | undefined => {
+  const at = args.indexOf("--config");
+  const path = at === -1 ? undefined : args[at + 1];
+  return path === undefined ? undefined : path.startsWith("/") ? path : `${root}/${path}`;
+};
+
 const load = (root: string, args: ReadonlyArray<string>) =>
   Effect.gen(function* () {
-    const configFlag = args.indexOf("--config");
-    const configPath = configFlag === -1 ? undefined : args[configFlag + 1];
-    const config = yield* loadConfig(
-      root,
-      configPath === undefined
-        ? undefined
-        : configPath.startsWith("/")
-          ? configPath
-          : `${root}/${configPath}`,
-    );
+    const config = yield* loadConfig(root, configFlag(root, args));
     const snapshot = yield* loadSnapshot(root, config, PACKAGE_ROOT);
     const baseline = yield* readBaseline(root);
     return { config, snapshot, baseline };
@@ -549,7 +554,12 @@ const baseline = (root: string, args: ReadonlyArray<string>) =>
         ].join("\n\n"),
         code: 1,
       };
-    const violations = runChecks(config, snapshot);
+    const { violations, unevaluated: skipped } = evaluate(
+      config,
+      snapshot,
+      CHECKS,
+      Object.keys(loaded.baseline),
+    );
     if (args.includes("--init")) {
       yield* writeBaseline(root, count(violations));
       return {
@@ -558,14 +568,7 @@ const baseline = (root: string, args: ReadonlyArray<string>) =>
       };
     }
     if (args.includes("--tighten")) {
-      yield* writeBaseline(
-        root,
-        tighten(
-          loaded.baseline,
-          violations,
-          unevaluated(config, snapshot, CHECKS, Object.keys(loaded.baseline)),
-        ),
-      );
+      yield* writeBaseline(root, tighten(loaded.baseline, violations, skipped));
       return { output: `${BASELINE_FILE}: tightened`, code: 0 };
     }
     return usage();
@@ -577,10 +580,17 @@ const gardenCommand = (root: string, args: ReadonlyArray<string>) =>
     code: 0,
   }));
 
-const rules = () =>
-  Effect.succeed({
-    output: RULES.map((r) => `${r.id.padEnd(22)}${r.layer.padEnd(9)}${r.bugClass}`).join("\n"),
-    code: 0,
+/**
+ * Works before adopting: with no ./shape.config.ts, the registry's rules alone. A `--config`
+ * that can't load is an error, as for `check`, so a typo can't read as "no local rules".
+ */
+const rules = (root: string, args: ReadonlyArray<string>) =>
+  Effect.gen(function* () {
+    const flagged = configFlag(root, args);
+    const path = flagged ?? `${root}/${CONFIG_FILE}`;
+    const present = flagged !== undefined || (yield* Effect.promise(() => Bun.file(path).exists()));
+    const config = present ? yield* loadConfig(root, path) : undefined;
+    return { output: formatRules(RULES, config?.localRules), code: 0 };
   });
 
 /** Every command, in the order the help lists them. */
@@ -610,7 +620,7 @@ export const COMMANDS: ReadonlyArray<Command> = [
   },
   {
     name: "check",
-    usage: `  mshape check [--only arch,refs,budgets,coverage,rules,skills,sync,beads]
+    usage: `  mshape check [--only ${CHECKS.join(",")}]
       Run the checks; violations above .shape/baseline.json fail.`,
     run: check,
   },
@@ -630,8 +640,8 @@ export const COMMANDS: ReadonlyArray<Command> = [
   },
   {
     name: "rules",
-    usage: `  mshape rules
-      List the custom rules and the bug class each one removes.`,
+    usage: `  mshape rules [--config <path>]
+      List the custom rules, the repo's own (localRules) included, and the bug class each removes.`,
     run: rules,
   },
   {
@@ -647,7 +657,12 @@ export const COMMANDS: ReadonlyArray<Command> = [
       no open PR (from gh); unknown when bd or gh can't say. Under a row: beads still open
       though a merged PR lists them, a State older than the branch's last commit, and a done
       track's rm. Restores missing handoff links; a track label with open beads and no track
-      left is listed too. Run git fetch to see merges done on the remote.
+      left is listed too. Run git fetch to see merges done on the remote. It never rewrites a
+      handoff: one in an older format is noted, with what track migrate would change.
+  mshape track migrate
+      Upgrade every handoff in an older format in place, printing what changed in each; a
+      retired Messages section is mailed to its track first. Exit 1 when a handoff had to be
+      left as it was, saying why.
   mshape track current
       The track of this directory, name only; exit 1, saying why, outside a track.
   mshape track pr [--title <title>] [--body-file <path>]

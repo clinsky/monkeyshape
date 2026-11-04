@@ -59,18 +59,40 @@ export const patternNames = (pattern: unknown): ReadonlyArray<string> => {
   }
 };
 
+/**
+ * What a name is bound to. `init` is the initializer of a `const` that binds the name alone
+ * (`const x = ...`), the one case whose value a rule may read statically; for anything else
+ * (a parameter, a `let`, a destructured name, an import) the value is unknown here.
+ */
+export type Declaration =
+  | { readonly kind: "const"; readonly init: unknown }
+  | { readonly kind: "import" }
+  | { readonly kind: "other" };
+
 export interface Scopes {
   /** Whether `name` at `offset` refers to a binding declared in the file. */
   readonly isLocal: (name: string, offset: number) => boolean;
+  /** The innermost declaration of `name` visible at `offset`, if the file declares one. */
+  readonly bindingAt: (name: string, offset: number) => Declaration | undefined;
+}
+
+interface Binding {
+  readonly start: number;
+  readonly end: number;
+  readonly declaration: Declaration;
 }
 
 export const scopes = (program: Program): Scopes => {
-  const bindings = new Map<string, Array<{ start: number; end: number }>>();
-  const bind = (pattern: unknown, scope: Node | undefined) => {
+  const bindings = new Map<string, Array<Binding>>();
+  const bind = (
+    pattern: unknown,
+    scope: Node | undefined,
+    declaration: Declaration = { kind: "other" },
+  ) => {
     if (scope === undefined) return;
     for (const name of patternNames(pattern)) {
       const ranges = bindings.get(name) ?? [];
-      ranges.push({ start: scope.start, end: scope.end });
+      ranges.push({ start: scope.start, end: scope.end, declaration });
       bindings.set(name, ranges);
     }
   };
@@ -81,7 +103,16 @@ export const scopes = (program: Program): Scopes => {
     switch (node.type) {
       case "VariableDeclaration":
         for (const declarator of node["declarations"] as ReadonlyArray<Node>)
-          bind(declarator["id"], node["kind"] === "var" ? fn : block);
+          bind(
+            declarator["id"],
+            node["kind"] === "var" ? fn : block,
+            node["kind"] === "const" &&
+              isNode(declarator["id"]) &&
+              declarator["id"].type === "Identifier" &&
+              declarator["init"] !== null
+              ? { kind: "const", init: declarator["init"] }
+              : { kind: "other" },
+          );
         break;
       case "FunctionDeclaration":
         bind(node["id"], block);
@@ -92,7 +123,7 @@ export const scopes = (program: Program): Scopes => {
       case "ImportSpecifier":
       case "ImportDefaultSpecifier":
       case "ImportNamespaceSpecifier":
-        bind(node["local"], stack[0]);
+        bind(node["local"], stack[0], { kind: "import" });
         break;
     }
     if (FUNCTIONS.has(node.type)) {
@@ -113,8 +144,15 @@ export const scopes = (program: Program): Scopes => {
   };
 
   walk(program as unknown as Node, []);
+  const visible = (name: string, offset: number) =>
+    (bindings.get(name) ?? []).filter((range) => offset >= range.start && offset < range.end);
   return {
-    isLocal: (name, offset) =>
-      (bindings.get(name) ?? []).some((range) => offset >= range.start && offset < range.end),
+    isLocal: (name, offset) => visible(name, offset).length > 0,
+    bindingAt: (name, offset) =>
+      visible(name, offset).reduce<Binding | undefined>(
+        (inner, range) =>
+          inner === undefined || range.end - range.start < inner.end - inner.start ? range : inner,
+        undefined,
+      )?.declaration,
   };
 };

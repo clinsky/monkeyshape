@@ -13,8 +13,8 @@ $ mshape check
 src/core/cache.ts:1  rules/no-nondeterminism
   reads the wall clock. Use Clock or DateTime.now so tests control time.
 
-src/core/client.ts  arch/host-access
-  imports 'node:fs/promises', but module 'core' has no hostAccess. Reach the host through a service in an adapter module.
+src/core/client.ts:1  arch/host-access
+  imports readFile from 'node:fs/promises', but module 'core' has no hostAccess. Reach the host through a service in an adapter module, or use a pure operation.
 
   arch      failed          3 files in 2 modules
   sources   passed          4 TypeScript files: 3 in sources, 1 exempt

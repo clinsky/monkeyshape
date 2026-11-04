@@ -326,12 +326,16 @@ const budgets: Record<string, Cases> = {
 
 // coverage
 
+/** Unit tests run neither tool: what DEFAULT_CONFIG says, for cases with their own config. */
+const NO_TOOLS = { prerequisites: { tsc: "optional", biome: "optional" } } as const;
+
 const TOOLS = { "tsconfig.json": '{ "include": ["src"] }', "biome.json": "{}" };
 
 const coverage: Record<string, Cases> = {
   "coverage/config": {
-    fail: { files: { "biome.json": "{}", "tsconfig.json": "{ not json" } },
-    pass: { files: { "biome.json": "{}", "tsconfig.json": "// a comment\n{}" } },
+    // Only with TypeScript to cover: a repo without any needs neither config.
+    fail: { files: { "biome.json": "{}", "tsconfig.json": "{ not json", "src/a.ts": "" } },
+    pass: { files: { "biome.json": "{}", "tsconfig.json": "// a comment\n{}", "src/a.ts": "" } },
   },
   "coverage/typecheck": {
     fail: { files: { ...TOOLS, "scripts/a.ts": "" } },
@@ -353,6 +357,81 @@ const coverage: Record<string, Cases> = {
       },
     },
   },
+  "coverage/uncovered": {
+    fail: { files: { ...TOOLS, "scripts/gen.py": "" } },
+    // Declared, exempt with a reason, or another tool's file.
+    pass: {
+      files: { ...TOOLS, "native/a.c": "", "scripts/gen.py": "", ".beads/hooks/pre-push": "" },
+      config: {
+        ...NO_TOOLS,
+        coverage: {
+          commands: [{ files: ["native/**"], run: ["make"] }],
+          exemptFiles: [{ path: "scripts/gen.py", reason: "run once, by hand, at release" }],
+        },
+      },
+      options: {
+        modes: { ".beads/hooks/pre-push": "executable" },
+        commands: [{ state: "ran", code: 0, output: "" }],
+      },
+    },
+  },
+  "coverage/command-failed": {
+    fail: {
+      files: { ...TOOLS, "a.c": "" },
+      config: { ...NO_TOOLS, coverage: { commands: [{ files: ["a.c"], run: ["cc", "a.c"] }] } },
+      options: { commands: [{ state: "ran", code: 1, output: "a.c:1: error" }] },
+    },
+    pass: {
+      files: { ...TOOLS, "a.c": "" },
+      config: { ...NO_TOOLS, coverage: { commands: [{ files: ["a.c"], run: ["cc", "a.c"] }] } },
+      options: { commands: [{ state: "ran", code: 0, output: "a.c:1: warning" }] },
+    },
+  },
+  "coverage/command-unavailable": {
+    fail: {
+      files: { ...TOOLS, "a.c": "" },
+      config: { ...NO_TOOLS, coverage: { commands: [{ files: ["a.c"], run: ["cc", "a.c"] }] } },
+      options: { commands: [{ state: "unavailable", reason: "`cc` is not on PATH" }] },
+    },
+    pass: {
+      files: { ...TOOLS, "a.c": "" },
+      config: {
+        ...NO_TOOLS,
+        coverage: { commands: [{ files: ["a.c"], run: ["cc", "a.c"], optional: true }] },
+      },
+      options: { commands: [{ state: "unavailable", reason: "`cc` is not on PATH" }] },
+    },
+  },
+  "coverage/command-unmatched": {
+    fail: {
+      files: { ...TOOLS, "a.c": "" },
+      config: { ...NO_TOOLS, coverage: { commands: [{ files: ["a.c", "b/**"], run: ["cc"] }] } },
+      options: { commands: [{ state: "ran", code: 0, output: "" }] },
+    },
+    pass: {
+      files: TOOLS,
+      config: {
+        ...NO_TOOLS,
+        coverage: { commands: [{ files: ["b/**"], run: ["cc"], optional: true }] },
+      },
+    },
+  },
+  "coverage/exempt-unmatched": {
+    fail: {
+      files: TOOLS,
+      config: {
+        ...NO_TOOLS,
+        coverage: { exemptFiles: [{ path: "old.py", reason: "kept for the record" }] },
+      },
+    },
+    pass: {
+      files: { ...TOOLS, "old.py": "" },
+      config: {
+        ...NO_TOOLS,
+        coverage: { exemptFiles: [{ path: "old.py", reason: "kept for the record" }] },
+      },
+    },
+  },
 };
 
 // rules: the engine's own kinds, then one per registry rule
@@ -366,7 +445,9 @@ const LOCAL = {
   id: "no-save",
   bugClass: "Writes that skip the merge function.",
   message: "calls save directly; write through saveMerged.",
-  check: () => [],
+  check: (file: { readonly text: string }) =>
+    [...file.text.matchAll(/\bsave\(/g)].map((match) => match.index),
+  cases: { fail: ["save(x);\n"], pass: ["saveMerged(x);\n"] },
 };
 
 const rules: Record<string, Cases> = {
@@ -424,6 +505,10 @@ const rules: Record<string, Cases> = {
   "rules/local-rule": {
     fail: { config: { localRules: [{ ...LOCAL, check: undefined }] } },
     pass: { config: { localRules: [LOCAL] }, files: { "src/a.ts": "saveMerged(x);\n" } },
+  },
+  "rules/local-cases": {
+    fail: { config: { localRules: [{ ...LOCAL, cases: { fail: ["save(x);\n"], pass: [] } }] } },
+    pass: { config: { localRules: [LOCAL] } },
   },
   "rules/no-error-spread": {
     fail: { files: { "src/a.ts": "const copy = { ...err, extra: 1 };\n" } },
@@ -699,11 +784,14 @@ const prerequisitesCases: Record<string, Cases> = {
     pass: { config: { beads: "required" }, options: { ...TOOLS_RAN, beads: { state: "ok" } } },
   },
   "prerequisites/tool-failed": {
-    fail: { options: { linted: [], tsc: { state: "failed", reason: "`tsc` exited 2" } } },
+    fail: {
+      files: { "src/a.ts": "" },
+      options: { linted: [], tsc: { state: "failed", reason: "`tsc` exited 2" } },
+    },
     pass: { options: TOOLS_RAN },
   },
   "prerequisites/tool-unavailable": {
-    fail: { options: { linted: [] } },
+    fail: { files: { "src/a.ts": "" }, options: { linted: [] } },
     // The same missing tsc, declared optional: coverage reads tsconfig instead.
     pass: { config: { prerequisites: { tsc: "optional" } }, options: { linted: [] } },
   },
