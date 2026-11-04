@@ -10,7 +10,7 @@ import {
   executableSources,
   withoutTools,
 } from "./coverage.ts";
-import { checkFiles, FILES_RULES, heldFiles } from "./files.ts";
+import { checkFiles, FILES_RULES, formatBytes, heldFiles } from "./files.ts";
 import { matchesAny } from "./glob.ts";
 import {
   type CheckName,
@@ -200,7 +200,7 @@ const scopeOf = (check: CheckName, config: ResolvedConfig, snapshot: Snapshot): 
     case "files": {
       const vendored = config.files.vendored.length;
       return {
-        examined: `${plural(heldFiles(snapshot).length, "file")} against the ${(config.files.maxBytes / (1024 * 1024)).toFixed(1)} MiB cap${vendored === 0 ? "" : `, ${plural(vendored, "vendored artifact")}`}`,
+        examined: `${plural(heldFiles(snapshot).length, "file")} against the ${formatBytes(config.files.maxBytes)} cap${vendored === 0 ? "" : `, ${plural(vendored, "vendored artifact")}`}`,
       };
     }
     case "sync":

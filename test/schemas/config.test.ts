@@ -33,3 +33,20 @@ describe("tracks.sharedPaths", () => {
     expect(resolveConfig({}).tracks.sharedPaths).toEqual([]);
   });
 });
+
+describe("review of #59: files config", () => {
+  const SHA = "a".repeat(64);
+  test("a vendored path is repo-relative and normal, as sharedPaths are", () => {
+    const record = (path: string) => ({
+      files: { vendored: [{ path, package: "x", sha256: SHA }] },
+    });
+    expect(decodes(record("vendor/x-1.0.0.tgz"))).toBe(true);
+    for (const bad of ["./vendor/x.tgz", "../x.tgz", "/abs/x.tgz", "vendor//x.tgz"])
+      expect(decodes(record(bad))).toBe(false);
+  });
+
+  test("maxBytes is a positive integer", () => {
+    expect(decodes({ files: { maxBytes: 200_000 } })).toBe(true);
+    for (const bad of [0, -5, 1.5]) expect(decodes({ files: { maxBytes: bad } })).toBe(false);
+  });
+});

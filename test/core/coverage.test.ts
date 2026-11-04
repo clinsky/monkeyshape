@@ -288,6 +288,8 @@ describe("review of #51", () => {
       repo({ ...TOOLS, "lib/helper.so": "" }, { modes: { "lib/helper.so": "executable" } }),
     );
     expect(found?.message).toContain("a compiled binary");
+    // Promised in #51's review, for when files.vendored landed.
+    expect(found?.message).toContain("files.vendored");
     const [source] = checkCoverage(config(), repo({ ...TOOLS, "a.py": "" }));
     expect(source?.message).not.toContain("a compiled binary");
   });

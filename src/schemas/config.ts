@@ -113,8 +113,8 @@ export type DeclaredCommand = typeof DeclaredCommand.Type;
 
 /** A release tarball of another repo, kept under `vendor/`: what `files` verifies it is. */
 export const VendoredArtifact = Schema.Struct({
-  /** Repo-relative, whatever its extension: the archive's contents say what it is. */
-  path: Schema.String,
+  /** Repo-relative and normal, as `sharedPaths` are, whatever its extension. */
+  path: SharedPath,
   /** The npm name in the tarball's `package/package.json`. */
   package: Schema.String,
   /** Lowercase hex, as `sha256sum` prints it. */
@@ -218,7 +218,7 @@ export const ShapeConfig = Schema.Struct({
   files: Schema.optionalKey(
     Schema.Struct({
       /** The size cap for every file in the repo, in bytes. */
-      maxBytes: Schema.optionalKey(Schema.Int),
+      maxBytes: Schema.optionalKey(Schema.Int.check(Schema.isGreaterThan(0))),
       /** Files allowed past the cap, each with its reason. */
       large: Schema.optionalKey(Schema.Array(Allowance)),
       vendored: Schema.optionalKey(Schema.Array(VendoredArtifact)),

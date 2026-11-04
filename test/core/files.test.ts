@@ -29,12 +29,15 @@ describe("files", () => {
       ".envrc",
       "env",
       "src/.env.ts.md",
+      ".env.example.bak",
+      ".env.local.example",
     ];
     expect(rules(Object.fromEntries(names.map((name) => [name, ""])))).toEqual([
       "files/env .env",
       "files/env .env.local",
       "files/env app/.env.production",
       "files/env src/.env.ts.md",
+      "files/env .env.example.bak",
     ]);
   });
 
@@ -83,5 +86,34 @@ describe("files", () => {
   test("its report says what it held and against what cap", () => {
     const got = report("files", config(), repo({ "a.md": "", ".gitignore": "", "b.json": "" }));
     expect(got.outcome).toEqual({ state: "passed", examined: "2 files against the 1.0 MiB cap" });
+  });
+});
+
+describe("review of #59: messages", () => {
+  test("the env message keeps templates out of the ignore it advises", () => {
+    const [found] = checkFiles(config(), repo({ ".env": "" }));
+    expect(found?.message).toContain("!.env.example");
+  });
+
+  test("sizes under a MiB read in KiB or bytes, so a small cap says something", () => {
+    const shape = config({ files: { maxBytes: 200 * 1024 } });
+    const [kib] = checkFiles(shape, repo({ "a.bin": "" }, { sizes: { "a.bin": 200 * 1024 + 10 } }));
+    expect(kib?.message).toContain("is 200.0 KiB, past the 200.0 KiB cap");
+    const tiny = config({ files: { maxBytes: 100 } });
+    const [bytes] = checkFiles(tiny, repo({ "a.bin": "" }, { sizes: { "a.bin": 150 } }));
+    expect(bytes?.message).toContain("is 150 bytes, past the 100 bytes cap");
+  });
+
+  test("an unrecorded archive under vendor/ past the cap is told to record it", () => {
+    const [found] = checkFiles(
+      config(),
+      repo({ "vendor/dep-1.0.0.tgz": "" }, { sizes: { "vendor/dep-1.0.0.tgz": 3 * 1024 * 1024 } }),
+    );
+    expect(found?.message).toContain("record it in `files.vendored`");
+    const [data] = checkFiles(
+      config(),
+      repo({ "data/a.bin": "" }, { sizes: { "data/a.bin": 3 * 1024 * 1024 } }),
+    );
+    expect(data?.message).not.toContain("files.vendored");
   });
 });

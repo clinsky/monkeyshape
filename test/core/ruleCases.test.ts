@@ -482,7 +482,17 @@ const filesCases: Record<string, Cases> = {
   },
   "files/env": {
     fail: { files: { "app/.env.local": "" } },
-    pass: { files: { ".env.example": "", "app/.env.sample": "", ".envrc": "", "env.ts": "" } },
+    // A template by its last segment, however qualified: no secret in it.
+    pass: {
+      files: {
+        ".env.example": "",
+        "app/.env.sample": "",
+        ".env.local.example": "",
+        ".env.production.sample": "",
+        ".envrc": "",
+        "env.ts": "",
+      },
+    },
   },
   "files/vendored-missing": {
     fail: { config: VENDORED },
