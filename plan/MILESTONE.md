@@ -1,194 +1,214 @@
 # Milestone 3: ready for a real application and a new repo
 
-**Draft for approval, 2026-11-04.** Beads are filed only after the maintainer approves. Once
-tracks start, the plan is frozen, except that a divergence the maintainer approves is
-appended under "Amendments" with its date and reason.
+**Draft for approval, 2026-11-04; revised after the maintainer's review (PR #49).** Beads
+are filed only after the maintainer approves. Once tracks start, the plan is frozen, except
+that a divergence the maintainer approves is appended under "Amendments" with its date and
+reason.
 
 ## Why this milestone
 
 monkeyshape is meant for every repo its maintainers start or keep, and so far it has been
 used only on itself: a TypeScript CLI package with a `src/` root, one language, no data and
-no model calls. Milestone 2 made the loop work between parallel tracks; the boundary
-retrospective (the four milestone-2 handoffs) found that the agent-to-agent and
-human-to-agent loop now works without relaying. The next roadmap goals are both adoption:
-an existing repo (`36f`) and a new one born through the loop (`iqf.14`).
+no model calls. Milestone 2 made the loop work between parallel tracks; its retrospective
+(the four milestone-2 handoffs) found that agent-to-agent and human-to-agent work now goes
+without relaying. The next roadmap goals are both adoption: an existing repo (`36f`) and a
+new one born through the loop (`iqf.14`).
 
-To see whether monkeyshape is ready for them, the boundary ran it against two real cases, in
-scratch copies, and had four independent reviews read the results without being told what to
-conclude: one on code quality, one on process, one on an existing repo's history, and one on
-monkeyshape as a product.
+To see whether monkeyshape is ready, the boundary ran it, in scratch copies, against two
+real cases, and four independent reviews (code quality, process, the existing repo's
+history, monkeyshape as a product) read the results without being told what to conclude:
 
 - **An existing private application**: TypeScript on the same stack, about 80k lines, seven
-  top-level code directories and no `src/`, months of history with agents.
-- **A new repo**: TypeScript orchestration plus C code compiled for other architectures,
-  large binary data kept outside the repo, a dependency on another repo's schemas.
+  top-level code directories and no `src/`, months of history with agents, and secondary
+  code in other languages (scripts, compiled helpers, fixtures, a vendored tarball).
+- **A new repo**: TypeScript orchestration plus C code, large data kept outside the repo, a
+  dependency on another repo's release.
 
 What they found, as defects in monkeyshape (each reproduced in scratch):
 
 - **Checks that pass when they should fail.** `arch` with `root: "."` matches no file and
-  prints "passed", so a repo without a single source root can't be mapped at all
-  (`src/core/arch.ts`, the `${root}/` prefix). Default `sources` that match nothing give no
-  note, so the rules are silent too.
-- **False positives on correct code.** 20 of 32 `decode-strict` findings on the
+  prints "passed" (`src/core/arch.ts`, the `${root}/` prefix), so a repo without a single
+  source root can't be mapped. Default `sources` that match nothing are silent too.
+- **False positives on correct code.** About 20 of 32 `decode-strict` findings on the
   application were strict decodes: the rule accepts only an inline options object, not a
   same-file `const`, and fires on branded-string schemas where excess properties mean
-  nothing. `arch/host-access` flags `node:crypto` hashing, while `Bun.hash` is allowed.
-- **TypeScript is the only thing the gate sees.** `isTsSource` gates budgets, coverage, refs,
-  garden and arch. A C file calling `gets`, a Python script, a shell script and a 30 MB
-  binary all passed `mshape check` in a born repo; garden reported no large files.
-- **Nothing guards what must never be tracked.** No size or binary cap on tracked files, no
-  "never tracked" paths, `.env*` not in the template's `.gitignore`, and `refs.forbidden`
-  reads only docs and comments, not code, string literals or file names.
-- **An adopter can't add a rule.** The existing repo's most expensive bug class (about 20
-  bugs: derived data keyed on too few inputs, indexes replaced instead of merged, identities
-  missing a field) was fixed each time by one function; one of its beads closed with "the
-  lesson was written down in an accepted decision record and still did not transfer". The
-  class is domain-specific, so principle 3 needs a home for adopter rules, and today
-  `rules` in `shape.config.ts` only configures the registry's rules.
-- **The adoption path itself.** Following `docs/adopting.md` literally: `bun add` unpinned
-  the adopter's exact versions; `--config` outside the repo can't resolve `monkeyshape`'s
-  peer; synced skills fail the adopter's `refs` check (`bun run mshape` isn't a script);
-  `baseline --init` before `sync` leaves the gate red; the base biome `noConsole` override
-  hard-codes `src/cli/**` and `tools/**`; the hooks exit 127 at every prompt before
-  `mshape` is installed; `budgets/claude-md` fights the block `bd setup` appends.
+  nothing. `arch/host-access` flags `node:crypto`'s `createHash`, a pure operation.
+- **A green gate that didn't look.** `isTsSource` gates budgets, coverage, refs, garden and
+  arch. A C file calling `gets`, a Python script, a shell script and a 30 MB binary all
+  passed `mshape check` in a born repo; garden reported no large files.
+- **No home for an adopter's own rules.** The application's most expensive bug class (about
+  20 bugs: derived data keyed on too few inputs, an index replaced instead of merged, an
+  identity missing a field) was fixed each time by routing every caller through one
+  function; one bead closed with "the lesson was written down in an accepted decision
+  record and still did not transfer". The class is domain-specific; today `rules` in
+  `shape.config.ts` only configures the registry's rules.
+- **The adoption path, followed literally:** `bun add` unpinned the adopter's exact
+  versions; `--config` outside the repo can't resolve the `effect` peer; synced skills fail
+  the adopter's `refs` check (`bun run mshape` isn't a script); `baseline --init` before
+  `sync` leaves the gate red; the base biome `noConsole` override hard-codes `src/cli/**`
+  and `tools/**`; the hooks exit 127 at every prompt before `mshape` is installed;
+  `budgets/claude-md` fights the block `bd setup` appends.
 - **A born repo starts red.** `mshape init` from a checkout copies that checkout's skills but
   installs the npm release, so the first gate fails with `skills/sync-due`; a packed tarball
-  carries the same version number as npm with different contents.
-- **Repos that depend on repos** have no mechanism (roadmap, "Dependencies between repos").
-- **The loop, from the four tracks' retrospectives:**
-  - `main` can send but not receive: `msg send main` fails, so a boundary session can ask
+  carries npm's version number with different contents.
+- **Repos that depend on repos** have no mechanism, and both cases need one.
+- **The loop, from the tracks' retrospectives:**
+  - `main` can send but not receive (`msg send main` fails), so a boundary session can ask
     the tracks a question but not get the answer by mail. All four tracks hit it.
   - A reviewer launched in a track's worktree receives that track's mail, because a live
-    session inside a worktree gets the notice registered or not; launching reviews from the
-    main checkout avoids it but leaves the reviewer with no address.
+    session inside a worktree gets the notice whether or not it registered; launched from
+    the main checkout, a reviewer has no address at all.
   - `liveSessions` prunes as it reads: a probe deleted a real registration (#30).
   - `track list` migrated four live handoffs as a side effect of listing (#32's branch).
-  - Handoffs live only under `.git/`: nothing pushes them, so a fresh clone or a cloud
-    session can't see them.
-  - Long review rounds came from definitions with uncovered cases: #39's `done` took four
-    rounds, each a lifecycle case the plan's one-sentence definition didn't cover (a reused
-    name, a just-made track, a partly deferred bead). `4q6` was the same fact from another
-    side (fixed in #43, #46, #48).
+  - Long review rounds came from a lifecycle fact defined in one sentence: #39's `done` took
+    four rounds, each a case the definition didn't cover (a reused name, a just-made track,
+    a partly deferred bead).
 
-It comes now because both adoptions are the next goals, and each of these defects either
-blocks them or would be paid for on every future repo. Building them first, against real
-cases, is what principle 8 asks: a consumer exists for each.
+It comes now because both adoptions are next, and each defect either blocks them or would be
+paid for on every future repo. Each fix has a consumer (principle 8). The measure for every
+item below is three questions: does it remove a demonstrated, recurring failure; does it
+generalize past the repo that surfaced it; is it the simplest mechanism that holds. An
+adopter's own policy stays in that adopter; monkeyshape provides the mechanism to enforce it.
+After this milestone the next step is the first real adoption, not another framework
+milestone: that adoption decides what monkeyshape needs next.
 
 ## Goal, and how we'll know
 
-1. **Checks tell the truth on a real layout.** No silent pass and no false positive on
-   correct code: a module map at the repo root or across several top-level directories; an
-   error when a declared module or a `sources` glob matches nothing; `decode-strict` that
-   resolves same-file options and skips schemas with no properties; pure `node:` modules
-   (hashing, compression) are not host access.
-2. **Adopters extend the engine.** An adopter writes a rule in its own repo, in the same
-   engine as the registry's: same scope, allowances, `shape-ignore` comments, report format
-   and rule-cases test. Two new core rules for Effect bug classes the reviews found:
-   `Effect.promise` (a rejection becomes a defect, not a typed error) and a sync decode or
-   `JSON.parse` inside `Effect.gen` outside `Effect.try`.
-3. **The gate covers every tracked file.** Every tracked file is TypeScript (held to `tsc`
-   and biome as today), or matched by a declared language whose gate step compiles or lints
-   it, or exempt with a reason. Line budgets count any text source. Tracked files have a size
-   cap and a binary rule; declared paths are never tracked; forbidden patterns are matched
-   over all tracked text. The template ignores `.env*`.
-4. **Adoption works as written.** `docs/adopting.md` followed literally on a real existing
-   repo reaches a green gate with no undocumented step; `init` makes a repo whose first gate
-   is green from a checkout, a tarball or npm; hooks degrade to a note before `mshape` is
-   installed; a repo depends on another repo's release tarball and bumps it with one
-   command that verifies its hash and runs the gate.
-5. **Every session has an address.** A track's worktree, the main checkout and a review
-   worktree are each a mailbox. A review session started from the main checkout moves to
-   its review's address. Reads never prune.
-6. **Handoffs and migrations are safe.** Handoffs are backed up through the remote and
-   restored in a fresh clone; a format migration is its own command, never a side effect.
-7. **Plans define derived facts by their cases.** The `milestone` skill writes every derived
-   fact a plan introduces as a table of lifecycle cases, which the owning track turns into a
-   table-driven test before the code.
+Goals 1 to 5 are **must-have before adoption**. Goals 6 and 7 are **worth doing if
+contained**: a track drops what doesn't fit, and says so.
+
+1. **A green gate means what it says.** Every check reports one of four outcomes: ran and
+   passed; nothing applicable; couldn't run; exempt, with a reason. A configured glob or
+   module that matches nothing fails, unless it is declared optional. A prerequisite that
+   couldn't run fails the gate when it is required, and is a note only when the config
+   declares it optional. `mshape check` prints the outcomes, so a pass shows what was
+   looked at.
+2. **Checks tell the truth on a real layout.** A module map at the repo root or across
+   several top-level directories. `decode-strict` resolves same-file options and skips
+   schemas with no properties, with aliases and shadowing handled. `host-access` judges an
+   operation, not a module (`createHash` is pure, `randomBytes` is not). `noConsole` follows
+   the config's declared entry files.
+3. **Adopters extend the engine.** An adopter writes a rule in its own repo, against a small
+   stable interface, in the same engine as the registry's: same scope, allowances,
+   `shape-ignore`, report format and rule-cases test. A rule that is missing, fails to load or
+   is misconfigured fails the gate. The pattern documented for a domain bug class: one
+   function as the only enforcement point, and a rule that bans going around it, so the rule
+   catches every implementation, not the one that was seen.
+4. **No file is silently overlooked.** Each tracked file is TypeScript (deep checks, as
+   today), or matched by a declared command that `mshape check` runs and reports, or
+   structured data parsed with Bun's own parsers (JSON, YAML, TOML), or documentation (refs
+   and budgets), or exempt with a reason. Tracked files have a size cap with explicit
+   exceptions; a vendored artifact's hash is recorded and checked. No language analysis
+   beyond running the adopter's command.
+5. **Adoption and birth work as written.** `docs/adopting.md`, followed literally on a real
+   mature repo, reaches a green gate with no undocumented step, and sorts the repo's
+   knowledge into four kinds: history worth keeping (kept, not loaded), current
+   instructions (short, loaded), obsolete or duplicated text (retired), and invariants
+   (tests or adopter rules). Nothing is deleted to meet a budget. `init` makes a repo whose
+   first gate is green from a checkout, a tarball or npm; hooks degrade to a note before
+   `mshape` is installed; a release is reproducible from its tag.
+6. **The loop, contained.** Every session has an address (a track, `main`, `review-<n>`),
+   and a review started from the main checkout moves to its own; reads never prune; a
+   migration is its own command, never a side effect; the `milestone` skill gives each
+   lifecycle or workflow fact a plan introduces as a case table, which the owning track
+   turns into its test first.
+7. **Small additions, contained.** `mshape dep bump` for a dependency on another repo's
+   release tarball; and, after a `@effect/tsgo` spike, the two Effect rules below, or
+   `tsgo`'s own diagnostics if they cover the same failures.
 
 **Acceptance on real data:**
-- **The existing application** (a private repo; a scratch clone at its `main`, run by the
-  `checks`, `rules` and `adoption` tracks and recorded in their PRs as counts and rule ids,
+- **The existing application, at a pinned commit** (a private repo; a scratch clone, run by
+  `checks`, `rules` and `adoption`, recorded as one table in each PR: counts and rule ids,
   never its code):
-  - `arch` with its real module map finds its real cross-module imports, and fails on a map
-    entry that matches nothing.
-  - Every `decode-strict` and `host-access` finding on it is a real one, each reviewed and
-    listed in the PR.
-  - An adopter rule written in its `shape.config.ts` fails on a bug from its history,
-    replayed from its git log (an index replaced instead of merged), and passes on the
-    commit that fixed it.
-  - `docs/adopting.md`, followed literally by a fresh agent, reaches a green gate; every
-    step it had to improvise is a defect fixed in this milestone.
-- **A new repo born from the release** with C code and a data directory outside the repo:
-  its gate goes red on a C file that doesn't compile, a tracked 30 MB binary, a tracked
-  `.env` and a forbidden pattern in a string literal, and green once each is fixed. It
-  depends on another repo's release tarball, and `mshape dep bump` moves it.
-- **Two real Claude Code sessions, run by the maintainer:** a review started from the main
-  checkout gets none of the reviewed track's mail; a track's `msg send main` reaches the
-  main session as a live notice; a handoff is restored in a fresh clone.
+  - production TypeScript files found, typechecked, linted and analyzed by rules;
+  - every other tracked file: its declared command and that command's outcome, or its
+    exemption, grouped by reason;
+  - existing violations baselined, by rule;
+  - `arch` finds its real cross-module imports, and fails on a map entry matching nothing;
+  - every remaining `decode-strict` and `host-access` finding is a real one, each listed;
+  - an adopter rule fails on two different bugs of one class from its history (replayed from
+    its git log) and passes on the commits that fixed them;
+  - a fresh agent following `docs/adopting.md` reaches a green gate; every step it had to
+    improvise is a defect fixed in this milestone.
+- **A new repo born from the release**, with C code and a data directory outside the repo:
+  its gate is red on a C file that doesn't compile, a tracked 30 MB binary and an unrecorded
+  vendored tarball, and says "couldn't run" (red) when the declared compiler is missing;
+  green once each is fixed.
+- **Two real Claude Code sessions, run by the maintainer:** a review started from one of two
+  sessions in the main checkout gets none of the reviewed track's mail and leaves the other
+  session's address alone; a track's `msg send main` reaches the main session as a live
+  notice.
 - **A release is published** (0.4.0), and the README quick start works from npm.
 
 ## Non-goals
 
-- **Live delivery and hooks for agents other than Claude Code** (Cursor, Codex): no adopter
-  uses them now.
-- **A configurable default branch, or a host other than GitHub:** every adopter now uses
-  `main` and GitHub. The README says so.
-- **A helper for derived data** (a key over the inputs actually read; absent means refuse;
-  merge, not replace): one consumer, and its first form is an adopter rule (goal 2), which
-  shows what a general helper would need.
-- **An "absent is not 0" rule:** a rule can't yet tell decoded external data from any other
-  number; the adopter-rule mechanism covers a repo that can.
-- **Paused tracks:** a pause is already expressible. The work's beads are deferred out of
-  the milestone (dropping their `track:` label), the track is removed, and `bd dep` records
-  what it waits on.
-- **A "frozen design doc" exemption in refs:** a long design cited by section is the decay
-  principle 5 describes; an adopter retires it to `notes/` and burns citations down with
-  `baseline`.
-- **Locks on shared data, a gitignored home for sensitive narrative, spend approval per
-  run:** one consumer each, kept in that adopter's AGENTS.md until a second repo needs them.
-- **The adoption itself.** Adopting the existing application is its own milestone, run in
-  that repo with its own `/roadmap` and `/milestone`; birthing the new repo is its first
-  milestone. This milestone makes monkeyshape ready and proves it on scratch copies.
-- **Reworking review:** rounds stay uncapped. Goal 7 removes a cause of long rounds, not the
-  rounds.
+- **Analysis of languages other than TypeScript,** a language-plugin framework, or schema
+  validation of arbitrary config files: the adopter's own command is the check (goal 4).
+- **A broad Effect framework** or a second architecture system. Effect belongs where it buys
+  an execution guarantee (typed failures, cancellation, resource lifetimes, supervision,
+  composition, testability); pure transformations stay plain TypeScript. Improving
+  monkeyshape's own Effect use and its Effect enforcement is its own epic (below); this
+  milestone takes only the two rules in goal 7.
+- **`decode-strict` at trust boundaries:** knowing where a boundary is needs the module map
+  to say it (a later `arch.modules` extension); this milestone removes false positives only.
+- **Handoff backup through the remote:** no adopter is hurt yet (no cloud or second-machine
+  sessions); revisit when one is.
+- **Live delivery and hooks for agents other than Claude Code; a default branch other than
+  `main`; a host other than GitHub:** no adopter uses them. The README says so.
+- **A derived-data helper, or an "absent is not 0" rule:** one consumer; adopter rules
+  (goal 3) carry them there first, and show what a general version would need.
+- **Paused tracks:** a pause is already expressible. Its beads are deferred out of the
+  milestone (dropping their `track:` label), the track is removed, and `bd dep` records what
+  the work waits on.
+- **A refs exemption for a frozen design document:** the adopter keeps the document as
+  history (goal 5) and replaces section citations in code with decision slugs or tests, under
+  a baseline.
+- **Locks on shared data, a home for sensitive narrative, spend approval per run:** one
+  consumer each, kept in that adopter until a second repo needs them.
+- **The adoptions themselves:** the existing application adopts in a milestone of its own,
+  in its repo; the new repo's first milestone is its own. This milestone makes monkeyshape
+  ready and proves it on scratch copies.
+- **Capping review rounds:** goal 6's case tables remove a cause of long rounds, not rounds.
 
 ## Where we are
 
 | Area | Today |
 |---|---|
-| `arch` without `src/` | `root: "."` matches 0 files and passes; on the application's code moved under `src/`, 14 findings |
+| A pass | means "no violation found", including when nothing was examined |
+| `arch` without `src/` | `root: "."` matches 0 files and passes; with the code moved under `src/`, 14 findings |
 | `decode-strict` | 32 findings on the application, about 20 false (options in a `const`, branded strings) |
-| `host-access` | 11 findings on the application, 9 of them `node:crypto` hashing |
+| `host-access` | 11 findings on the application, 9 of them `createHash` |
 | Non-TS files | C, Python, shell and a 30 MB binary: 0 findings in a born repo |
+| A tool that can't run | always a note, so a missing compiler would pass |
 | Adopter rules | none: `rules` configures registry rules only |
-| `docs/adopting.md` | 7 defects followed literally (listed above) |
+| `docs/adopting.md` | 7 defects when followed literally (above) |
 | `init` from a checkout | first gate red: 5 `skills/sync-due` |
 | Mail to `main` | `no track main to send to` |
-| Handoff backup | none; lives in `.git/monkeyshape/handoffs` only |
 | npm | 0.2.0, published before milestone 2's mailbox merged |
 
 ## What changed since milestone 2, and why
 
 - Milestone 2 shipped every story bead (#23 to #48): `mshape sync` and PRIME.md, `track pr`
   and `pr.yml`, the mailbox and live notices, derived `done`, review's Fit section.
-- After the boundary's retrospective, `4q6` (retiring a track whose name the next milestone
-  reuses) was fixed: `track rm --keep-beads` (#43, #46, #48), and `/milestone` step 8 uses
-  it (#45, #47).
-- Two of milestone 2's acceptance lines were not met at the boundary: the release (0.2.0
-  shipped before the mailbox) and the maintainer's recorded two-session run (`f4y.22`). Both
-  close in Phase 0.
-- This plan uses five tracks: the work falls into five sets of disjoint files, and the
-  loop's share was twice any other's until split into `adoption` and `loop`.
+- After its retrospective, `4q6` (retiring a track whose name the next milestone reuses) was
+  fixed with `track rm --keep-beads` (#43, #46, #48), which `/milestone` step 8 uses (#45, #47).
+- Two of its acceptance lines were not met at the boundary: the release (0.2.0 shipped before
+  the mailbox) and the maintainer's recorded two-session run (`f4y.22`). Phase 0 closes both.
+- "A tool that can't run degrades to a note" (an AGENTS.md gotcha) becomes goal 1's contract:
+  a note only for a prerequisite declared optional. `adoption` rewrites the gotcha.
+- This plan's first draft was narrowed in review: language handling is the adopter's command,
+  not analysis; the Effect rules wait on a `tsgo` spike; handoff backup is deferred; adoption
+  keeps history rather than retiring it; acceptance counts coverage, not only passes.
 
 ## Phase 0: the milestone-2 boundary (before the tracks start)
 
 Done by the maintainer and the planning agent, in this order:
-1. Record `f4y.22`: the boundary's retrospective request went from `main` by `mshape msg`
-   to all four tracks, each notified live while idle, each answered without relaying.
-   The maintainer confirms and closes it, with milestone 2's epic.
+1. Record `f4y.22`: the boundary's retrospective request went from `main` by `mshape msg` to
+   all four tracks, each notified live while idle, each answered without relaying. The
+   maintainer confirms and closes it, with milestone 2's epic.
 2. Publish 0.3.0 from `main` (the maintainer): milestone 2's template changes reach npm.
 3. Remove the four milestone-2 tracks (`/milestone` step 8); none continues.
-4. File the epic and the beads below.
+4. File the epic, the beads below and the Effect epic (deferred, outside this milestone).
 
 ## Interfaces the tracks share
 
@@ -196,132 +216,148 @@ Settled before the tracks start. A change goes to the other tracks by `mshape ms
 maintainer.
 
 - **Ownership of files,** so no two tracks edit the same file:
-  - `checks`: `src/core/arch.ts`, `src/core/rules/decodeStrict.ts`, `src/helpers/`, the
-    `arch` and `sources` sections of `src/schemas/config.ts`, `config/` (biome and
-    tsconfig bases).
-  - `rules`: `src/core/rules/engine.ts`, `registry.ts` and every new rule file, the `rules`
-    section of the config schema, and how `src/api/monkeyshape.ts` exports what an adopter
-    rule needs.
+  - `checks`: `src/core/check.ts` and `src/core/report.ts` (the outcome contract),
+    `src/core/arch.ts`, `src/core/rules/decodeStrict.ts`, `src/helpers/`, the `arch` and
+    `sources` sections of `src/schemas/config.ts`, `config/` (biome and tsconfig bases).
+  - `rules`: `src/core/rules/engine.ts`, `registry.ts` and each new rule file, the `rules`
+    section of the config schema, and what `src/api/monkeyshape.ts` exports for adopter
+    rules.
   - `languages`: `src/core/coverage.ts`, `src/core/budgets.ts`, `src/core/model.ts`'s file
-    classification, `src/core/garden.ts`, a new `files` check, the `coverage`, `budgets`
-    and `files` sections of the config schema, and `refs.forbidden`'s reach (`refs.ts`'s
-    forbidden matching only).
-  - `adoption`: `docs/adopting.md`, README, `src/adapters/init.ts`, `src/core/scaffold.ts`,
-    `template/`, `src/adapters/sync.ts` and `src/core/sync.ts`, `src/core/hooks.ts`, the
-    config loader (`src/adapters/config.ts`), and a new `mshape dep` command.
+    classification, `src/core/garden.ts`, a new `files` check, and the `coverage`, `budgets`
+    and `files` sections of the config schema.
+  - `adoption`: `docs/adopting.md`, README, AGENTS.md, `src/adapters/init.ts`,
+    `src/core/scaffold.ts`, `template/`, `src/{core,adapters}/sync.ts`, `src/core/hooks.ts`,
+    the config loader (`src/adapters/config.ts`), the release script, and `mshape dep`.
   - `loop`: `src/{core,adapters}/mail.ts`, `src/{core,adapters}/notices.ts`,
-    `src/adapters/reviews.ts`, `src/{core,adapters}/tracks.ts`, `src/core/handoff.ts`,
-    `src/core/layout.ts`, and the `track`, `handoff`, `review-pr`, `milestone` and
-    `roadmap` skills.
-  - Shared tables, additions only: `KINDS` in `src/core/check.ts`, the command table in
-    `src/cli/main.ts`, the top-level keys of `ShapeConfig`, `test/core/ruleCases.test.ts`.
-    Each track adds its own entries and edits no one else's.
+    `src/adapters/reviews.ts`, `src/{core,adapters}/tracks.ts`, `src/{core,adapters}/trackPr.ts`,
+    `src/core/handoff.ts`, `src/core/layout.ts`, and the `track`, `handoff`, `review-pr`,
+    `milestone` and `roadmap` skills.
+  - Shared tables, additions only: `KINDS` in `src/core/check.ts` (its entries; `checks`
+    owns the rest of the file), the command table in `src/cli/main.ts`, the top-level keys of
+    `ShapeConfig`, `test/core/ruleCases.test.ts`.
   - A change in another track's file goes to that track as a message or a bead.
-- **Language coverage (owner `languages`, consumers `adoption` and the template).** A
-  repo declares its other languages in `shape.config.ts`: a glob and the package script the
-  gate runs for it. The `coverage` check fails a tracked file that is neither TypeScript nor
-  matched, nor exempt with a reason, and a declared script the gate doesn't run. The
-  template declares none; `adoption` documents it.
-- **Tracked files (owner `languages`).** One new check, `files`: a size cap and a binary
-  rule for tracked files, with per-path allowances that carry a reason, and `neverTracked`
-  globs (the template ships `.env*`). `refs.forbidden` is matched over every tracked text
-  file, not only docs and comments, under its existing key.
-- **Adopter rules (owner `rules`, consumer `adoption`'s docs).** `shape.config.ts` names
-  local rule modules; each exports the same shape a registry rule has (id, `bugClass`,
-  message, scope, a function that reports offsets). Their ids are namespaced
-  (`local/<id>`), they appear in `mshape rules` and garden, and the rule-cases test requires
-  a must-fail and a must-pass case for each, in the adopter's own tests. The engine stays
-  the one owner of scope, allowances and `shape-ignore`.
-- **Module map at the root (owner `checks`).** `arch.root` may be `.`, and a module may
-  name its directory by a path; an error, not a pass, when a declared module matches no
-  file. `sources` that match nothing is a note naming the glob.
-- **Repo dependencies (owner `adoption`).** A dependency on another repo is its release
-  tarball under `vendor/`, recorded with its sha256. `mshape dep bump <name> <tarball>`
-  verifies the hash, updates `package.json` and the lockfile, and runs the gate; it never
-  fetches over the network by itself.
-- **Session addresses (owner `loop`).** A session's address is the checkout it serves. This
-  is a derived fact, so here are its cases, which `loop` turns into its table test first:
+- **The outcome contract (owner `checks`, consumers every track).** Each check returns its
+  violations plus an outcome: `passed`, `not-applicable`, `unavailable` (with the missing
+  prerequisite), or `exempt` (with the reason). `unavailable` fails the gate unless the config
+  declares that prerequisite optional. A glob or module matching nothing fails unless declared
+  `optional: true`. `mshape check` prints one line per check with its outcome and what it
+  examined (for example, files analyzed). This lands in `checks`' first PR; the others build
+  on it.
+- **Declared commands (owner `languages`, consumer `adoption`'s docs).** A repo declares, in
+  `shape.config.ts`, globs and the command that checks them (`{ files, run, optional? }`).
+  `mshape check` runs each command with the files' tool on PATH, and reports its outcome
+  under the contract; a missing tool is `unavailable`. Coverage fails a tracked file that no
+  check accounts for: TypeScript, a declared command, structured data (parsed with Bun's
+  JSON, YAML and TOML parsers), documentation, or an exemption with a reason. The template
+  declares none. Lands in `languages`' first PR.
+- **Tracked files (owner `languages`).** The `files` check: a size cap for tracked files,
+  explicit per-path exceptions with a reason, and `.env*` never tracked (the template's
+  ignore list gets it too, through `adoption`).
+- **Adopter rules (owner `rules`, consumer `adoption`'s docs).** `shape.config.ts` names local
+  rule modules. Each exports what a registry rule has and nothing more: an id, a `bugClass`, a
+  message, and a function from a parsed file to offsets, over a small exported AST helper
+  set, not the parser's internals. Ids are namespaced (`local/<id>`) and appear in
+  `mshape rules` and garden. A module that fails to load or export the shape fails the gate.
+  Each rule needs must-fail, must-pass and allowed-exception cases in the adopter's tests.
+  The engine stays the one owner of scope, allowances and `shape-ignore`. Lands in `rules`'
+  first PR.
+- **Module map at the root (owner `checks`).** `arch.root` may be `.`, and a module may name
+  its directory by a path. Matching follows the outcome contract.
+- **Vendored releases (owner `adoption`).** A dependency on another repo is its release
+  tarball under `vendor/`, recorded in `shape.config.ts` with its package name and sha256,
+  which the `files` check verifies. `mshape dep bump <name> <tarball> --sha256 <digest>` takes
+  the digest from the upstream release, refuses a mismatch or a different package name,
+  updates `package.json`, the lockfile and the record, and runs the gate. It never fetches.
+- **Session addresses (owner `loop`).** A session's address is the checkout it serves. Its
+  cases, which `loop` turns into a table test first:
 
-  | Case | Address | Gets mail for |
-  |---|---|---|
-  | session starts in a track's worktree | `<track>` | that track |
-  | session starts in the main checkout | `main` | `main` |
-  | a session in the main checkout runs `mshape review <n>` | moves to `review-<n>` | `review-<n>` only |
-  | `mshape review <n>` again, for a new head | stays `review-<n>` | `review-<n>` |
-  | `mshape review rm <n>` | registration removed | nothing |
-  | `/clear` or a restart in a review session | `main` again, until `mshape review <n>` reruns | as its address |
-  | a second live session registers at an address that has one | both; `register` warns | that address |
-  | an unregistered live session inside a worktree | none | nothing (no fallback by directory) |
-  | a registration whose session ended | pruned at send, never at read | nothing |
+  | Case | Result |
+  |---|---|
+  | a session starts in a track's worktree | registered at `<track>` |
+  | a session starts in the main checkout | registered at `main` |
+  | a session in the main checkout runs `mshape review <n>` | moves to `review-<n>`; any other session at `main` is untouched |
+  | it runs `mshape review <n>` again, for a new head | stays at `review-<n>` |
+  | it runs `mshape review <m>` while at `review-<n>` | moves to `review-<m>`; `review-<n>`'s mail stays for `review-<n>` |
+  | `mshape review rm <n>` | that address's registrations are removed; its unread mail is listed first |
+  | `/clear` or a restart in a review session | registers at `main` again, until `mshape review <n>` reruns |
+  | a second live session registers where one already is | both registered; `register` warns |
+  | no session identity (no session id or pid) | no address, and a note; never a guess |
+  | which session to move is ambiguous | refuses, naming the sessions |
+  | a live session inside a worktree that never registered | gets nothing (no fallback by directory) |
+  | a registration whose session ended | pruned by `send`, never by a read |
 
   `msg send main` and `msg send review-<n>` are valid; `inbox` and `read` work at each
-  address. `liveSessions` only reads; pruning is its own function, called by `send`.
-- **Handoff backup (owner `loop`).** Handoffs are mirrored to a ref on the remote
-  (`refs/monkeyshape/handoffs`), pushed by `track pr` and by the `handoff` skill;
-  `track new <name>` in a clone without the handoff restores it from the ref. When local and
-  remote differ in both directions, nothing is overwritten: it refuses and names both.
+  address; `liveSessions` only reads.
 - **Migrations (owner `loop`).** `mshape track migrate` rewrites handoffs to the current
   format and prints what it changed; `track list` only reports a handoff that needs it.
-- **What a fresh agent loads** (owner `adoption`, from milestone 2): the fresh-agent test
-  also runs in a repo made by following `docs/adopting.md`, not only one born by `init`.
 
 ## Tracks
 
 | Track | Serves | Charter | Acceptance |
 |---|---|---|---|
-| `checks` | goal 1 | `arch` at the root and over several directories, and an error on a module or `sources` glob matching nothing; `decode-strict` resolving same-file options and skipping property-less schemas; `decodeStrict` helper variants for sync and stream decodes; pure `node:` specifiers in `host-access`, and its missed `await import("node:…")`; the biome base's `noConsole` override for entry files declared in config rather than fixed paths | On the existing application's scratch clone: `arch` finds its real cross-module imports; every `decode-strict` and `host-access` finding is real, each listed in the PR |
-| `rules` | goal 2 | Adopter rules in the engine (the interface above), with `mshape rules`, garden and the rule-cases test covering them; the core rules for `Effect.promise` and for a sync decode or `JSON.parse` inside `Effect.gen` | An adopter rule in the application's scratch clone fails on a bug replayed from its history and passes on its fix; each new core rule has its must-fail and must-pass cases |
-| `languages` | goal 3 | Declared languages and their gate steps in `coverage`; line budgets and garden for any text source; the `files` check (size cap, binary rule, `neverTracked`); `refs.forbidden` over all tracked text; `.env*` in the template's ignore list (sent to `adoption`, who owns `template/`) | A born repo's gate is red on a C file that doesn't compile, a tracked 30 MB binary, a tracked `.env` and a forbidden string literal, and green once each is fixed |
-| `adoption` | goals 4, 2 (its docs), 3 (its docs) | `docs/adopting.md` rewritten from a literal run on the application's scratch clone: pinned installs, `sync` before `baseline`, the `mshape` script, `--config` outside the repo, `CLAUDE.md` with bd's block, adopter rules and declared languages; `init` green from a checkout, a tarball or npm, with versions that say what they contain; hooks that degrade to a note before `mshape` is installed; `mshape dep bump`; the fresh-agent test over an adopted repo | A fresh agent following `docs/adopting.md` on the clone reaches a green gate; a born repo depends on a tarball and `dep bump` moves it; `init` from a checkout is green on its first gate |
-| `loop` | goals 5, 6, 7 | Session addresses (the case table above) and `review-pr`'s step to move the reviewer; `liveSessions` reads only; the warning for two sessions at one address; handoff backup and restore; `mshape track migrate`; the `milestone` skill's case tables for derived facts; splitting `test/adapters/tracks.test.ts` (1172 lines, near the cap) by command | The maintainer's two-session run above; a handoff restored in a fresh clone; `track list` never rewrites a handoff |
+| `checks` | goals 1, 2 | The outcome contract and its output (first PR); `arch` at the root and across directories; `decode-strict` false positives (same-file options, property-less schemas, aliases, shadowing); `decodeStrict` helper variants for sync decodes; `host-access` per operation; `noConsole` from declared entry files | On the pinned application clone: the coverage table; `arch` finds its real cross-module imports; each remaining `decode-strict` and `host-access` finding is real, listed in the PR |
+| `rules` | goals 3, 7 | The adopter-rule interface and loader (first PR), with `mshape rules`, garden and rule-cases covering adopter rules; the enforcement-point pattern, documented with its example rule; then a `@effect/tsgo` spike: if its diagnostics cover `Effect.promise` on an operation that can reject and an expected decode failure escaping as a defect, adopt them; otherwise write those two rules, each with an allowance for a promise that cannot reject | An adopter rule in the clone fails on two different historical bugs of one class and passes on their fixes; a broken rule module fails the gate; the spike's report, and the rules or diagnostics it chose, each with must-fail and must-pass cases |
+| `languages` | goal 4 | Declared commands (first PR); coverage that accounts for every tracked file; structured-data parsing; line budgets and garden over any text source; the `files` check | A born repo is red on a C file that doesn't compile, a tracked 30 MB binary and an unrecorded vendored tarball, and `unavailable` (red) with the compiler missing; green once fixed; the clone's other files appear in the coverage table |
+| `adoption` | goals 5, 7 | `docs/adopting.md` rewritten from a literal run on the pinned clone, with the four kinds of knowledge and each defect above; the AGENTS.md gotcha for the outcome contract; `init` green from a checkout, tarball or npm, with versions that say what they contain; hooks before install; a release reproducible from its tag; `mshape dep bump`; the fresh-agent test over an adopted repo | A fresh agent following `docs/adopting.md` on the clone reaches a green gate, improvising nothing; `init` from a checkout is green on its first gate; `dep bump` refuses a wrong digest and moves a right one |
+| `loop` | goal 6 | Session addresses (the case table) and `review-pr`'s step that moves the reviewer; `liveSessions` reads only; `mshape track migrate`; case tables for lifecycle facts in the `milestone` skill; splitting `test/adapters/tracks.test.ts` (1172 lines, near the cap) by command | The maintainer's two-session run above; `track list` never rewrites a handoff |
 
-**Order:** nothing waits on another track at the start. `rules` lands the adopter-rule
-interface in its first PR, since `adoption`'s docs describe it. `languages` lands the
-`coverage` declaration format first, for the same reason. `adoption`'s literal run happens
-last, against everyone's merged work, and its findings become beads for whichever track
-owns the file.
+**Order:** each track's first PR lands its interface (the outcome contract, adopter rules,
+declared commands); the rest build on them, and nothing else waits. `adoption`'s literal run
+happens last, against everyone's merged work, and its findings become beads for whichever
+track owns the file. P1 is goals 1 to 5; goals 6 and 7 are P2.
 
 ## Proposed beads (filed after approval)
 
-- **checks:** `arch` at the root and over several directories, with errors on empty matches;
-  `decode-strict` false positives; `decodeStrict` sync and stream variants; pure `node:`
-  modules and dynamic imports in `host-access`; `noConsole` for declared entry files.
+- **checks:** the outcome contract and output; `arch` at the root and across directories;
+  `decode-strict` false positives; `decodeStrict` sync variants; `host-access` per
+  operation; `noConsole` from declared entry files.
 - **rules:** the adopter-rule interface and loader; `mshape rules`, garden and rule-cases
-  over adopter rules; the `Effect.promise` rule; the sync-decode-in-`Effect.gen` rule.
-- **languages:** declared languages in `coverage`; budgets and garden for any text source;
-  the `files` check; `refs.forbidden` over tracked text.
-- **adoption:** `docs/adopting.md` from a literal run, with the seven defects; `init` green
-  from a checkout, tarball or npm; hooks before install; `mshape dep bump`; the fresh-agent
-  test over an adopted repo; `.env*` in the template.
-- **loop:** session addresses and `review-pr`'s move; reads never prune; the two-session
-  warning; handoff backup and restore; `mshape track migrate`; case tables in `milestone`;
-  the `tracks.test.ts` split.
+  over adopter rules; the enforcement-point pattern and its example; the `tsgo` spike; the
+  two Effect rules or `tsgo`'s diagnostics (P2).
+- **languages:** declared commands; coverage over every tracked file; structured-data
+  parsing; budgets and garden over any text source; the `files` check.
+- **adoption:** `docs/adopting.md` from a literal run, with the four kinds of knowledge;
+  the outcome-contract gotcha; `init` green from any source; hooks before install; a
+  reproducible release; `mshape dep bump` (P2); the fresh-agent test over an adopted repo;
+  `.env*` in the template.
+- **loop (P2):** session addresses and `review-pr`'s move; reads never prune; `track migrate`;
+  case tables in `milestone`; the `tracks.test.ts` split.
 - **milestone:** the acceptance run, the 0.4.0 release, and the quick start from npm.
+- **Outside this milestone, deferred:** an Effect epic with two workstreams that inform each
+  other: monkeyshape's own Effect use (subprocess cancellation, resource cleanup, typed
+  failures, interruption and failure-injection tests), and Effect enforcement (rule
+  corrections, type-aware diagnostics, execution boundaries, checks for recurring resource
+  and concurrency mistakes). A real bug fixed in one becomes a regression test or rule in
+  the other.
 
 ## Decision points
 
-- **If adopter rules can't share the engine** without exporting its internals as a public
-  API, `rules` reports the smallest surface that works before building on it; the maintainer
+- **If adopter rules can't share the engine** without exporting the parser's internals,
+  `rules` reports the smallest surface that works before building on it; the maintainer
   decides what becomes public.
-- **If a declared language's gate step needs a toolchain CI doesn't have**, `languages`
-  says so: the template's CI installs only Bun, and whether it grows a toolchain list is
-  the maintainer's call.
-- **The handoff ref and private remotes:** pushing a ref is outward-facing. `loop` confirms
-  with the maintainer before `track pr` starts pushing it in this public repo.
+- **The `tsgo` spike** reports what its diagnostics cover before either Effect rule is
+  written; adopting `tsgo` is a new dev dependency for adopters, so it is the maintainer's.
+- **If a declared command needs a toolchain CI doesn't have,** `languages` says so: the
+  template's CI installs only Bun, and whether it grows a toolchain list is the maintainer's.
+- **If the outcome contract turns a currently green adopter red** (an optional tool now
+  required), `checks` lists which prerequisites default to optional, and the maintainer
+  approves the defaults.
 
 ## Deferred, with reasons
 
-- Cursor and Codex, a configurable default branch, other hosts: no adopter needs them (see
-  Non-goals).
+- The Effect epic beyond goal 7: its own priority, after the first adoption shows which
+  failures recur.
+- Handoff backup through the remote; Cursor and Codex; another default branch or host:
+  no adopter needs them yet (Non-goals).
 - The derived-data helper and an "absent is not 0" rule: one consumer; revisit after its
   adopter rules exist.
-- Locks on shared data, a sensitive-narrative directory, spend approval per run: one consumer
-  each.
+- Locks on shared data, a sensitive-narrative directory, spend approval per run: one
+  consumer each.
 - `mshape validate` (`97o`) and the agentic layer (`v56`): the first adoption runs without
   them; they come when a repo's real-data runs are its bottleneck.
 - A default timeout for integration tests: one occurrence (#36), fixed in place.
-- Remaining starter rules (`hh2`) beyond the two in goal 2, policy bundles (`8h4`), gate
-  hardening (`nm9`): unchanged, no consumer yet.
+- Remaining starter rules (`hh2`), policy bundles (`8h4`), gate hardening (`nm9`): unchanged,
+  no consumer yet.
 
 ## Spend
 

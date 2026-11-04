@@ -21,7 +21,7 @@ convention: rewritten in place at each milestone boundary, and never cited by co
 | `mshape track pr` (a fresh gate, then open or update the PR) and `pr.yml`; `track list`'s derived `done` column; the `beads` check (who owns each bead) | **Shipped** (milestone 2, `monkeyshape-f4y`) |
 | `mshape msg send / inbox / read / register`: the mailbox between tracks, with live notices into idle Claude Code sessions; `track rm --keep-beads` | **Shipped** (milestone 2, `monkeyshape-f4y`) |
 | Conventions as code: one owner per checkable convention, delivered when needed, messages between tracks, derived status, review that reads the milestone | **Shipped** (milestone 2, `monkeyshape-f4y`); plan in `notes/2026-11-04-milestone-2.md` |
-| Ready for a real application and a new repo: checks true on real layouts, adopter rules, the gate over every tracked file, adoption as written, an address per session | **Milestone 3** (draft): plan in `plan/MILESTONE.md` |
+| Ready for a real application and a new repo: a gate whose pass means what it says, checks true on real layouts, adopter rules, no file silently overlooked, adoption as written | **Milestone 3** (draft): plan in `plan/MILESTONE.md` |
 | First real adoptions: an existing application, and a new repo born through the loop | **After milestone 3**, each as its own repo's milestone: `monkeyshape-36f`, `monkeyshape-iqf.14` |
 | The remaining starter rules | Later: `monkeyshape-hh2` |
 | The agentic layer | Later: `monkeyshape-v56` |
@@ -119,9 +119,10 @@ defined in one sentence, so plans now give their cases as a table.
 ### First real adoptions (`monkeyshape-36f`, `monkeyshape-iqf.14`)
 
 An existing application adopts monkeyshape at a sync point, in one knowledge-migration
-milestone of its own: a short roadmap in place of a long design cited by section, decisions
-in a budgeted file, the bead backlog groomed to three horizons, handoffs out of git, and
-code-level rules landing as ratchets. A new repo is born through `mshape init` and worked
+milestone of its own. Its knowledge is sorted, not cut: history worth keeping stays (not
+loaded), current instructions get short, obsolete text is retired, and invariants become
+tests or adopter rules; the bead backlog is groomed to three horizons, handoffs leave git,
+and code-level rules land as ratchets. A new repo is born through `mshape init` and worked
 through the whole loop; its first milestone is "a first result on a real target". Both come
 after milestone 3, so they test the loop and the checks, not defects already known.
 
