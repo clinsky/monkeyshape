@@ -89,6 +89,19 @@ export interface Snapshot {
    * match nothing isn't run, and has no entry.
    */
   readonly commands: ReadonlyMap<number, CommandRun>;
+  /** Each file's size in bytes, by path; a symlink's is the link's own. */
+  readonly sizes: ReadonlyMap<string, number>;
+  /** What each recorded vendored artifact is, by its recorded path, when it is in `files`. */
+  readonly vendored: ReadonlyMap<string, VendoredRead>;
+}
+
+/**
+ * A vendored artifact as read from disk: its digest, and the name in its
+ * `package/package.json`, or why that name can't be read (not an archive, no manifest).
+ */
+export interface VendoredRead {
+  readonly sha256: string;
+  readonly package: { readonly name: string } | { readonly unreadable: string };
 }
 
 /** Git's executable bit (mode 100755) or a symlink (120000). */

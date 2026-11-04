@@ -10,6 +10,7 @@ import { SYNCED_FILES } from "../core/sync.ts";
 import type { ResolvedConfig } from "../schemas/config.ts";
 import { WorkspaceError } from "../schemas/errors.ts";
 import { loadModes, runCommands } from "./commands.ts";
+import { loadSizes, loadVendored } from "./files.ts";
 import { run, runTool } from "./process.ts";
 import { loadSkills } from "./skills.ts";
 
@@ -333,6 +334,8 @@ export const loadSnapshot = (root: string, config: ResolvedConfig, packageRoot: 
       if (!listedNow.has(file) && (yield* exists(root, file))) unlisted.add(file);
     const modes = yield* loadModes(root, present);
     const commands = yield* runCommands(root, config, present);
+    const sizes = yield* loadSizes(root, present);
+    const vendored = yield* loadVendored(root, config, present);
     const snapshot: Snapshot = {
       files: present,
       texts,
@@ -352,6 +355,8 @@ export const loadSnapshot = (root: string, config: ResolvedConfig, packageRoot: 
       unlisted,
       modes,
       commands,
+      sizes,
+      vendored,
     };
     return snapshot;
   });
