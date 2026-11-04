@@ -6,6 +6,7 @@ import type {
   Integration,
   SkillsSnapshot,
   Snapshot,
+  VendoredRead,
 } from "../src/core/model.ts";
 import { lineAt } from "../src/core/model.ts";
 import { parse } from "../src/core/parse.ts";
@@ -37,6 +38,10 @@ export const repo = (
     readonly modes?: Readonly<Record<string, FileMode>>;
     /** Declared commands' runs, by their index in `coverage.commands`. */
     readonly commands?: ReadonlyArray<CommandRun | undefined>;
+    /** Sizes by path; a file not listed has its text's length. */
+    readonly sizes?: Readonly<Record<string, number>>;
+    /** Recorded vendored artifacts as read, by path. */
+    readonly vendored?: Readonly<Record<string, VendoredRead>>;
   } = {},
 ): Snapshot => {
   const beadsOk =
@@ -72,6 +77,10 @@ export const repo = (
     shippedPrime: options.shippedPrime,
     unlisted: new Set(options.unlisted ?? []),
     modes: new Map(Object.entries(options.modes ?? {})),
+    sizes: new Map(
+      Object.entries(files).map(([path, text]) => [path, options.sizes?.[path] ?? text.length]),
+    ),
+    vendored: new Map(Object.entries(options.vendored ?? {})),
     commands: new Map(
       (options.commands ?? []).flatMap((ran, index) =>
         ran === undefined ? [] : [[index, ran] as const],

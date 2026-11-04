@@ -17,6 +17,7 @@ export const CHECK_NAMES = [
   "refs",
   "budgets",
   "coverage",
+  "files",
   "rules",
   "skills",
   "sync",
@@ -91,7 +92,10 @@ export const RuleSetting = Schema.Struct({
  * So `cases` and `data/large` pass; `/abs`, `../x`, `.`, `./x`, `data//large`, `cases/` don't.
  */
 export const SharedPath = Schema.String.check(
-  Schema.isPattern(/^(?!\.\.?(?:\/|$))[^/\0]+(?:\/(?!\.\.?(?:\/|$))[^/\0]+)*$/),
+  Schema.isPattern(/^(?!\.\.?(?:\/|$))[^/\0]+(?:\/(?!\.\.?(?:\/|$))[^/\0]+)*$/, {
+    message:
+      "must be a repo-relative path written plainly: no leading `/` or `./`, no `.` or `..` segment, no `//` and no trailing `/` (write `vendor/x.tgz`, not `./vendor/x.tgz`)",
+  }),
 );
 
 /**
@@ -109,6 +113,17 @@ export const DeclaredCommand = Schema.Struct({
   optional: Schema.optionalKey(Schema.Boolean),
 });
 export type DeclaredCommand = typeof DeclaredCommand.Type;
+
+/** A release tarball of another repo, kept under `vendor/`: what `files` verifies it is. */
+export const VendoredArtifact = Schema.Struct({
+  /** Repo-relative and normal, as `sharedPaths` are, whatever its extension. */
+  path: SharedPath,
+  /** The npm name in the tarball's `package/package.json`. */
+  package: Schema.String,
+  /** Lowercase hex, as `sha256sum` prints it. */
+  sha256: Schema.String.check(Schema.isPattern(/^[0-9a-f]{64}$/)),
+});
+export type VendoredArtifact = typeof VendoredArtifact.Type;
 
 export const ForbiddenPattern = Schema.Struct({
   /** A regular expression source, matched against docs and code comments. */
@@ -203,6 +218,15 @@ export const ShapeConfig = Schema.Struct({
       largeFiles: Schema.optionalKey(Schema.Array(Allowance)),
     }),
   ),
+  files: Schema.optionalKey(
+    Schema.Struct({
+      /** The size cap for every file in the repo, in bytes. */
+      maxBytes: Schema.optionalKey(Schema.Int.check(Schema.isGreaterThan(0))),
+      /** Files allowed past the cap, each with its reason. */
+      large: Schema.optionalKey(Schema.Array(Allowance)),
+      vendored: Schema.optionalKey(Schema.Array(VendoredArtifact)),
+    }),
+  ),
   coverage: Schema.optionalKey(
     Schema.Struct({
       tsconfigs: Schema.optionalKey(Schema.Array(Schema.String)),
@@ -266,6 +290,11 @@ export interface ResolvedConfig {
     readonly fileWarnLines: number;
     readonly fileFailLines: number;
     readonly largeFiles: ReadonlyArray<Allowance>;
+  };
+  readonly files: {
+    readonly maxBytes: number;
+    readonly large: ReadonlyArray<Allowance>;
+    readonly vendored: ReadonlyArray<VendoredArtifact>;
   };
   readonly coverage: {
     readonly tsconfigs: ReadonlyArray<string>;
@@ -368,5 +397,10 @@ export const resolveConfig = (config: ShapeConfig): ResolvedConfig => ({
     ],
     commands: config.coverage?.commands ?? [],
     exemptFiles: config.coverage?.exemptFiles ?? [],
+  },
+  files: {
+    maxBytes: config.files?.maxBytes ?? 1024 * 1024,
+    large: config.files?.large ?? [],
+    vendored: config.files?.vendored ?? [],
   },
 });

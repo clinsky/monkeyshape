@@ -434,6 +434,101 @@ const coverage: Record<string, Cases> = {
   },
 };
 
+// files
+
+const SHA = "a".repeat(64);
+const VENDORED: ShapeConfig = {
+  files: { vendored: [{ path: "vendor/lib-1.0.0.tgz", package: "lib", sha256: SHA }] },
+};
+const READ = { sha256: SHA, package: { name: "lib" } };
+
+const filesCases: Record<string, Cases> = {
+  "files/too-large": {
+    fail: {
+      files: { "data/big.bin": "" },
+      options: { sizes: { "data/big.bin": 30 * 1024 * 1024 } },
+    },
+    // A reasoned exception, a recorded artifact, and bd's own files are past the cap freely.
+    pass: {
+      files: {
+        "data/big.bin": "",
+        "vendor/lib-1.0.0.tgz": "",
+        ".beads/issues.jsonl": "",
+      },
+      config: {
+        files: {
+          large: [{ path: "data/big.bin", reason: "the fixture every parser test reads" }],
+          vendored: [{ path: "vendor/lib-1.0.0.tgz", package: "lib", sha256: SHA }],
+        },
+      },
+      options: {
+        sizes: {
+          "data/big.bin": 30 * 1024 * 1024,
+          "vendor/lib-1.0.0.tgz": 5 * 1024 * 1024,
+          ".beads/issues.jsonl": 5 * 1024 * 1024,
+        },
+        vendored: { "vendor/lib-1.0.0.tgz": READ },
+      },
+    },
+  },
+  "files/large-unmatched": {
+    fail: {
+      config: { files: { large: [{ path: "data/gone.bin", reason: "kept for the record" }] } },
+    },
+    pass: {
+      files: { "data/big.bin": "" },
+      config: { files: { large: [{ path: "data", reason: "fixtures every parser test reads" }] } },
+    },
+  },
+  "files/env": {
+    fail: { files: { "app/.env.local": "" } },
+    // A template by its last segment, however qualified: no secret in it.
+    pass: {
+      files: {
+        ".env.example": "",
+        "app/.env.sample": "",
+        ".env.local.example": "",
+        ".env.production.sample": "",
+        ".envrc": "",
+        "env.ts": "",
+      },
+    },
+  },
+  "files/vendored-missing": {
+    fail: { config: VENDORED },
+    pass: {
+      files: { "vendor/lib-1.0.0.tgz": "" },
+      config: VENDORED,
+      options: { vendored: { "vendor/lib-1.0.0.tgz": READ } },
+    },
+  },
+  "files/vendored-digest": {
+    fail: {
+      files: { "vendor/lib-1.0.0.tgz": "" },
+      config: VENDORED,
+      options: { vendored: { "vendor/lib-1.0.0.tgz": { ...READ, sha256: "b".repeat(64) } } },
+    },
+    pass: {
+      files: { "vendor/lib-1.0.0.tgz": "" },
+      config: VENDORED,
+      options: { vendored: { "vendor/lib-1.0.0.tgz": READ } },
+    },
+  },
+  "files/vendored-package": {
+    fail: {
+      files: { "vendor/lib-1.0.0.tgz": "" },
+      config: VENDORED,
+      options: { vendored: { "vendor/lib-1.0.0.tgz": { ...READ, package: { name: "other" } } } },
+    },
+    // Recorded by path whatever its extension: the contents say what it is.
+    pass: {
+      files: { "vendor/lib.bin": "" },
+      config: { files: { vendored: [{ path: "vendor/lib.bin", package: "lib", sha256: SHA }] } },
+      options: { vendored: { "vendor/lib.bin": READ } },
+    },
+  },
+};
+
 // rules: the engine's own kinds, then one per registry rule
 
 const ALLOW_LEGACY: ShapeConfig = {
@@ -803,6 +898,7 @@ const CASES: Record<string, Cases> = {
   ...refs,
   ...budgets,
   ...coverage,
+  ...filesCases,
   ...rules,
   ...skills,
   ...syncCases,
