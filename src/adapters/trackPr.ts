@@ -165,7 +165,11 @@ export const trackPr = (
     });
     if (pushed.code !== 0)
       return yield* refuse(
-        `\`git push ${remote} ${branch}\` failed, so the PR wasn't touched: ${pushed.stderr || `exit ${pushed.code}`}`,
+        `\`git push ${remote} ${branch}\` failed, so the PR wasn't touched: ${pushed.stderr || `exit ${pushed.code}`}${
+          /non-fast-forward|fetch first|\[rejected\]/.test(pushed.stderr)
+            ? `. \`${remote}\`'s \`${branch}\` has commits this branch lacks: if they are an earlier track's of this name (squash-merged, or dropped), delete it (\`git push ${remote} --delete ${branch}\`); if they are this track's, merge them in (\`git pull ${remote} ${branch}\`)`
+            : ""
+        }`,
       );
 
     const now = yield* gitOk(top, ["rev-parse", "HEAD"]);

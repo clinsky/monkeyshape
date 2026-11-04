@@ -214,6 +214,20 @@ describe("track pr", () => {
     );
   });
 
+  test("a push the remote refuses as non-fast-forward says what to do about its branch", async () => {
+    // The remote's track/docs has a commit of its own, as an earlier track of the name leaves.
+    sh(base, "clone", "-q", join(base, "remote.git"), "other");
+    for (const key of ["user.name", "user.email"]) sh(join(base, "other"), "config", key, "x");
+    sh(join(base, "other"), "checkout", "-q", "-b", "track/docs");
+    sh(join(base, "other"), "commit", "-q", "--allow-empty", "-m", "an earlier track's");
+    sh(join(base, "other"), "push", "-q", "origin", "track/docs");
+    await writeFile(`${wt()}/body.md`, body("x"));
+    const refused = mshape(wt(), "pr", "--title", "t", "--body-file", "body.md");
+    expect(refused.code).toBe(1);
+    expect(refused.stderr).toContain("`origin`'s `track/docs` has commits this branch lacks");
+    expect(refused.stderr).toContain("delete it (`git push origin --delete track/docs`)");
+  });
+
   test("a create that fails says whether a PR is open now, so nothing is posted twice", async () => {
     await writeFile(`${wt()}/body.md`, body("x"));
     await writeFile(`${gh}/fail`, "");

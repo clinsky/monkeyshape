@@ -185,6 +185,11 @@ export interface RmFacts {
    * about to start (a milestone reusing it): leave them labelled instead of refusing.
    */
   readonly keepBeads?: boolean | undefined;
+  /**
+   * With `keepBeads`: this track's own PRs (`ownPrs`), or why they couldn't be read. The
+   * beads go to a new track only once this one is done by `track list`'s own facts.
+   */
+  readonly ownPrs?: ReadonlyArray<TrackPr> | { readonly unknown: string } | undefined;
 }
 
 export type RmStep =
@@ -294,6 +299,29 @@ export const planRm = (facts: RmFacts): RmPlan => {
           ...listed,
           `close each one that's done (\`bd close <id>\`), or move it to the track that will do it (\`bd update <id> --remove-label ${label} --add-label track:<other>\`). If they are for a new track of this same name that you'll start next (a milestone reusing it), pass --keep-beads to leave them labelled for it. --force doesn't override this`,
         ].join("\n    "),
+      );
+  }
+  if (facts.keepBeads) {
+    // The same facts as `track list`'s done, but the beads: they are what is being handed on.
+    const branchName = `\`${branch}\``;
+    const unfinished: Array<string> = [];
+    if (facts.branchExists && !facts.merged)
+      unfinished.push(`${branchName} has ${facts.unmerged} commit(s) not in main`);
+    const prs = facts.ownPrs;
+    if (prs === undefined || "unknown" in prs)
+      unfinished.push(
+        `its PRs couldn't be read (${prs === undefined ? "not loaded" : prs.unknown}), so whether it finished can't be told`,
+      );
+    else {
+      const open = prs.filter((pr) => pr.state === "OPEN").map((pr) => `#${pr.number}`);
+      if (open.length > 0)
+        unfinished.push(`PR ${open.join(", ")} from ${branchName} is still open`);
+      if (!prs.some((pr) => pr.state === "MERGED"))
+        unfinished.push(`no PR from ${branchName} has merged since the track started`);
+    }
+    if (unfinished.length > 0)
+      refusals.push(
+        `--keep-beads hands the beads to a new track of this name only once this one is done, and it isn't: ${unfinished.join("; ")}. Finish it first, or settle it with the human; --force doesn't override this`,
       );
   }
   // The repo has beads but bd can't run: `check` notes it and goes on, but removal can't be
