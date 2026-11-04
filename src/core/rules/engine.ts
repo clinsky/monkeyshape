@@ -85,7 +85,9 @@ export const checkRules = (
     (rule) => config.layers.includes(rule.layer) && config.rules[rule.id]?.off === undefined,
   );
   const usedAllowances = new Set<string>();
-  const known = new Set(all.map((rule) => rule.id));
+  const known = new Set([...all.map((rule) => rule.id), ...local.brokenIds]);
+  /** A local rule that broke: reported once, at the first file, with how many it broke on. */
+  const brokeOn = new Map<string, { file: string; reason: string; files: number }>();
 
   for (const id of Object.keys(config.rules))
     if (!known.has(id))
@@ -128,14 +130,12 @@ export const checkRules = (
       );
       const found = results(rule, parsed);
       if ("broken" in found) {
-        violations.push(
-          violation(
-            "local-rule",
-            file,
-            1,
-            `the rule ${rule.id} broke on this file: ${found.broken}. Fix the rule's check in its module; the file may be fine.`,
-          ),
-        );
+        // Its escape hatches here may be right: unchecked, they aren't unused.
+        if (allowance !== undefined) usedAllowances.add(`${rule.id}\0${allowance.path}`);
+        for (const ignore of ignores) if (ignore.rule === rule.id) ignore.used = true;
+        const first = brokeOn.get(rule.id);
+        if (first === undefined) brokeOn.set(rule.id, { file, reason: found.broken, files: 1 });
+        else first.files++;
         continue;
       }
       for (const finding of found) {
@@ -166,8 +166,20 @@ export const checkRules = (
         );
   }
 
+  for (const [id, { file, reason, files }] of brokeOn)
+    violations.push(
+      violation(
+        "local-rule",
+        file,
+        1,
+        `the rule ${id} broke on ${files === 1 ? "this file" : `${files} files, this one first`}: ${reason}. Fix the rule's check in its module; the files may be fine.`,
+      ),
+    );
+
+  // A misshaped local rule never ran, so its allowances weren't tested, not unused.
+  const unrun = new Set(local.brokenIds);
   for (const [id, setting] of Object.entries(config.rules))
-    for (const allowance of setting.allow ?? [])
+    for (const allowance of unrun.has(id) ? [] : (setting.allow ?? []))
       if (!usedAllowances.has(`${id}\0${allowance.path}`))
         violations.push(
           violation(

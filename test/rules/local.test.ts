@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { defineRule, type Node, walk } from "../../src/api/monkeyshape.ts";
+import { defineConfig, defineRule, type Node, walk } from "../../src/api/monkeyshape.ts";
 import { checkRules } from "../../src/core/rules/engine.ts";
 import type { ShapeConfig } from "../../src/schemas/config.ts";
 import { run as spawn } from "../integration/harness.ts";
@@ -70,7 +70,9 @@ describe("local rules", () => {
     ];
     const lines = run({ "src/a.ts": "save(x);\n" }, { localRules: entries });
     expect(lines.filter((line) => line.startsWith("rules/local-rule"))).toEqual([
-      expect.stringContaining("shape.config.ts:1 localRules[1] is string, not a rule: export"),
+      expect.stringContaining(
+        "shape.config.ts:1 localRules[1] is string, not a rule (a path: import the module",
+      ),
       expect.stringContaining('localRules[2] its id "No Save" is not lowercase words'),
       expect.stringContaining("localRules[3] 'short' needs a `message` of at least 8"),
       expect.stringContaining("localRules[4] 'no-check' needs a `check` function"),
@@ -133,6 +135,80 @@ describe("local rules", () => {
     });
     checkRules(config({ localRules: [rule] }), repo({ "src/a.ts": "f(g());\n" }), []);
     expect(seen).toEqual(["call f(g())", "id f", "call g()", "id g"]);
+  });
+
+  test("a rule that breaks leaves its escape hatches alone, and says so once, with where it threw", () => {
+    const throwsOnB = defineRule({
+      ...noSave,
+      id: "throws-on-b",
+      check: (file) => {
+        if (file.path !== "src/a.ts") throw new TypeError("boom");
+        return [];
+      },
+    });
+    const lines = run(
+      {
+        "src/a.ts": "save(x);\n",
+        "src/b.ts": "// shape-ignore local/throws-on-b: generated, reviewed\nsave(x);\n",
+        "src/c.ts": "save(x);\n",
+      },
+      {
+        localRules: [throwsOnB],
+        rules: { "local/throws-on-b": { allow: [{ path: "src/c.ts", reason: "the merge" }] } },
+      },
+    );
+    expect(lines).toEqual([
+      expect.stringMatching(
+        /^rules\/local-rule src\/b\.ts:1 the rule local\/throws-on-b broke on 2 files, this one first: it threw TypeError: boom at \/.*\/test\/rules\/local\.test\.ts:\d+:\d+\. Fix/,
+      ),
+    ]);
+  });
+
+  test("a misshaped entry's own config is not reported as unknown or unused", () => {
+    const misshaped = { ...noSave, id: "cfg", check: undefined };
+    const lines = run(
+      { "src/a.ts": "" },
+      {
+        localRules: [misshaped],
+        rules: {
+          "local/cfg": { allow: [{ path: "src/a.ts", reason: "the merge function" }] },
+        },
+      },
+    );
+    expect(lines).toEqual([
+      expect.stringContaining(
+        "rules/local-rule shape.config.ts:1 localRules[0] 'cfg' needs a `check`",
+      ),
+    ]);
+  });
+
+  test("an async check, or a module namespace as an entry, is told what it got wrong", async () => {
+    const asyncCheck = {
+      ...noSave,
+      id: "async",
+      check: async () => Promise.reject(new Error("late")),
+    };
+    const lines = run({ "src/a.ts": "" }, { localRules: [asyncCheck, { default: noSave }] });
+    expect(lines).toEqual([
+      expect.stringContaining(
+        "localRules[1] is a module namespace, not a rule (a module namespace, as `import * as`: list its default export",
+      ),
+      expect.stringContaining(
+        "local/async broke on this file: `check` returned a Promise: it must be synchronous",
+      ),
+    ]);
+    // Its rejection was handled: an unhandled one would fail this test.
+    await Bun.sleep(1);
+  });
+
+  test("tsc rejects a path, a namespace or an async check where a rule goes", () => {
+    defineConfig({ localRules: [noSave] });
+    // @ts-expect-error a path is not a rule: import the module
+    defineConfig({ localRules: ["./rules/noSave.ts"] });
+    // @ts-expect-error a module namespace is not a rule: list its default export
+    defineConfig({ localRules: [{ default: noSave }] });
+    // @ts-expect-error check must be synchronous
+    defineRule({ ...noSave, check: async () => [0] });
   });
 });
 

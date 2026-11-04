@@ -52,11 +52,21 @@ export const LOCAL_PREFIX = "local/";
 const ID = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 
 const SHAPE =
-  "export `defineRule({ id, bugClass, message, check })` from monkeyshape: `id` in lowercase words joined by hyphens, `bugClass` and `message` as sentences, `check` a function from a file to its findings";
+  'a rule module does `export default defineRule({ id, bugClass, message, check })` (from monkeyshape): `id` in lowercase words joined by hyphens, `bugClass` and `message` as sentences, `check` a synchronous function from a file to its offsets. shape.config.ts imports it (`import rule from "./rules/x.ts"`) and lists `rule` in `localRules`';
+
+/** The likely mistake behind an entry that isn't a rule, said before the shape. */
+const hint = (value: unknown): string => {
+  if (typeof value === "string")
+    return " (a path: import the module and list what it exports, not its path)";
+  if (typeof value === "object" && value !== null && "default" in value)
+    return " (a module namespace, as `import * as`: list its default export instead)";
+  return "";
+};
 
 /** Why `value` is not a local rule, or undefined if it is one. */
 const problem = (value: unknown): string | undefined => {
-  if (typeof value !== "object" || value === null) return `is ${typeof value}, not a rule`;
+  if (typeof value !== "object" || value === null || "default" in value)
+    return `is ${typeof value === "object" && value !== null ? "a module namespace" : typeof value}, not a rule${hint(value)}`;
   const rule = value as Partial<Record<keyof LocalRule, unknown>>;
   if (typeof rule.id !== "string" || !ID.test(rule.id))
     return `its id ${JSON.stringify(rule.id)} is not lowercase words joined by hyphens`;
@@ -66,6 +76,18 @@ const problem = (value: unknown): string | undefined => {
       return `'${rule.id}' needs a \`${key}\` of at least 8 characters`;
   }
   if (typeof rule.check !== "function") return `'${rule.id}' needs a \`check\` function`;
+  return undefined;
+};
+
+/** The first frame of a stack outside monkeyshape and oxc: where in the rule it threw. */
+const ruleFrame = (cause: unknown): string | undefined => {
+  if (!(cause instanceof Error) || cause.stack === undefined) return undefined;
+  for (const line of cause.stack.split("\n").slice(1)) {
+    const at = /\(?((?:\/|[A-Za-z]:)[^()]*:\d+:\d+)\)?\s*$/.exec(line.trim())?.[1];
+    if (at === undefined || /\/oxc-parser\/|\/core\/rules\/(?:local|engine)\.ts:/.test(at))
+      continue;
+    return at;
+  }
   return undefined;
 };
 
@@ -104,11 +126,20 @@ const toRule = (local: LocalRule): Rule => ({
         text: parsed.text,
         program: parsed.program,
       });
+      if (typeof returned === "object" && returned !== null && "then" in returned) {
+        // Handled, so a rejection can't surface later as an unhandled one and kill the run.
+        Promise.resolve(returned).catch(() => undefined);
+        return {
+          broken:
+            "`check` returned a Promise: it must be synchronous, returning the offsets directly",
+        };
+      }
       if (typeof returned !== "object" || returned === null || !(Symbol.iterator in returned))
         return { broken: `it returned ${shown(returned)}, not a list of offsets` };
       results = [...(returned as Iterable<unknown>)];
     } catch (cause) {
-      return { broken: `it threw ${String(cause)}` };
+      const frame = ruleFrame(cause);
+      return { broken: `it threw ${String(cause)}${frame === undefined ? "" : ` at ${frame}`}` };
     }
     const findings: Array<Finding> = [];
     for (const result of results) {
@@ -127,6 +158,8 @@ export interface LocalRules {
   readonly rules: ReadonlyArray<Rule>;
   /** One reason per entry of `localRules` that isn't a usable rule, by its index. */
   readonly broken: ReadonlyArray<string>;
+  /** The ids, as `local/<id>`, of broken entries whose id is valid: configuring them is fine. */
+  readonly brokenIds: ReadonlyArray<string>;
 }
 
 /**
@@ -136,12 +169,15 @@ export interface LocalRules {
 export const localRules = (entries: ReadonlyArray<unknown>): LocalRules => {
   const rules: Array<Rule> = [];
   const broken: Array<string> = [];
+  const brokenIds: Array<string> = [];
   const seen = new Set<string>();
   entries.forEach((entry, index) => {
     const reason = problem(entry);
     const at = `localRules[${index}]`;
     if (reason !== undefined) {
       broken.push(`${at} ${reason}: ${SHAPE}`);
+      const id = (entry as { id?: unknown } | null)?.id;
+      if (typeof id === "string" && ID.test(id)) brokenIds.push(`${LOCAL_PREFIX}${id}`);
       return;
     }
     const local = entry as LocalRule;
@@ -152,5 +188,5 @@ export const localRules = (entries: ReadonlyArray<unknown>): LocalRules => {
     seen.add(local.id);
     rules.push(toRule(local));
   });
-  return { rules, broken };
+  return { rules, broken, brokenIds };
 };
