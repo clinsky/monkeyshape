@@ -6,6 +6,7 @@ import {
   checkSkills,
   formatCollisions,
   formatSync,
+  ownedFiles,
   parseManifest,
   SKILL_NAME,
   syncSkills,
@@ -87,6 +88,39 @@ describe("syncSkills", () => {
     expect(sync.write.has("milestone/SKILL.md")).toBe(false);
     expect(sync.remove).toEqual([]);
     expect(formatCollisions(sync)[0]).toContain("Rename yours");
+    expect(formatCollisions(sync)[0]).toContain("--replace .agents/skills/milestone");
+  });
+
+  test("--replace hands a skill of the repo's own to sync: replaced whole, then shared", () => {
+    const sync = syncSkills(
+      files({ "milestone/SKILL.md": "shared" }),
+      files({ "milestone/SKILL.md": "ours", "milestone/helper.md": "ours" }),
+      { replace: ["milestone"] },
+    );
+    expect(sync.collisions).toEqual([]);
+    expect(sync.updated).toEqual(["milestone"]);
+    expect(sync.remove).toEqual(["milestone/helper.md"]);
+    expect(parseManifest(sync.write.get("monkeyshape.json") ?? new Uint8Array())).toEqual([
+      "milestone",
+    ]);
+  });
+
+  test("records the files sync owns, and keeps an old manifest's silence on them", () => {
+    const shipped = files({ "track/SKILL.md": "t" });
+    const old = files({ "track/SKILL.md": "t", "monkeyshape.json": manifest("track") });
+    expect(syncSkills(shipped, old).write.size).toBe(0);
+    const recorded = syncSkills(shipped, old, { files: [".github/pull_request_template.md"] });
+    const written = JSON.parse(decode(recorded.write.get("monkeyshape.json")));
+    expect(written.files).toEqual([".github/pull_request_template.md"]);
+    expect(ownedFiles(recorded.write.get("monkeyshape.json"))).toEqual([
+      ".github/pull_request_template.md",
+    ]);
+    // None without a manifest; all for one from before the record.
+    expect(ownedFiles(undefined)).toEqual([]);
+    expect(ownedFiles(old.get("monkeyshape.json"))).toEqual([
+      ".beads/PRIME.md",
+      ".github/pull_request_template.md",
+    ]);
   });
 
   test("removes a shared skill the package no longer ships", () => {
@@ -108,6 +142,11 @@ describe("syncSkills", () => {
   test("a manifest name that isn't one skill directory makes the manifest unreadable", () => {
     for (const name of ["", ".", "..", "mine/..", "../../keep", "a/b", "Upper"])
       expect(parseManifest(new TextEncoder().encode(manifest(name)))).toBeUndefined();
+    const withFiles = (files: unknown) =>
+      new TextEncoder().encode(JSON.stringify({ shared: [], files }));
+    expect(parseManifest(withFiles(["README.md"]))).toBeUndefined();
+    expect(parseManifest(withFiles(".beads/PRIME.md"))).toBeUndefined();
+    expect(parseManifest(withFiles([".beads/PRIME.md"]))).toEqual([]);
     expect(parseManifest(new TextEncoder().encode(manifest("review-pr", "a2")))).toEqual([
       "review-pr",
       "a2",

@@ -53,6 +53,7 @@
     "fix": "biome check --write .",
     "mshape": "bun src/cli/main.ts",
     "shape": "bun src/cli/main.ts check",
+    "release": "bun src/cli/release.ts",
     "check": "bun run typecheck && bun run lint && bun run shape && bun test"
   },
   "dependencies": {

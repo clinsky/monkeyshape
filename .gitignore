@@ -11,3 +11,4 @@ out/
 .beads-credential-key
 .beads/proxieddb/
 *.gate.lock*
+.release/

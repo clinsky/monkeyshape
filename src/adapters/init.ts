@@ -2,6 +2,7 @@
 import { copyFile, mkdir, readdir, realpath, symlink } from "node:fs/promises";
 import { basename, dirname, relative } from "node:path";
 import { Effect } from "effect";
+import { OWNABLE_FILES } from "../core/conventions.ts";
 import { HANDOFFS_LINK, handoffsLink, handoffsStore } from "../core/layout.ts";
 import { scaffold, type Toolchain } from "../core/scaffold.ts";
 import { resolveConfig } from "../schemas/config.ts";
@@ -167,9 +168,10 @@ export const initRepo = (
         `monkeyshape is installed from vendor/${basename(tarball)}, which is committed so every clone and CI resolve it. Once that version is on npm, run \`bun add -d monkeyshape@<version>\`, delete vendor/ and commit`,
       );
     }
-    const skills = yield* installSkills(`${packageRoot}/skills`, target).pipe(
-      Effect.mapError((error) => partial(`cannot install the skills: ${error.reason}`)),
-    );
+    // init wrote PRIME.md and the PR template from the package, so sync owns them from the start.
+    const skills = yield* installSkills(`${packageRoot}/skills`, target, {
+      files: OWNABLE_FILES,
+    }).pipe(Effect.mapError((error) => partial(`cannot install the skills: ${error.reason}`)));
     done.push(`${skills.sync.added.length} shared skills`);
 
     const git = yield* run(target, ["git", "init", "--quiet", "--initial-branch=main"]);

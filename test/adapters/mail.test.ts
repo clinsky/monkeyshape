@@ -22,6 +22,8 @@ const sh = (cwd: string, ...args: ReadonlyArray<string>) => {
 const mshape = (cwd: string, ...args: ReadonlyArray<string>) => {
   const result = Bun.spawnSync([process.execPath, CLI, ...args], {
     cwd,
+    // Pinned: these tests may run inside a Claude Code session, whose own ids must not leak in.
+    env: { ...process.env, CLAUDE_CODE_SESSION_ID: "", CLAUDE_PID: "" },
     stdout: "pipe",
     stderr: "pipe",
   });
@@ -104,22 +106,21 @@ describe("msg", () => {
     expect(mshape(wt("tracks"), "msg", "read", id).stdout).toEndWith("\n\n--force is gone");
   });
 
-  test("from the main checkout the sender is main; a track can't read another's mail", () => {
+  test("from the main checkout the sender is main; an address can't read another's mail", () => {
     const sent = mshape(repo, "msg", "send", "docs", "--subject", "from main");
     const id = /Sent (\S+)/.exec(sent.stdout)?.[1] ?? "";
     expect(mshape(wt("docs"), "msg", "inbox").stdout).toContain("from main, ");
     const elsewhere = mshape(wt("tracks"), "msg", "read", id);
     expect(elsewhere.code).toBe(1);
     expect(elsewhere.stderr).toContain(`no message ${id} for track tracks`);
-    const main = mshape(repo, "msg", "inbox");
-    expect(main.code).toBe(1);
-    expect(main.stderr).toContain("Only a track has a mailbox");
+    expect(mshape(repo, "msg", "read", id).stderr).toContain(`no message ${id} for main`);
+    expect(mshape(repo, "msg", "inbox").stdout).toBe("No unread messages for main.");
   });
 
   test("an unknown recipient, a bad subject or a bad id is refused, and nothing is written", async () => {
     const typo = mshape(wt("docs"), "msg", "send", "track", "--subject", "x");
     expect(typo.code).toBe(1);
-    expect(typo.stderr).toContain("no track `track` to send to (tracks: docs, tracks)");
+    expect(typo.stderr).toContain("no track `track` to send to (addresses: docs, tracks, main)");
     expect(mshape(wt("docs"), "msg", "send", "tracks", "--subject", "a\nb").stderr).toContain(
       "control character",
     );
@@ -161,7 +162,7 @@ describe("msg", () => {
     expect(first.subject).toBe("first");
   });
 
-  test("--quiet, the hooks' form: silent outside a track, a note for a file that isn't mail", async () => {
+  test("--quiet, the hooks' form: silent outside every address, a note for a file that isn't mail", async () => {
     const outside = mshape(base, "msg", "inbox", "--quiet");
     expect(outside).toEqual({ code: 0, stdout: "", stderr: "" });
     expect(mshape(repo, "msg", "inbox", "--quiet")).toEqual({ code: 0, stdout: "", stderr: "" });
@@ -198,7 +199,7 @@ describe("msg", () => {
         `gone: 1 unread (no such track: its worktree and handoff are gone; recreate it with \`bun run --silent mshape track new gone\` to read this, or delete ${mailbox("gone")} if it is no longer wanted)`,
       );
       expect(lines[4]).toBe("tracks: 1 unread");
-      expect(lines.at(-1)).toStartWith("3 unread in 3 tracks.");
+      expect(lines.at(-1)).toStartWith("3 unread in 3 mailboxes.");
     }
     expect(mshape(wt("tracks"), "msg", "inbox").stdout).toContain(": to tracks");
     expect(await files(`${mailbox("tracks")}/read`)).toEqual([]);
@@ -207,7 +208,7 @@ describe("msg", () => {
   test("inbox --all with nothing unread says so, and takes no other flag", () => {
     expect(mshape(repo, "msg", "inbox", "--all")).toEqual({
       code: 0,
-      stdout: "No unread mail in any track.",
+      stdout: "No unread mail anywhere.",
       stderr: "",
     });
     expect(mshape(repo, "msg", "inbox", "--all", "--quiet").code).toBe(2);

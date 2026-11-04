@@ -33,8 +33,9 @@ Plan in detail only what is near. Each horizon has one home and one way of stayi
   they are never committed, so there is one live copy. Whether a track is done is derived by
   `mshape track list`, never written in the handoff.
 - **Messages between tracks** go through `mshape msg`, never into another track's handoff.
-  A message waits in the recipient track's mailbox, and its subject reaches that track's
-  running sessions at once, even idle ones; nobody relays them by hand.
+  A message waits in the recipient's mailbox (a track's, the main checkout's or a review's),
+  and its subject reaches the sessions registered there at once, even idle ones; nobody
+  relays them by hand.
 
 What a change did and what it showed goes in the **PR body**, which is the narrative the
 human actually reads. Long investigations go in a dated note under `notes/`, which nothing

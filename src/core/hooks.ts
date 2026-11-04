@@ -14,6 +14,8 @@ export interface Hook {
   readonly matcher: string;
   /** A shell command, run from the session's directory. */
   readonly command: string;
+  /** Commands an older monkeyshape wrote for this hook: sync replaces them with `command`. */
+  readonly retired?: ReadonlyArray<string>;
 }
 
 /**
@@ -32,15 +34,44 @@ export const SYNC_COMMAND = "bun run --silent mshape sync";
 const quote = (arg: string): string =>
   /^[\w@%+=:,./-]+$/.test(arg) ? arg : `'${arg.replaceAll("'", `'\\''`)}'`;
 
+/**
+ * A hook's command that degrades to a note: `command`, or, when it can't run, `note` and
+ * exit 0. Before `bun install` the `mshape` script exits 127 (or 1 without the script), and
+ * a hook failing at every prompt says nothing useful. Only commands that never fail once
+ * they run are wrapped (`msg register`, `msg inbox --quiet`, `bd prime`), so any failure is
+ * one of not running.
+ */
+export const withNote = (command: string, note: string): string =>
+  `${command} || echo ${quote(`note: ${note}`)}`;
+
+const MSHAPE_MISSING =
+  'mshape could not run here, so this hook did nothing. Run `bun install`; package.json needs the script `"mshape": "mshape"`.';
+
+/** A hook running `mshape <args>`, degrading to a note, replacing the bare command. */
+const mshapeHook = (event: HookEvent, args: ReadonlyArray<string>): Hook => ({
+  event,
+  matcher: "",
+  command: withNote(mshapeCommand(args), MSHAPE_MISSING),
+  retired: [mshapeCommand(args)],
+});
+
 /** Every hook, in the order each event runs them. */
 export const HOOKS: ReadonlyArray<Hook> = [
   // bd's own: the beads primer, as hook JSON.
-  { event: "SessionStart", matcher: "", command: "bd prime --hook-json" },
+  {
+    event: "SessionStart",
+    matcher: "",
+    command: withNote(
+      "bd prime --hook-json",
+      "bd could not run here, so this session has no beads primer. Install bd: https://github.com/steveyegge/beads",
+    ),
+    retired: ["bd prime --hook-json"],
+  },
   // Records the session against its track, so a message reaches it while it runs.
-  { event: "SessionStart", matcher: "", command: mshapeCommand(["msg", "register"]) },
+  mshapeHook("SessionStart", ["msg", "register"]),
   // The track's unread mail, at session start and at every prompt, until it is read.
-  { event: "SessionStart", matcher: "", command: mshapeCommand(["msg", "inbox", "--quiet"]) },
-  { event: "UserPromptSubmit", matcher: "", command: mshapeCommand(["msg", "inbox", "--quiet"]) },
+  mshapeHook("SessionStart", ["msg", "inbox", "--quiet"]),
+  mshapeHook("UserPromptSubmit", ["msg", "inbox", "--quiet"]),
 ];
 
 /** The `hooks` key of `.claude/settings.json`: each hook under its event, in list order. */
@@ -101,8 +132,33 @@ export const missingHooks = (
 ): ReadonlyArray<Hook> => hooks.filter((hook) => !runs(settings, hook));
 
 /**
- * `settings` with each missing hook appended under its event, and everything else, the repo's
- * own hooks included, kept: for a repo whose settings.json monkeyshape doesn't own whole.
+ * An event's entries without the retired commands of `hooks`: an entry left with no command
+ * goes too. Anything not shaped like an entry is the repo's, and kept as it is.
+ */
+const withoutRetired = (
+  entries: ReadonlyArray<unknown>,
+  event: string,
+  hooks: ReadonlyArray<Hook>,
+): Array<unknown> => {
+  const retired = new Set(
+    hooks.filter((hook) => hook.event === event).flatMap((hook) => hook.retired ?? []),
+  );
+  const isRetired = (inner: unknown) =>
+    typeof inner === "object" &&
+    inner !== null &&
+    retired.has((inner as { command?: unknown }).command as string);
+  return entries.flatMap((entry) => {
+    const inner = (entry as { hooks?: unknown } | null)?.hooks;
+    if (!Array.isArray(inner) || !inner.some(isRetired)) return [entry];
+    const kept = inner.filter((hook) => !isRetired(hook));
+    return kept.length === 0 ? [] : [{ ...(entry as object), hooks: kept }];
+  });
+};
+
+/**
+ * `settings` with each missing hook appended under its event, its retired commands removed,
+ * and everything else, the repo's own hooks included, kept: for a repo whose settings.json
+ * monkeyshape doesn't own whole.
  */
 export const addHooks = (
   settings: Readonly<Record<string, unknown>>,
@@ -115,6 +171,6 @@ export const addHooks = (
       : {};
   const added: Record<string, unknown> = { ...current };
   for (const [event, entries] of Object.entries(settingsHooks(missingHooks(settings, hooks))))
-    added[event] = [...hookEntries(settings, event), ...entries];
+    added[event] = [...withoutRetired(hookEntries(settings, event), event, hooks), ...entries];
   return `${JSON.stringify({ ...settings, hooks: added }, null, 2)}\n`;
 };

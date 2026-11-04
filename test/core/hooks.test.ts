@@ -1,7 +1,11 @@
 import { describe, expect, test } from "bun:test";
+import { mkdir, mkdtemp, rm, symlink } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
+  addHooks,
   HOOKS,
+  missingHooks,
   mshapeCommand,
   renderSettings,
   SETTINGS_FILE,
@@ -75,5 +79,57 @@ describe("hooks", () => {
     expect(born.scripts.mshape).toBe("mshape");
     const own = await Bun.file(join(ROOT, "package.json")).json();
     expect(own.scripts.mshape).toBe("bun src/cli/main.ts");
+  });
+
+  test("every hook degrades to a note and exits 0 where it can't run", async () => {
+    // A repo with the hooks and nothing installed: no package script, no mshape, no bd.
+    const dir = await mkdtemp(join(tmpdir(), "mshape-hooks-"));
+    const bin = join(dir, "bin");
+    await mkdir(bin);
+    await symlink(process.execPath, join(bin, "bun"));
+    try {
+      for (const pkg of [undefined, JSON.stringify({ scripts: { mshape: "mshape" } })]) {
+        if (pkg !== undefined) await Bun.write(join(dir, "package.json"), pkg);
+        for (const hook of HOOKS) {
+          const ran = Bun.spawnSync(["/bin/sh", "-c", hook.command], {
+            cwd: dir,
+            env: { PATH: bin },
+          });
+          expect({ command: hook.command, code: ran.exitCode }).toEqual({
+            command: hook.command,
+            code: 0,
+          });
+          expect(ran.stdout.toString()).toStartWith("note: ");
+        }
+      }
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("sync replaces a hook's retired command, keeping the repo's own beside it", () => {
+    const old = {
+      hooks: {
+        UserPromptSubmit: [
+          {
+            matcher: "",
+            hooks: [
+              { type: "command", command: "bun run --silent mshape msg inbox --quiet" },
+              { type: "command", command: "echo mine" },
+            ],
+          },
+        ],
+        SessionStart: [
+          { matcher: "", hooks: [{ type: "command", command: "bd prime --hook-json" }] },
+        ],
+      },
+    };
+    const settings = JSON.parse(addHooks(old, HOOKS));
+    expect(missingHooks(settings, HOOKS)).toEqual([]);
+    const commands = JSON.stringify(settings);
+    expect(commands).toContain("echo mine");
+    for (const hook of HOOKS)
+      for (const retired of hook.retired ?? [])
+        expect(commands).not.toContain(`"command":"${retired}"`);
   });
 });
