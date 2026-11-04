@@ -8,6 +8,7 @@ import { Effect } from "effect";
 import pkg from "../../package.json" with { type: "json" };
 import { BASELINE_FILE, readBaseline, writeBaseline } from "../adapters/baseline.ts";
 import { CONFIG_FILE, loadConfig } from "../adapters/config.ts";
+import { depBump } from "../adapters/dep.ts";
 import { initRepo, vendoredSpec } from "../adapters/init.ts";
 import { mailInbox, mailInboxAll, mailRead, mailSend } from "../adapters/mail.ts";
 import {
@@ -531,6 +532,37 @@ const load = (root: string, args: ReadonlyArray<string>) =>
     return { config, snapshot, baseline };
   });
 
+/** `mshape dep bump <name> <tarball> --sha256 <digest>`. */
+const dep = (root: string, args: ReadonlyArray<string>) =>
+  Effect.gen(function* () {
+    const at = args.indexOf("--sha256");
+    const digest = at === -1 ? undefined : args[at + 1];
+    const rest = args.filter((_, i) => at === -1 || (i !== at && i !== at + 1));
+    const [sub, name, tarball, ...extra] = rest;
+    if (
+      sub !== "bump" ||
+      name === undefined ||
+      tarball === undefined ||
+      extra.length > 0 ||
+      digest === undefined ||
+      digest.startsWith("--")
+    )
+      return {
+        output:
+          "mshape dep bump: give the package, the tarball and the digest its release states: `mshape dep bump <name> <tarball> --sha256 <digest>`",
+        code: 2,
+      };
+    const config = yield* loadConfig(root);
+    const result = yield* depBump(
+      root,
+      config.files.vendored,
+      name,
+      resolve(root, tarball),
+      digest,
+    );
+    return { output: result.lines.join("\n"), code: result.code };
+  });
+
 const check = (root: string, args: ReadonlyArray<string>) =>
   Effect.gen(function* () {
     const { config, snapshot, baseline } = yield* load(root, args);
@@ -684,6 +716,16 @@ export const COMMANDS: ReadonlyArray<Command> = [
       --keep-handoff keeps the handoff and mailbox, for a track that continues. Never touches
       main or other tracks.`,
     run: track,
+  },
+  {
+    name: "dep",
+    usage: `  mshape dep bump <name> <tarball> --sha256 <digest>
+      Move the vendored dependency <name> (recorded in shape.config.ts's files.vendored) to
+      <tarball>, a release of it on disk. <digest> is the sha256 its release states, never one
+      computed here: a tarball that doesn't match it, or is another package, changes nothing.
+      Copies it into vendor/, removes the old one, updates package.json, the record and
+      bun.lock, then runs the gate. Never fetches.`,
+    run: dep,
   },
   {
     name: "review",
