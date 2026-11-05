@@ -155,7 +155,11 @@ describe("an adopter following docs/adopting.md", () => {
     expect(failing.output).toContain("rules/no-throw");
     expect(failing.output).toContain("rules/no-nondeterminism");
 
-    expect((await mshape(["baseline", "--init"])).code).toBe(0);
+    const init = await mshape(["baseline", "--init"]);
+    expect(init.code).toBe(0);
+    // Counted by rule, for review.
+    expect(init.output).toMatch(/^ +1 {2}rules\/no-throw$/m);
+    expect(init.output).toMatch(/^ +1 {2}rules\/no-nondeterminism$/m);
     expect((await mshape(["check"])).output).toContain("2 grandfathered");
 
     await write("src/core/legacy.ts", "export const boom = () => {\n  throw new Error('x');\n};\n");

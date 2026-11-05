@@ -127,15 +127,23 @@ A file you hold out of either list for a reason stays out. The baseline in step 
 grandfathers it as `coverage/typecheck` or `coverage/lint`. For example, keep out a script
 that doesn't typecheck yet, or a directory biome has never linted. When you add a directory
 to biome, biome itself may fail on code it hadn't seen. The baseline can't grandfather that.
-See the cost first with `bunx biome check <dir>`. Then fix those files, or leave the directory
-out. Commit the reformatting that comes with them on its own.
+To see the cost, add the directory to biome's `includes`, then run
+`bunx biome ci --error-on-warnings <dir>`, which counts warnings as the gate does. Biome
+ignores a directory outside its `includes`, so a check run before that shows nothing. Then
+either fix the files or take the directory back out:
+
+- `bunx biome check --write <dir>` applies the formatting and the safe fixes;
+- what's left is fixed by hand, or by `--write --unsafe` on one file after reading the fix.
+
+Commit the reformatting on its own.
 
 ## 5. The gate
 
 Make it one script, the same locally and in CI:
 `tsc && biome ci --error-on-warnings && mshape check && bun test`. Keep the scripts you have
 and chain them: `bun run typecheck && biome ci --error-on-warnings && mshape check && bun test`.
-Use `biome ci`, not `biome check`, so the gate fails rather than writes.
+Use `biome ci`, not `biome check`, so the gate fails rather than writes. If your `lint` script
+runs `biome check`, the chain replaces it.
 `tsc` and `biome` are required. If either can't run, `mshape check` fails rather than skip
 it.
 
@@ -148,11 +156,14 @@ The repo's agent instructions belong in AGENTS.md, within its budget:
 # My project: commands, gotchas and decision authority for agents, in 150 lines or fewer.
 ```
 
-`CLAUDE.md` holds only `@AGENTS.md`. If `bd setup` appended its beads block there, remove it:
-`.beads/PRIME.md` replaces it at every session start. Don't run `bd setup claude` again. The files `bd setup` wrote for other agents (for Cursor or
+`CLAUDE.md` holds only `@AGENTS.md`. `bd setup` appends a beads block, between
+`BEGIN BEADS INTEGRATION` and `END BEADS INTEGRATION` markers, to CLAUDE.md, AGENTS.md or
+both. Remove it from each: `.beads/PRIME.md` replaces it at every session start. Don't run `bd setup claude` again. The files `bd setup` wrote for other agents (for Cursor or
 Codex) can stay: monkeyshape doesn't read them.
 Without beads yet, run `bd init --skip-agents`. In a clone that has `.beads/` but no
-database, run `bd bootstrap`, which rebuilds it from what git tracks.
+database, run `bd bootstrap`. It clones the beads from the `sync.remote` in
+`.beads/config.yaml` when one is set, so only run it where that remote is the one you mean.
+Otherwise it rebuilds them from the issues file git tracks under `.beads/`.
 
 Then run `bun run --silent mshape sync`. It installs:
 
@@ -166,7 +177,8 @@ Then run `bun run --silent mshape sync`. It installs:
 
 - **A skill with a shipped name.** If yours is specific to the project, rename it to keep it:
   move the directory and change `name:` in its SKILL.md. Both then load, so say in its
-  description when to use it rather than the shared one. If yours is an older copy of the
+  description when to use it rather than the shared one. If yours should always win in this
+  repo, start its description with that, for example "Use instead of the shared review-pr". If yours is an older copy of the
   shared one, use `sync --replace .agents/skills/<name>`.
 - **Your own PRIME.md or PR template.** Move what it says to AGENTS.md, then run
   `sync --replace <file>`.
@@ -176,9 +188,9 @@ Run `sync` again until it exits 0. After that it is automatic.
 ## 7. Grandfather the rest
 
 After `sync`, never before, run `bun run --silent mshape baseline --init`. It records every
-current violation per file in .shape/baseline.json. Review it by rule, not line by line: a
-large count of one rule is usually one habit of the codebase, and each rule's message says
-what it costs. As you fix
+current violation per file in .shape/baseline.json, and prints the counts by rule. Review it
+by rule, not line by line: a large count of one rule is usually one habit of the codebase, and
+each rule's message says what it costs. As you fix
 things, `mshape baseline --tighten` lowers the counts, and a count is never raised. Then
 commit, and the gate is green.
 
