@@ -542,5 +542,8 @@ describe("adoption's literal run: the typecheck and lint messages", () => {
       expect(v.message).toContain("vendor");
       expect(v.message).toContain("mshape baseline --init");
     }
+    // A file another tsconfig checks: the reader is told where to list that tsconfig.
+    expect(found[0]?.message).toContain("`coverage.tsconfigs`");
+    expect(found[0]?.message).toContain("(now tsconfig.json)");
   });
 });

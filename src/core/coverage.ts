@@ -127,7 +127,7 @@ export const checkCoverage = (
         violation(
           "typecheck",
           file,
-          `is not in any tsconfig program. Include it; or, if it is generated or vendored code, keep it under a directory named in \`coverage.exempt\` in shape.config.ts (by default ${config.coverage.exempt.join(", ")}). To hold it out on purpose for now, \`mshape baseline --init\` grandfathers it, and the ratchet keeps the count from growing.`,
+          `is not in the program of any tsconfig in \`coverage.tsconfigs\` (now ${config.coverage.tsconfigs.join(", ")}). Include it; if another tsconfig checks it, list that tsconfig in \`coverage.tsconfigs\`; or, if it is generated or vendored code, keep it under a directory named in \`coverage.exempt\` in shape.config.ts (by default ${config.coverage.exempt.join(", ")}). To hold it out on purpose for now, \`mshape baseline --init\` grandfathers it, and the ratchet keeps the count from growing.`,
         ),
       );
     if (!isLinted(file))
