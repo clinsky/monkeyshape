@@ -3,10 +3,23 @@
 Opinionated checks, configs and conventions for humans and coding agents building software
 together on **Bun**, **TypeScript**, **Effect** and **beads**.
 
-Agents write a lot of prose and forget most of it. A rule written in `AGENTS.md` works only if
-it is loaded and noticed; a check works every time and costs no context until it fires.
-monkeyshape turns lessons into checks, keeps everything loaded automatically on a budget,
-and treats real-world results as the judge of done.
+Agents write a lot of prose and forget most of it. The prose goes stale, and the next agent
+builds on it anyway.
+
+A rule in `AGENTS.md` works only if an agent loads it and notices that it applies. A check
+runs every time and takes no room in context until it fires. So monkeyshape turns lessons
+about code and docs alike into checks, and puts a hard cap on everything loaded into every
+session. Less prose gets written, and the prose that's left matters more.
+
+The other half is how people and agents split the work, so everyone can see who owns what:
+
+- **You steer** at three horizons, each in one file: the roadmap (months), the milestone (the
+  current batch of work), and the track (today). You review and merge.
+- **Agents own the code**, tests and docs. Each track is one agent's line of work, with its
+  own worktree, branch and handoff, so its context stays small and focused.
+- **Beads** give agents memory, an issue tracker and the order between tasks.
+- **Tracks message each other** with `mshape msg`, so you never relay between chats.
+- **Done** means it ran on real data, not just that the tests passed.
 
 ```console
 $ mshape check

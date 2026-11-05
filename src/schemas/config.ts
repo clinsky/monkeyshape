@@ -374,7 +374,7 @@ export const resolveConfig = (config: ShapeConfig): ResolvedConfig => ({
   },
   budgets: {
     agentsLines: config.budgets?.agentsLines ?? 150,
-    readmeLines: config.budgets?.readmeLines ?? 80,
+    readmeLines: config.budgets?.readmeLines ?? 100,
     decisions: config.budgets?.decisions ?? 15,
     decisionWords: config.budgets?.decisionWords ?? 150,
     memories: config.budgets?.memories ?? 12,
