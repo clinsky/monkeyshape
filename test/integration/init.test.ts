@@ -146,6 +146,22 @@ describe("mshape init", () => {
     );
   }, 180_000);
 
+  test("its .gitignore ignores the files the files check calls secrets, and only those", async () => {
+    const repo = join(work, "demo");
+    const ignored = async (path: string) =>
+      (await run(repo, ["git", "check-ignore", "--quiet", path])).code === 0;
+    for (const path of [".env", ".env.local", ".env.production"])
+      expect({ path, ignored: await ignored(path) }).toEqual({ path, ignored: true });
+    for (const path of [
+      ".env.example",
+      ".env.local.example",
+      ".env.sample",
+      ".env.template",
+      ".envrc",
+    ])
+      expect({ path, ignored: await ignored(path) }).toEqual({ path, ignored: false });
+  });
+
   test("--from vendors any file it names, whatever its extension", async () => {
     const renamed = tarball.replace(/\.tgz$/, ".tar.gz");
     await Bun.write(renamed, Bun.file(tarball));

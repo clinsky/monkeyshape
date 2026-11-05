@@ -353,7 +353,7 @@ describe("the outcome contract", () => {
         tools("src/core/a.ts"),
       ),
     );
-    const long = `python3 -c import ast, sys; ${"x".repeat(80)}`;
+    const long = `python3 -c import ast, sys; ${"x".repeat(80)} scripts/report.py`;
     const reports = run.reports.map((report) =>
       report.check === "coverage"
         ? { ...report, parts: [{ label: long, outcome: report.outcome }] }
@@ -363,7 +363,10 @@ describe("the outcome contract", () => {
     const column = (line: string | undefined) => line?.search(/(passed|failed)/) ?? -1;
     const part = lines.find((line) => line.includes("python3"));
     expect(part).toContain("…");
+    // Both ends survive: the program, and the file it checks.
+    expect(part).toContain("python3 -c");
+    expect(part).toContain("scripts/report.py");
     expect(column(part)).toBe(column(lines.find((line) => /^ {2}arch\s/.test(line))));
-    expect(column(part)).toBeLessThan(45);
+    expect(column(part)).toBeLessThan(50);
   });
 });

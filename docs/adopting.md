@@ -38,6 +38,10 @@ Start from `export default defineConfig({});`, with `defineConfig` imported from
 `monkeyshape`. The report names each check, says what it examined, and explains every
 finding. The config's imports resolve from the repo, wherever the file is.
 
+In a clone with `.beads/` but no beads database, the trial skips the rules that need beads,
+and a `note:` names them. One of them, `refs/bead-in-code`, can be the largest count of all.
+For the full picture, run `bd bootstrap` first, as step 6 describes.
+
 ## 3. shape.config.ts
 
 For a repo whose code is under `src/`:
@@ -67,7 +71,8 @@ Each check reads its own part of the config.
 - **`sources`** lists the TypeScript the rules analyze. The default is `src/**` and `tools/**`.
   Every other TypeScript file must be a test, a `.d.ts`, or under `sources.exempt` with a
   reason, or the `sources` check fails. Code spread over top-level directories is listed in
-  `sources: { include: ["*.ts", "lib/**/*.ts", "scripts/**/*.ts"] }`.
+  `sources: { include: ["*.ts", "lib/**/*.ts", "scripts/**/*.ts"] }`. That list replaces the
+  default, so list `src/**/*.ts` too if you have code there.
 - **`arch`** is the module map. Every file in `sources` must belong to a module. With code
   outside `src/`, set `arch.root: "."`. A module's key is then its directory (`lib`) or a single
   file (`main.ts`). A directory such as `tools/` that matches no module fails as
@@ -103,7 +108,9 @@ Each check reads its own part of the config.
 
 ## 4. tsc and biome
 
-Every TypeScript file must be in both tools' file lists, `shape.config.ts` included. Keep your
+Every TypeScript file must be in both tools' file lists, `shape.config.ts` included. A
+file typechecked by another tsconfig, such as a sub-app's, counts once you list that tsconfig
+too: `coverage: { tsconfigs: ["tsconfig.json", "app/tsconfig.json"] }`. Keep your
 own configs and add what's missing. Extending monkeyshape's bases, as the blocks below do, is optional: they are its opinions on strictness and lint, which you can
 take later. Without configs of your own, start from these:
 
@@ -142,8 +149,16 @@ Commit the reformatting on its own.
 Make it one script, the same locally and in CI:
 `tsc && biome ci --error-on-warnings && mshape check && bun test`. Keep the scripts you have
 and chain them: `bun run typecheck && biome ci --error-on-warnings && mshape check && bun test`.
-Use `biome ci`, not `biome check`, so the gate fails rather than writes. If your `lint` script
-runs `biome check`, the chain replaces it.
+Use `biome ci`, not `biome check`, so the gate fails rather than writes.
+
+- **Fix biome's warnings first.** `biome ci --error-on-warnings` fails on warnings that your
+  old `biome check` let pass, and the baseline can't grandfather them. Before you switch, run
+  `bunx biome ci --error-on-warnings` and fix what it reports, as for a new directory in
+  step 4.
+- **Your old `lint` script.** If it runs `biome check`, point it at
+  `biome ci --error-on-warnings` too, or delete it, so `bun run lint` agrees with the gate.
+- **Your own architecture checks.** A script that checks imports between directories can
+  stay in the chain beside `mshape check`. Drop it once the module map says the same.
 `tsc` and `biome` are required. If either can't run, `mshape check` fails rather than skip
 it.
 
@@ -156,14 +171,16 @@ The repo's agent instructions belong in AGENTS.md, within its budget:
 # My project: commands, gotchas and decision authority for agents, in 150 lines or fewer.
 ```
 
-`CLAUDE.md` holds only `@AGENTS.md`. `bd setup` appends a beads block, between
-`BEGIN BEADS INTEGRATION` and `END BEADS INTEGRATION` markers, to CLAUDE.md, AGENTS.md or
-both. Remove it from each: `.beads/PRIME.md` replaces it at every session start. Don't run `bd setup claude` again. The files `bd setup` wrote for other agents (for Cursor or
+`CLAUDE.md` holds only `@AGENTS.md`. `bd setup` appends blocks between `BEGIN BEADS …` and
+`END BEADS …` markers to CLAUDE.md, AGENTS.md or both. One is `INTEGRATION`, and
+`bd setup codex` adds `CODEX SETUP`. Remove every such block: `.beads/PRIME.md` replaces them at every
+session start. Don't run `bd setup claude` again. The files `bd setup` wrote for other agents (for Cursor or
 Codex) can stay: monkeyshape doesn't read them.
 Without beads yet, run `bd init --skip-agents`. In a clone that has `.beads/` but no
-database, run `bd bootstrap`. It clones the beads from the `sync.remote` in
-`.beads/config.yaml` when one is set, so only run it where that remote is the one you mean.
-Otherwise it rebuilds them from the issues file git tracks under `.beads/`.
+database, run `bd bootstrap`. If the `sync.remote` in `.beads/config.yaml` already holds
+beads, it clones them from there, so run it only where that remote is the one you mean.
+Otherwise it rebuilds them from the issues file git tracks under `.beads/`. Either way it
+records that remote for `bd dolt push`, which you run only when you mean to share.
 
 Then run `bun run --silent mshape sync`. It installs:
 
@@ -183,7 +200,8 @@ Then run `bun run --silent mshape sync`. It installs:
 - **Your own PRIME.md or PR template.** Move what it says to AGENTS.md, then run
   `sync --replace <file>`.
 
-Run `sync` again until it exits 0. After that it is automatic.
+Run `sync` again until it exits 0. After a bump of monkeyshape, `mshape check` fails until
+you run `sync` again.
 
 ## 7. Grandfather the rest
 

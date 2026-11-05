@@ -30,8 +30,9 @@ const detail = (outcome: Outcome): string => {
  * Notes, then each finding, then one line per check (its outcome and what it examined), then
  * the summary, which is always the last line.
  */
-/** The longest a part's label prints. */
-const PART_LABEL = 36;
+/** The longest a part's label prints, and how much of its start it keeps when shortened. */
+const PART_LABEL = 40;
+const PART_HEAD = 12;
 
 export const formatCheck = ({ reports, result, notes }: CheckRun): string => {
   const entries = [...result.failing].sort(byLocation).map(formatViolation);
@@ -48,8 +49,11 @@ export const formatCheck = ({ reports, result, notes }: CheckRun): string => {
       : `mshape check failed: ${plural(problems, "problem")}${suffix}`;
   // A part's label is a command line, which can be long: shortened, so one long command
   // doesn't push every state across the screen.
+  // The middle goes: a command's program is at the start and what it checks at the end.
   const short = (label: string): string =>
-    label.length > PART_LABEL ? `${label.slice(0, PART_LABEL - 1)}…` : label;
+    label.length > PART_LABEL
+      ? `${label.slice(0, PART_HEAD)}…${label.slice(label.length - (PART_LABEL - PART_HEAD - 1))}`
+      : label;
   // Parts sit two columns deeper, so their labels count two longer: every state lines up.
   const width =
     Math.max(
