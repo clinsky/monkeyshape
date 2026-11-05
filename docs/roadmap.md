@@ -21,7 +21,7 @@ convention: rewritten in place at each milestone boundary, and never cited by co
 | `mshape track pr` (a fresh gate, then open or update the PR) and `pr.yml`; `track list`'s derived `done` column; the `beads` check (who owns each bead) | **Shipped** (milestone 2, `monkeyshape-f4y`) |
 | `mshape msg send / inbox / read / register`: the mailbox between tracks, with live notices into idle Claude Code sessions; `track rm --keep-beads` | **Shipped** (milestone 2, `monkeyshape-f4y`) |
 | Conventions as code: one owner per checkable convention, delivered when needed, messages between tracks, derived status, review that reads the milestone | **Shipped** (milestone 2, `monkeyshape-f4y`); plan in `notes/2026-11-04-milestone-2.md` |
-| Ready for a real application and a new repo: a gate whose pass means what it says, checks true on real layouts, adopter rules, no file silently overlooked, adoption as written | **Milestone 3** (draft): plan in `plan/MILESTONE.md` |
+| Ready for a real application and a new repo: a gate whose pass means what it says, checks true on real layouts, adopter rules, no file silently overlooked, adoption as written | **Shipped** (milestone 3, `monkeyshape-xv2`, 0.4.0); plan in `plan/MILESTONE.md` |
 | First real adoptions: an existing application, and a new repo born through the loop | **After milestone 3**, each as its own repo's milestone: `monkeyshape-36f`, `monkeyshape-iqf.14` |
 | The remaining starter rules | Later: `monkeyshape-hh2` |
 | The agentic layer | Later: `monkeyshape-v56` |
@@ -30,7 +30,7 @@ convention: rewritten in place at each milestone boundary, and never cited by co
 | Selectable policy bundles | Idea: when an outside adopter needs it (`monkeyshape-8h4`) |
 
 "Shipped" means on `main`. npm has the release that shipped each milestone: 0.3.0 for
-milestone 2, and 0.4.0 for milestone 3 once its acceptance closes. A PR that ships a piece
+milestone 2, and 0.4.0 for milestone 3. A PR that ships a piece
 updates its row.
 
 ## 0. Scope
