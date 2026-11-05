@@ -69,6 +69,14 @@ const resolveProgram = (root: string, argv: ReadonlyArray<string>) =>
 
 const COMMAND_NOT_FOUND = 127;
 
+/**
+ * What a shell or a wrapper prints when a program it runs is missing: sh's "not found",
+ * bash's "command not found", or a wrapper's own "not installed". Exit 127 alone isn't enough:
+ * bash also exits 127 for a missing file it was given, which is a failure, never a toolchain
+ * gap, and must not turn green under `optional`.
+ */
+const TOOL_MISSING = /\b(not found|not installed)\b/i;
+
 const runCommand = (root: string, command: DeclaredCommand) =>
   Effect.gen(function* () {
     const program = yield* resolveProgram(root, command.run);
@@ -81,10 +89,10 @@ const runCommand = (root: string, command: DeclaredCommand) =>
         state: "unavailable",
         reason: `it could not start: ${ran.stderr}`,
       } satisfies CommandRun;
-    if (ran.code === COMMAND_NOT_FOUND)
+    if (ran.code === COMMAND_NOT_FOUND && TOOL_MISSING.test(output))
       return {
         state: "unavailable",
-        reason: `it exited 127, so a program it runs was not found${output === "" ? "" : `: ${output.trim().split("\n").at(-1)}`}`,
+        reason: `it exited 127, and a program it runs was not found: ${output.trim().split("\n").at(-1)}`,
       } satisfies CommandRun;
     return { state: "ran", code: ran.code, output } satisfies CommandRun;
   });

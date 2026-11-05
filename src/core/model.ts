@@ -109,8 +109,9 @@ export type FileMode = "executable" | "symlink";
 
 /**
  * How a declared command fared. `unavailable`: its program isn't installed here, or it
- * exited 127, the shell's "command not found", so a wrapper script missing its toolchain
- * says so too. Otherwise it ran: exit 0 passes, any other code fails.
+ * exited 127 saying a program was "not found" or "not installed" (a shell, or a wrapper
+ * script missing its toolchain). Otherwise it ran: exit 0 passes, any other code fails,
+ * including 127 for a missing file.
  */
 export type CommandRun =
   | { readonly state: "ran"; readonly code: number; readonly output: string }

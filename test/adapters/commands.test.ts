@@ -133,3 +133,31 @@ describe("declared commands run only when coverage is selected", () => {
     expect(await runs()).toBe(2);
   });
 });
+
+describe("exit 127 from adoption's literal run", () => {
+  const judge = async (commands: ReadonlyArray<DeclaredCommand>) => {
+    const shape = config({ coverage: { commands } });
+    const runs = await Effect.runPromise(runCommands(repo, shape, ["tools/gen.py"]));
+    return commands.map((_, index) => runs.get(index));
+  };
+
+  test("a file it was given is missing: failed, with bash's own words, never unavailable", async () => {
+    const [missingFile] = await judge([
+      { files: ["tools/**"], run: ["bash", "-n", "tools/gone.sh"] },
+    ]);
+    expect(missingFile?.state).toBe("ran");
+    expect(missingFile?.state === "ran" && missingFile.code).toBe(127);
+    expect(missingFile?.state === "ran" && missingFile.output).toContain(
+      "No such file or directory",
+    );
+  });
+
+  test("a program it runs is not found, by sh's or bash's words: unavailable", async () => {
+    const [sh, bash] = await judge([
+      { files: ["tools/**"], run: ["sh", "-c", "mshape-no-such-tool"] },
+      { files: ["tools/**"], run: ["bash", "-c", "mshape-no-such-tool"] },
+    ]);
+    expect(sh?.state).toBe("unavailable");
+    expect(bash?.state).toBe("unavailable");
+  });
+});

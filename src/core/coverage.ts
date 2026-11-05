@@ -127,7 +127,7 @@ export const checkCoverage = (
         violation(
           "typecheck",
           file,
-          "is not in any tsconfig program. Include it, or move it under an exempt directory if it is generated.",
+          `is not in any tsconfig program. Include it; or, if it is generated or vendored code, keep it under a directory named in \`coverage.exempt\` in shape.config.ts (by default ${config.coverage.exempt.join(", ")}).`,
         ),
       );
     if (!isLinted(file))
@@ -135,7 +135,7 @@ export const checkCoverage = (
         violation(
           "lint",
           file,
-          "is not in biome's files.includes. Include it, or move it under an exempt directory if it is generated.",
+          `is not in biome's files.includes. Include it; or, if it is generated or vendored code, keep it under a directory named in \`coverage.exempt\` in shape.config.ts (by default ${config.coverage.exempt.join(", ")}).`,
         ),
       );
   }
