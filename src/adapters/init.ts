@@ -3,11 +3,13 @@ import { copyFile, mkdir, readdir, realpath, symlink } from "node:fs/promises";
 import { basename, dirname, relative } from "node:path";
 import { Effect } from "effect";
 import { OWNABLE_FILES } from "../core/conventions.ts";
+import { VENDOR_DIR, vendoredSpecOf } from "../core/dep.ts";
 import { HANDOFFS_LINK, handoffsLink, handoffsStore } from "../core/layout.ts";
 import { scaffold, type Toolchain } from "../core/scaffold.ts";
 import { resolveConfig } from "../schemas/config.ts";
 import { WorkspaceError } from "../schemas/errors.ts";
 import { runTool } from "./process.ts";
+import { fileDigest } from "./release.ts";
 import { installSkills, readTree } from "./skills.ts";
 
 export interface InitResult {
@@ -113,8 +115,11 @@ const metricsNote = (target: string) =>
     return "bd sends anonymous usage metrics from this machine. That is a setting of your user, not of the repo, so init leaves it alone; to turn it off for every repo, run `bd metrics off`";
   });
 
-/** Where init puts a tarball given to `--from`, so the dependency resolves in every clone. */
-export const vendoredSpec = (tarball: string): string => `file:./vendor/${basename(tarball)}`;
+/** Where init puts a tarball given to `--from`, repo-relative, so every clone resolves it. */
+export const vendoredPath = (tarball: string): string => `${VENDOR_DIR}/${basename(tarball)}`;
+
+/** The dependency spec for a tarball given to `--from`. */
+export const vendoredSpec = (tarball: string): string => vendoredSpecOf(vendoredPath(tarball));
 
 /**
  * `packageRoot` is the installed monkeyshape: its `template/` and `skills/` are copied.
@@ -142,7 +147,18 @@ export const initRepo = (
     );
     if (template.size === 0)
       return yield* Effect.fail(fail(packageRoot, "has no template/; reinstall monkeyshape"));
-    const files = scaffold(name, template, toolchain);
+    // A tarball is recorded with its digest, so the files check verifies it from the first gate.
+    const vendored =
+      tarball === undefined
+        ? undefined
+        : {
+            path: vendoredPath(tarball),
+            package: "monkeyshape",
+            sha256: yield* fileDigest(tarball).pipe(
+              Effect.mapError((error) => fail(tarball, error.reason)),
+            ),
+          };
+    const files = scaffold(name, template, toolchain, vendored);
     yield* Effect.tryPromise({
       try: async () => {
         for (const [path, text] of files) {
@@ -155,17 +171,17 @@ export const initRepo = (
     const done = [`wrote ${files.size} files`];
     const notes: Array<string> = [];
     if (tarball !== undefined) {
-      const vendored = `${target}/vendor/${basename(tarball)}`;
+      const copy = `${target}/${vendoredPath(tarball)}`;
       yield* Effect.tryPromise({
         try: async () => {
-          await mkdir(dirname(vendored), { recursive: true });
-          await copyFile(tarball, vendored);
+          await mkdir(dirname(copy), { recursive: true });
+          await copyFile(tarball, copy);
         },
         catch: (cause) => partial(`cannot copy ${tarball} into vendor/: ${String(cause)}`),
       });
       done.push(`monkeyshape from vendor/${basename(tarball)}`);
       notes.push(
-        `monkeyshape is installed from vendor/${basename(tarball)}, which is committed so every clone and CI resolve it. Once that version is on npm, run \`bun add -d monkeyshape@<version>\`, delete vendor/ and commit`,
+        `monkeyshape is installed from vendor/${basename(tarball)}, which is committed so every clone and CI resolve it. Once a release of it is on npm, run \`bun add -d monkeyshape@<version>\`, delete vendor/ and its entry in shape.config.ts's files.vendored, and commit`,
       );
     }
     // init wrote PRIME.md and the PR template from the package, so sync owns them from the start.
@@ -192,6 +208,13 @@ export const initRepo = (
     const install = yield* run(target, [process.execPath, "install"]);
     if (install.code === 0) {
       done.push("bun install");
+      // The installed package's own sync: skills, PRIME.md and hooks then match the version
+      // the repo depends on, even when this mshape is another one.
+      const synced = yield* run(target, [process.execPath, "node_modules/.bin/mshape", "sync"]);
+      if (synced.code !== 0)
+        notes.push(
+          `the installed monkeyshape's sync failed, so the first gate may fail; run \`bun run --silent mshape sync\`:\n  ${tail(synced.output)}`,
+        );
       // The generated JSON is laid out by JSON.stringify; the repo's own biome has the last word.
       const format = yield* run(target, [
         process.execPath,

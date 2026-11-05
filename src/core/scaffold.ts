@@ -7,6 +7,7 @@
  */
 
 import { GATE_SCRIPT, PR_TEMPLATE_FILE, prTemplate } from "./conventions.ts";
+import type { VendoredEntry } from "./dep.ts";
 import { HOOKS, renderSettings, SETTINGS_FILE } from "./hooks.ts";
 
 /** Lowercase words joined by hyphens: a package name, a directory and a beads prefix at once. */
@@ -79,11 +80,40 @@ export const scaffold = (
   name: string,
   template: ReadonlyMap<string, string>,
   toolchain: Toolchain,
+  vendored?: VendoredEntry,
 ): ReadonlyMap<string, string> =>
   new Map([
-    ...[...template].map(([path, text]) => [targetPath(path), render(text, name)] as const),
+    ...[...template].map(([path, text]) => {
+      const rendered = render(text, name);
+      const target = targetPath(path);
+      return [
+        target,
+        target === CONFIG && vendored !== undefined ? recordVendored(rendered, vendored) : rendered,
+      ] as const;
+    }),
     ...Object.entries(configs(name, toolchain)),
   ]);
+
+const CONFIG = "shape.config.ts";
+
+/**
+ * A config with `entry` recorded as its one vendored artifact, before the closing `});` of
+ * `defineConfig`: how a repo born from a tarball passes the files check on its first gate.
+ */
+export const recordVendored = (config: string, entry: VendoredEntry): string => {
+  const end = config.lastIndexOf("});");
+  // A template without it gets no record; test/integration/init.test.ts asserts it lands.
+  if (end === -1) return config;
+  const block = `  files: {
+    // Release tarballs under vendor/, each with its package name and the sha256 its release
+    // states: the files check verifies them. Move one with \`mshape dep bump\`.
+    vendored: [
+      { path: ${JSON.stringify(entry.path)}, package: ${JSON.stringify(entry.package)}, sha256: ${JSON.stringify(entry.sha256)} },
+    ],
+  },
+`;
+  return `${config.slice(0, end)}${block}${config.slice(end)}`;
+};
 
 /**
  * Shares a repo's beads through git origin, run once after the first push: the beads go to

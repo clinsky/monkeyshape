@@ -1,12 +1,14 @@
 #!/usr/bin/env bun
 /** The `mshape` executable: the composition root, and the only place effects are run. */
-import { homedir } from "node:os";
-import { resolve } from "node:path";
+import { mkdtemp, realpath, rm } from "node:fs/promises";
+import { homedir, tmpdir } from "node:os";
+import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { Effect } from "effect";
 import pkg from "../../package.json" with { type: "json" };
 import { BASELINE_FILE, readBaseline, writeBaseline } from "../adapters/baseline.ts";
 import { CONFIG_FILE, loadConfig } from "../adapters/config.ts";
+import { depBump } from "../adapters/dep.ts";
 import { initRepo, vendoredSpec } from "../adapters/init.ts";
 import { mailInbox, mailInboxAll, mailRead, mailSend } from "../adapters/mail.ts";
 import {
@@ -17,6 +19,8 @@ import {
   register,
   removeSessions,
 } from "../adapters/notices.ts";
+import { runTool } from "../adapters/process.ts";
+import { packSource, packWorkingTree } from "../adapters/release.ts";
 import { reviewNew, reviewRm } from "../adapters/reviews.ts";
 import { syncAll } from "../adapters/sync.ts";
 import { trackPr } from "../adapters/trackPr.ts";
@@ -39,6 +43,7 @@ import { formatAllInboxes, formatInbox, formatMessage, formatSent } from "../cor
 import type { CheckName } from "../core/model.ts";
 import { formatDelivery, unregisteredNote } from "../core/notices.ts";
 import { count, tighten } from "../core/ratchet.ts";
+import { packVersion } from "../core/release.ts";
 import { formatCheck, formatGarden, formatViolation } from "../core/report.ts";
 import { formatRules } from "../core/rules/engine.ts";
 import { RULES } from "../core/rules/registry.ts";
@@ -92,6 +97,28 @@ const PACKAGE_ROOT = fileURLToPath(new URL("../..", import.meta.url)).replace(/\
 
 const WORKFLOW_URL = `${pkg.homepage.replace(/#.*$/, "")}/blob/main/docs/workflow.md`;
 
+/**
+ * When this mshape runs from a git checkout whose code isn't the release its version names, a
+ * pack of the checkout, with a development version (`packVersion`). Undefined for an installed
+ * package, or a checkout exactly at its release tag, which npm has.
+ */
+const checkoutPack = () =>
+  Effect.gen(function* () {
+    const top = yield* runTool(PACKAGE_ROOT, ["git", "rev-parse", "--show-toplevel"]);
+    if (top.code !== 0) return undefined;
+    const [here, root] = yield* Effect.promise(() =>
+      Promise.all([realpath(PACKAGE_ROOT), realpath(top.stdout.trim())]),
+    );
+    if (here !== root) return undefined;
+    if (packVersion(yield* packSource(PACKAGE_ROOT)) === pkg.version) return undefined;
+    const dir = yield* Effect.promise(() => mkdtemp(join(tmpdir(), "mshape-init-")));
+    const tarball = yield* packWorkingTree(PACKAGE_ROOT, dir);
+    return {
+      tarball,
+      cleanup: Effect.promise(() => rm(dir, { recursive: true, force: true })),
+    };
+  });
+
 const init = (root: string, args: ReadonlyArray<string>) =>
   Effect.gen(function* () {
     const fromFlag = args.indexOf("--from");
@@ -120,10 +147,14 @@ const init = (root: string, args: ReadonlyArray<string>) =>
       path === undefined || (path.includes(":") && !from?.startsWith("file:"))
         ? undefined
         : resolve(root, path);
-    const tarball =
+    const given =
       local !== undefined && (yield* Effect.promise(() => Bun.file(local).exists()))
         ? local
         : undefined;
+    // From a checkout that isn't the release, npm's package of this version isn't this code:
+    // vendor a pack of the checkout instead, as --from would.
+    const checkout = from === undefined ? yield* checkoutPack() : undefined;
+    const tarball = given ?? checkout?.tarball;
     const spec =
       tarball !== undefined ? vendoredSpec(tarball) : local !== undefined ? `file:${local}` : from;
     const dev = pkg.devDependencies;
@@ -140,7 +171,7 @@ const init = (root: string, args: ReadonlyArray<string>) =>
         typesBun: dev["@types/bun"],
       },
       tarball,
-    );
+    ).pipe(Effect.ensuring(checkout?.cleanup ?? Effect.void));
     return {
       output: [
         `Created ${name}/: ${result.done.join(", ")}.`,
@@ -490,7 +521,7 @@ const skills = (root: string, args: ReadonlyArray<string>) =>
 const configFlag = (root: string, args: ReadonlyArray<string>): string | undefined => {
   const at = args.indexOf("--config");
   const path = at === -1 ? undefined : args[at + 1];
-  return path === undefined ? undefined : path.startsWith("/") ? path : `${root}/${path}`;
+  return path === undefined ? undefined : resolve(root, path);
 };
 
 /** `checks`: what the caller will run, so the loader skips tools nothing will read. */
@@ -500,6 +531,37 @@ const load = (root: string, args: ReadonlyArray<string>, checks: ReadonlyArray<C
     const snapshot = yield* loadSnapshot(root, config, PACKAGE_ROOT, { checks });
     const baseline = yield* readBaseline(root);
     return { config, snapshot, baseline };
+  });
+
+/** `mshape dep bump <name> <tarball> --sha256 <digest>`. */
+const dep = (root: string, args: ReadonlyArray<string>) =>
+  Effect.gen(function* () {
+    const at = args.indexOf("--sha256");
+    const digest = at === -1 ? undefined : args[at + 1];
+    const rest = args.filter((_, i) => at === -1 || (i !== at && i !== at + 1));
+    const [sub, name, tarball, ...extra] = rest;
+    if (
+      sub !== "bump" ||
+      name === undefined ||
+      tarball === undefined ||
+      extra.length > 0 ||
+      digest === undefined ||
+      digest.startsWith("--")
+    )
+      return {
+        output:
+          "mshape dep bump: give the package, the tarball and the digest its release states: `mshape dep bump <name> <tarball> --sha256 <digest>`",
+        code: 2,
+      };
+    const config = yield* loadConfig(root);
+    const result = yield* depBump(
+      root,
+      config.files.vendored,
+      name,
+      resolve(root, tarball),
+      digest,
+    );
+    return { output: result.lines.join("\n"), code: result.code };
   });
 
 const check = (root: string, args: ReadonlyArray<string>) =>
@@ -658,6 +720,16 @@ export const COMMANDS: ReadonlyArray<Command> = [
       --keep-handoff keeps the handoff and mailbox, for a track that continues. Never touches
       main or other tracks.`,
     run: track,
+  },
+  {
+    name: "dep",
+    usage: `  mshape dep bump <name> <tarball> --sha256 <digest>
+      Move the vendored dependency <name> (recorded in shape.config.ts's files.vendored) to
+      <tarball>, a release of it on disk. <digest> is the sha256 its release states, never one
+      computed here: a tarball that doesn't match it, or is another package, changes nothing.
+      Copies it into vendor/, removes the old one, updates package.json, the record and
+      bun.lock, then runs the gate. Never fetches.`,
+    run: dep,
   },
   {
     name: "review",
