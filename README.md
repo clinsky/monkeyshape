@@ -53,19 +53,19 @@ bunx --package monkeyshape mshape init my-app
 A new repo whose gate (`bun run check`) passes, with one starter test: Bun, TypeScript, Effect,
 beads, the configs, CI, and five skills for your coding agent.
 
-Then the working loop. For each step, start a fresh agent session (Claude Code, Codex or
-another) in the directory the table names, then run the skill:
+Then the working loop. For each step, start a fresh session of your coding agent in the
+directory the table names, then run the skill:
 
 | Start the agent in | Run | What happens |
 |---|---|---|
 | Main checkout | `/roadmap` and a brain-dump | You and the agent agree the direction. It writes `docs/roadmap.md`. |
-| Main checkout | `/milestone` and your priorities | You agree a goal that is met on real data. The agent writes the plan, files the beads and makes one worktree per track. |
-| Each track's worktree | `/track` | One agent per track works its beads, messages other tracks and opens PRs. |
+| Main checkout | `/milestone` and your priorities | You agree a goal that is met on real data. The agent writes the plan, files the beads and splits the work into tracks, each with its own worktree and its own agent. |
+| Each track's worktree | `/track` | Many agents work in parallel, one per track. Each starts from its track's handoff, beads and mail, so its context holds one line of work. It messages other tracks and opens PRs. |
 | Main checkout | `/review-pr <n>` | Another agent runs the PR on real data and posts findings until it can say LGTM. You merge. |
 
-Tracks run in parallel, each in its own session. When a session's context runs low,
-`/handoff` saves its state, and `/track` in a fresh session picks it up. When every track is merged,
-`/milestone` starts the next round; `/roadmap` again only when the direction changes.
+When a session's context runs low, `/handoff` saves its state, and `/track` in a fresh
+session picks it up. When `mshape track list` shows every track done, `/milestone` starts the
+next round; `/roadmap` again only when the direction changes.
 
 The conventions in full: [docs/workflow.md](docs/workflow.md). An existing repo:
 [docs/adopting.md](docs/adopting.md).
