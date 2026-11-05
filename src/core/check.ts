@@ -177,7 +177,9 @@ const scopeOf = (check: CheckName, config: ResolvedConfig, snapshot: Snapshot): 
       return { examined: `${plural(docs.length, "doc")}, and comments in TypeScript` };
     }
     case "budgets": {
-      const other = lineSources(snapshot).filter((file) => !isTsSource(file)).length;
+      const other = lineSources(snapshot, config.coverage.exempt).filter(
+        (file) => !isTsSource(file),
+      ).length;
       return {
         examined: `the loaded docs, decisions, memories and ${plural(typescript.length, "TypeScript file")}${other === 0 ? "" : ` and ${plural(other, "other source file")}`}' lengths`,
       };

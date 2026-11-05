@@ -104,10 +104,11 @@ export const formatGarden = (g: GardenReport): string =>
       ? []
       : [
           "  Local rules",
-          ...g.localRules.map(
-            (r) =>
-              `    ${r.rule.padEnd(26)}${plural(r.ignores, "ignore")}, ${plural(r.allowances, "allowance")}`,
-          ),
+          // As wide as the other rows, or as the longest id plus two: counts never run into it.
+          ...g.localRules.map((r, _, all) => {
+            const width = Math.max(26, ...all.map((each) => each.rule.length + 2));
+            return `    ${r.rule.padEnd(width)}${plural(r.ignores, "ignore")}, ${plural(r.allowances, "allowance")}`;
+          }),
         ]),
     row("ratcheted violations", g.ratcheted),
     `Large files (${g.metrics.largeFiles.length})`,

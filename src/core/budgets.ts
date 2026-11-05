@@ -53,7 +53,7 @@ export const measure = (config: ResolvedConfig, snapshot: Snapshot): Metrics => 
   const readme = snapshot.texts.get("README.md");
   const decisions = parseDecisions(snapshot.texts.get("DECISIONS.md") ?? "");
   const memories = snapshot.memories === undefined ? undefined : [...snapshot.memories.values()];
-  const largeFiles = lineSources(snapshot)
+  const largeFiles = lineSources(snapshot, config.coverage.exempt)
     .map((file) => ({ file, lines: lineCount(snapshot.texts.get(file) ?? "") }))
     .filter((entry) => entry.lines > config.budgets.fileWarnLines)
     .sort((a, b) => b.lines - a.lines);

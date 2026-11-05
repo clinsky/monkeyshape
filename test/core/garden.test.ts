@@ -80,3 +80,38 @@ describe("garden's local rules", () => {
     expect(formatGarden(garden(config(), repo({}), {}))).not.toContain("Local rules");
   });
 });
+
+describe("review of #63", () => {
+  test("vendored and generated source, in any language, is not the repo's to split", () => {
+    const snapshot = repo({
+      "vendor/minilib/minilib.c": lines(3000),
+      "generated/parser.py": lines(3000),
+      "vendor/minilib/big.ts": lines(3000),
+      "native/own.c": lines(1300),
+    });
+    const found = checkBudgets(config(), snapshot).filter((v) => v.rule === "budgets/file-lines");
+    expect(found.map((v) => v.file)).toEqual(["native/own.c"]);
+    expect(garden(config(), snapshot, {}).metrics.largeFiles.map((f) => f.file)).toEqual([
+      "native/own.c",
+    ]);
+  });
+
+  test("a long local-rule id keeps its counts apart, and every count starts in one column", () => {
+    const rule = (id: string) =>
+      defineRule({
+        id,
+        bugClass: "a class of bug",
+        message: "do it the other way",
+        check: () => [],
+        cases: { fail: [], pass: [""] },
+      });
+    const shape = config({
+      localRules: [rule("no-save"), rule("no-direct-network-fetch-in-workflows")],
+    });
+    const text = formatGarden(garden(shape, repo({}), {}));
+    const block = text.split("\n").filter((l) => l.startsWith("    rules/local/"));
+    expect(block).toHaveLength(2);
+    expect(block[1]).toMatch(/workflows {2,}0 ignores/);
+    expect(block[0]?.indexOf("0 ignores")).toBe(block[1]?.indexOf("0 ignores"));
+  });
+});

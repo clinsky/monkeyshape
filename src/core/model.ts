@@ -214,10 +214,16 @@ export const isTsSource = (path: string): boolean =>
 
 /**
  * Source whose lines count: TypeScript, and executable source in any language whose text was
- * read and isn't binary (a NUL byte: a compiled artifact with the executable bit).
+ * read and isn't binary (a NUL byte: a compiled artifact with the executable bit), outside the
+ * segments coverage exempts, so budgets and coverage agree on what is the repo's own.
  */
-export const lineSources = (snapshot: Snapshot): ReadonlyArray<string> =>
+export const lineSources = (
+  snapshot: Snapshot,
+  /** `coverage.exempt`: generated or vendored code is not the repo's to split. */
+  exempt: ReadonlyArray<string>,
+): ReadonlyArray<string> =>
   snapshot.files.filter((file) => {
+    if (file.split("/").some((segment) => exempt.includes(segment))) return false;
     const kind = classify(file, snapshot.modes.get(file));
     if (kind === "typescript") return isTsSource(file);
     if (kind !== "executable") return false;
