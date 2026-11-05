@@ -91,9 +91,11 @@ const outsideCopies = async (
       else target = file;
     } else target = resolveBare(specifier, root);
     if (target === undefined) continue;
+    // Only where it is imported: `from "x"`, `import "x"`, `import("x")`. The same text
+    // elsewhere is data, such as a vendored record's `package: "monkeyshape"`.
     rewritten = rewritten.replace(
-      new RegExp(`(["'])${escapeRegExp(specifier)}\\1`, "g"),
-      JSON.stringify(target),
+      new RegExp(`(\\bfrom\\s*|\\bimport\\s*\\(?\\s*)(["'])${escapeRegExp(specifier)}\\2`, "g"),
+      (_, keyword: string) => `${keyword}${JSON.stringify(target)}`,
     );
   }
   await Bun.write(copy, rewritten);

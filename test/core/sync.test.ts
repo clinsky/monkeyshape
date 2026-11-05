@@ -14,7 +14,7 @@ import {
   SETTINGS_FILE,
 } from "../../src/core/hooks.ts";
 import { lineCount } from "../../src/core/model.ts";
-import { isPrTemplate, planSync } from "../../src/core/sync.ts";
+import { formatSyncPlan, isPrTemplate, planSync } from "../../src/core/sync.ts";
 
 const ROOT = join(import.meta.dir, "..", "..");
 const PRIME = "# The working loop\n";
@@ -45,6 +45,7 @@ describe("planSync", () => {
       notes: [],
       blocked: [],
       owned: [PRIME_FILE, PR_TEMPLATE_FILE],
+      created: [],
     });
   });
 
@@ -53,6 +54,8 @@ describe("planSync", () => {
     expect(plan.write.get(PRIME_FILE)).toBe(PRIME);
     expect(plan.write.get(PR_TEMPLATE_FILE)).toBe(prTemplate());
     expect(plan.write.has(SETTINGS_FILE)).toBe(false);
+    // What didn't exist is added, what did is updated.
+    expect(formatSyncPlan(plan)).toEqual([`${PRIME_FILE}: added`, `${PR_TEMPLATE_FILE}: updated`]);
   });
 
   test("without .beads/ leaves PRIME.md out and says how to get it", () => {

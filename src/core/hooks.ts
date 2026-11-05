@@ -44,15 +44,23 @@ const quote = (arg: string): string =>
 export const withNote = (command: string, note: string): string =>
   `${command} || echo ${quote(`note: ${note}`)}`;
 
+/**
+ * Either cause, since the hook can't tell them apart cheaply: a session whose PATH lacks bun
+ * (a shell profile that adds it only to login shells) fails the same way as a missing install.
+ */
 const MSHAPE_MISSING =
+  'mshape could not run here, so this hook did nothing. Either bun is not on this session\'s PATH (run `command -v bun`; add bun\'s bin directory, often ~/.bun/bin, to the PATH Claude Code starts with), or monkeyshape is not installed (run `bun install`; package.json needs the script `"mshape": "mshape"`).';
+
+/** What 0.3's hooks printed: sync replaces a hook carrying it, as it replaces the bare command. */
+const MSHAPE_MISSING_0_3 =
   'mshape could not run here, so this hook did nothing. Run `bun install`; package.json needs the script `"mshape": "mshape"`.';
 
-/** A hook running `mshape <args>`, degrading to a note, replacing the bare command. */
+/** A hook running `mshape <args>`, degrading to a note, replacing what earlier versions ran. */
 const mshapeHook = (event: HookEvent, args: ReadonlyArray<string>): Hook => ({
   event,
   matcher: "",
   command: withNote(mshapeCommand(args), MSHAPE_MISSING),
-  retired: [mshapeCommand(args)],
+  retired: [mshapeCommand(args), withNote(mshapeCommand(args), MSHAPE_MISSING_0_3)],
 });
 
 /** Every hook, in the order each event runs them. */

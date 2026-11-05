@@ -1,6 +1,17 @@
 node_modules
 .private/
 
+# Secrets, as the files check judges them: .env and .env.<x>, except templates without
+# secrets, whose name ends in example, sample or template. .envrc isn't one.
+.env
+.env.*
+!.env.example
+!.env.*.example
+!.env.sample
+!.env.*.sample
+!.env.template
+!.env.*.template
+
 # Tracks and reviews: worktrees, and links to the handoffs store under .git (no trailing slash on links)
 .agents/worktrees/
 .agents/handoffs

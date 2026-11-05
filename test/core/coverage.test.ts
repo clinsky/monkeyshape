@@ -471,7 +471,7 @@ describe("structured data parses", () => {
 });
 
 describe("a long command's line", () => {
-  test("is cut to one short line under coverage; its finding keeps the whole command", () => {
+  test("is one line under coverage, cut by the report; its finding keeps the whole command", () => {
     const run = [
       "sh",
       "-c",
@@ -488,8 +488,9 @@ describe("a long command's line", () => {
       { commands: [{ state: "ran", code: 1, output: "error" }] },
     );
     const [part] = commandReports(config(shape), snapshot);
-    expect(part?.label.length).toBe(60);
-    expect(part?.label.endsWith("…")).toBe(true);
+    // Whole here: the report shortens every part's label, keeping both ends
+    // (test/core/outcome.test.ts).
+    expect(part?.label).toBe(run.join(" ").replace(/\s+/g, " "));
     expect(part?.label).not.toContain("\n");
     const [found] = checkCoverage(config(shape), snapshot);
     expect(found?.message).toContain(run.join(" "));
