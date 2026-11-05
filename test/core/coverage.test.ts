@@ -540,6 +540,7 @@ describe("adoption's literal run: the typecheck and lint messages", () => {
       expect(v.message).toContain("`coverage.exempt`");
       expect(v.message).toContain("generated");
       expect(v.message).toContain("vendor");
+      expect(v.message).toContain("mshape baseline --init");
     }
   });
 });

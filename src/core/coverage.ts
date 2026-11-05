@@ -127,7 +127,7 @@ export const checkCoverage = (
         violation(
           "typecheck",
           file,
-          `is not in any tsconfig program. Include it; or, if it is generated or vendored code, keep it under a directory named in \`coverage.exempt\` in shape.config.ts (by default ${config.coverage.exempt.join(", ")}).`,
+          `is not in any tsconfig program. Include it; or, if it is generated or vendored code, keep it under a directory named in \`coverage.exempt\` in shape.config.ts (by default ${config.coverage.exempt.join(", ")}). To hold it out on purpose for now, \`mshape baseline --init\` grandfathers it, and the ratchet keeps the count from growing.`,
         ),
       );
     if (!isLinted(file))
@@ -135,7 +135,7 @@ export const checkCoverage = (
         violation(
           "lint",
           file,
-          `is not in biome's files.includes. Include it; or, if it is generated or vendored code, keep it under a directory named in \`coverage.exempt\` in shape.config.ts (by default ${config.coverage.exempt.join(", ")}).`,
+          `is not in biome's files.includes. Include it; or, if it is generated or vendored code, keep it under a directory named in \`coverage.exempt\` in shape.config.ts (by default ${config.coverage.exempt.join(", ")}). To hold it out on purpose for now, \`mshape baseline --init\` grandfathers it, and the ratchet keeps the count from growing.`,
         ),
       );
   }
