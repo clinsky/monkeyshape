@@ -48,8 +48,8 @@ bunx --package monkeyshape mshape init my-app
 cd my-app && bun run check
 ```
 
-`init` installs and commits a repo whose gate passes. It needs Bun 1.4.2 or later, git and
-beads' `bd`; the loop also uses `gh`. An existing repo: [docs/adopting.md](docs/adopting.md).
+`init` installs and commits a repo whose gate passes, with the five skills the table runs. It
+needs Bun 1.4.2 or later, git, beads' `bd`, and `gh` for the loop. An existing repo: [docs/adopting.md](docs/adopting.md).
 
 | Start a fresh agent in | Then run | What happens |
 |---|---|---|
