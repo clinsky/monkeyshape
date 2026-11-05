@@ -58,7 +58,8 @@ const ENV_PLAIN_FLAGS = new Set(["-", "-i", "--ignore-environment", "-S", "--spl
 const envTarget = (args: ReadonlyArray<string>): string | undefined => {
   for (const arg of args) {
     if (/^[A-Za-z_][A-Za-z0-9_]*=/.test(arg) || ENV_PLAIN_FLAGS.has(arg)) continue;
-    return arg.startsWith("-") ? undefined : arg;
+    // A value-taking flag, or one string for -S to split: not a program name to look up.
+    return arg.startsWith("-") || /\s/.test(arg) ? undefined : arg;
   }
   return undefined;
 };

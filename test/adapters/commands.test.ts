@@ -195,6 +195,11 @@ describe("exit 127 from adoption's literal run", () => {
     expect(chdir).toMatchObject({ state: "ran", code: 3 });
     expect(shebang).toMatchObject({ state: "ran", code: 3 });
     expect(clean).toMatchObject({ state: "ran", code: 3 });
+    // -S in an argv takes one string to split: never read whole as a program name.
+    const [split] = await judge([
+      { files: ["tools/**"], run: ["env", "-S", 'sh -c "exit 3"'], optional: true },
+    ]);
+    expect(split).toMatchObject({ state: "ran", code: 3 });
     // Not judged in advance, but env's own message still says the program is missing.
     expect(missingAfterFlag?.state).toBe("unavailable");
   });
