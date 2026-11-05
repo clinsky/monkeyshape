@@ -13,8 +13,9 @@ session. Less prose gets written, and the prose that's left matters more.
 
 The other half is how people and agents split the work, so everyone can see who owns what:
 
-- **You steer** at three horizons, each in one file: the roadmap (months), the milestone (the
-  current batch of work), and the track (today). You review and merge.
+- **Plans are made together**, at three horizons, each in one file: the roadmap (months), the
+  milestone (the current batch of work) and each track's handoff (today). The agent
+  interviews you, proposes and pushes back; you set the priorities, approve the plan and merge.
 - **Agents own the code**, tests and docs. Each track is one agent's line of work, with its
   own worktree, branch and handoff, so its context stays small and focused.
 - **Beads** give agents memory, an issue tracker and the order between tasks.
@@ -50,14 +51,21 @@ bunx --package monkeyshape mshape init my-app
 ```
 
 A new repo whose gate (`bun run check`) passes, with one starter test: Bun, TypeScript, Effect,
-beads, the configs, CI, and five skills for your coding agent. Then the working loop, one chat each:
+beads, the configs, CI, and five skills for your coding agent.
 
-1. `/roadmap` with a brain-dump: the direction, and one deferred epic per goal.
-2. `/milestone` with your priorities: a plan with acceptance on real data, beads, and
-   tracks, each its own worktree from `mshape track new`.
-3. `/track` in each track's worktree: the agent works its queue and opens PRs.
-4. `/handoff` when a chat's context runs low; a fresh chat runs `/track` to continue.
-5. `/review-pr <n>` in its own chat; you merge.
+Then the working loop. For each step, start a fresh agent session (Claude Code, Codex or
+another) in the directory the table names, then run the skill:
+
+| Start the agent in | Run | What happens |
+|---|---|---|
+| Main checkout | `/roadmap` and a brain-dump | You and the agent agree the direction. It writes `docs/roadmap.md`. |
+| Main checkout | `/milestone` and your priorities | You agree a goal that is met on real data. The agent writes the plan, files the beads and makes one worktree per track. |
+| Each track's worktree | `/track` | One agent per track works its beads, messages other tracks and opens PRs. |
+| Main checkout | `/review-pr <n>` | Another agent runs the PR on real data and posts findings until it can say LGTM. You merge. |
+
+Tracks run in parallel, each in its own session. When a session's context runs low,
+`/handoff` saves its state, and `/track` in a fresh session picks it up. When every track is merged,
+`/milestone` starts the next round; `/roadmap` again only when the direction changes.
 
 The conventions in full: [docs/workflow.md](docs/workflow.md). An existing repo:
 [docs/adopting.md](docs/adopting.md).
