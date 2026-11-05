@@ -7,7 +7,7 @@ import { mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { Effect } from "effect";
-import { loadSnapshot } from "../../src/adapters/workspace.ts";
+import { loadSnapshot, noDatabaseNote } from "../../src/adapters/workspace.ts";
 import { checkCoverage } from "../../src/core/coverage.ts";
 import { config } from "../support.ts";
 
@@ -61,5 +61,44 @@ describe("typecheck coverage through project references", () => {
     ]);
     const uncovered = checkCoverage(shape, snapshot).filter((v) => v.rule === "coverage/typecheck");
     expect(uncovered.map((v) => v.file)).toEqual(["scripts/orphan.ts"]);
+  });
+});
+
+describe("the note for a clone with no beads database", () => {
+  const REMOTE = "git+https://example.com/team/repo.git";
+
+  test("a committed issues.jsonl: bootstrap is safe, and the note names both sources in bd's order", () => {
+    const note = noDatabaseNote({ remote: REMOTE, local: ".beads/issues.jsonl" });
+    expect(note).toContain("run `bd bootstrap`");
+    expect(note).toContain(REMOTE);
+    expect(note).toContain(".beads/issues.jsonl");
+    // It doesn't claim the remote is what bootstrap will use: offline, it can't know.
+    expect(note).not.toContain(`fetches the beads from ${REMOTE}`);
+    expect(note).not.toContain("don't run `bd bootstrap`");
+  });
+
+  test("no remote configured, a committed issues.jsonl: bootstrap rebuilds from it", () => {
+    const note = noDatabaseNote({ remote: undefined, local: ".beads/issues.jsonl" });
+    expect(note).toContain("rebuilds the database from .beads/issues.jsonl");
+    expect(note).not.toContain("example.com");
+    expect(note).not.toContain("don't run `bd bootstrap`");
+  });
+
+  test("a backup is a local source too", () => {
+    expect(noDatabaseNote({ remote: undefined, local: ".beads/backup/issues.jsonl" })).toContain(
+      ".beads/backup/issues.jsonl",
+    );
+  });
+
+  test("only a remote: bootstrap fetches from it, as before", () => {
+    expect(noDatabaseNote({ remote: REMOTE, local: undefined })).toBe(
+      `this clone has no beads database yet; run \`bd bootstrap\`, which fetches the beads from ${REMOTE}`,
+    );
+  });
+
+  test("neither: the warning that bootstrap would hide the beads, as before", () => {
+    const note = noDatabaseNote({ remote: undefined, local: undefined });
+    expect(note).toContain("git ls-remote origin refs/dolt/data");
+    expect(note).toContain("don't run `bd bootstrap`");
   });
 });
