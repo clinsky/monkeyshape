@@ -338,7 +338,14 @@ describe("mshape init", () => {
       expect((await run(origin, ["sh", "-c", SHARE_BEADS])).code).toBe(0);
       expect((await run(origin, ["git", "status", "--porcelain"])).output).toBe("");
       const shared = await cloneOf("clone-shared");
-      expect(await note(shared)).toContain("run `bd bootstrap`, which fetches the beads from");
+      // The note tests sync.remote before naming bootstrap; its test, run here, prints a line.
+      const sharedNote = await note(shared);
+      const test =
+        /If `(git ls-remote [^`]+ refs\/dolt\/data)` prints a line, the beads were pushed/.exec(
+          sharedNote,
+        )?.[1];
+      expect(test).toBeDefined();
+      expect((await run(shared, ["sh", "-c", test ?? "false"])).output.trim()).not.toBe("");
       expect((await run(shared, ["bd", "bootstrap", "--yes"])).code).toBe(0);
       expect(await sees(shared)).toBe(true);
       const tip = await pushed(shared);

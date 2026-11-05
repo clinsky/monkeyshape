@@ -79,6 +79,13 @@ const jsonRows = (stdout: string): ReadonlyArray<unknown> | undefined => {
  * database that hides the beads unless they were pushed, to sync.remote or to origin, so the
  * note says how to test for pushed beads first.
  */
+/** Remotes only Dolt speaks; any other sync.remote (a path, file, ssh, https) is a git remote. */
+const DOLT_SCHEMES = /^(dolthub|aws|gs|oci):\/\//;
+
+/** A word a POSIX shell reads back as itself: single-quoted when it holds anything special. */
+const shellWord = (word: string): string =>
+  /^[\w@%+=:,./-]+$/.test(word) ? word : `'${word.replaceAll("'", "'\\''")}'`;
+
 export const noDatabaseNote = (sources: {
   readonly remote: string | undefined;
   readonly local: string | undefined;
@@ -90,7 +97,7 @@ export const noDatabaseNote = (sources: {
       : `this clone has no beads database yet; run \`bd bootstrap\`. It uses the first source it can reach: the remote in sync.remote (${remote}), or else ${local} in this clone`;
   if (remote !== undefined) {
     // A committed sync.remote says where beads would be, not that they were pushed there.
-    const git = remote.startsWith("git+") ? remote.slice("git+".length) : undefined;
+    const git = DOLT_SCHEMES.test(remote) ? undefined : shellWord(remote.replace(/^git\+/, ""));
     const pushed =
       git === undefined
         ? `If the beads were pushed to ${remote} (sync.remote), run \`bd bootstrap\` to fetch them.`

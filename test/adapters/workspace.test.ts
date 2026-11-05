@@ -101,6 +101,12 @@ describe("the note for a clone with no beads database", () => {
     expect(note).toContain("bd dolt push --yes");
   });
 
+  test("only a remote that is a plain path, with a space: still git, and quoted for the shell", () => {
+    expect(noDatabaseNote({ remote: "/tmp/team repo/remote.git", local: undefined })).toContain(
+      "If `git ls-remote '/tmp/team repo/remote.git' refs/dolt/data` prints a line",
+    );
+  });
+
   test("only a remote that isn't git: the same condition, with no command it can't give", () => {
     const note = noDatabaseNote({ remote: "dolthub://team/repo", local: undefined });
     expect(note).not.toContain("which fetches the beads from");
