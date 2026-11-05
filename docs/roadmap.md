@@ -29,8 +29,9 @@ convention: rewritten in place at each milestone boundary, and never cited by co
 | Effect: correct use in monkeyshape, and enforcement for adopters | Later: an epic filed with milestone 3 |
 | Selectable policy bundles | Idea: when an outside adopter needs it (`monkeyshape-8h4`) |
 
-"Shipped" means on `main`. npm has 0.2.0, published before milestone 2's mailbox merged;
-0.3.0 ships milestone 2. A PR that ships a piece updates its row.
+"Shipped" means on `main`. npm has the release that shipped each milestone: 0.3.0 for
+milestone 2, and 0.4.0 for milestone 3 once its acceptance closes. A PR that ships a piece
+updates its row.
 
 ## 0. Scope
 
