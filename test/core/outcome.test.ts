@@ -344,4 +344,26 @@ describe("the outcome contract", () => {
       );
     expect(output.split("\n").at(-1)).toBe("mshape check passed");
   });
+
+  test("a long command's label is shortened, so it doesn't push every state across", () => {
+    const run = assess(
+      config(ARCH),
+      repo(
+        { "AGENTS.md": "# A\n", "src/core/a.ts": "export const a = 1;\n" },
+        tools("src/core/a.ts"),
+      ),
+    );
+    const long = `python3 -c import ast, sys; ${"x".repeat(80)}`;
+    const reports = run.reports.map((report) =>
+      report.check === "coverage"
+        ? { ...report, parts: [{ label: long, outcome: report.outcome }] }
+        : report,
+    );
+    const lines = formatCheck({ ...run, reports }).split("\n");
+    const column = (line: string | undefined) => line?.search(/(passed|failed)/) ?? -1;
+    const part = lines.find((line) => line.includes("python3"));
+    expect(part).toContain("…");
+    expect(column(part)).toBe(column(lines.find((line) => /^ {2}arch\s/.test(line))));
+    expect(column(part)).toBeLessThan(45);
+  });
 });

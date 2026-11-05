@@ -20,7 +20,7 @@ Leave out any you already depend on. Re-adding a package rewrites its pinned ver
 range. monkeyshape runs on Bun. It asks your `tsc` and `biome` which files they cover, and
 `effect` is its peer dependency.
 
-To install monkeyshape from a release tarball rather than npm, put the tarball under
+To install monkeyshape from a release tarball rather than npm, copy the tarball into
 `vendor/` and run `bun add -d --exact ./vendor/<tarball>`. Then record it as step 3 shows.
 
 Add the script that hooks and skills run, to `package.json`'s `scripts`:
@@ -75,8 +75,8 @@ Each check reads its own part of the config.
 - **Packages.** A module may import `effect` and the packages in `arch.allowedPackages`. One
   module's own extra packages go in its `packages`. `hostAccess: true` lets a module use
   `node:*`, `Bun` and the like.
-- **`entry`** lists the files that run things: the clock, the environment and console output
-  are allowed there.
+- **`entry`** lists, as globs, the files that run things, such as `entry: ["main.ts", "scripts/**/*.ts"]`.
+  The clock, the environment and console output are allowed there.
 - **Other languages are covered, never analyzed.**
   - Executable source that isn't TypeScript needs a command that checks it. That includes C,
     Python, shell, Java and Go, or any file with git's executable bit.
@@ -94,8 +94,9 @@ Each check reads its own part of the config.
     still needs a command or an exemption.
 - **Vendored tarballs.** Record every tarball under `vendor/`, including ones from before you
   adopted: `files: { vendored: [{ path: "vendor/<tarball>", package: "<npm name>", sha256: "<sha256sum>" }] }`.
-  The digest is the one its release states. For a tarball you built or already had, use the
-  `sha256sum` of the file you checked. The `files` check verifies each one. Move one to a new release with
+  The digest is the one its publisher states, on the release page or in your own notes. For
+  a tarball with no stated digest, one you built or were handed, use the `sha256sum` of the
+  file once you trust where it came from. The `files` check verifies each one. Move one to a new release with
   `bun run --silent mshape dep bump <name> <tarball> --sha256 <digest>`.
 - **Invariants of your own** become adopter rules: `docs/local-rules.md` shows how. List each
   rule module's directory in `sources.include`, for example `rules/**/*.ts`.
@@ -103,7 +104,8 @@ Each check reads its own part of the config.
 ## 4. tsc and biome
 
 Every TypeScript file must be in both tools' file lists, `shape.config.ts` included. Keep your
-own configs and add what's missing. Without one, start from these:
+own configs and add what's missing. Extending monkeyshape's bases, as the blocks below do, is optional: they are its opinions on strictness and lint, which you can
+take later. Without configs of your own, start from these:
 
 ```jsonc
 // tsconfig.json
@@ -119,19 +121,21 @@ own configs and add what's missing. Without one, start from these:
 }
 ```
 
-Then format the files you added: `biome check --write shape.config.ts tsconfig.json biome.json`.
+Then format the files you added: `bunx biome check --write shape.config.ts tsconfig.json biome.json`.
 
 A file you hold out of either list for a reason stays out. The baseline in step 7
 grandfathers it as `coverage/typecheck` or `coverage/lint`. For example, keep out a script
 that doesn't typecheck yet, or a directory biome has never linted. When you add a directory
 to biome, biome itself may fail on code it hadn't seen. The baseline can't grandfather that.
-Fix those files, or leave the directory out. Commit the reformatting that comes with them on
-its own.
+See the cost first with `bunx biome check <dir>`. Then fix those files, or leave the directory
+out. Commit the reformatting that comes with them on its own.
 
 ## 5. The gate
 
 Make it one script, the same locally and in CI:
-`tsc && biome ci --error-on-warnings && mshape check && bun test`.
+`tsc && biome ci --error-on-warnings && mshape check && bun test`. Keep the scripts you have
+and chain them: `bun run typecheck && biome ci --error-on-warnings && mshape check && bun test`.
+Use `biome ci`, not `biome check`, so the gate fails rather than writes.
 `tsc` and `biome` are required. If either can't run, `mshape check` fails rather than skip
 it.
 
@@ -145,7 +149,8 @@ The repo's agent instructions belong in AGENTS.md, within its budget:
 ```
 
 `CLAUDE.md` holds only `@AGENTS.md`. If `bd setup` appended its beads block there, remove it:
-`.beads/PRIME.md` replaces it at every session start. Don't run `bd setup claude` again.
+`.beads/PRIME.md` replaces it at every session start. Don't run `bd setup claude` again. The files `bd setup` wrote for other agents (for Cursor or
+Codex) can stay: monkeyshape doesn't read them.
 Without beads yet, run `bd init --skip-agents`. In a clone that has `.beads/` but no
 database, run `bd bootstrap`, which rebuilds it from what git tracks.
 

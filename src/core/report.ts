@@ -30,6 +30,9 @@ const detail = (outcome: Outcome): string => {
  * Notes, then each finding, then one line per check (its outcome and what it examined), then
  * the summary, which is always the last line.
  */
+/** The longest a part's label prints. */
+const PART_LABEL = 36;
+
 export const formatCheck = ({ reports, result, notes }: CheckRun): string => {
   const entries = [...result.failing].sort(byLocation).map(formatViolation);
   for (const l of result.loose)
@@ -43,20 +46,24 @@ export const formatCheck = ({ reports, result, notes }: CheckRun): string => {
     problems === 0
       ? `mshape check passed${suffix}`
       : `mshape check failed: ${plural(problems, "problem")}${suffix}`;
+  // A part's label is a command line, which can be long: shortened, so one long command
+  // doesn't push every state across the screen.
+  const short = (label: string): string =>
+    label.length > PART_LABEL ? `${label.slice(0, PART_LABEL - 1)}…` : label;
   // Parts sit two columns deeper, so their labels count two longer: every state lines up.
   const width =
     Math.max(
       0,
       ...reports.flatMap((r) => [
         r.check.length,
-        ...(r.parts ?? []).map((p) => p.label.length + 2),
+        ...(r.parts ?? []).map((p) => short(p.label).length + 2),
       ]),
     ) + 2;
   const line = (label: string, outcome: Outcome, indent: number) =>
     `${label.padEnd(width - indent)}${outcome.state.padEnd(16)}${detail(outcome)}`;
   const lines = reports.flatMap((r) => [
     `  ${line(r.check, r.outcome, 0)}`,
-    ...(r.parts ?? []).map((part) => `    ${line(part.label, part.outcome, 2)}`),
+    ...(r.parts ?? []).map((part) => `    ${line(short(part.label), part.outcome, 2)}`),
   ]);
   return [
     ...notes.map((note) => `note: ${note}`),
