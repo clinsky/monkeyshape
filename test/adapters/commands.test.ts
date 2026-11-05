@@ -182,6 +182,23 @@ describe("exit 127 from adoption's literal run", () => {
     expect(missingFile?.state).toBe("ran");
   });
 
+  test("env flags that take a value are never read as the program: the command runs", async () => {
+    await write("scripts/env-u", "#!/usr/bin/env -S -u HOME bash\nexit 3\n", 0o755);
+    const [unset, chdir, shebang, clean, missingAfterFlag] = await judge([
+      { files: ["tools/**"], run: ["env", "-u", "HOME", "sh", "-c", "exit 3"], optional: true },
+      { files: ["tools/**"], run: ["env", "-C", "/tmp", "sh", "-c", "exit 3"], optional: true },
+      { files: ["tools/**"], run: ["scripts/env-u"], optional: true },
+      { files: ["tools/**"], run: ["env", "-i", "PATH=/usr/bin:/bin", "sh", "-c", "exit 3"] },
+      { files: ["tools/**"], run: ["env", "-u", "HOME", "mshape-no-such-tool"], optional: true },
+    ]);
+    expect(unset).toMatchObject({ state: "ran", code: 3 });
+    expect(chdir).toMatchObject({ state: "ran", code: 3 });
+    expect(shebang).toMatchObject({ state: "ran", code: 3 });
+    expect(clean).toMatchObject({ state: "ran", code: 3 });
+    // Not judged in advance, but env's own message still says the program is missing.
+    expect(missingAfterFlag?.state).toBe("unavailable");
+  });
+
   test("a program it runs is not found, by sh's or bash's words: unavailable", async () => {
     const [sh, bash] = await judge([
       { files: ["tools/**"], run: ["sh", "-c", "mshape-no-such-tool"] },

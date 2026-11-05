@@ -46,9 +46,22 @@ const exists = (path: string) =>
     ),
   );
 
-/** The program `env` would run: its first argument that is neither a flag nor `NAME=value`. */
-const envTarget = (args: ReadonlyArray<string>): string | undefined =>
-  args.find((arg) => !arg.startsWith("-") && !/^[A-Za-z_][A-Za-z0-9_]*=/.test(arg));
+/** `env` flags that take no value: what may come before the program for it to be judged. */
+const ENV_PLAIN_FLAGS = new Set(["-", "-i", "--ignore-environment", "-S", "--split-string"]);
+
+/**
+ * The program `env` would run, only when that is unambiguous: past `NAME=value` and flags
+ * that take no value. Any other flag (`-u NAME`, `-C DIR`, `-P PATH`) may take a value that
+ * looks like a program, so it gives undefined: the command runs, and env's own "No such file
+ * or directory" still marks a missing program.
+ */
+const envTarget = (args: ReadonlyArray<string>): string | undefined => {
+  for (const arg of args) {
+    if (/^[A-Za-z_][A-Za-z0-9_]*=/.test(arg) || ENV_PLAIN_FLAGS.has(arg)) continue;
+    return arg.startsWith("-") ? undefined : arg;
+  }
+  return undefined;
+};
 
 /**
  * A script's interpreter, from its shebang: `#!/usr/bin/env [-S] <name> ...` gives the name
