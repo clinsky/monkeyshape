@@ -597,8 +597,16 @@ const baseline = (root: string, args: ReadonlyArray<string>) =>
     );
     if (args.includes("--init")) {
       yield* writeBaseline(root, count(violations));
+      // By rule, most first: what to review, since one rule's count is usually one habit.
+      const byRule = new Map<string, number>();
+      for (const v of violations) byRule.set(v.rule, (byRule.get(v.rule) ?? 0) + 1);
       return {
-        output: `${BASELINE_FILE}: grandfathered ${violations.length} violation(s)`,
+        output: [
+          `${BASELINE_FILE}: grandfathered ${violations.length} violation(s)`,
+          ...[...byRule]
+            .sort(([a, x], [b, y]) => y - x || a.localeCompare(b))
+            .map(([rule, n]) => `  ${String(n).padStart(6)}  ${rule}`),
+        ].join("\n"),
         code: 0,
       };
     }

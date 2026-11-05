@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { readdir } from "node:fs/promises";
 import { join } from "node:path";
+import { report } from "../../src/core/check.ts";
 import type { SkillsLink } from "../../src/core/model.ts";
 import {
   checkSkills,
@@ -343,5 +344,28 @@ describe("checkSkills", () => {
       "skills/collision .agents/skills/milestone: is a skill of this repo's own",
     );
     expect(found[0]).toContain("Rename yours");
+  });
+});
+
+describe("what the skills and sync checks say they examined", () => {
+  const snapshot = (installed: Record<string, string>) =>
+    repo(Object.fromEntries(Object.keys(installed).map((path) => [`.agents/skills/${path}`, ""])), {
+      skills: {
+        link: RELATIVE,
+        installed: files(installed),
+        claudeDirectory: files({}),
+        shipped: files(SHIPPED),
+      },
+    });
+
+  test("skills counts skill directories, not sync's manifest beside them", () => {
+    expect(report("skills", config(), snapshot(INSTALLED)).outcome).toMatchObject({
+      examined: "2 installed skills",
+    });
+  });
+
+  test("sync is not applicable where sync has never run, rather than passing", () => {
+    expect(report("sync", config(), snapshot(SHIPPED)).outcome.state).toBe("not-applicable");
+    expect(report("sync", config(), snapshot(INSTALLED)).outcome.state).not.toBe("not-applicable");
   });
 });

@@ -105,11 +105,14 @@ describe("review of #59: messages", () => {
   });
 
   test("an unrecorded archive under vendor/ past the cap is told to record it", () => {
-    const [found] = checkFiles(
+    // One finding, not two: recording it is the fix for both, and lifts the cap.
+    const found = checkFiles(
       config(),
       repo({ "vendor/dep-1.0.0.tgz": "" }, { sizes: { "vendor/dep-1.0.0.tgz": 3 * 1024 * 1024 } }),
     );
-    expect(found?.message).toContain("record it in `files.vendored`");
+    expect(found.map((v) => v.rule)).toEqual(["files/vendored-unrecorded"]);
+    expect(found[0]?.message).toContain("`files.vendored`");
+    expect(found[0]?.message).toContain("exempts it from the size cap");
     const [data] = checkFiles(
       config(),
       repo({ "data/a.bin": "" }, { sizes: { "data/a.bin": 3 * 1024 * 1024 } }),

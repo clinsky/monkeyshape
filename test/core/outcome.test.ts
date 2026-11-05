@@ -344,4 +344,61 @@ describe("the outcome contract", () => {
       );
     expect(output.split("\n").at(-1)).toBe("mshape check passed");
   });
+
+  test("a long command's label is shortened, so it doesn't push every state across", () => {
+    const run = assess(
+      config(ARCH),
+      repo(
+        { "AGENTS.md": "# A\n", "src/core/a.ts": "export const a = 1;\n" },
+        tools("src/core/a.ts"),
+      ),
+    );
+    const long = `python3 -c import ast, sys; ${"x".repeat(80)} scripts/report.py`;
+    const reports = run.reports.map((report) =>
+      report.check === "coverage"
+        ? { ...report, parts: [{ label: long, outcome: report.outcome }] }
+        : report,
+    );
+    const lines = formatCheck({ ...run, reports }).split("\n");
+    const column = (line: string | undefined) => line?.search(/(passed|failed)/) ?? -1;
+    const part = lines.find((line) => line.includes("python3"));
+    expect(part).toContain("…");
+    // Both ends survive: the program, and the file it checks.
+    expect(part).toContain("python3 -c");
+    expect(part).toContain("scripts/report.py");
+    expect(column(part)).toBe(column(lines.find((line) => /^ {2}arch\s/.test(line))));
+    expect(column(part)).toBeLessThan(50);
+  });
+
+  test("a declared command's line keeps the file it checks, through coverage and the report", () => {
+    // From coverage's own part, not a hand-built one: a cut there first would lose the file.
+    const run = assess(
+      config({
+        ...ARCH,
+        coverage: {
+          commands: [
+            {
+              files: ["scripts/report.py"],
+              run: [
+                "python3",
+                "-c",
+                "import ast, sys; [ast.parse(open(f).read(), f) for f in sys.argv[1:]]",
+                "scripts/report.py",
+              ],
+              optional: true,
+            },
+          ],
+        },
+      }),
+      repo(
+        { "AGENTS.md": "# A\n", "src/core/a.ts": "export const a = 1;\n" },
+        tools("src/core/a.ts"),
+      ),
+    );
+    const part = formatCheck(run)
+      .split("\n")
+      .find((line) => line.includes("python3"));
+    expect(part).toContain("python3 -c");
+    expect(part).toContain("scripts/report.py");
+  });
 });

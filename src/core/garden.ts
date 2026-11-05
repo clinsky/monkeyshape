@@ -4,6 +4,7 @@ import { measure } from "./budgets.ts";
 import { isTsSource, type Snapshot } from "./model.ts";
 import type { Counts } from "./ratchet.ts";
 import type { GardenReport } from "./report.ts";
+import { localRuleHatches } from "./rules/engine.ts";
 
 const occurrences = (text: string, pattern: RegExp): number => text.match(pattern)?.length ?? 0;
 
@@ -20,9 +21,13 @@ export const garden = (
     shapeIgnores += occurrences(text, /^\s*\/\/\s*shape-ignore\s/gm);
     biomeIgnores += occurrences(text, /^\s*\/\/\s*biome-ignore/gm);
   }
+  // Every reasoned exception the config holds: a rule's allowances, a large file, executable
+  // or data no command or parser checks, a file past the size cap.
   const allowances =
     Object.values(config.rules).reduce((sum, rule) => sum + (rule.allow?.length ?? 0), 0) +
-    config.budgets.largeFiles.length;
+    config.budgets.largeFiles.length +
+    config.coverage.exemptFiles.length +
+    config.files.large.length;
   const ratcheted = Object.values(baseline)
     .flatMap((files) => Object.values(files))
     .reduce((sum, n) => sum + n, 0);
@@ -36,6 +41,7 @@ export const garden = (
       memoryBytes: config.budgets.memoryBytes,
     },
     escapeHatches: { shapeIgnores, biomeIgnores, allowances },
+    localRules: localRuleHatches(config, snapshot),
     ratcheted,
   };
 };

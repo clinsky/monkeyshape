@@ -13,11 +13,13 @@ import {
 } from "./coverage.ts";
 import { checkFiles, FILES_RULES, formatBytes, heldFiles } from "./files.ts";
 import { matchesAny } from "./glob.ts";
+import { SKILLS_DIR, SKILLS_MANIFEST } from "./layout.ts";
 import {
   type CheckName,
   type CheckReport,
   type Integration,
   isTsSource,
+  lineSources,
   type Outcome,
   type Snapshot,
   type Violation,
@@ -175,10 +177,14 @@ const scopeOf = (check: CheckName, config: ResolvedConfig, snapshot: Snapshot): 
       );
       return { examined: `${plural(docs.length, "doc")}, and comments in TypeScript` };
     }
-    case "budgets":
+    case "budgets": {
+      const other = lineSources(snapshot, config.coverage.exempt).filter(
+        (file) => !isTsSource(file),
+      ).length;
       return {
-        examined: `the loaded docs, decisions, memories and ${plural(typescript.length, "TypeScript file")}' lengths`,
+        examined: `the loaded docs, decisions, memories and ${plural(typescript.length, "TypeScript file")}${other === 0 ? "" : ` and ${plural(other, "other source file")}`}' lengths`,
       };
+    }
     case "coverage": {
       const files = tsToCover(config, snapshot);
       const guessed = (["tsc", "biome"] as const).filter(
@@ -206,7 +212,12 @@ const scopeOf = (check: CheckName, config: ResolvedConfig, snapshot: Snapshot): 
     }
     case "skills": {
       const { link, installed } = snapshot.skills;
-      const skills = new Set([...installed.keys()].map((path) => path.split("/")[0]));
+      // A skill is a directory; the manifest beside them is sync's record, not a skill.
+      const skills = new Set(
+        [...installed.keys()]
+          .filter((path) => path.includes("/"))
+          .map((path) => path.split("/")[0]),
+      );
       return link.kind === "missing" && installed.size === 0
         ? { notApplicable: "no installed skills" }
         : { examined: plural(skills.size, "installed skill") };
@@ -218,7 +229,10 @@ const scopeOf = (check: CheckName, config: ResolvedConfig, snapshot: Snapshot): 
       };
     }
     case "sync":
-      return { examined: "PRIME.md, the PR template and the hook settings" };
+      // Only a repo with sync's manifest is held to it (`checkSync`): elsewhere nothing was examined.
+      return snapshot.skills.installed.has(SKILLS_MANIFEST)
+        ? { examined: "PRIME.md, the PR template and the hook settings" }
+        : { notApplicable: `sync has not run here: no ${SKILLS_DIR}/${SKILLS_MANIFEST}` };
     case "beads":
       return snapshot.integrations.beads.state === "absent"
         ? { notApplicable: "no .beads/" }

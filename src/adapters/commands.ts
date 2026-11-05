@@ -46,6 +46,59 @@ const exists = (path: string) =>
     ),
   );
 
+/** `env` flags that take no value: what may come before the program for it to be judged. */
+const ENV_PLAIN_FLAGS = new Set(["-", "-i", "--ignore-environment", "-S", "--split-string"]);
+
+/**
+ * The program `env` would run, only when that is unambiguous: past `NAME=value` and flags
+ * that take no value. Any other flag (`-u NAME`, `-C DIR`, `-P PATH`) may take a value that
+ * looks like a program, so it gives undefined: the command runs, and env's own "No such file
+ * or directory" still marks a missing program.
+ */
+const envTarget = (args: ReadonlyArray<string>): string | undefined => {
+  for (const arg of args) {
+    if (/^[A-Za-z_][A-Za-z0-9_]*=/.test(arg) || ENV_PLAIN_FLAGS.has(arg)) continue;
+    // A value-taking flag, or one string for -S to split: not a program name to look up.
+    return arg.startsWith("-") || /\s/.test(arg) ? undefined : arg;
+  }
+  return undefined;
+};
+
+/**
+ * A script's interpreter, from its shebang: `#!/usr/bin/env [-S] <name> ...` gives the name
+ * to find on PATH, `#!/abs/path ...` the path. Undefined for a file with no shebang.
+ */
+const interpreterOf = async (
+  path: string,
+): Promise<{ readonly name: string } | { readonly path: string } | undefined> => {
+  const head = await Bun.file(path)
+    .slice(0, 256)
+    .text()
+    .catch(() => "");
+  if (!head.startsWith("#!")) return undefined;
+  const [first = "", ...args] = (head.slice(2).split("\n")[0] ?? "").trim().split(/\s+/);
+  if (first === "") return undefined;
+  if (first.endsWith("/env")) {
+    const name = envTarget(args);
+    return name === undefined ? undefined : { name };
+  }
+  return { path: first };
+};
+
+/** Why a repo script can't run here: its interpreter is missing. Undefined when it can. */
+const missingInterpreter = (path: string, shown: string) =>
+  Effect.gen(function* () {
+    const interpreter = yield* Effect.promise(() => interpreterOf(path));
+    if (interpreter === undefined) return undefined;
+    if ("name" in interpreter)
+      return Bun.which(interpreter.name) === null
+        ? `\`${interpreter.name}\`, the interpreter of \`${shown}\`, is not on PATH`
+        : undefined;
+    return (yield* exists(interpreter.path))
+      ? undefined
+      : `\`${interpreter.path}\`, the interpreter of \`${shown}\`, does not exist`;
+  });
+
 /**
  * The argv to spawn, or why the program isn't here. A path is the repo's own; a package bin
  * runs through the current bun, since its shim may start with `#!/usr/bin/env node`.
@@ -56,9 +109,16 @@ const resolveProgram = (root: string, argv: ReadonlyArray<string>) =>
     if (program === "bun") return { argv: [process.execPath, ...rest] } as const;
     if (program.includes("/")) {
       const path = program.startsWith("/") ? program : `${root}/${program}`;
-      return (yield* exists(path))
-        ? ({ argv: [path, ...rest] } as const)
-        : ({ missing: `\`${program}\` does not exist` } as const);
+      if (!(yield* exists(path))) return { missing: `\`${program}\` does not exist` } as const;
+      // A wrapper missing its toolchain is unavailable; checked before it runs, since what
+      // \`env\` prints for a missing program reads like a missing file.
+      const missing = yield* missingInterpreter(path, program);
+      return missing === undefined ? ({ argv: [path, ...rest] } as const) : ({ missing } as const);
+    }
+    if (program === "env") {
+      const target = envTarget(rest);
+      if (target !== undefined && Bun.which(target) === null)
+        return { missing: `\`${target}\` is not on PATH` } as const;
     }
     const bin = `${root}/node_modules/.bin/${program}`;
     if (yield* exists(bin)) return { argv: [process.execPath, bin, ...rest] } as const;
@@ -68,6 +128,16 @@ const resolveProgram = (root: string, argv: ReadonlyArray<string>) =>
   });
 
 const COMMAND_NOT_FOUND = 127;
+
+/**
+ * What a shell or a wrapper prints when a program it runs is missing: sh's "not found",
+ * bash's "command not found", a wrapper's own "not installed", or \`env\`'s "env: '<name>':
+ * No such file or directory" (quoted however the locale quotes), which names a program. Exit 127 alone isn't enough:
+ * bash also exits 127 for a missing file it was given, which is a failure, never a toolchain
+ * gap, and must not turn green under `optional`.
+ */
+const TOOL_MISSING =
+  /\b(not found|not installed)\b|^(\S*\/)?env: \S.*: No such file or directory/im;
 
 const runCommand = (root: string, command: DeclaredCommand) =>
   Effect.gen(function* () {
@@ -81,10 +151,10 @@ const runCommand = (root: string, command: DeclaredCommand) =>
         state: "unavailable",
         reason: `it could not start: ${ran.stderr}`,
       } satisfies CommandRun;
-    if (ran.code === COMMAND_NOT_FOUND)
+    if (ran.code === COMMAND_NOT_FOUND && TOOL_MISSING.test(output))
       return {
         state: "unavailable",
-        reason: `it exited 127, so a program it runs was not found${output === "" ? "" : `: ${output.trim().split("\n").at(-1)}`}`,
+        reason: `it exited 127, and a program it runs was not found: ${output.trim().split("\n").at(-1)}`,
       } satisfies CommandRun;
     return { state: "ran", code: ran.code, output } satisfies CommandRun;
   });

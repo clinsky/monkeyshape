@@ -112,6 +112,8 @@ export interface SyncPlan {
   readonly blocked: ReadonlyArray<string>;
   /** The files sync owns after this run, for its manifest. */
   readonly owned: ReadonlyArray<string>;
+  /** Of `write`, the files that don't exist yet. */
+  readonly created: ReadonlyArray<string>;
 }
 
 /** What it takes to bring a repo's synced files up to `shippedPrime` and this package's code. */
@@ -120,6 +122,7 @@ export const planSync = (state: SyncState, shippedPrime: string): SyncPlan => {
   const notes: Array<string> = [];
   const blocked = state.ignored.map((file) => `${file} ${ignoredMessage(file)}`);
   const owned: Array<string> = [];
+  const created: Array<string> = [];
   /** Writes a whole file, unless it is the adopter's own. */
   const whole = (file: string, current: string | undefined, shipped: string) => {
     if (
@@ -130,6 +133,7 @@ export const planSync = (state: SyncState, shippedPrime: string): SyncPlan => {
     ) {
       owned.push(file);
       if (current !== shipped) write.set(file, shipped);
+      if (current === undefined) created.push(file);
     } else blocked.push(`${file} ${ownFileMessage(file)}`);
   };
   if (state.beads) whole(PRIME_FILE, state.prime, shippedPrime);
@@ -150,14 +154,24 @@ export const planSync = (state: SyncState, shippedPrime: string): SyncPlan => {
     blocked.push(
       `${SETTINGS_FILE}: left alone, since it isn't a JSON object; fix it, then sync again`,
     );
-  else if (missingHooks(settings, HOOKS).length > 0)
+  else if (missingHooks(settings, HOOKS).length > 0) {
     write.set(SETTINGS_FILE, addHooks(settings, HOOKS));
-  return { write, notes, blocked, owned: OWNABLE_FILES.filter((file) => owned.includes(file)) };
+    if (state.settings === undefined) created.push(SETTINGS_FILE);
+  }
+  return {
+    write,
+    notes,
+    blocked,
+    owned: OWNABLE_FILES.filter((file) => owned.includes(file)),
+    created,
+  };
 };
 
 /** One line per file sync wrote, for the CLI. */
 export const formatSyncPlan = (plan: SyncPlan): ReadonlyArray<string> => [
-  ...[...plan.write.keys()].map((path) => `${path}: updated`),
+  ...[...plan.write.keys()].map(
+    (path) => `${path}: ${plan.created.includes(path) ? "added" : "updated"}`,
+  ),
   ...plan.notes,
   ...plan.blocked,
 ];

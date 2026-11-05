@@ -2,6 +2,7 @@
 import type { Metrics } from "./budgets.ts";
 import type { CheckRun } from "./check.ts";
 import type { Outcome, Violation } from "./model.ts";
+import type { RuleHatches } from "./rules/engine.ts";
 
 /** Location and rule on one line (grep-able), the message indented below it (readable). */
 export const formatViolation = (v: Violation): string =>
@@ -30,6 +31,10 @@ const detail = (outcome: Outcome): string => {
  * Notes, then each finding, then one line per check (its outcome and what it examined), then
  * the summary, which is always the last line.
  */
+/** The longest a part's label prints, and how much of its start it keeps when shortened. */
+const PART_LABEL = 40;
+const PART_HEAD = 12;
+
 export const formatCheck = ({ reports, result, notes }: CheckRun): string => {
   const entries = [...result.failing].sort(byLocation).map(formatViolation);
   for (const l of result.loose)
@@ -43,20 +48,27 @@ export const formatCheck = ({ reports, result, notes }: CheckRun): string => {
     problems === 0
       ? `mshape check passed${suffix}`
       : `mshape check failed: ${plural(problems, "problem")}${suffix}`;
+  // A part's label is a command line, which can be long: shortened, so one long command
+  // doesn't push every state across the screen.
+  // The middle goes: a command's program is at the start and what it checks at the end.
+  const short = (label: string): string =>
+    label.length > PART_LABEL
+      ? `${label.slice(0, PART_HEAD)}…${label.slice(label.length - (PART_LABEL - PART_HEAD - 1))}`
+      : label;
   // Parts sit two columns deeper, so their labels count two longer: every state lines up.
   const width =
     Math.max(
       0,
       ...reports.flatMap((r) => [
         r.check.length,
-        ...(r.parts ?? []).map((p) => p.label.length + 2),
+        ...(r.parts ?? []).map((p) => short(p.label).length + 2),
       ]),
     ) + 2;
   const line = (label: string, outcome: Outcome, indent: number) =>
     `${label.padEnd(width - indent)}${outcome.state.padEnd(16)}${detail(outcome)}`;
   const lines = reports.flatMap((r) => [
     `  ${line(r.check, r.outcome, 0)}`,
-    ...(r.parts ?? []).map((part) => `    ${line(part.label, part.outcome, 2)}`),
+    ...(r.parts ?? []).map((part) => `    ${line(short(part.label), part.outcome, 2)}`),
   ]);
   return [
     ...notes.map((note) => `note: ${note}`),
@@ -79,6 +91,8 @@ export interface GardenReport {
     readonly allowances: number;
   };
   readonly ratcheted: number;
+  /** Each local rule's own escape hatches, already counted in the totals above. */
+  readonly localRules: ReadonlyArray<RuleHatches>;
 }
 
 const row = (label: string, value: number | undefined, cap?: number): string =>
@@ -97,6 +111,16 @@ export const formatGarden = (g: GardenReport): string =>
     row("shape-ignore comments", g.escapeHatches.shapeIgnores),
     row("biome-ignore comments", g.escapeHatches.biomeIgnores),
     row("config allowances", g.escapeHatches.allowances),
+    ...(g.localRules.length === 0
+      ? []
+      : [
+          "  Local rules",
+          // As wide as the other rows, or as the longest id plus two: counts never run into it.
+          ...g.localRules.map((r, _, all) => {
+            const width = Math.max(26, ...all.map((each) => each.rule.length + 2));
+            return `    ${r.rule.padEnd(width)}${plural(r.ignores, "ignore")}, ${plural(r.allowances, "allowance")}`;
+          }),
+        ]),
     row("ratcheted violations", g.ratcheted),
     `Large files (${g.metrics.largeFiles.length})`,
     ...g.metrics.largeFiles.slice(0, 15).map((f) => `  ${String(f.lines).padStart(6)}  ${f.file}`),

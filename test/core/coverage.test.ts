@@ -471,7 +471,7 @@ describe("structured data parses", () => {
 });
 
 describe("a long command's line", () => {
-  test("is cut to one short line under coverage; its finding keeps the whole command", () => {
+  test("is one line under coverage, cut by the report; its finding keeps the whole command", () => {
     const run = [
       "sh",
       "-c",
@@ -488,8 +488,9 @@ describe("a long command's line", () => {
       { commands: [{ state: "ran", code: 1, output: "error" }] },
     );
     const [part] = commandReports(config(shape), snapshot);
-    expect(part?.label.length).toBe(60);
-    expect(part?.label.endsWith("…")).toBe(true);
+    // Whole here: the report shortens every part's label, keeping both ends
+    // (test/core/outcome.test.ts).
+    expect(part?.label).toBe(run.join(" ").replace(/\s+/g, " "));
     expect(part?.label).not.toContain("\n");
     const [found] = checkCoverage(config(shape), snapshot);
     expect(found?.message).toContain(run.join(" "));
@@ -522,5 +523,28 @@ describe("review of #61: JSON whose tool reads comments", () => {
     expect(found?.message).toContain("name the file `.jsonc`");
     expect(found?.message).toContain("needs this exact name");
     expect(found?.message).toContain("`coverage.exemptFiles`");
+  });
+});
+
+describe("adoption's literal run: the typecheck and lint messages", () => {
+  test("name coverage.exempt and its default segments, so the reader can act", () => {
+    const found = checkCoverage(
+      config({ prerequisites: { tsc: "optional", biome: "optional" } }),
+      repo({
+        "tsconfig.json": '{ "include": ["src"] }',
+        "biome.json": '{ "files": { "includes": ["src/**"] } }',
+        "scripts/a.ts": "",
+      }),
+    );
+    expect(found.map((v) => v.rule)).toEqual(["coverage/typecheck", "coverage/lint"]);
+    for (const v of found) {
+      expect(v.message).toContain("`coverage.exempt`");
+      expect(v.message).toContain("generated");
+      expect(v.message).toContain("vendor");
+      expect(v.message).toContain("mshape baseline --init");
+    }
+    // A file another tsconfig checks: the reader is told where to list that tsconfig.
+    expect(found[0]?.message).toContain("`coverage.tsconfigs`");
+    expect(found[0]?.message).toContain("(now tsconfig.json)");
   });
 });
