@@ -36,6 +36,7 @@ export default defineConfig({
       },
     },
   },
+  budgets: { readmeLines: 100 },
   // The adopters' guides live in this repo, not in theirs, so only this repo checks them.
   refs: { docs: [...DEFAULT_DOCS, "docs/workflow.md", "docs/adopting.md", "docs/local-rules.md"] },
 });
