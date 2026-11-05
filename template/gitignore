@@ -1,6 +1,10 @@
 node_modules
 .private/
 
+# Secrets: the files check fails on a tracked one. A template without secrets stays tracked.
+.env*
+!.env.example
+
 # Tracks and reviews: worktrees, and links to the handoffs store under .git (no trailing slash on links)
 .agents/worktrees/
 .agents/handoffs
