@@ -132,4 +132,18 @@ describe("hooks", () => {
       for (const retired of hook.retired ?? [])
         expect(commands).not.toContain(`"command":"${retired}"`);
   });
+
+  test("sync replaces a hook that still prints an earlier version's note", () => {
+    // Every retired command of every hook, as a repo synced by that version has them.
+    const old: Record<string, Array<unknown>> = {};
+    for (const hook of HOOKS)
+      for (const command of hook.retired ?? [])
+        old[hook.event] = [
+          ...(old[hook.event] ?? []),
+          { matcher: "", hooks: [{ type: "command", command }] },
+        ];
+    expect(Object.values(old).flat().length).toBeGreaterThan(HOOKS.length);
+    const settings = JSON.parse(addHooks({ hooks: old }, HOOKS));
+    expect(settings.hooks).toEqual(settingsHooks(HOOKS));
+  });
 });
