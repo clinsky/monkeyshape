@@ -24,7 +24,7 @@ src/core/client.ts:1  arch/host-access
   files     passed          9 files against the 1.0 MiB cap
   rules     failed          3 files in sources
   skills    not-applicable  no installed skills
-  sync      passed          PRIME.md, the PR template and the hook settings
+  sync      not-applicable  sync has not run here: no .agents/skills/monkeyshape.json
   beads     not-applicable  no .beads/
 
 mshape check failed: 2 problems

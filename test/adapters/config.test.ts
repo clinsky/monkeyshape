@@ -43,10 +43,14 @@ describe("loadConfig", () => {
       await Bun.write(join(outside, "shared.ts"), 'export const docs = ["AGENTS.md"];\n');
       await Bun.write(
         join(outside, "try.config.ts"),
-        'import { defineConfig } from "monkeyshape";\nimport { docs } from "./shared.ts";\nexport default defineConfig({ refs: { docs } });\n',
+        'import { defineConfig } from "monkeyshape";\nimport { docs } from "./shared.ts";\nexport default defineConfig({ refs: { docs }, files: { vendored: [{ path: "vendor/m.tgz", package: "monkeyshape", sha256: "' +
+          "a".repeat(64) +
+          '" }] } });\n',
       );
       const config = await Effect.runPromise(loadConfig(dir, join(outside, "try.config.ts")));
       expect(config.refs.docs).toEqual(["AGENTS.md"]);
+      // A string equal to an import's specifier, outside an import, is data: left as written.
+      expect(config.files.vendored[0]?.package).toBe("monkeyshape");
       // An error names the file given, not the copy loaded.
       await Bun.write(join(outside, "bad.config.ts"), "export default { a: ;\n");
       const error = await Effect.runPromise(
