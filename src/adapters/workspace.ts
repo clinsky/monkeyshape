@@ -75,8 +75,9 @@ const jsonRows = (stdout: string): ReadonlyArray<unknown> | undefined => {
  * remote isn't reachable from here), git origin's `refs/dolt/data`, a backup under
  * `.beads/backup/`, then a committed `.beads/issues.jsonl`. Checks stay offline, so the note
  * can't say which source bd will reach. It names those the clone shows, in bd's order. With a
- * local one, bootstrap is safe whatever happens. With none, bootstrap would make an empty
- * database that hides the beads, so the note says how to test for pushed beads first.
+ * local one, bootstrap is safe whatever happens. Without one, bootstrap makes an empty
+ * database that hides the beads unless they were pushed, to sync.remote or to origin, so the
+ * note says how to test for pushed beads first.
  */
 export const noDatabaseNote = (sources: {
   readonly remote: string | undefined;
@@ -87,8 +88,15 @@ export const noDatabaseNote = (sources: {
     return remote === undefined
       ? `this clone has no beads database yet; run \`bd bootstrap\`, which rebuilds the database from ${local}`
       : `this clone has no beads database yet; run \`bd bootstrap\`. It uses the first source it can reach: the remote in sync.remote (${remote}), or else ${local} in this clone`;
-  if (remote !== undefined)
-    return `this clone has no beads database yet; run \`bd bootstrap\`, which fetches the beads from ${remote}`;
+  if (remote !== undefined) {
+    // A committed sync.remote says where beads would be, not that they were pushed there.
+    const git = remote.startsWith("git+") ? remote.slice("git+".length) : undefined;
+    const pushed =
+      git === undefined
+        ? `If the beads were pushed to ${remote} (sync.remote), run \`bd bootstrap\` to fetch them.`
+        : `If \`git ls-remote ${git} refs/dolt/data\` prints a line, the beads were pushed to sync.remote: run \`bd bootstrap\` to fetch them.`;
+    return `this clone has no beads database yet. ${pushed} If ${git === undefined ? "they weren't" : "it prints nothing, they weren't"}: don't run \`bd bootstrap\`, which would create an empty database and hide them; push them from a clone that has them with \`bd dolt push --yes\`, or work from that clone`;
+  }
   return "this clone has no beads database yet. If `git ls-remote origin refs/dolt/data` prints a line, the beads were pushed: run `bd bootstrap` to fetch them. If it prints nothing, they are only on the machine that made them: don't run `bd bootstrap`, which would create an empty database and hide them; push them from a clone that has them with `bd dolt push --yes`, or work from that clone";
 };
 

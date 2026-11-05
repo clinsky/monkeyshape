@@ -90,10 +90,23 @@ describe("the note for a clone with no beads database", () => {
     );
   });
 
-  test("only a remote: bootstrap fetches from it, as before", () => {
-    expect(noDatabaseNote({ remote: REMOTE, local: undefined })).toBe(
-      `this clone has no beads database yet; run \`bd bootstrap\`, which fetches the beads from ${REMOTE}`,
+  test("only a remote: the note tests it for pushed beads before sending anyone to bootstrap", () => {
+    const note = noDatabaseNote({ remote: REMOTE, local: undefined });
+    // A committed sync.remote says where beads would be, not that they were pushed there.
+    expect(note).not.toContain("which fetches the beads from");
+    expect(note).toContain(
+      "If `git ls-remote https://example.com/team/repo.git refs/dolt/data` prints a line",
     );
+    expect(note).toContain("don't run `bd bootstrap`");
+    expect(note).toContain("bd dolt push --yes");
+  });
+
+  test("only a remote that isn't git: the same condition, with no command it can't give", () => {
+    const note = noDatabaseNote({ remote: "dolthub://team/repo", local: undefined });
+    expect(note).not.toContain("which fetches the beads from");
+    expect(note).not.toContain("git ls-remote");
+    expect(note).toContain("dolthub://team/repo");
+    expect(note).toContain("don't run `bd bootstrap`");
   });
 
   test("neither: the warning that bootstrap would hide the beads, as before", () => {
