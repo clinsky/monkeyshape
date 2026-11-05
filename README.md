@@ -1,7 +1,7 @@
 # monkeyshape
 
-Opinionated checks, configs and conventions for humans and coding agents building software
-together on **Bun**, **TypeScript**, **Effect** and **beads**.
+Opinionated checks, configs and a working loop for humans and coding agents building
+software together on **Bun**, **TypeScript**, **Effect** and **beads**.
 
 Agents write a lot of prose and forget most of it. The prose goes stale, and the next agent
 builds on it anyway.
@@ -11,16 +11,13 @@ runs every time and takes no room in context until it fires. So monkeyshape turn
 about code and docs alike into checks, and puts a hard cap on everything loaded into every
 session. Less prose gets written, and the prose that's left matters more.
 
-The other half is how people and agents split the work, so everyone can see who owns what:
+The working loop splits the work. You and the agents plan together at three horizons: the
+roadmap (months), the milestone (this batch of work) and each track's handoff (today), with
+many agents in parallel, one per track. The CLI does the mechanical parts (worktrees,
+handoffs, messages, the gate), skills guide the judgement, and you set priorities and merge.
+Each half feeds the other: the gate checks the loop, and each milestone turns mistakes into checks.
 
-- **Plans are made together**, at three horizons, each in one file: the roadmap (months), the
-  milestone (the current batch of work) and each track's handoff (today). The agent
-  interviews you, proposes and pushes back; you set the priorities, approve the plan and merge.
-- **Agents own the code**, tests and docs. Each track is one agent's line of work, with its
-  own worktree, branch and handoff, so its context stays small and focused.
-- **Beads** give agents memory, an issue tracker and the order between tasks.
-- **Tracks message each other** with `mshape msg`, so you never relay between chats.
-- **Done** means it ran on real data, not just that the tests passed.
+On a repo with two deliberate violations:
 
 ```console
 $ mshape check
@@ -48,39 +45,34 @@ mshape check failed: 2 problems
 
 ```sh
 bunx --package monkeyshape mshape init my-app
+cd my-app && bun run check
 ```
 
-A new repo whose gate (`bun run check`) passes, with one starter test: Bun, TypeScript, Effect,
-beads, the configs, CI, and five skills for your coding agent.
+`init` installs and commits a repo whose gate passes, with the five skills the table runs. It
+needs Bun 1.4.2 or later, git, beads' `bd`, and `gh` for the loop. An existing repo: [docs/adopting.md](docs/adopting.md).
 
-Then the working loop. For each step, start a fresh session of your coding agent in the
-directory the table names, then run the skill:
-
-| Start the agent in | Run | What happens |
+| Start a fresh agent in | Then run | What happens |
 |---|---|---|
-| Main checkout | `/roadmap` and a brain-dump | You and the agent agree the direction. It writes `docs/roadmap.md`. |
-| Main checkout | `/milestone` and your priorities | You agree a goal that is met on real data. The agent writes the plan, files the beads and splits the work into tracks, each with its own worktree and its own agent. |
-| Each track's worktree | `/track` | Many agents work in parallel, one per track. Each starts from its track's handoff, beads and mail, so its context holds one line of work. It messages other tracks and opens PRs. |
+| Main checkout | `/roadmap` and a brain-dump | You and the agent agree the direction in `docs/roadmap.md`. |
+| Main checkout | `/milestone` and your priorities | You agree a goal met on real data. The agent writes the plan, files the beads and splits the work into tracks, each with its own worktree and agent. |
+| Each track's worktree | `/track` | Agents work in parallel, one per track, each from its own handoff, beads and mail, so its context holds one line of work. Each opens PRs. |
 | Main checkout | `/review-pr <n>` | Another agent runs the PR on real data and posts findings until it can say LGTM. You merge. |
 
-When a session's context runs low, `/handoff` saves its state, and `/track` in a fresh
-session picks it up. When `mshape track list` shows every track done, `/milestone` starts the
-next round; `/roadmap` again only when the direction changes.
+When a session's context runs low, run `/handoff`, then `/track` in a fresh one. When every
+track is done (`mshape track list`), run `/milestone` again. In full: [docs/workflow.md](docs/workflow.md).
 
-The conventions in full: [docs/workflow.md](docs/workflow.md). An existing repo:
-[docs/adopting.md](docs/adopting.md).
+## What `mshape check` catches
 
-## What `mshape check` enforces
-
-| Check | Removes |
+| Check | Catches |
 |---|---|
 | `arch` | Layering drift, host access from pure code (common paths, statically; not a sandbox), unvetted packages, import cycles |
-| `sources` | TypeScript no rule analyzes: each file is in `sources`, a test, a declaration, or exempt with a reason |
 | `rules` | Silent decoding, hidden clocks/env/timers, thrown errors, nested runtimes, spread errors |
 | `refs` | Docs and comments that point at paths, scripts or decisions that don't exist |
-| `budgets` | Bloated `AGENTS.md`, decision logs and memories; oversized files |
-| `coverage` | Code that escaped the typechecker or the linter and rots silently |
-| `skills` | Installed skills that agents can't see (a broken `.claude/skills` link) or that lag the package |
+| `budgets` | Bloated `AGENTS.md`, README, decision logs and memories; oversized files |
+| `coverage`, `sources` | Files the typechecker, linter or rules skip, other languages with no command checking them, data files that don't parse |
+| `files` | Files over the size cap, `.env` files, vendored tarballs that don't match their record |
+| `skills`, `sync` | Skills agents can't see (a broken `.claude/skills` link), and skills, `.beads/PRIME.md`, the PR template or hooks out of step with the installed package |
+| `beads` | Open beads no track owns, deferred beads still in a track, `TODO`s naming a closed bead |
 
 Existing violations can be grandfathered with `mshape baseline --init`; counts may then only
 go down. Every escape hatch (`// shape-ignore <rule>: <reason>`, config allowances) needs a reason.
