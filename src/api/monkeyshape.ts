@@ -12,7 +12,7 @@ export type {
   Visitors,
 } from "../core/rules/local.ts";
 export { defineRule, walk } from "../core/rules/local.ts";
-export { decodeStrict } from "../helpers/decodeStrict.ts";
+export { decodeStrict, decodeStrictSync } from "../helpers/decodeStrict.ts";
 export type { Allowance, ModuleRule } from "../schemas/config.ts";
 
 /**
