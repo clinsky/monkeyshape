@@ -152,6 +152,36 @@ describe("exit 127 from adoption's literal run", () => {
     );
   });
 
+  test("a script whose env interpreter is missing: unavailable, without running it", async () => {
+    await write("scripts/check-tool", "#!/usr/bin/env mshape-no-such-tool\nprint('hi')\n", 0o755);
+    await write("scripts/check-abs", "#!/opt/mshape-no-such/bin/tool\n", 0o755);
+    await write("scripts/check-flags", "#!/usr/bin/env -S mshape-no-such-tool --flag\n", 0o755);
+    const [envShebang, absShebang, splitShebang, envArgv, deepEnv, missingFile] = await judge([
+      { files: ["tools/**"], run: ["scripts/check-tool"] },
+      { files: ["tools/**"], run: ["scripts/check-abs"] },
+      { files: ["tools/**"], run: ["scripts/check-flags"] },
+      { files: ["tools/**"], run: ["env", "mshape-no-such-tool", "--check"] },
+      { files: ["tools/**"], run: ["sh", "-c", "env mshape-no-such-tool --check"] },
+      { files: ["tools/**"], run: ["bash", "-n", "tools/gone.sh"] },
+    ]);
+    expect(envShebang).toEqual({
+      state: "unavailable",
+      reason: "`mshape-no-such-tool`, the interpreter of `scripts/check-tool`, is not on PATH",
+    });
+    expect(absShebang).toEqual({
+      state: "unavailable",
+      reason:
+        "`/opt/mshape-no-such/bin/tool`, the interpreter of `scripts/check-abs`, does not exist",
+    });
+    expect(splitShebang?.state).toBe("unavailable");
+    expect(envArgv).toEqual({
+      state: "unavailable",
+      reason: "`mshape-no-such-tool` is not on PATH",
+    });
+    expect(deepEnv?.state).toBe("unavailable");
+    expect(missingFile?.state).toBe("ran");
+  });
+
   test("a program it runs is not found, by sh's or bash's words: unavailable", async () => {
     const [sh, bash] = await judge([
       { files: ["tools/**"], run: ["sh", "-c", "mshape-no-such-tool"] },
