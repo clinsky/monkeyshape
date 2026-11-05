@@ -369,4 +369,36 @@ describe("the outcome contract", () => {
     expect(column(part)).toBe(column(lines.find((line) => /^ {2}arch\s/.test(line))));
     expect(column(part)).toBeLessThan(50);
   });
+
+  test("a declared command's line keeps the file it checks, through coverage and the report", () => {
+    // From coverage's own part, not a hand-built one: a cut there first would lose the file.
+    const run = assess(
+      config({
+        ...ARCH,
+        coverage: {
+          commands: [
+            {
+              files: ["scripts/report.py"],
+              run: [
+                "python3",
+                "-c",
+                "import ast, sys; [ast.parse(open(f).read(), f) for f in sys.argv[1:]]",
+                "scripts/report.py",
+              ],
+              optional: true,
+            },
+          ],
+        },
+      }),
+      repo(
+        { "AGENTS.md": "# A\n", "src/core/a.ts": "export const a = 1;\n" },
+        tools("src/core/a.ts"),
+      ),
+    );
+    const part = formatCheck(run)
+      .split("\n")
+      .find((line) => line.includes("python3"));
+    expect(part).toContain("python3 -c");
+    expect(part).toContain("scripts/report.py");
+  });
 });

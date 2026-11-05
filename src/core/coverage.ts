@@ -147,16 +147,13 @@ const CONFIG_FILE = "shape.config.ts";
 /** The command as a reader types it, for messages and the per-command line. */
 export const commandLabel = (command: DeclaredCommand): string => command.run.join(" ");
 
-const SHORT_LABEL = 60;
-
 /**
- * The label on a command's line under `coverage`: whole when short, else cut to one line.
- * Its findings' messages keep the whole command.
+ * The label on a command's line under `coverage`: on one line, whole. The report shortens
+ * every part's label the same way, keeping both ends, so a command's program and the file it
+ * checks both show; cutting here first would lose the file. Its findings keep the command whole.
  */
-export const shortLabel = (command: DeclaredCommand): string => {
-  const whole = commandLabel(command).replace(/\s+/g, " ");
-  return whole.length <= SHORT_LABEL ? whole : `${whole.slice(0, SHORT_LABEL - 1)}…`;
-};
+export const shortLabel = (command: DeclaredCommand): string =>
+  commandLabel(command).replace(/\s+/g, " ");
 
 /** The files a declared command covers, in `snapshot.files` order. */
 export const commandFiles = (command: DeclaredCommand, files: ReadonlyArray<string>) =>
