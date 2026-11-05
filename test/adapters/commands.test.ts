@@ -133,3 +133,83 @@ describe("declared commands run only when coverage is selected", () => {
     expect(await runs()).toBe(2);
   });
 });
+
+describe("exit 127 from adoption's literal run", () => {
+  const judge = async (commands: ReadonlyArray<DeclaredCommand>) => {
+    const shape = config({ coverage: { commands } });
+    const runs = await Effect.runPromise(runCommands(repo, shape, ["tools/gen.py"]));
+    return commands.map((_, index) => runs.get(index));
+  };
+
+  test("a file it was given is missing: failed, with bash's own words, never unavailable", async () => {
+    const [missingFile] = await judge([
+      { files: ["tools/**"], run: ["bash", "-n", "tools/gone.sh"] },
+    ]);
+    expect(missingFile?.state).toBe("ran");
+    expect(missingFile?.state === "ran" && missingFile.code).toBe(127);
+    expect(missingFile?.state === "ran" && missingFile.output).toContain(
+      "No such file or directory",
+    );
+  });
+
+  test("a script whose env interpreter is missing: unavailable, without running it", async () => {
+    await write("scripts/check-tool", "#!/usr/bin/env mshape-no-such-tool\nprint('hi')\n", 0o755);
+    await write("scripts/check-abs", "#!/opt/mshape-no-such/bin/tool\n", 0o755);
+    await write("scripts/check-flags", "#!/usr/bin/env -S mshape-no-such-tool --flag\n", 0o755);
+    const [envShebang, absShebang, splitShebang, envArgv, deepEnv, missingFile] = await judge([
+      { files: ["tools/**"], run: ["scripts/check-tool"] },
+      { files: ["tools/**"], run: ["scripts/check-abs"] },
+      { files: ["tools/**"], run: ["scripts/check-flags"] },
+      { files: ["tools/**"], run: ["env", "mshape-no-such-tool", "--check"] },
+      { files: ["tools/**"], run: ["sh", "-c", "env mshape-no-such-tool --check"] },
+      { files: ["tools/**"], run: ["bash", "-n", "tools/gone.sh"] },
+    ]);
+    expect(envShebang).toEqual({
+      state: "unavailable",
+      reason: "`mshape-no-such-tool`, the interpreter of `scripts/check-tool`, is not on PATH",
+    });
+    expect(absShebang).toEqual({
+      state: "unavailable",
+      reason:
+        "`/opt/mshape-no-such/bin/tool`, the interpreter of `scripts/check-abs`, does not exist",
+    });
+    expect(splitShebang?.state).toBe("unavailable");
+    expect(envArgv).toEqual({
+      state: "unavailable",
+      reason: "`mshape-no-such-tool` is not on PATH",
+    });
+    expect(deepEnv?.state).toBe("unavailable");
+    expect(missingFile?.state).toBe("ran");
+  });
+
+  test("env flags that take a value are never read as the program: the command runs", async () => {
+    await write("scripts/env-u", "#!/usr/bin/env -S -u HOME bash\nexit 3\n", 0o755);
+    const [unset, chdir, shebang, clean, missingAfterFlag] = await judge([
+      { files: ["tools/**"], run: ["env", "-u", "HOME", "sh", "-c", "exit 3"], optional: true },
+      { files: ["tools/**"], run: ["env", "-C", "/tmp", "sh", "-c", "exit 3"], optional: true },
+      { files: ["tools/**"], run: ["scripts/env-u"], optional: true },
+      { files: ["tools/**"], run: ["env", "-i", "PATH=/usr/bin:/bin", "sh", "-c", "exit 3"] },
+      { files: ["tools/**"], run: ["env", "-u", "HOME", "mshape-no-such-tool"], optional: true },
+    ]);
+    expect(unset).toMatchObject({ state: "ran", code: 3 });
+    expect(chdir).toMatchObject({ state: "ran", code: 3 });
+    expect(shebang).toMatchObject({ state: "ran", code: 3 });
+    expect(clean).toMatchObject({ state: "ran", code: 3 });
+    // -S in an argv takes one string to split: never read whole as a program name.
+    const [split] = await judge([
+      { files: ["tools/**"], run: ["env", "-S", 'sh -c "exit 3"'], optional: true },
+    ]);
+    expect(split).toMatchObject({ state: "ran", code: 3 });
+    // Not judged in advance, but env's own message still says the program is missing.
+    expect(missingAfterFlag?.state).toBe("unavailable");
+  });
+
+  test("a program it runs is not found, by sh's or bash's words: unavailable", async () => {
+    const [sh, bash] = await judge([
+      { files: ["tools/**"], run: ["sh", "-c", "mshape-no-such-tool"] },
+      { files: ["tools/**"], run: ["bash", "-c", "mshape-no-such-tool"] },
+    ]);
+    expect(sh?.state).toBe("unavailable");
+    expect(bash?.state).toBe("unavailable");
+  });
+});

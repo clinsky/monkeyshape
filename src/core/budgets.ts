@@ -6,7 +6,7 @@ import type { ResolvedConfig } from "../schemas/config.ts";
 import { PRIME_FILE, PRIME_LINES } from "./conventions.ts";
 import { EVIDENCE_KINDS, FIELDS, parseDecisions, SLUG } from "./decisions.ts";
 import { matchesAny } from "./glob.ts";
-import { isTsSource, lineCount, pathIndex, type Snapshot, type Violation } from "./model.ts";
+import { lineCount, lineSources, pathIndex, type Snapshot, type Violation } from "./model.ts";
 
 /** Every rule this check reports, as `budgets/<kind>`; test/core/ruleCases.test.ts covers each. */
 export const BUDGETS_RULES = [
@@ -53,8 +53,7 @@ export const measure = (config: ResolvedConfig, snapshot: Snapshot): Metrics => 
   const readme = snapshot.texts.get("README.md");
   const decisions = parseDecisions(snapshot.texts.get("DECISIONS.md") ?? "");
   const memories = snapshot.memories === undefined ? undefined : [...snapshot.memories.values()];
-  const largeFiles = snapshot.files
-    .filter(isTsSource)
+  const largeFiles = lineSources(snapshot, config.coverage.exempt)
     .map((file) => ({ file, lines: lineCount(snapshot.texts.get(file) ?? "") }))
     .filter((entry) => entry.lines > config.budgets.fileWarnLines)
     .sort((a, b) => b.lines - a.lines);

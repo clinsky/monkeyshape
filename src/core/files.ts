@@ -15,6 +15,7 @@ export const FILES_RULES = [
   "too-large",
   "large-unmatched",
   "env",
+  "vendored-unrecorded",
   "vendored-missing",
   "vendored-digest",
   "vendored-package",
@@ -36,6 +37,8 @@ const ENV_TEMPLATE = /\.(example|sample|template)$/;
 
 /** What a release tarball looks like. */
 const ARCHIVE = /\.(tgz|tar\.gz)$/;
+
+const VENDOR = "vendor/";
 
 /** In the largest unit that keeps it readable, so a small cap still says how far past it is. */
 export const formatBytes = (bytes: number): string =>
@@ -60,20 +63,20 @@ export const checkFiles = (
 
   for (const file of held) {
     const size = snapshot.sizes.get(file) ?? 0;
+    const unrecorded = file.startsWith(VENDOR) && ARCHIVE.test(file) && !recorded.has(file);
+    // An unrecorded archive under vendor/ gets one finding, vendored-unrecorded: recording it
+    // is the fix, and a recorded artifact is exempt from the cap.
     if (
       size > maxBytes &&
       !recorded.has(file) &&
+      !unrecorded &&
       !large.some((entry) => matchesPathOrBelow(file, entry.path))
     )
       out.push(
         violation(
           "too-large",
           file,
-          `is ${formatBytes(size)}, past the ${formatBytes(maxBytes)} cap. ${
-            file.startsWith("vendor/") && ARCHIVE.test(file)
-              ? `If it is a vendored release, record it in \`files.vendored\` in ${CONFIG_FILE} (\`{ path, package, sha256 }\`, with the digest from its upstream release), which exempts it from the cap. Otherwise keep it outside the repo.`
-              : `Keep large data outside the repo (\`tracks.sharedPaths\` links it into worktrees); if it must be tracked, list it in \`files.large\` in ${CONFIG_FILE} with the reason.`
-          }`,
+          `is ${formatBytes(size)}, past the ${formatBytes(maxBytes)} cap. Keep large data outside the repo (\`tracks.sharedPaths\` links it into worktrees); if it must be tracked, list it in \`files.large\` in ${CONFIG_FILE} with the reason.`,
         ),
       );
     const name = file.slice(file.lastIndexOf("/") + 1);
@@ -83,6 +86,14 @@ export const checkFiles = (
           "env",
           file,
           "is an environment file, which holds secrets and must never be tracked. Remove it from the index (`git rm --cached`), add `.env*` to .gitignore followed by `!.env.example` (or your template's name) so templates stay tracked, and rotate anything it held if it was ever pushed. A template without secrets ends in `.example`, `.sample` or `.template`.",
+        ),
+      );
+    if (unrecorded)
+      out.push(
+        violation(
+          "vendored-unrecorded",
+          file,
+          `is a vendored archive with no record. Add \`{ path, package, sha256 }\` for it to \`files.vendored\` in ${CONFIG_FILE}, with the digest from its upstream release (\`sha256sum\` prints it), or remove it. A recorded artifact is verified on every check and exempts it from the size cap.`,
         ),
       );
   }

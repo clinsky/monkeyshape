@@ -2,6 +2,7 @@
 import type { Metrics } from "./budgets.ts";
 import type { CheckRun } from "./check.ts";
 import type { Outcome, Violation } from "./model.ts";
+import type { RuleHatches } from "./rules/engine.ts";
 
 /** Location and rule on one line (grep-able), the message indented below it (readable). */
 export const formatViolation = (v: Violation): string =>
@@ -90,6 +91,8 @@ export interface GardenReport {
     readonly allowances: number;
   };
   readonly ratcheted: number;
+  /** Each local rule's own escape hatches, already counted in the totals above. */
+  readonly localRules: ReadonlyArray<RuleHatches>;
 }
 
 const row = (label: string, value: number | undefined, cap?: number): string =>
@@ -108,6 +111,16 @@ export const formatGarden = (g: GardenReport): string =>
     row("shape-ignore comments", g.escapeHatches.shapeIgnores),
     row("biome-ignore comments", g.escapeHatches.biomeIgnores),
     row("config allowances", g.escapeHatches.allowances),
+    ...(g.localRules.length === 0
+      ? []
+      : [
+          "  Local rules",
+          // As wide as the other rows, or as the longest id plus two: counts never run into it.
+          ...g.localRules.map((r, _, all) => {
+            const width = Math.max(26, ...all.map((each) => each.rule.length + 2));
+            return `    ${r.rule.padEnd(width)}${plural(r.ignores, "ignore")}, ${plural(r.allowances, "allowance")}`;
+          }),
+        ]),
     row("ratcheted violations", g.ratcheted),
     `Large files (${g.metrics.largeFiles.length})`,
     ...g.metrics.largeFiles.slice(0, 15).map((f) => `  ${String(f.lines).padStart(6)}  ${f.file}`),

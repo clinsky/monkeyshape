@@ -19,6 +19,7 @@ import {
   type CheckReport,
   type Integration,
   isTsSource,
+  lineSources,
   type Outcome,
   type Snapshot,
   type Violation,
@@ -176,10 +177,14 @@ const scopeOf = (check: CheckName, config: ResolvedConfig, snapshot: Snapshot): 
       );
       return { examined: `${plural(docs.length, "doc")}, and comments in TypeScript` };
     }
-    case "budgets":
+    case "budgets": {
+      const other = lineSources(snapshot, config.coverage.exempt).filter(
+        (file) => !isTsSource(file),
+      ).length;
       return {
-        examined: `the loaded docs, decisions, memories and ${plural(typescript.length, "TypeScript file")}' lengths`,
+        examined: `the loaded docs, decisions, memories and ${plural(typescript.length, "TypeScript file")}${other === 0 ? "" : ` and ${plural(other, "other source file")}`}' lengths`,
       };
+    }
     case "coverage": {
       const files = tsToCover(config, snapshot);
       const guessed = (["tsc", "biome"] as const).filter(
