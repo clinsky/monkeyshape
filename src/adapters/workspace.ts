@@ -70,18 +70,60 @@ const jsonRows = (stdout: string): ReadonlyArray<unknown> | undefined => {
 
 /**
  * Why a clone without a beads database can't read its beads, and the fix that works here.
- * `bd bootstrap` recovers beads only from where they were pushed: `sync.remote`, committed in
- * `.beads/config.yaml` so a clone can read it, or `refs/dolt/data` on git origin, which
- * `bd dolt push` writes without committing anything, so only the remote can say. Checks stay
- * offline, so the message holds that test; without either source bootstrap makes an empty
- * database that hides the beads.
+ * `bd bootstrap` sets the database up from the first source it can use, in this order:
+ * `sync.remote` (committed in `.beads/config.yaml`, so a clone inherits it even when that
+ * remote isn't reachable from here), git origin's `refs/dolt/data`, a backup under
+ * `.beads/backup/`, then a committed `.beads/issues.jsonl`. Checks stay offline, so the note
+ * can't say which source bd will reach. It names those the clone shows, in bd's order. With a
+ * local one, bootstrap is safe whatever happens. Without one, bootstrap makes an empty
+ * database that hides the beads unless they were pushed, to sync.remote or to origin, so the
+ * note says how to test for pushed beads first.
  */
+/** Remotes only Dolt speaks; any other sync.remote (a path, file, ssh, https) is a git remote. */
+const DOLT_SCHEMES = /^(dolthub|aws|gs|oci):\/\//;
+
+/** A word a POSIX shell reads back as itself: single-quoted when it holds anything special. */
+const shellWord = (word: string): string =>
+  /^[\w@%+=:,./-]+$/.test(word) ? word : `'${word.replaceAll("'", "'\\''")}'`;
+
+export const noDatabaseNote = (sources: {
+  readonly remote: string | undefined;
+  readonly local: string | undefined;
+}): string => {
+  const { remote, local } = sources;
+  if (local !== undefined)
+    return remote === undefined
+      ? `this clone has no beads database yet; run \`bd bootstrap\`, which rebuilds the database from ${local}`
+      : `this clone has no beads database yet; run \`bd bootstrap\`. It uses the first source it can reach: the remote in sync.remote (${remote}), or else ${local} in this clone`;
+  if (remote !== undefined) {
+    // A committed sync.remote says where beads would be, not that they were pushed there.
+    const git = DOLT_SCHEMES.test(remote) ? undefined : shellWord(remote.replace(/^git\+/, ""));
+    const pushed =
+      git === undefined
+        ? `If the beads were pushed to ${remote} (sync.remote), run \`bd bootstrap\` to fetch them.`
+        : `If \`git ls-remote ${git} refs/dolt/data\` prints a line, the beads were pushed to sync.remote: run \`bd bootstrap\` to fetch them.`;
+    return `this clone has no beads database yet. ${pushed} If ${git === undefined ? "they weren't" : "it prints nothing, they weren't"}: don't run \`bd bootstrap\`, which would create an empty database and hide them; push them from a clone that has them with \`bd dolt push --yes\`, or work from that clone`;
+  }
+  return "this clone has no beads database yet. If `git ls-remote origin refs/dolt/data` prints a line, the beads were pushed: run `bd bootstrap` to fetch them. If it prints nothing, they are only on the machine that made them: don't run `bd bootstrap`, which would create an empty database and hide them; push them from a clone that has them with `bd dolt push --yes`, or work from that clone";
+};
+
+/** The local sources `bd bootstrap` can rebuild from, in its order: a backup, then the JSONL. */
+const localBeads = (root: string) =>
+  Effect.gen(function* () {
+    const backups = yield* Effect.promise(() =>
+      Array.fromAsync(new Bun.Glob(".beads/backup/*.jsonl").scan({ cwd: root })),
+    ).pipe(Effect.orElseSucceed(() => []));
+    const backup = [...backups].sort()[0];
+    if (backup !== undefined) return backup;
+    return (yield* exists(root, ".beads/issues.jsonl")) ? ".beads/issues.jsonl" : undefined;
+  });
+
 const noDatabase = (root: string) =>
-  Effect.map(runTool(root, ["bd", "config", "get", "sync.remote"]), (got) => {
-    const remote = got.code === 0 ? (got.stdout.trim().split("\n").at(-1)?.trim() ?? "") : "";
-    return remote !== "" && !remote.includes("not set")
-      ? `this clone has no beads database yet; run \`bd bootstrap\`, which fetches the beads from ${remote}`
-      : "this clone has no beads database yet. If `git ls-remote origin refs/dolt/data` prints a line, the beads were pushed: run `bd bootstrap` to fetch them. If it prints nothing, they are only on the machine that made them: don't run `bd bootstrap`, which would create an empty database and hide them; push them from a clone that has them with `bd dolt push --yes`, or work from that clone";
+  Effect.gen(function* () {
+    const got = yield* runTool(root, ["bd", "config", "get", "sync.remote"]);
+    const value = got.code === 0 ? (got.stdout.trim().split("\n").at(-1)?.trim() ?? "") : "";
+    const remote = value === "" || value.includes("not set") ? undefined : value;
+    return noDatabaseNote({ remote, local: yield* localBeads(root) });
   });
 
 /** Whether bd can be asked: absent without `.beads/config.yaml`, unavailable without bd. */
