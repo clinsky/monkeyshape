@@ -55,6 +55,8 @@ where the two differ.
   `.beads/PRIME.md` must equal it. Edit the template, then `bun src/cli/main.ts sync`.
 - A command that talks to GitHub is done once it has run on a real PR: a fake `gh` passed
   two bugs that the first real run of `track pr` found (colour codes, gh 2.4's `pr edit`).
+- A test that spawns the CLI sets `CLAUDE_CODE_SESSION_ID` and `CLAUDE_PID` to `""`: run inside
+  a Claude Code session, the real ids leak in and register that session in the temp repo.
 - The code blocks in `docs/adopting.md` are the consumer test's fixture, and the README's
   `$ mshape check` block its expected output: edit both as code.
 

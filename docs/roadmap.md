@@ -21,8 +21,9 @@ convention: rewritten in place at each milestone boundary, and never cited by co
 | `mshape track pr` (a fresh gate, then open or update the PR) and `pr.yml`; `track list`'s derived `done` column; the `beads` check (who owns each bead) | **Shipped** (milestone 2, `monkeyshape-f4y`) |
 | `mshape msg send / inbox / read / register`: the mailbox between tracks, with live notices into idle Claude Code sessions; `track rm --keep-beads` | **Shipped** (milestone 2, `monkeyshape-f4y`) |
 | Conventions as code: one owner per checkable convention, delivered when needed, messages between tracks, derived status, review that reads the milestone | **Shipped** (milestone 2, `monkeyshape-f4y`); plan in `notes/2026-11-04-milestone-2.md` |
-| Ready for a real application and a new repo: a gate whose pass means what it says, checks true on real layouts, adopter rules, no file silently overlooked, adoption as written | **Shipped** (milestone 3, `monkeyshape-xv2`, 0.4.0); plan in `plan/MILESTONE.md` |
-| First real adoptions: an existing application, and a new repo born through the loop | **After milestone 3**, each as its own repo's milestone: `monkeyshape-36f`, `monkeyshape-iqf.14` |
+| Ready for a real application and a new repo: a gate whose pass means what it says, checks true on real layouts, adopter rules, no file silently overlooked, adoption as written | **Shipped** (milestone 3, `monkeyshape-xv2`, 0.4.0); plan in `notes/2026-11-07-milestone-3.md` |
+| The loop at scale: a PR as one reviewed unit, rules where agents act, decisions that earn their slot, nothing private leaving the machine, tracks that start working, any step from anywhere | **Milestone 4** (draft): plan in `plan/MILESTONE.md` |
+| First real adoptions: an existing application, and a new repo born through the loop | **Done** on 0.4.0: each ran its first milestone (`monkeyshape-36f`, `monkeyshape-iqf.14`) |
 | The remaining starter rules | Later: `monkeyshape-hh2` |
 | The agentic layer | Later: `monkeyshape-v56` |
 | `mshape validate`: the real-data loop | Later: `monkeyshape-97o` |
@@ -105,28 +106,19 @@ Every rule must trace back to one of these principles. A rule that can't is dele
 
 ## 2. Direction
 
-### Milestone 3: ready for a real application and a new repo
+### Milestone 4: the loop at scale
 
-monkeyshape had only been used on itself: one language, a `src/` root, no data. Run against
-an existing application and a new repo with C code, its checks passed silently on a layout
-without `src/`, misfired on correct code, saw only TypeScript, and gave an adopter no place
-for its own rules; the adoption guide failed when followed literally. Milestone 3 fixes
-those against the real cases. The why and the plan are in `plan/MILESTONE.md`.
+Two repos ran on 0.4.0: an existing application adopted monkeyshape and ran its first
+milestone with four parallel tracks, and a new repo was born and ran its first with three.
+Their tracks found what only scale shows: PRs changed under their reviewers, rules stated
+only in human docs, decisions with no test for what earns one, a private name in a public
+PR body, worktrees that couldn't run their gate, and a human who had to change directory for
+every step. Milestone 4 fixes those. The why and the plan are in `plan/MILESTONE.md`.
 
-What milestone 2 taught: the loop between tracks works once messages are mechanism (no
-relaying at all in its second half); what remains is an address for the sessions that
-aren't tracks (the main checkout, reviews). Long review rounds came from derived facts
-defined in one sentence, so plans now give their cases as a table.
-
-### First real adoptions (`monkeyshape-36f`, `monkeyshape-iqf.14`)
-
-An existing application adopts monkeyshape at a sync point, in one knowledge-migration
-milestone of its own. Its knowledge is sorted, not cut: history worth keeping stays (not
-loaded), current instructions get short, obsolete text is retired, and invariants become
-tests or adopter rules; the bead backlog is groomed to three horizons, handoffs leave git,
-and code-level rules land as ratchets. A new repo is born through `mshape init` and worked
-through the whole loop; its first milestone is "a first result on a real target". Both come
-after milestone 3, so they test the loop and the checks, not defects already known.
+What milestone 3 taught: real adopters are the source of the next milestone, and their tracks
+report precisely when asked. A plan's divergences need somewhere to go (they now go to `main`,
+where the planning session stays open). What agents follow must be where they act (PRIME.md,
+the skills, file headers, check messages); `docs/workflow.md` is for humans.
 
 ### The remaining starter rules (`monkeyshape-hh2`)
 

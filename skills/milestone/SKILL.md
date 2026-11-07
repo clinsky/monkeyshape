@@ -67,7 +67,8 @@ charter, a reviewer's "Fit" and the next retrospective all read them, so none is
     review round. Write a table of `| Case | Result |`: the ordinary cases, then the ones
     a reviewer would try (a reused name, something just made, a half-finished step, nothing
     to go on, an ambiguous match). The owning track turns the table into its test first,
-    one test per row. A plain value (a path, a size limit, a flag's name) needs no table.
+    one test per row. The table is a floor: a case found in review joins the test as a row.
+    A plain value (a path, a size limit, a flag's name) needs no table.
 - **Tracks:** a table of name, **Serves** (the goal steps it serves), charter, beads and
   acceptance. Each track serves at least one step, and every step is served by a track; a
   track that serves none is out of scope. Split into as many parallel
