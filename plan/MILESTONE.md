@@ -73,11 +73,12 @@ private name leaving the machine. Goals 1, 4 and 5, and goal 2's skill text, are
 The rest is P2: worth doing if contained, dropped with a reason if not.
 
 1. **A PR is one reviewed unit.** A track has one open PR; its next work is local commits on
-   a branch that isn't pushed until the PR merges. `track pr` refuses to push while a review
-   of the PR is in progress. The gate runs on a clean checkout of the exact commit pushed,
-   and a failure shows the failing tests and keeps the full log. `track pr --wait` waits for
-   CI; a body-only refresh skips the gate when HEAD hasn't moved since it last ran; and it
-   warns when the branch is behind `main` or conflicts with it.
+   another branch, not pushed until the PR merges. `track pr` gates and pushes the tip of
+   `track/<name>`, never whatever `HEAD` is, so that work can't join the PR; it refuses to
+   push while a review of the PR is in progress. The gate runs on a clean checkout of that
+   tip, and a failure shows the failing tests and keeps the full log. `track pr --wait` waits
+   for CI; a body-only refresh skips the gate when the tip hasn't moved since it last ran;
+   and it warns when the branch is behind `main` or conflicts with it.
 2. **Agents learn the loop's rules where they act.** The `track` skill states the PR size and
    its exceptions (a smaller PR that unblocks another track or ends the track), the one-PR
    rule with its local branch, what makes a message worth sending, that a handoff is the
@@ -85,17 +86,20 @@ The rest is P2: worth doing if contained, dropped with a reason if not.
    `mshape rules`. The `milestone` skill keeps its session open for the milestone, reads
    `main`'s mail and appends approved divergences. `review-pr` runs the repo's real-data
    probes, which AGENTS.md names. PRIME.md says neither "joins it" nor an unsafe `bd sync`.
-   `docs/workflow.md` says it is for humans, and agents don't read it.
+   `docs/workflow.md` says it is for humans, and agents don't read it. AGENTS.md's "can't be
+   a check" note on private names is rewritten once goal 4's denylist exists.
 3. **A decision earns its slot.** The shipped `DECISIONS.md` header holds the merit test and
    the lifecycle; every file a decision's `Enforced by` names cites the decision's slug, and
    a check fails when one doesn't; `review-pr`'s Fit applies the merit test to any decision a
    PR adds or retires; at each boundary, each bd memory is promoted or deleted.
 4. **Nothing private leaves the machine.** A denylist kept outside every repo is checked
-   before `track pr` pushes (the PR body and the commit messages) and before `review-pr` posts
-   a review; a match refuses and names the term's position, never posting.
+   before `track pr` pushes (the lines and file paths the push adds, the commit messages, the
+   PR title and body) and before a review is posted, through `mshape review post`, which
+   scans and then posts; a match refuses and names the term's position, never posting.
 5. **A new track starts working.** `track new` installs dependencies in the new worktree;
    `mshape check` finds `tsc` and biome in the worktree or up to the main checkout's; the
-   hooks call `bun` by an absolute path; the template ships `bunfig.toml` with the test root,
+   hooks find `bun` when they run, even with it missing from the session's PATH, and no
+   machine's path is written into a shared file; the template ships `bunfig.toml` with the test root,
    so `bun test` never searches shared data.
 6. **The human starts any step from anywhere, and reaches every track.** `/track <name>`
    started in the main checkout moves the session to that track's address and works in its
@@ -121,8 +125,8 @@ The rest is P2: worth doing if contained, dropped with a reason if not.
   - the existing application's gate on its current `main`, with `allowedPackages` set, still
     allows `effect`, and a new occurrence over its baseline is reported alone; its CI, with no
     `bd`, runs the beads checks from the export.
-- **The maintainer's run:** a `track pr` whose body holds a denylisted term is refused before
-  anything is pushed; `/track <name>` started in the main checkout works in that track and
+- **The maintainer's run:** a `track pr` whose body, title or added lines hold a denylisted
+  term is refused before anything is pushed, and so is a review through `review post`; `/track <name>` started in the main checkout works in that track and
   receives its mail; `msg send --all` reaches every live track.
 - **Releases:** 0.4.1 as soon as goal 2's first PR merges, so adopters' running tracks get the
   skill text; 0.5.0 at the end, its quick start working from npm.
@@ -207,31 +211,41 @@ closes; a P2 limitation is deferred with a reason and the maintainer's yes.
   `~/.config/monkeyshape/denylist` (per machine: the names span every repo there) and, if it
   exists, `<git common dir>/monkeyshape/denylist` (per clone). Neither is ever in a repo.
   `mshape scan <file>` exits 1 on a match, printing the line and column and the matched
-  term. `track pr` scans the body and every commit message it would push; the `review-pr`
-  skill scans a review before posting. Cases, which `prs` turns into its test first:
+  term. `track pr` scans what its push adds (`git diff <remote tip>..<pushed tip>`: added
+  lines and file paths), each commit message it would push, and the PR title and body.
+  `mshape review post <n> <file>` scans a review and only then posts it; the `review-pr`
+  skill posts through it. Cases, which `prs` turns into its test first:
 
   | Case | Result |
   |---|---|
   | no denylist file anywhere | passes, with a note that none is configured |
   | a term in the PR body | refuses before pushing; names line and column |
   | a term only in a commit message being pushed | refuses before pushing; names the commit |
-  | a term in a commit already on the remote | not scanned: only what this push adds |
+  | a term on a line this push adds | refuses before pushing; names the file and line |
+  | a term in a file path this push adds | refuses before pushing; names the path |
+  | a term in the PR title | refuses before pushing |
+  | a term in a review passed to `review post` | refuses; nothing is posted |
+  | a term in a commit or a line already on the remote | not scanned: only what this push adds, so a newly listed term doesn't fail old content |
   | a term differing in case | matches |
   | a blank line or a `#` comment in the list | ignored |
   | both lists exist | both apply |
 
 - **A review in progress (owner `prs`, consumer `env`'s registry).** A PR's review is in
-  progress when a live session is registered at `review-<n>` and no review was submitted on
-  the PR after its head commit was pushed. Cases, `prs`' test:
+  progress when a live session is registered at `review-<n>` and no review on the PR has the
+  PR's head as its `commit_id` (no clock: commit dates are the author's). `track pr` reads
+  the tip of `track/<name>`, not `HEAD`. Cases, `prs`' test:
 
   | Case | `track pr` |
   |---|---|
   | no session at `review-<n>` | pushes |
-  | a live reviewer, no review posted since the head was pushed | refuses, naming the session |
-  | a live reviewer, a review posted after the head (findings to answer) | pushes |
+  | a live reviewer, no review on the current head | refuses, naming the session |
+  | a live reviewer, a review on the current head (findings to answer) | pushes |
   | the reviewer's session ended without posting | pushes, with a note |
-  | `--body-only`, HEAD unchanged since the last gate | edits the body, no push, no gate |
-  | `--body-only`, HEAD moved | refuses: the Gate section would be false |
+  | the reviewer runs on another machine (not in this registry) | pushes; nothing here can see it, and the note says so |
+  | `HEAD` on another branch with the next bead's commits | gates and pushes `track/<name>`'s tip; the other branch's commits stay local |
+  | `track/<name>` checked out with commits the PR doesn't have yet | gates and pushes them (they answer the review) |
+  | `--body-only`, the tip unchanged since the last gate | edits the body, no push, no gate |
+  | `--body-only`, the tip moved | refuses: the Gate section would be false |
   | the branch is behind `main`, or conflicts with it | pushes, with a warning naming which |
 
 - **Moving a session to a track (owner `env`, consumer `skills`' `track` skill).**
@@ -248,6 +262,30 @@ closes; a P2 limitation is deferred with a reason and the maintainer's yes.
   | a session started in the worktree | registered at `<name>` as today; `track enter` is a no-op |
   | `track rm <name>` with a moved session live | refuses, naming it (the session counts as in the track) |
   | `/clear` or a restart of a moved session | registers by its directory again, until `track enter` reruns |
+
+- **The hooks' `bun` (owner `env`).** A hook command finds `bun` when it runs
+  (`command -v bun`, then `$HOME/.bun/bin/bun`), so `.claude/settings.json` stays the same on
+  every machine. Cases, `env`'s test:
+
+  | Case | Result |
+  |---|---|
+  | `bun` on the session's PATH | runs it |
+  | `bun` missing from PATH, in `~/.bun/bin` | runs that one |
+  | `bun` in neither place | a note naming both places, exit 0 (the hooks never fail a session) |
+  | another machine, `bun` installed elsewhere and on its PATH | runs it; the committed settings didn't change |
+
+- **The decision back-link (owner `checks`).** For each decision, each path its `Enforced by`
+  names must contain the decision's slug (`D-<slug>`). Cases, `checks`' test:
+
+  | Case | Result |
+  |---|---|
+  | a file that cites the slug | passes |
+  | a file that doesn't | fails, naming the decision and the file |
+  | a directory | passes when any file under it cites the slug |
+  | a path followed by a parenthetical note | the note is ignored; the path is checked |
+  | `policy` (no enforcement) | nothing to link; as today's `decision-unenforced` |
+  | a named path that doesn't exist | fails, as a missing path |
+  | one file enforcing two decisions | must cite both slugs |
 
 - **Beads from the export (owner `checks`).** A source is chosen and named in the outcome
   line. Cases, `checks`' test:
@@ -273,9 +311,9 @@ closes; a P2 limitation is deferred with a reason and the maintainer's yes.
 
 | Track | Serves | Charter | Acceptance |
 |---|---|---|---|
-| `skills` | goals 2, 3 | First PR (P1, released as 0.4.1): the `track` skill's PR size and exceptions, one PR with a local branch, salient messages, the handoff as the track's own, divergences to `main`, starting with the gate and `mshape rules`; PRIME.md without "joins it" and with a safe `bd sync` line; the `milestone` skill's open session and amendments from mail; `docs/workflow.md`'s audience line. Then: `review-pr`'s real-data probes and its Fit on decisions; the `DECISIONS.md` merit test and lifecycle; memories promoted or deleted at the boundary; the size test | In each adopter, the next boundary's handoffs show no rule learned only from the human or a review; 0.4.1 ships the first PR |
-| `prs` | goals 1, 4 | The denylist and `mshape scan` (P1); a review in progress refuses a push (P1); the gate on a clean checkout of the pushed commit, with failing tests and a kept log (P1); `--wait`, `--body-only`, the behind or conflicting warning (P2) | The maintainer's denylist run; one mid-review `track pr` refused in an adopter; a PR merged there with no push mid-review |
-| `env` | goals 5, 6 | `track new` installs; tools found up to the main checkout; hooks call `bun` absolutely; `bunfig.toml` in the template (P1); `track enter`, `msg send --all`, `--body-file`; `track list`'s advice for an open bead (sent to `checks` as the wording it needs); a per-track temp directory (P2) | A new track's first gate green, after a restart too, in each adopter; the maintainer's `/track` from main and broadcast |
+| `skills` | goals 2, 3 | First PR (P1, released as 0.4.1): the `track` skill's PR size and exceptions, one PR with a local branch, salient messages, the handoff as the track's own, divergences to `main`, starting with the gate and `mshape rules`; PRIME.md without "joins it" and with a safe `bd sync` line; the `milestone` skill's open session and amendments from mail; `docs/workflow.md`'s audience line. Then: AGENTS.md's private-names note once the denylist lands (`prs` sends the wording); `review-pr`'s real-data probes and its Fit on decisions; the `DECISIONS.md` merit test and lifecycle; memories promoted or deleted at the boundary; the size test | In each adopter, the next boundary's handoffs show no rule learned only from the human or a review; 0.4.1 ships the first PR |
+| `prs` | goals 1, 4 | The denylist, `mshape scan` and `mshape review post` (P1); `track pr` pushes the `track/<name>` tip and refuses during a review in progress (P1); the gate on a clean checkout of that tip, with failing tests and a kept log (P1); `--wait`, `--body-only`, the behind or conflicting warning (P2) | The maintainer's denylist run, including a review refused by `review post`; one mid-review `track pr` refused in an adopter; a PR merged there with no push mid-review |
+| `env` | goals 5, 6 | `track new` installs; tools found up to the main checkout; hooks that find `bun` when they run; `bunfig.toml` in the template (P1); `track enter`, `msg send --all`, `--body-file`; `track list`'s advice for an open bead (sent to `checks` as the wording it needs); a per-track temp directory (P2) | A new track's first gate green, after a restart too, in each adopter; the maintainer's `/track` from main and broadcast |
 | `checks` | goals 3, 7 | `allowedPackages` adds to `effect` (P1); the decision back-link check; `refs/*` per rule; the new occurrence over a baseline; beads from the export; declared commands receive their files; a module-map home for local rules; the `beads` check and `track list` agreeing on a deferred bead; `alg`, `07u`, `2s3`, `737` (P2) | The existing application's `main`: `effect` allowed with the list set, a new occurrence reported alone, CI's beads checks from the export |
 
 **Order:** `skills`' first PR goes first and is released as 0.4.1; nothing waits on it.
@@ -287,9 +325,10 @@ closes; a P2 limitation is deferred with a reason and the maintainer's yes.
 - **skills:** the `track` skill's rules and PRIME.md (P1, first PR); the `milestone` skill's
   open session; `review-pr`'s probes and decision Fit; the `DECISIONS.md` header; memories at
   the boundary; the PR-size test; `docs/workflow.md`'s audience line.
-- **prs:** the denylist and `scan` (P1); in-progress refusal (P1); the clean-checkout gate and
+- **prs:** the denylist, `scan` and `review post` (P1); pushing the branch tip and the
+  in-progress refusal (P1); the clean-checkout gate and
   its log (P1); `--wait`; `--body-only`; the behind or conflicting warning.
-- **env:** install in `track new`, tool resolution, absolute `bun` in hooks, `bunfig.toml`
+- **env:** install in `track new`, tool resolution, hooks that find `bun`, `bunfig.toml`
   (P1); `track enter` (`zdw`); `msg send --all` and `--body-file`; the open-bead advice; the
   temp directory.
 - **checks:** `allowedPackages` (P1); the back-link check; `refs/*` per rule; new occurrence;
