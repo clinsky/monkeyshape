@@ -211,8 +211,8 @@ closes; a P2 limitation is deferred with a reason and the maintainer's yes.
   `~/.config/monkeyshape/denylist` (per machine: the names span every repo there) and, if it
   exists, `<git common dir>/monkeyshape/denylist` (per clone). Neither is ever in a repo.
   `mshape scan <file>` exits 1 on a match, printing the line and column and the matched
-  term. `track pr` scans what its push adds (`git diff <remote tip>..<pushed tip>`: added
-  lines and file paths), each commit message it would push, and the PR title and body.
+  term. `track pr` scans what no remote ref has yet (`git log -p <tip> --not --remotes`:
+  the lines and file paths those commits add, and their messages), and the PR title and body.
   `mshape review post <n> <file>` scans a review and only then posts it; the `review-pr`
   skill posts through it. Cases, which `prs` turns into its test first:
 
@@ -226,6 +226,8 @@ closes; a P2 limitation is deferred with a reason and the maintainer's yes.
   | a term in the PR title | refuses before pushing |
   | a term in a review passed to `review post` | refuses; nothing is posted |
   | a term in a commit or a line already on the remote | not scanned: only what this push adds, so a newly listed term doesn't fail old content |
+  | the first push of a new track branch | scans the commits no remote ref has, which are the ones `main` doesn't |
+  | the branch has merged `main` since its last push | `main`'s commits are on the remote, so not scanned; the merge's own changes are |
   | a term differing in case | matches |
   | a blank line or a `#` comment in the list | ignored |
   | both lists exist | both apply |
