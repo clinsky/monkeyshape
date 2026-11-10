@@ -72,6 +72,7 @@ describe("integrations", () => {
       "beads/unowned",
       "beads/deferred-in-track",
       "beads/todo-closed",
+      "beads/export-unreadable",
     ]);
     expect(notices(config(), snapshot)[0]).toContain("bd is not on PATH");
   });

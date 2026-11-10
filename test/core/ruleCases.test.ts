@@ -876,6 +876,25 @@ const beadsCases: Record<string, Cases> = {
     fail: { options: { beadRows: [bead("x-1", "deferred", ["track:docs"])] } },
     pass: { options: { beadRows: [bead("x-1", "deferred", ["later"])] } },
   },
+  "beads/export-unreadable": {
+    fail: {
+      options: {
+        beads: { state: "unavailable", reason: "bd is not on PATH" },
+        beadsExport: {
+          path: ".beads/issues.jsonl",
+          state: "invalid",
+          reason: "line 1 is not JSON",
+        },
+      },
+    },
+    pass: {
+      options: {
+        beads: { state: "unavailable", reason: "bd is not on PATH" },
+        beadRows: [bead("x-1", "open", ["track:a"])],
+        beadsExport: { path: ".beads/issues.jsonl", state: "read" },
+      },
+    },
+  },
   "beads/todo-closed": {
     fail: {
       files: { "src/a.ts": "/* first line\n   TODO(x-1): undo the workaround */\n" },

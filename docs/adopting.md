@@ -185,6 +185,8 @@ database, run `bd bootstrap`. If the `sync.remote` in `.beads/config.yaml` alrea
 beads, it clones them from there, so run it only where that remote is the one you mean.
 Otherwise it rebuilds them from the issues file git tracks under `.beads/`. Either way it
 records that remote for `bd dolt push`, which you run only when you mean to share.
+Where bd can't run, as in CI, `mshape check` reads the beads from bd's export, if you commit
+one as `issues.jsonl` in `.beads/` (`bd export -o <file>`), and its `beads` line says so.
 
 Then run `bun run --silent mshape sync`. It installs:
 

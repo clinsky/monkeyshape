@@ -11,14 +11,58 @@
  * loop itself). Ownership applies only in a repo that works in tracks, one where some bead,
  * open or closed, has carried a `track:` label: before its first tracks (a repo just born,
  * or one that doesn't use them) there is no owner to give. Needs bd: where it can't run,
- * the check is skipped with a notice.
+ * the check reads the committed export instead (`BEADS_EXPORT`), or is skipped with a notice.
  */
 import type { BeadSummary, Snapshot, Violation } from "./model.ts";
 import { isTsSource, lineAt } from "./model.ts";
 import { parse } from "./parse.ts";
 
 /** Every rule this check reports, as `beads/<kind>`; test/core/ruleCases.test.ts covers each. */
-export const BEADS_RULES = ["unowned", "deferred-in-track", "todo-closed"] as const;
+export const BEADS_RULES = [
+  "unowned",
+  "deferred-in-track",
+  "todo-closed",
+  "export-unreadable",
+] as const;
+
+/** bd's JSONL export, which a repo may commit so a clone without bd can still read its beads. */
+export const BEADS_EXPORT = ".beads/issues.jsonl";
+
+/**
+ * The beads in bd's JSONL export, one issue per line (other record types, such as memories
+ * exported with `--all`, are skipped), or the first line that isn't one, by number.
+ */
+export const parseBeadsExport = (
+  text: string,
+): { readonly rows: ReadonlyArray<BeadSummary> } | { readonly invalid: string } => {
+  const rows: Array<BeadSummary> = [];
+  const lines = text.split("\n");
+  for (const [i, line] of lines.entries()) {
+    if (line.trim() === "") continue;
+    let record: unknown;
+    try {
+      record = JSON.parse(line);
+    } catch {
+      return { invalid: `line ${i + 1} is not JSON` };
+    }
+    if (typeof record !== "object" || record === null || Array.isArray(record))
+      return { invalid: `line ${i + 1} is not an object` };
+    const { _type, id, title, status, issue_type, labels } = record as Record<string, unknown>;
+    if (_type !== undefined && _type !== "issue") continue;
+    if (typeof id !== "string" || typeof status !== "string")
+      return { invalid: `line ${i + 1} has no string \`id\` and \`status\`` };
+    rows.push({
+      id,
+      title: typeof title === "string" ? title : "",
+      status,
+      type: typeof issue_type === "string" ? issue_type : "",
+      labels: Array.isArray(labels)
+        ? labels.filter((label): label is string => typeof label === "string")
+        : [],
+    });
+  }
+  return { rows };
+};
 
 /** Labels that own a bead no track does. */
 export const OWNER_LABELS = ["milestone", "process"] as const;
@@ -72,6 +116,14 @@ const named = (bead: BeadSummary): string => `${bead.id} ("${bead.title}")`;
 const TODO = /TODO\(([^)\s]+)\)/g;
 
 export const checkBeads = (_config: unknown, snapshot: Snapshot): ReadonlyArray<Violation> => {
+  if (snapshot.beadsExport?.state === "invalid")
+    return [
+      violation(
+        "export-unreadable",
+        snapshot.beadsExport.path,
+        `bd isn't available here, and its export doesn't decode (${snapshot.beadsExport.reason}), so no bead was checked. Regenerate it where bd runs (\`bd export -o ${snapshot.beadsExport.path}\`) and commit it`,
+      ),
+    ];
   const beads = snapshot.beadRows;
   if (beads === undefined) return [];
   const violations: Array<Violation> = [];

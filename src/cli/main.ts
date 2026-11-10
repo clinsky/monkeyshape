@@ -12,6 +12,7 @@ import {
   readChangedLines,
   writeBaseline,
 } from "../adapters/baseline.ts";
+import { withBeadsExport } from "../adapters/beads.ts";
 import { CONFIG_FILE, loadConfig } from "../adapters/config.ts";
 import { depBump } from "../adapters/dep.ts";
 import { initRepo, vendoredSpec } from "../adapters/init.ts";
@@ -533,7 +534,10 @@ const configFlag = (root: string, args: ReadonlyArray<string>): string | undefin
 const load = (root: string, args: ReadonlyArray<string>, checks: ReadonlyArray<CheckName>) =>
   Effect.gen(function* () {
     const config = yield* loadConfig(root, configFlag(root, args));
-    const loaded = yield* loadSnapshot(root, config, PACKAGE_ROOT, { checks });
+    const loaded = yield* Effect.flatMap(
+      loadSnapshot(root, config, PACKAGE_ROOT, { checks }),
+      (snapshot) => withBeadsExport(root, snapshot),
+    );
     const baseline = yield* readBaseline(root);
     // Only a baseline needs to know which occurrence is new.
     const snapshot =

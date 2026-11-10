@@ -58,13 +58,28 @@ const run: Record<
   beads: checkBeads,
 };
 
+/** The rules bd's memories feed: no export holds them, so without bd they're skipped. */
+const NEEDS_MEMORIES = ["budgets/memories-count", "budgets/memories-bytes"];
+
 /** The rules that need bd: where it can't run, they're skipped with a notice. */
 const NEEDS_BD = [
   "refs/bead-in-code",
-  "budgets/memories-count",
-  "budgets/memories-bytes",
-  ...BEADS_RULES.map((kind) => `beads/${kind}`),
+  ...NEEDS_MEMORIES,
+  // An unreadable export is reported where bd is missing, so that kind never waits on bd.
+  ...BEADS_RULES.filter((kind) => kind !== "export-unreadable").map((kind) => `beads/${kind}`),
 ];
+
+/** Whether the beads came from the committed export, bd being unavailable here. */
+const fromExport = (snapshot: Snapshot): boolean =>
+  snapshot.integrations.beads.state === "unavailable" && snapshot.beadsExport?.state === "read";
+
+/** The rules this run couldn't evaluate for want of bd. */
+const withoutBd = (snapshot: Snapshot): ReadonlyArray<string> =>
+  snapshot.integrations.beads.state === "ok"
+    ? []
+    : fromExport(snapshot)
+      ? NEEDS_MEMORIES
+      : NEEDS_BD;
 
 /** A tool a check asks, how it fared, and whether the config lets the check go without it. */
 interface Prerequisite {
@@ -91,6 +106,11 @@ const prerequisitesOf = (
       { name: "tsc", integration: tsc, required: config.prerequisites.tsc === "required" },
       { name: "biome", integration: biome, required: config.prerequisites.biome === "required" },
     ];
+  // The export stands in for an unavailable bd, unless the config requires bd itself.
+  if (check === "beads" && snapshot.beadsExport !== undefined && config.beads === "optional")
+    return beads.state === "unavailable"
+      ? []
+      : [{ name: "bd", integration: beads, required: false }];
   if (check === "beads")
     return [{ name: "bd", integration: beads, required: config.beads === "required" }];
   return [];
@@ -236,7 +256,9 @@ const scopeOf = (check: CheckName, config: ResolvedConfig, snapshot: Snapshot): 
     case "beads":
       return snapshot.integrations.beads.state === "absent"
         ? { notApplicable: "no .beads/" }
-        : { examined: plural(snapshot.beadRows?.length ?? 0, "bead") };
+        : {
+            examined: `${plural(snapshot.beadRows?.length ?? 0, "bead")}${snapshot.integrations.beads.state !== "ok" && snapshot.beadsExport !== undefined ? `, from the export (${snapshot.beadsExport.path})` : ""}`,
+          };
   }
 };
 
@@ -311,7 +333,7 @@ const unevaluatedBy = (
   // Every id a check that didn't run could report, not only those the caller's baseline
   // names: `tighten` must keep a turned-off check's entries whoever calls it.
   new Set([
-    ...(snapshot.integrations.beads.state === "ok" ? [] : NEEDS_BD),
+    ...withoutBd(snapshot),
     ...[...ruleIds(), ...baselineRules]
       .filter((rule) => !rule.startsWith("prerequisites/"))
       .filter((rule) => !(ran as ReadonlyArray<string>).includes(rule.split("/")[0] ?? "")),
@@ -352,7 +374,11 @@ export const notices = (
   const out: Array<string> = [];
   const { beads, tsc, biome } = snapshot.integrations;
   if (beads.state === "unavailable" && config.beads === "optional")
-    out.push(`skipped ${NEEDS_BD.join(", ")}: ${beads.reason}`);
+    out.push(
+      fromExport(snapshot)
+        ? `read beads from the export, ${snapshot.beadsExport?.path}, and skipped ${NEEDS_MEMORIES.join(", ")}, which it doesn't hold: ${beads.reason}`
+        : `skipped ${withoutBd(snapshot).join(", ")}: ${beads.reason}`,
+    );
   if (only.includes("coverage") && config.checks.coverage === undefined)
     for (const [name, integration] of [
       ["tsc", tsc],
