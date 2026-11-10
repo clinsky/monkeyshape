@@ -28,7 +28,6 @@ import {
   sessionPath,
   sessionsDir,
   TRACK_NAME,
-  trackOf,
   trackSessionsDir,
   worktreePath,
 } from "../core/layout.ts";
@@ -58,7 +57,7 @@ import {
   socketPayload,
   type Target,
 } from "../core/notices.ts";
-import { fs, gitOk, locate, refuse, trackCurrent, worktrees } from "./tracks.ts";
+import { fs, gitOk, locate, refuse, trackCurrent, trackNames, worktrees } from "./tracks.ts";
 
 /** Symlinks resolved; a path that doesn't exist stays as it is. */
 const real = (path: string) => Effect.promise(() => realpath(path).catch(() => path));
@@ -313,13 +312,10 @@ export const planReviewMove = (cwd: string, caller: Caller, pr: string) =>
 export const enterTrack = (cwd: string, caller: Caller, track: string) =>
   Effect.gen(function* () {
     const { common, repo } = yield* locate(cwd);
-    const tracks = (yield* worktrees(repo)).flatMap((worktree) => {
-      const name = trackOf(repo, worktree.path);
-      return name === undefined ? [] : [name];
-    });
+    const tracks = yield* trackNames(repo);
     if (!tracks.includes(track))
       return yield* refuse(
-        `no track \`${track}\`: ${tracks.length === 0 ? "there are none" : `the tracks are ${tracks.sort().join(", ")}`}. Start it with \`${mshapeCommand(["track", "new", track])}\``,
+        `no track \`${track}\`: ${tracks.length === 0 ? "there are none" : `the tracks are ${tracks.join(", ")}`}. Start it with \`${mshapeCommand(["track", "new", track])}\``,
       );
     const self = yield* selfIn(yield* allPlaced(common), caller);
     if (self.kind === "anonymous") return yield* refuse(`nothing to move: ${NO_IDENTITY}`);

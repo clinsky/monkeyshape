@@ -1,6 +1,6 @@
 #!/usr/bin/env bun
 /** The `mshape` executable: the composition root, and the only place effects are run. */
-import { mkdtemp, realpath, rm } from "node:fs/promises";
+import { mkdtemp, readFile, realpath, rm } from "node:fs/promises";
 import { homedir, tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -19,6 +19,7 @@ import {
   notifyRecipient,
   register,
   removeSessions,
+  sessionAddress,
 } from "../adapters/notices.ts";
 import { runTool } from "../adapters/process.ts";
 import { packSource, packWorkingTree } from "../adapters/release.ts";
@@ -32,6 +33,7 @@ import {
   trackCurrent,
   trackList,
   trackMigrate,
+  trackNames,
   trackNew,
   trackRm,
 } from "../adapters/tracks.ts";
@@ -52,7 +54,7 @@ import { nextStep, REPO_NAME } from "../core/scaffold.ts";
 import { formatCollisions, formatSync, SKILL_NAME } from "../core/skills.ts";
 import { formatSyncPlan } from "../core/sync.ts";
 import { headingProblems } from "../core/trackPr.ts";
-import { type ConfigError, type TrackError, WorkspaceError } from "../schemas/errors.ts";
+import { type ConfigError, TrackError, WorkspaceError } from "../schemas/errors.ts";
 
 /** What a command returns: the text to print, and the exit code (0 prints to stdout). */
 interface Outcome {
@@ -328,18 +330,29 @@ const randomHex = (): string =>
     .map((b) => b.toString(16).padStart(2, "0"))
     .join("");
 
+/** `msg send`'s flags that take a value. */
+const SEND_VALUES = ["--subject", "--body-file"] as const;
+
 /**
- * `send <track> --subject <subject> [body]`. Everything after `--` is positional, so a body
- * about a flag (`--force does ...`) can be sent; without it, such a body is refused with the
- * reason rather than the whole help.
+ * `send <track>|--all --subject <subject> [body | --body-file <path>]`. Everything after `--`
+ * is positional, so a body about a flag (`--force does ...`) can be sent; without it, such a
+ * body is refused with the reason rather than the whole help. `--body-file` reads the body
+ * from a file, so no shell quoting stands between the writer and the text. `--all` sends to
+ * every track but the sender's own.
  */
 const msgSend = (root: string, args: ReadonlyArray<string>) =>
   Effect.gen(function* () {
     const end = args.indexOf("--");
     const options = end === -1 ? args : args.slice(0, end);
-    const flag = options.indexOf("--subject");
-    const subject = flag === -1 ? undefined : options[flag + 1];
-    const before = options.filter((_, i) => flag === -1 || (i !== flag && i !== flag + 1));
+    const values = new Map<string, string | undefined>();
+    const before: Array<string> = [];
+    let all = false;
+    for (let i = 0; i < options.length; i++) {
+      const arg = options[i] ?? "";
+      if ((SEND_VALUES as ReadonlyArray<string>).includes(arg)) values.set(arg, options[++i]);
+      else if (arg === "--all") all = true;
+      else before.push(arg);
+    }
     const stray = before.find((arg) => arg.startsWith("--"));
     if (stray !== undefined)
       return {
@@ -347,24 +360,69 @@ const msgSend = (root: string, args: ReadonlyArray<string>) =>
         code: 2,
       };
     const positional = [...before, ...(end === -1 ? [] : args.slice(end + 1))];
-    if (subject === undefined || positional.length < 1 || positional.length > 2) return usage();
-    const [to = "", body = ""] = positional;
-    const message = yield* mailSend(root, to, subject, body, new Date(), randomHex, caller());
-    // Stored first: whatever happens to the notices, the mail waits for them.
-    const delivery = yield* notifyRecipient(
-      root,
-      message,
-      claudeCodeNotifier,
-      claudeDir(),
-      new Date(),
-    ).pipe(
-      Effect.catchTags({
-        TrackError: (error) => Effect.succeed({ notified: 0, pruned: [], skipped: [error.reason] }),
-        WorkspaceError: (error) =>
-          Effect.succeed({ notified: 0, pruned: [], skipped: [error.message] }),
-      }),
+    const subject = values.get("--subject");
+    const bodyFile = values.get("--body-file");
+    const wanted = (all ? 0 : 1) + (values.has("--body-file") ? 0 : 1);
+    if (
+      subject === undefined ||
+      (values.has("--body-file") && bodyFile === undefined) ||
+      positional.length > wanted ||
+      positional.length < (all ? 0 : 1)
+    )
+      return usage();
+    const [to = "", inline = ""] = all ? ["", ...positional] : positional;
+    const body =
+      bodyFile === undefined
+        ? inline
+        : yield* Effect.tryPromise({
+            try: () => readFile(resolve(root, bodyFile), "utf8"),
+            catch: () => new TrackError({ reason: `--body-file ${bodyFile}: can't read it` }),
+          });
+    const recipients = all ? yield* everyTrackBut(root, caller()) : [to];
+    const said: Array<string> = [];
+    for (const recipient of recipients) {
+      const message = yield* mailSend(
+        root,
+        recipient,
+        subject,
+        body,
+        new Date(),
+        randomHex,
+        caller(),
+      );
+      // Stored first: whatever happens to the notices, the mail waits for them.
+      const delivery = yield* notifyRecipient(
+        root,
+        message,
+        claudeCodeNotifier,
+        claudeDir(),
+        new Date(),
+      ).pipe(
+        Effect.catchTags({
+          TrackError: (error) =>
+            Effect.succeed({ notified: 0, pruned: [], skipped: [error.reason] }),
+          WorkspaceError: (error) =>
+            Effect.succeed({ notified: 0, pruned: [], skipped: [error.message] }),
+        }),
+      );
+      said.push(formatSent(message), formatDelivery(recipient, delivery));
+    }
+    return { output: said.join("\n"), code: 0 };
+  });
+
+/** `--all`'s recipients: every track, less the sender's own address. Refuses when none is left. */
+const everyTrackBut = (root: string, who: Caller) =>
+  Effect.gen(function* () {
+    const { repo } = yield* locate(root);
+    const { address } = yield* sessionAddress(root, who).pipe(
+      Effect.orElseSucceed(() => ({ address: "" })),
     );
-    return { output: `${formatSent(message)}\n${formatDelivery(to, delivery)}`, code: 0 };
+    const tracks = (yield* trackNames(repo)).filter((track) => track !== address);
+    if (tracks.length === 0)
+      return yield* Effect.fail(
+        new TrackError({ reason: "msg send --all: there is no track to send to" }),
+      );
+    return tracks;
   });
 
 /**
@@ -764,11 +822,13 @@ export const COMMANDS: ReadonlyArray<Command> = [
   },
   {
     name: "msg",
-    usage: `  mshape msg send <track> --subject <subject> [body]
+    usage: `  mshape msg send <track> --subject <subject> [body | --body-file <path>]
       Leave a message in the mailbox of <track>, main or review-<n>, from this session's
-      address, then push its subject to the sessions registered there. The subject is one line; it is all a
-      notice shows. Quote the body; put -- before a body
-      that starts with --.
+      address, then push its subject to the sessions registered there. The subject is one
+      line; it is all a notice shows. --body-file reads the body from a file, with no shell
+      quoting to get wrong; else quote the body, and put -- before one that starts with --.
+  mshape msg send --all --subject <subject> [body | --body-file <path>]
+      The same message to every track but this session's own, one mailbox each.
   mshape msg inbox [--quiet]
       Unread messages at this session's address, oldest first. --quiet, for hooks: nothing
       when there are none or there is no address, and never a failure.

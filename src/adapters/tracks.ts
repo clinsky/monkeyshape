@@ -160,6 +160,12 @@ export const worktrees = (repo: string) =>
     );
   });
 
+/** The tracks that have a worktree, by name, sorted: who `track enter` and `msg send --all` reach. */
+export const trackNames = (repo: string) =>
+  Effect.map(worktrees(repo), (listed) =>
+    listed.flatMap((worktree) => trackOf(repo, worktree.path) ?? []).sort(),
+  );
+
 const branchExists = (repo: string, branch: string) =>
   Effect.map(
     git(repo, ["show-ref", "--verify", "--quiet", head(branch)]),
