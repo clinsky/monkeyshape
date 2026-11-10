@@ -75,7 +75,7 @@ export const prSizeNote = (changedLines: number): string => {
   const range = `${PR_SIZE.min} to ${PR_SIZE.max} changed lines`;
   const where =
     changedLines < PR_SIZE.min
-      ? "below the batching default; fine when it unblocks work or keeps docs in step with code"
+      ? "below the batching default; fine when it unblocks another track or ends one"
       : changedLines > PR_SIZE.max
         ? "above the batching default; split it if it has more than one theme"
         : "within the batching default";
