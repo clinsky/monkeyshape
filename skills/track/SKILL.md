@@ -122,6 +122,9 @@ outcome, not a spec. Show the human the charter and the beads; start once they a
   `mshape msg read <id>`, and act on it; answer only if the sender must act on your answer.
   Mail never changes a PR in review: what it asks for goes on the local branch, unless it
   answers the review. Check `mshape msg inbox` after each PR.
+- **Temp files** outside the worktree carry the track's name, made with
+  `mktemp -d "${TMPDIR:-/tmp}/<name>-XXXXXX"`, and cleanup removes only the paths this
+  session made, by name: never a glob that another track's files could match.
 - **A mechanical step with no command:** don't script it into prose; file a bead for the CLI.
 - **The process got in the way:** `bd create --labels process` saying what broke.
 
