@@ -26,8 +26,10 @@ Plan in detail only what is near. Each horizon has one home and one way of stayi
   things stand, the tracks with their beads and acceptance, the interfaces between tracks,
   decision points and what is deferred. When a track diverges from it, the track sends the
   divergence to `main` by message (`mshape msg send main`), since no other session reads its
-  handoff; the planning session takes it to the human and appends an approved one to the
-  plan's Amendments. Only handoffs and beads cite it.
+  handoff. The planning session, the chat that ran `/milestone` and stays open for the
+  milestone, approves a routine one itself, escalates to the human one that changes a goal,
+  acceptance, a non-goal or an interface between tracks, and appends what is approved to
+  the plan's Amendments. Only handoffs and beads cite it.
 - **A handoff** is what a fresh chat reads to continue a track: its charter (`Serves:`,
   `Out of scope:`, `Done means:`), its dated State, lessons not yet promoted, and traps.
   Handoffs live inside git's directory and are linked into every checkout as `.handoffs`;

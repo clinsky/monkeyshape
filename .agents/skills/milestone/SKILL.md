@@ -77,10 +77,10 @@ charter, a reviewer's "Fit" and the next retrospective all read them, so none is
   one is fine when the work is sequential. When a track ends up holding far more than the
   others, or the riskiest work alongside everything else, split it.
 - **Decision points**, **spend** for big runs, and **deferred items, each with a reason**.
-- **Amendments:** empty at first ("None yet."). Once tracks start, a divergence the human
-  approves is appended here with its date, what changed and why; the sections above are
-  not edited. A track that diverges sends it to `main` with `mshape msg send main`; its
-  handoff is read by no one else.
+- **Amendments:** empty at first ("None yet."). Once tracks start, an approved divergence
+  is appended here with its date, what changed, why, and who approved it; the sections
+  above are not edited. A track never edits the plan: it sends a divergence to `main` with
+  `mshape msg send main`, and this session appends it (step 9).
 
 ## 5. Groom
 
@@ -166,7 +166,29 @@ Once the PR is merged (or the human says to start):
   it arrives from `main` and the answer comes back to `main`'s mailbox.
 
 Finish by telling the human what to launch: for each track, the worktree path and "open a
-chat there and run `/track`".
+chat there and run `/track`". Then tell them to keep this chat open for the milestone: it is
+the planning session, where tracks' divergences and questions arrive (step 9).
+
+## 9. Stay open: the planning session
+
+Until the next boundary, this chat is `main`'s address. Tracks send it divergences from the
+plan and questions for the maintainer; a `[mshape] Message from <track>` notice, or a line
+at the human's next prompt, says one arrived. Read each with `mshape msg read <id>`.
+
+- **A divergence:** verify it against the code first. If it changes no goal, acceptance
+  line, non-goal or interface another track consumes (a renamed file, a path the plan got
+  wrong, an ownership detail with no collision), approve it yourself: reply to the track
+  with `mshape msg send <track>`, and append it to Amendments as approved by the planning
+  session. Escalate to the human only a divergence that changes what the milestone delivers
+  or how tracks meet: a goal or acceptance line, a non-goal crossed, a new dependency, or an
+  interface another track builds on. Record their answer the same way, as approved (or
+  refused) by the maintainer, and tell the track.
+- **A question for the maintainer:** answer it from the plan when the plan answers it;
+  otherwise ask the human, and send the track their answer.
+- **What another track must know:** send it to that track; never edit a handoff.
+
+Amendments go to `main` as their own small PR (one per batch, not one per divergence), so
+every track sees the plan it is held to; tracks and reviewers read the plan from `main`.
 
 Review this skill after each boundary it runs: what the retrospective found about the
 process applies to this file too.
