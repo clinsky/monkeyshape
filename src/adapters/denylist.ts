@@ -67,7 +67,8 @@ export const guard = (cwd: string, configDir: string, outgoing: Outgoing, what: 
     const { denylist, paths } = yield* loadDenylist(cwd, configDir);
     if (denylist.lists.length === 0) return NO_DENYLIST_NOTE(paths);
     const found = findings(outgoing, denylist.terms);
-    if (found.length > 0) return yield* refuse(denylistRefusal(found, what));
+    if (found.length > 0)
+      return yield* refuse(denylistRefusal(found, what, outgoing.commits.length > 0));
     return undefined;
   });
 

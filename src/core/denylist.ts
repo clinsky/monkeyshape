@@ -205,11 +205,22 @@ export const findings = (
 /** How many places a refusal lists: the rest are counted, since one rewrite fixes most. */
 export const REFUSAL_PLACES = 20;
 
-/** The refusal for `findings`, saying what to do; `what` is what was not done. */
-export const denylistRefusal = (found: ReadonlyArray<string>, what: string): string =>
+/**
+ * The refusal for `findings`, saying what to do; `what` is what was not done. The advice on
+ * rewriting a commit only when commits were scanned: a review has none.
+ */
+export const denylistRefusal = (
+  found: ReadonlyArray<string>,
+  what: string,
+  commits = true,
+): string =>
   [
     `a denylisted term would leave the machine, so ${what}. Remove or reword each, then run this again:`,
     ...found.slice(0, REFUSAL_PLACES).map((line) => `  ${line}`),
     ...(found.length > REFUSAL_PLACES ? [`  and ${found.length - REFUSAL_PLACES} more`] : []),
-    "A term in a commit's message, lines or paths is fixed only by rewriting that commit before it is pushed: `git commit --amend` for the last one; for an earlier one, `git reset --soft <its parent>` and commit again.",
+    ...(commits
+      ? [
+          "A term in a commit's message, lines or paths is fixed only by rewriting that commit before it is pushed: `git commit --amend` for the last one; for an earlier one, `git reset --soft <its parent>` and commit again.",
+        ]
+      : []),
   ].join("\n");

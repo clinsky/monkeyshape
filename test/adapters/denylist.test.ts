@@ -133,6 +133,8 @@ describe("mshape review post", () => {
     expect(inBody.code).toBe(1);
     expect(inBody.stderr).toContain("so nothing was posted");
     expect(inBody.stderr).toContain('body, line 2, column 4: "zorblax"');
+    // A review has no commits to rewrite: no advice about them.
+    expect(inBody.stderr).not.toContain("git commit --amend");
     await writeFile(join(repo, "review.json"), review("Fit", "unlike Zorblax"));
     expect(mshape(undefined, "review", "post", "3", "review.json").stderr).toContain(
       'comments[0].body, line 1, column 8: "zorblax"',
