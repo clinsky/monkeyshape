@@ -30,6 +30,37 @@ const tracked = async (repo: string) =>
 
 let created = { code: 0, output: "" };
 
+/**
+ * A git checkout of this working tree one commit past its release tag, `v<version>`, so it is
+ * not the release whatever this repo's HEAD is. It shares this repo's installed dependencies.
+ */
+const pastReleaseCheckout = async (dir: string): Promise<string> => {
+  const listed = await run(ROOT, [
+    "git",
+    "ls-files",
+    "-z",
+    "--cached",
+    "--others",
+    "--exclude-standard",
+  ]);
+  for (const file of listed.output.split("\0").filter((f) => f !== ""))
+    if (await Bun.file(join(ROOT, file)).exists())
+      await Bun.write(join(dir, file), Bun.file(join(ROOT, file)));
+  await symlink(join(ROOT, "node_modules"), join(dir, "node_modules"));
+  const { version } = await Bun.file(join(ROOT, "package.json")).json();
+  for (const step of [
+    ["git", "init", "--quiet"],
+    ["git", "add", "--all"],
+    ["git", "commit", "--quiet", "--no-verify", "--message", "the release"],
+    ["git", "tag", `v${version}`],
+    ["git", "commit", "--quiet", "--no-verify", "--allow-empty", "--message", "past it"],
+  ]) {
+    const done = await run(dir, step);
+    if (done.code !== 0) throw new Error(`${step.join(" ")}: ${done.output}`);
+  }
+  return dir;
+};
+
 beforeAll(async () => {
   // A space in the path: the installed binary must find its template through it.
   work = await mkdtemp(join(tmpdir(), "mshape init "));
@@ -403,8 +434,15 @@ describe("mshape init", () => {
   }, 60_000);
 
   test("from a checkout that isn't the release, init vendors a pack of it, and its gate passes", async () => {
+    // Built here, not read from this repo's HEAD, which sits on a release tag right after one.
+    const checkout = await pastReleaseCheckout(join(work, "checkout"));
     // No --from: npm's package of this version isn't this checkout's code.
-    const born = await fromSource(["from-checkout"]);
+    const born = await run(work, [
+      process.execPath,
+      join(checkout, "src", "cli", "main.ts"),
+      "init",
+      "from-checkout",
+    ]);
     expect(born.code).toBe(0);
     expect(unexpectedNotes(born.output)).toEqual([]);
     const repo = join(work, "from-checkout");
