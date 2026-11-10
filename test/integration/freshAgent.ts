@@ -74,10 +74,20 @@ export const CONVENTIONS: ReadonlyArray<{ readonly what: string; readonly said: 
   { what: "the gate", said: new RegExp(`\`${GATE_COMMAND}\` is the gate`) },
   { what: "the decision authority", said: /[Dd]ecision[- ]authority[\s\S]{0,200}maintainer/ },
   { what: "how to message another track", said: /mshape msg send <track>/ },
+  { what: "when a smaller PR is right", said: /unblocks another track or ends/ },
+  { what: "where the next work waits during review", said: /local branch/ },
+  { what: "what makes a message worth sending", said: /must act or decide/ },
+  { what: "that a handoff is its track's own", said: /handoff is this track's own/ },
+  { what: "where a divergence goes", said: /[Dd]iverging[\s\S]{0,200}msg send main/ },
+  { what: "the gate and the rules first", said: /before any change[\s\S]{0,400}mshape rules/ },
+  { what: "when to run bd sync", said: /`bd sync` only where `bd config get dolt\.auto-push`/ },
 ];
 
-/** bd's default session text says this; it contradicts "agents push". */
-const CONTRADICTION = /\bdo not push\b/i;
+/**
+ * bd's default session text says "do not push", against "agents push"; earlier text said a
+ * commit pushed in review "joins it", against one reviewed unit.
+ */
+const CONTRADICTION = /\bdo not push\b|\bjoins it\b/i;
 
 /** What `context` fails to say, or says against the conventions, one line each. */
 export const missingConventions = (context: string): ReadonlyArray<string> => [

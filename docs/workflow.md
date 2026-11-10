@@ -24,9 +24,10 @@ Plan in detail only what is near. Each horizon has one home and one way of stayi
   in, so they never crowd `bd ready`.
 - **The milestone plan** says the goal and how you'll know it is met on real data, where
   things stand, the tracks with their beads and acceptance, the interfaces between tracks,
-  decision points and what is deferred. When a track diverges from it, the track says so in
-  its handoff; a divergence that changes another track's work is a conversation with the
-  human, not an edit to the plan. Only handoffs and beads cite it.
+  decision points and what is deferred. When a track diverges from it, the track sends the
+  divergence to `main` by message (`mshape msg send main`), since no other session reads its
+  handoff; the planning session takes it to the human and appends an approved one to the
+  plan's Amendments. Only handoffs and beads cite it.
 - **A handoff** is what a fresh chat reads to continue a track: its charter (`Serves:`,
   `Out of scope:`, `Done means:`), its dated State, lessons not yet promoted, and traps.
   Handoffs live inside git's directory and are linked into every checkout as `.handoffs`;
@@ -108,10 +109,11 @@ was already sent with `mshape msg`.
 ## Pull requests and review
 
 - Agents commit, push and open PRs; the human merges. A track has one PR open at a time, from
-  its branch. Batch a track's beads into PRs of one theme, typically 1k to 2.5k changed
-  lines: many small PRs cost more review than a few large ones. That is a default for
-  batching, not a gate: a small PR is fine when it unblocks work or keeps docs in step with
-  code.
+  its branch, and while it is in review that branch takes only commits that answer the
+  review; the next work waits on a local branch until it merges. Batch a track's beads into
+  PRs of one theme, typically 1k to 2.5k changed lines: many small PRs cost more review than
+  a few large ones. That is a default for batching, not a gate: a small PR is fine when it
+  unblocks another track or ends one.
 - The PR body says what changed and why, the evidence on real data, the gate output, the bug
   class a new check closes, what is not done, and the beads it works on: the sections of the
   repo's `.github/pull_request_template.md`, which `mshape init` writes from `PR_SECTIONS`.

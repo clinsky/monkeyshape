@@ -79,7 +79,8 @@ charter, a reviewer's "Fit" and the next retrospective all read them, so none is
 - **Decision points**, **spend** for big runs, and **deferred items, each with a reason**.
 - **Amendments:** empty at first ("None yet."). Once tracks start, a divergence the human
   approves is appended here with its date, what changed and why; the sections above are
-  not edited. A track that diverges says so in its handoff and asks the human.
+  not edited. A track that diverges sends it to `main` with `mshape msg send main`; its
+  handoff is read by no one else.
 
 ## 5. Groom
 
