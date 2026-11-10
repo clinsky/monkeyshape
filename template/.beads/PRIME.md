@@ -60,5 +60,5 @@ design, refactors, docs, checks and beads, and explain them in the PR body.
 ## Before you stop
 
 Commit what is done and push it unless it waits for a PR to merge, `bd sync` as above,
-update the handoff's State if you are in a track, and say what is left. Text is a hypothesis: when a doc or bead
-disagrees with the code, fix the text.
+update the handoff's State if you are in a track, and say what is left. Text is a
+hypothesis: when a doc or bead disagrees with the code, fix the text.

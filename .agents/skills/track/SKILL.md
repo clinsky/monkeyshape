@@ -86,9 +86,11 @@ outcome, not a spec. Show the human the charter and the beads; start once they a
   open, `track/<name>` takes only commits that answer its review. Do the next beads on a
   local branch, `git switch -c <name>-next`, and commit there as you go; never push it.
   Switch back to `track/<name>` to answer the review, and run `track pr` only from there.
-  When the PR merges: `git switch <name>-next`, `git fetch`, `git rebase origin/main`, then
-  `git switch track/<name>` and `git merge --ff-only <name>-next`, and delete the local
-  branch. If waiting would stall the track, tell the human.
+  When the PR merges, however it was merged, replay only the next work onto `main`:
+  `git fetch`, `git rebase --onto origin/main track/<name> <name>-next`, then
+  `git switch track/<name>`, `git reset --hard <name>-next` and `git branch -d <name>-next`.
+  After a squash or rebase merge the remote `track/<name>` no longer fast-forwards: the next
+  `track pr` says so and how to fix it. If waiting would stall the track, tell the human.
 - **Answering a review:** "fixed" is a claim the reviewer will test, so test it first.
   - Rerun each of the reviewer's probes on your new head, and quote what it prints now.
   - Try to break your fix with valid input the reviewer didn't try: the mirror case, a
