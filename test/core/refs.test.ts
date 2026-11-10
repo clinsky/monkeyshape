@@ -222,6 +222,60 @@ describe("refs in code comments", () => {
   });
 });
 
+describe("refs.rules: off and allow per kind, as rules takes them", () => {
+  const REASON = "a reason a later agent can weigh";
+  const files = {
+    "AGENTS.md": "As the plan says in §3.",
+    "skills/a/SKILL.md": "See §2 there.",
+  };
+
+  test("an allowance silences its kind only in the paths it matches", () => {
+    const allowed = config({
+      refs: { rules: { "section-citation": { allow: [{ path: "skills/**", reason: REASON }] } } },
+    });
+    expect(
+      checkRefs(allowed, repo({ "DECISIONS.md": DECISIONS, ...files })).map(
+        (v) => `${v.rule} ${v.file}`,
+      ),
+    ).toEqual(["refs/section-citation AGENTS.md"]);
+  });
+
+  test("an allowance silences only its own kind", () => {
+    const allowed = config({
+      refs: { rules: { "missing-path": { allow: [{ path: "AGENTS.md", reason: REASON }] } } },
+    });
+    expect(rules({ "AGENTS.md": "As in §3, see `src/gone.ts`." }, allowed)).toEqual([
+      "refs/section-citation",
+    ]);
+  });
+
+  test("a kind turned off reports nothing, and its allowances aren't called unused", () => {
+    const off = config({
+      refs: {
+        rules: {
+          "section-citation": { off: REASON, allow: [{ path: "nowhere/**", reason: REASON }] },
+        },
+      },
+    });
+    expect(rules({ ...files, "AGENTS.md": "See `src/gone.ts` in §3." }, off)).toEqual([
+      "refs/missing-path",
+    ]);
+  });
+
+  test("an allowance that silences nothing is reported, naming it", () => {
+    const stale = config({
+      refs: { rules: { "missing-path": { allow: [{ path: "docs/**", reason: REASON }] } } },
+    });
+    const found = checkRefs(stale, repo({ "DECISIONS.md": DECISIONS, "AGENTS.md": "Fine." }));
+    expect(found.map((v) => [v.rule, v.message])).toEqual([
+      [
+        "refs/unused-allowance",
+        "refs.rules.missing-path.allow 'docs/**' allows nothing; delete it",
+      ],
+    ]);
+  });
+});
+
 describe("pathCandidate", () => {
   test("strips a line suffix and a trailing slash", () => {
     expect(pathCandidate("src/a.ts:12")).toBe("src/a.ts");

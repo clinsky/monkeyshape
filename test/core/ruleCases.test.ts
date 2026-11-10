@@ -174,6 +174,20 @@ const refs: Record<string, Cases> = {
     fail: { files: { "AGENTS.md": "See `src/gone.ts` and [it](src/gone.ts).\n", "src/a.ts": "" } },
     pass: { files: { "AGENTS.md": "See `src/a.ts` and [it](src/a.ts).\n", "src/a.ts": "" } },
   },
+  "refs/unused-allowance": {
+    fail: {
+      config: {
+        refs: { rules: { "section-citation": { allow: [{ path: "docs/**", reason: REASON }] } } },
+      },
+      files: { "AGENTS.md": "As the plan's Commands section says.\n" },
+    },
+    pass: {
+      config: {
+        refs: { rules: { "section-citation": { allow: [{ path: "AGENTS.md", reason: REASON }] } } },
+      },
+      files: { "AGENTS.md": "As the plan says in §3.\n" },
+    },
+  },
   "refs/bead-in-code": {
     fail: {
       files: { "src/a.ts": "// see mshape-abc.1\n" },

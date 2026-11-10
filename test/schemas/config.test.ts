@@ -80,3 +80,26 @@ describe("arch.allowedPackages", () => {
     expect(allowed(["effect", "pg"])).toEqual(["effect", "pg"]);
   });
 });
+
+describe("refs.rules", () => {
+  test("takes off and allow per refs kind, with reasons", () => {
+    const reason = "a reason a later agent can weigh";
+    expect(
+      decodes({
+        refs: {
+          rules: {
+            "section-citation": { off: reason },
+            "missing-path": { allow: [{ path: "AGENTS.md", reason }] },
+          },
+        },
+      }),
+    ).toBe(true);
+  });
+
+  test("an unknown kind, or an off without a reason, fails", () => {
+    expect(
+      decodes({ refs: { rules: { "no-such-kind": { off: "a reason a later agent can weigh" } } } }),
+    ).toBe(false);
+    expect(decodes({ refs: { rules: { "missing-path": { off: "" } } } })).toBe(false);
+  });
+});

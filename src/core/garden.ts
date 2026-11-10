@@ -21,10 +21,13 @@ export const garden = (
     shapeIgnores += occurrences(text, /^\s*\/\/\s*shape-ignore\s/gm);
     biomeIgnores += occurrences(text, /^\s*\/\/\s*biome-ignore/gm);
   }
-  // Every reasoned exception the config holds: a rule's allowances, a large file, executable
-  // or data no command or parser checks, a file past the size cap.
+  // Every reasoned exception the config holds: a rule's or a refs kind's allowances, a large
+  // file, executable or data no command or parser checks, a file past the size cap.
   const allowances =
-    Object.values(config.rules).reduce((sum, rule) => sum + (rule.allow?.length ?? 0), 0) +
+    [...Object.values(config.rules), ...Object.values(config.refs.rules)].reduce(
+      (sum, rule) => sum + (rule.allow?.length ?? 0),
+      0,
+    ) +
     config.budgets.largeFiles.length +
     config.coverage.exemptFiles.length +
     config.files.large.length;

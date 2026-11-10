@@ -105,6 +105,10 @@ Each check reads its own part of the config.
   `bun run --silent mshape dep bump <name> <tarball> --sha256 <digest>`.
 - **Invariants of your own** become adopter rules: `docs/local-rules.md` shows how. List each
   rule module's directory in `sources.include`, for example `rules/**/*.ts`.
+- **A rule that misfits some files** takes `allow: [{ path, reason }]`, or `off: "<reason>"`
+  to stop it everywhere: `rules: { "no-throw": { ... } }` for a rule, and
+  `refs: { rules: { "section-citation": { ... } } }` for a `refs/` kind. An allowance that
+  silences nothing fails, so delete it once its files are fixed.
 
 ## 4. tsc and biome
 

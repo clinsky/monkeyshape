@@ -7,7 +7,7 @@
  * path still exists. Code comments: no links into
  * those either, no `§N` citations, decision slugs must exist, bead ids only in `TODO(id)`.
  */
-import type { ResolvedConfig } from "../schemas/config.ts";
+import { REFS_KINDS, type ResolvedConfig } from "../schemas/config.ts";
 import { parseDecisions, SLUG } from "./decisions.ts";
 import { matchesAny } from "./glob.ts";
 import { fencedLines, splitCodeSpans } from "./markdown.ts";
@@ -27,16 +27,7 @@ const KNOWN_EXTENSION =
   /\.(ts|tsx|mts|cts|js|mjs|json|jsonc|jsonl|md|yaml|yml|toml|sh|txt|lock|grit|java|py)$/;
 
 /** Every rule this check reports, as `refs/<kind>`; test/core/ruleCases.test.ts covers each. */
-export const REFS_RULES = [
-  "section-citation",
-  "forbidden",
-  "unknown-decision",
-  "split-code-span",
-  "normative-link",
-  "unknown-script",
-  "missing-path",
-  "bead-in-code",
-] as const;
+export const REFS_RULES = [...REFS_KINDS, "unused-allowance"] as const;
 
 const violation = (
   rule: (typeof REFS_RULES)[number],
@@ -75,7 +66,43 @@ export const pathCandidate = (span: string): string | undefined => {
   return token.replace(/\/$/, "");
 };
 
-export const checkRefs = (config: ResolvedConfig, snapshot: Snapshot): ReadonlyArray<Violation> => {
+/**
+ * `refs.rules`, as the rules engine applies `rules`: a kind turned off reports nothing, an
+ * allowance silences its kind in the files it matches, and one that silences nothing is
+ * reported so it doesn't outlive its reason.
+ */
+const applySettings = (
+  settings: ResolvedConfig["refs"]["rules"],
+  found: ReadonlyArray<Violation>,
+): ReadonlyArray<Violation> => {
+  const used = new Set<string>();
+  const kept = found.filter((v) => {
+    const kind = REFS_KINDS.find((k) => v.rule === `refs/${k}`);
+    const setting = kind === undefined ? undefined : settings[kind];
+    if (setting?.off !== undefined) return false;
+    const allowance = setting?.allow?.find((a) => matchesAny(v.file, [a.path]));
+    if (allowance === undefined) return true;
+    used.add(`${kind}\0${allowance.path}`);
+    return false;
+  });
+  const unused = REFS_KINDS.flatMap((kind) =>
+    settings[kind]?.off !== undefined
+      ? []
+      : (settings[kind]?.allow ?? [])
+          .filter((a) => !used.has(`${kind}\0${a.path}`))
+          .map((a) =>
+            violation(
+              "unused-allowance",
+              "shape.config.ts",
+              1,
+              `refs.rules.${kind}.allow '${a.path}' allows nothing; delete it`,
+            ),
+          ),
+  );
+  return [...kept, ...unused];
+};
+
+const findRefs = (config: ResolvedConfig, snapshot: Snapshot): ReadonlyArray<Violation> => {
   const violations: Array<Violation> = [];
   const index = pathIndex(snapshot.files);
   const files = new Set(snapshot.files);
@@ -248,3 +275,6 @@ export const checkRefs = (config: ResolvedConfig, snapshot: Snapshot): ReadonlyA
   }
   return violations;
 };
+
+export const checkRefs = (config: ResolvedConfig, snapshot: Snapshot): ReadonlyArray<Violation> =>
+  applySettings(config.refs.rules, findRefs(config, snapshot));

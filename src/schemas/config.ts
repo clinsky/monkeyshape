@@ -86,6 +86,32 @@ export const RuleSetting = Schema.Struct({
   off: Schema.optionalKey(Reason),
   allow: Schema.optionalKey(Schema.Array(Allowance)),
 });
+export type RuleSetting = typeof RuleSetting.Type;
+
+/** Every refs kind a repo can configure, as `refs.rules.<kind>`; the refs check reports them as `refs/<kind>`. */
+export const REFS_KINDS = [
+  "section-citation",
+  "forbidden",
+  "unknown-decision",
+  "split-code-span",
+  "normative-link",
+  "unknown-script",
+  "missing-path",
+  "bead-in-code",
+] as const;
+export type RefsKind = (typeof REFS_KINDS)[number];
+
+/** `off` and `allow` per refs kind, as `rules` takes them per rule; an unknown kind fails decoding. */
+const RefsRules = Schema.Struct({
+  "section-citation": Schema.optionalKey(RuleSetting),
+  forbidden: Schema.optionalKey(RuleSetting),
+  "unknown-decision": Schema.optionalKey(RuleSetting),
+  "split-code-span": Schema.optionalKey(RuleSetting),
+  "normative-link": Schema.optionalKey(RuleSetting),
+  "unknown-script": Schema.optionalKey(RuleSetting),
+  "missing-path": Schema.optionalKey(RuleSetting),
+  "bead-in-code": Schema.optionalKey(RuleSetting),
+} satisfies Record<RefsKind, unknown>);
 
 /**
  * Repo-relative and already normal: segments joined by single `/`, none empty, `.` or `..`.
@@ -204,6 +230,8 @@ export const ShapeConfig = Schema.Struct({
        */
       formOnlyDocs: Schema.optionalKey(Globs),
       forbidden: Schema.optionalKey(Schema.Array(ForbiddenPattern)),
+      /** Per kind, as `rules` per rule: `off` with a reason, or `allow` for paths with reasons. */
+      rules: Schema.optionalKey(RefsRules),
     }),
   ),
   budgets: Schema.optionalKey(
@@ -280,6 +308,7 @@ export interface ResolvedConfig {
     readonly narrativeDocs: ReadonlyArray<string>;
     readonly formOnlyDocs: ReadonlyArray<string>;
     readonly forbidden: ReadonlyArray<{ readonly pattern: string; readonly reason: string }>;
+    readonly rules: Readonly<Partial<Record<RefsKind, RuleSetting>>>;
   };
   readonly budgets: {
     readonly agentsLines: number;
@@ -372,6 +401,7 @@ export const resolveConfig = (config: ShapeConfig): ResolvedConfig => ({
     narrativeDocs: config.refs?.narrativeDocs ?? ["README.md"],
     formOnlyDocs: config.refs?.formOnlyDocs ?? ["plan/**/*.md", "notes/**/*.md"],
     forbidden: config.refs?.forbidden ?? [],
+    rules: config.refs?.rules ?? {},
   },
   budgets: {
     agentsLines: config.budgets?.agentsLines ?? 150,
