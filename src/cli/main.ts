@@ -6,7 +6,12 @@ import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { Effect } from "effect";
 import pkg from "../../package.json" with { type: "json" };
-import { BASELINE_FILE, readBaseline, writeBaseline } from "../adapters/baseline.ts";
+import {
+  BASELINE_FILE,
+  readBaseline,
+  readChangedLines,
+  writeBaseline,
+} from "../adapters/baseline.ts";
 import { CONFIG_FILE, loadConfig } from "../adapters/config.ts";
 import { depBump } from "../adapters/dep.ts";
 import { initRepo, vendoredSpec } from "../adapters/init.ts";
@@ -528,8 +533,13 @@ const configFlag = (root: string, args: ReadonlyArray<string>): string | undefin
 const load = (root: string, args: ReadonlyArray<string>, checks: ReadonlyArray<CheckName>) =>
   Effect.gen(function* () {
     const config = yield* loadConfig(root, configFlag(root, args));
-    const snapshot = yield* loadSnapshot(root, config, PACKAGE_ROOT, { checks });
+    const loaded = yield* loadSnapshot(root, config, PACKAGE_ROOT, { checks });
     const baseline = yield* readBaseline(root);
+    // Only a baseline needs to know which occurrence is new.
+    const snapshot =
+      Object.keys(baseline).length === 0
+        ? loaded
+        : { ...loaded, changedLines: yield* readChangedLines(root) };
     return { config, snapshot, baseline };
   });
 

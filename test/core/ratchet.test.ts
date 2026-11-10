@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
-import type { Violation } from "../../src/core/model.ts";
-import { applyBaseline, count, tighten } from "../../src/core/ratchet.ts";
+import type { ChangedLines, Violation } from "../../src/core/model.ts";
+import { applyBaseline, count, parseChangedLines, tighten } from "../../src/core/ratchet.ts";
 
 /** The ratchet keys on rule and file; `check` is the rule's own namespace, as checks set it. */
 const v = (file: string, rule: Violation["rule"] = "rules/no-throw"): Violation =>
@@ -54,5 +54,89 @@ describe("ratchet", () => {
       "rules/no-throw": { "a.ts": 2 },
       "arch/cycle": { "b.ts": 1 },
     });
+  });
+});
+
+describe("over a baseline: the new occurrence", () => {
+  const at = (line: number): Violation => ({ ...v("a.ts"), line });
+  const three = [at(3), at(10), at(20)];
+  const allowsTwo = { "rules/no-throw": { "a.ts": 2 } };
+  const failing = (changed?: ChangedLines) =>
+    applyBaseline(three, allowsTwo, new Set(), changed).failing.map((x) => [x.line, x.message]);
+
+  test("one occurrence added on lines this branch changed: that one", () => {
+    expect(failing(new Map([["a.ts", new Set([9, 10, 11])]]))).toEqual([
+      [10, "m (baseline allows 2 here, found 3; this one is on a line this branch changed)"],
+    ]);
+  });
+
+  test("the count rose, none on changed lines (moved code): every one, with a note", () => {
+    const note =
+      "m (baseline allows 2 here, found 3; none is on a line this branch changed, so each is listed)";
+    expect(failing(new Map([["a.ts", new Set([4, 5])]]))).toEqual([
+      [3, note],
+      [10, note],
+      [20, note],
+    ]);
+    expect(failing(new Map())).toEqual([
+      [3, note],
+      [10, note],
+      [20, note],
+    ]);
+  });
+
+  test("the count fell: nothing, and the ratchet is loose as before", () => {
+    const result = applyBaseline([at(3)], allowsTwo, new Set(), new Map([["a.ts", new Set([3])]]));
+    expect(result.failing).toEqual([]);
+    expect(result.loose).toEqual([{ rule: "rules/no-throw", file: "a.ts", allowed: 2, found: 1 }]);
+  });
+
+  test("no merge base (a fresh repo): every occurrence", () => {
+    expect(failing(undefined).map(([line]) => line)).toEqual([3, 10, 20]);
+  });
+
+  test("a new file counts all its lines as changed; a file the baseline doesn't know fails whole", () => {
+    expect(failing(new Map([["a.ts", "all"]])).map(([line]) => line)).toEqual([3, 10, 20]);
+    const fresh = applyBaseline([{ ...v("b.ts"), line: 1 }], allowsTwo, new Set(), new Map());
+    expect(fresh.failing.map((x) => x.message)).toEqual(["m"]);
+  });
+});
+
+describe("parseChangedLines", () => {
+  test("the new side's lines per file; an added file whole; a pure deletion none", () => {
+    const diff = [
+      "diff --git a/src/a.ts b/src/a.ts",
+      "index 1..2 100644",
+      "--- a/src/a.ts",
+      "+++ b/src/a.ts",
+      "@@ -3 +3 @@ x",
+      "-old",
+      "+new",
+      "@@ -10,0 +11,2 @@",
+      "+one",
+      "+two",
+      "@@ -20,2 +22,0 @@",
+      "-gone",
+      "-gone",
+      "diff --git a/src/new.ts b/src/new.ts",
+      "new file mode 100644",
+      "--- /dev/null",
+      "+++ b/src/new.ts",
+      "@@ -0,0 +1,2 @@",
+      "+a",
+      "+b",
+      "diff --git a/src/cut.ts b/src/cut.ts",
+      "--- a/src/cut.ts",
+      "+++ b/src/cut.ts",
+      "@@ -5 +4,0 @@",
+      "-x",
+    ].join("\n");
+    const changed = parseChangedLines(diff);
+    expect(
+      [...changed].map(([file, lines]) => [file, lines === "all" ? "all" : [...lines]]),
+    ).toEqual([
+      ["src/a.ts", [3, 11, 12]],
+      ["src/new.ts", "all"],
+    ]);
   });
 });

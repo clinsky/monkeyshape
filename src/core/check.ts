@@ -518,7 +518,7 @@ export const assess = (
     violations,
     unevaluated: skipped,
   } = evaluate(config, snapshot, only, Object.keys(baseline));
-  const ratcheted = applyBaseline(violations, baseline, skipped);
+  const ratcheted = applyBaseline(violations, baseline, skipped, snapshot.changedLines);
   const result = {
     ...ratcheted,
     failing: [...prerequisites(config, snapshot, only), ...ratcheted.failing],

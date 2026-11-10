@@ -214,7 +214,8 @@ current violation per file in .shape/baseline.json, and prints the counts by rul
 by rule, not line by line: a large count of one rule is usually one habit of the codebase, and
 each rule's message says what it costs. As you fix
 things, `mshape baseline --tighten` lowers the counts, and a count is never raised. Then
-commit, and the gate is green.
+commit, and the gate is green. A file over its count later reports the occurrences on lines
+your branch changed since `main`, or every one when none is, as after moving code.
 
 ## Afterwards: your knowledge, in four kinds
 
