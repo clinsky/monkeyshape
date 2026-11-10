@@ -130,8 +130,18 @@ describe("track current", () => {
     expect(main.stdout).toBe("");
     expect(main.stderr).toContain("is not a track worktree");
 
+    // The next bead's local branch, or a detached HEAD: still the track, with a note.
     sh(wt("docs"), "switch", "-qc", "elsewhere");
-    expect(mshape(wt("docs"), "current").stderr).toContain("not `track/docs`");
+    const elsewhere = mshape(wt("docs"), "current");
+    expect(elsewhere).toMatchObject({ code: 0, stdout: "docs" });
+    expect(elsewhere.stderr).toContain("is on branch `elsewhere`, not `track/docs`");
+    sh(wt("docs"), "switch", "-q", "--detach");
+    expect(mshape(wt("docs"), "current")).toMatchObject({ code: 0, stdout: "docs" });
+    // track pr still refuses there: it pushes HEAD, and the next bead's work must not join the
+    // PR. Until `prs` makes it push `track/<name>`'s tip whatever is checked out; then drop this.
+    const pr = mshape(wt("docs"), "pr");
+    expect(pr.code).toBe(1);
+    expect(pr.stderr).toContain("not `track/docs`");
 
     // Named like a track and still pointing at this repo, but not where git registered it.
     mshape(repo, "new", "moved");

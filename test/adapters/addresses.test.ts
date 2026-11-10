@@ -189,6 +189,19 @@ describe("session addresses: the plan's case table", () => {
     expect(await registered("docs")).toEqual(at(1));
   });
 
+  test("a session in a track's worktree on another branch (the next bead's): still <track>; its mail and notices follow", async () => {
+    sh(wt("docs"), "switch", "-qc", "docs-next");
+    const received = await claudeSession(1, wt("docs"));
+    expect(await start(wt("docs"), 1)).toEqual({ code: 0, stdout: "", stderr: "" });
+    expect(await registered("docs")).toEqual(at(1));
+    const sent = await send(repo, "docs", "while you wait");
+    expect(sent.stdout).toContain("Notified 1 live session of docs.");
+    expect(received).toHaveLength(1);
+    expect((await prompt(wt("docs"), 1)).stdout).toContain("while you wait");
+    sh(wt("docs"), "switch", "-q", "--detach");
+    expect((await prompt(wt("docs"), 1)).stdout).toContain("while you wait");
+  });
+
   test("a session starts in the main checkout: registered at main", async () => {
     await claudeSession(1);
     expect(await start(repo, 1)).toEqual({ code: 0, stdout: "", stderr: "" });

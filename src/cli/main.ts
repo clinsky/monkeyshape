@@ -28,9 +28,9 @@ import { syncAll } from "../adapters/sync.ts";
 import { trackPr } from "../adapters/trackPr.ts";
 import {
   type CarryMessages,
+  currentTrackOf,
   locate,
   type TrackSessions,
-  trackCurrent,
   trackList,
   trackMigrate,
   trackNames,
@@ -258,7 +258,15 @@ const track = (root: string, args: ReadonlyArray<string>) =>
       const { output, unmigrated } = yield* trackMigrate(root, carryMessages(root));
       return { output, code: unmigrated === 0 ? 0 : 1 };
     }
-    if (sub === "current") return { output: yield* trackCurrent(root), code: 0 };
+    if (sub === "current") {
+      // The name alone on stdout, which skills read; another branch is said on stderr.
+      const found = yield* currentTrackOf(root, false);
+      if (found.offBranch !== undefined)
+        console.error(
+          `note: ${found.offBranch}. Mail and \`track current\` follow the worktree; \`track pr\` acts on \`track/${found.track}\` only`,
+        );
+      return { output: found.track, code: 0 };
+    }
     if (sub === "enter")
       return { output: (yield* enterTrack(root, caller(), name)).join("\n"), code: 0 };
     if (sub === "rm")
