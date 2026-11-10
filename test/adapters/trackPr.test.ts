@@ -358,6 +358,48 @@ describe("track pr: the denylist", () => {
     );
   });
 
+  test("paths git C-quotes are read, contents and names both (#73's review)", async () => {
+    await machineList("zorblax\n");
+    await mkdir(join(wt(), "q"));
+    await writeFile(join(wt(), "q", 'notes "v2".md'), "for zorblax\n");
+    await writeFile(join(wt(), "q", "a\\b.txt"), "zorblax\n");
+    await writeFile(join(wt(), "q", "tab\there.md"), "x zorblax\n");
+    await writeFile(join(wt(), "q", 'zorblax".txt'), "");
+    sh(wt(), "add", ".");
+    sh(wt(), "commit", "-qm", "odd names");
+    const sha = sh(wt(), "rev-parse", "HEAD").slice(0, 12);
+    await writeFile(`${wt()}/body.md`, body("x"));
+    const refused = mshape(wt(), "pr", "--title", "t", "--body-file", "body.md");
+    await refusedNaming(refused, `q/notes "v2".md:1:5, added by commit ${sha}`);
+    expect(refused.stderr).toContain(`q/a\\b.txt:1:1, added by commit ${sha}`);
+    expect(refused.stderr).toContain(`q/tab\there.md:1:3, added by commit ${sha}`);
+    expect(refused.stderr).toContain(`the path q/zorblax".txt, added by commit ${sha}, column 3`);
+  });
+
+  test("a file git calls binary (a NUL byte) is scanned as text", async () => {
+    await machineList("zorblax\n");
+    await commitFile("data.bin", "\u0000\u0001 zorblax\n", "data");
+    await writeFile(`${wt()}/body.md`, body("x"));
+    await refusedNaming(
+      mshape(wt(), "pr", "--title", "t", "--body-file", "body.md"),
+      "data.bin:1:4, added by commit",
+    );
+  });
+
+  test("a commit only another remote has is still sent, so still scanned (#73's review)", async () => {
+    await machineList("zorblax\n");
+    await commitFile("wip.md", "zorblax\n", "wip");
+    sh(base, "init", "-q", "--bare", "-b", "main", "mirror.git");
+    sh(wt(), "remote", "add", "mirror", join(base, "mirror.git"));
+    sh(wt(), "push", "-q", "mirror", "HEAD:refs/heads/wip");
+    sh(wt(), "fetch", "-q", "mirror");
+    await writeFile(`${wt()}/body.md`, body("x"));
+    await refusedNaming(
+      mshape(wt(), "pr", "--title", "t", "--body-file", "body.md"),
+      "wip.md:1:1, added by commit",
+    );
+  });
+
   test("a term differing in case matches", async () => {
     await machineList("ZORBLAX\n");
     await writeFile(`${wt()}/body.md`, body("zorblax"));

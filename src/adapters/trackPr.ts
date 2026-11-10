@@ -128,7 +128,9 @@ export const trackPr = (
 
     const commit = yield* gitOk(top, ["rev-parse", "HEAD"]);
     // Before the slow gate, and after the fetch, so the remote refs say what is published.
-    const unpublished = yield* outgoingCommits(top, commit);
+    const remote =
+      (yield* git(repo, ["config", `branch.${MAIN_BRANCH}.remote`])).stdout.trim() || "origin";
+    const unpublished = yield* outgoingCommits(top, commit, remote);
     const notConfigured = yield* guard(
       top,
       options.configDir,
@@ -182,8 +184,6 @@ export const trackPr = (
         `the Beads section lists ${unknown.map((id) => `\`${id}\``).join(", ")}, which bd doesn't know: fix the id, or file the bead first. Nothing was pushed or posted`,
       );
 
-    const remote =
-      (yield* git(repo, ["config", `branch.${MAIN_BRANCH}.remote`])).stdout.trim() || "origin";
     // The commit the gate ran on, not the branch: one made while the gate ran is ungated.
     const pushed = yield* git(top, ["push", "--quiet", remote, `${commit}:refs/heads/${branch}`], {
       env: { ...options.fetchEnv },

@@ -7,15 +7,18 @@ import {
   denylistPaths,
   denylistRefusal,
   findings,
+  messageArgs,
   type Outgoing,
-  outgoingLogArgs,
+  type OutgoingCommit,
+  outgoingRevListArgs,
   parseDenylist,
-  parseOutgoing,
+  parsePatch,
+  patchArgs,
 } from "../core/denylist.ts";
 import { PR_NUMBER } from "../core/layout.ts";
 import { WorkspaceError } from "../schemas/errors.ts";
 import { runTool } from "./process.ts";
-import { git, locate, refuse } from "./tracks.ts";
+import { git, gitOk, locate, refuse } from "./tracks.ts";
 
 export interface Denylist {
   readonly terms: ReadonlyArray<string>;
@@ -48,15 +51,26 @@ export const loadDenylist = (cwd: string, configDir: string) =>
     return { denylist: { terms, lists } satisfies Denylist, paths };
   });
 
-/** The commits `tip` has that no remote ref has: what pushing it would send. */
-export const outgoingCommits = (cwd: string, tip: string) =>
-  Effect.flatMap(git(cwd, [...outgoingLogArgs(tip)]), (log) =>
-    log.code === 0
-      ? Effect.succeed(parseOutgoing(log.stdout))
-      : refuse(
-          `could not list the commits to scan for denylisted terms (\`git log ${tip} --not --remotes\`): ${log.stderr || `exit ${log.code}`}`,
-        ),
-  );
+/** The commits `tip` has that `remote`'s refs don't: what pushing it there would send. */
+export const outgoingCommits = (cwd: string, tip: string, remote: string) =>
+  Effect.gen(function* () {
+    const listed = yield* git(cwd, [...outgoingRevListArgs(tip, remote)]);
+    if (listed.code !== 0)
+      return yield* refuse(
+        `could not list the commits to scan for denylisted terms (\`git rev-list ${tip} --not --remotes=${remote}\`): ${listed.stderr || `exit ${listed.code}`}`,
+      );
+    const commits: Array<OutgoingCommit> = [];
+    for (const sha of listed.stdout.split("\n").filter((line) => line !== "")) {
+      const message = yield* gitOk(cwd, [...messageArgs(sha)]);
+      const patch = yield* git(cwd, [...patchArgs(sha)]);
+      if (patch.code !== 0)
+        return yield* refuse(
+          `could not read commit ${sha.slice(0, 12)}'s patch to scan it: ${patch.stderr || `exit ${patch.code}`}`,
+        );
+      commits.push({ sha, message, ...parsePatch(patch.stdout) });
+    }
+    return commits;
+  });
 
 /**
  * Refuses when `outgoing` holds a listed term, `what` saying what was not done; otherwise the
@@ -130,19 +144,44 @@ export const reviewPost = (
     const endpoint = `repos/{owner}/{repo}/pulls/${pr}/reviews`;
     const posted = yield* runTool(cwd, ["gh", "api", endpoint, "--input", file, "-q", ".html_url"]);
     if (posted.code === 0) return `posted ${posted.stdout.trim()}`;
-    // gh sometimes fails after GitHub acted: say whether this review is there now.
-    const body = (parsed as { body?: unknown }).body;
-    const listed = yield* runTool(cwd, ["gh", "api", endpoint, "--paginate", "-q", ".[].body"]);
+    // gh sometimes fails after GitHub acted: say whether this very review is there now, by
+    // its whole body and commit, since reviews of one PR often open alike (`## Fit`).
+    const { body, commit_id: commit } = parsed as { body?: unknown; commit_id?: unknown };
+    const listed = yield* runTool(cwd, [
+      "gh",
+      "api",
+      endpoint,
+      "--paginate",
+      "-q",
+      ".[] | {body, commit_id} | @json",
+    ]);
+    const same = (a: string, b: string) =>
+      a.replace(/\r\n/g, "\n").trim() === b.replace(/\r\n/g, "\n").trim();
+    const reviews =
+      listed.code === 0
+        ? yield* Effect.try({
+            try: () =>
+              listed.stdout
+                .split("\n")
+                .filter((line) => line.trim() !== "")
+                .map((line) => JSON.parse(line) as { body?: string; commit_id?: string }),
+            catch: () => undefined,
+          }).pipe(Effect.orElseSucceed(() => undefined))
+        : undefined;
     const there =
-      listed.code === 0 && typeof body === "string" && body.trim() !== ""
-        ? listed.stdout.includes(body.trim().split("\n")[0] ?? body)
+      reviews !== undefined && typeof body === "string" && body.trim() !== ""
+        ? reviews.some(
+            (review) =>
+              same(review.body ?? "", body) &&
+              (typeof commit !== "string" || review.commit_id === commit),
+          )
         : undefined;
     return yield* refuse(
       `posting the review on #${pr} failed: ${posted.stderr.trim() || `exit ${posted.code}`}. ${
         there === true
-          ? "A review with this body's first line is on the PR now: it was posted; don't post again."
+          ? "A review with this exact body, on this commit, is on the PR now: it was posted; don't post again."
           : there === false
-            ? "No review with this body's first line is on the PR yet: look again before running this again, since GitHub can be slow to list one."
+            ? "No review with this exact body is on the PR yet: look again before running this again, since GitHub can be slow to list one."
             : `Look at the PR's reviews (\`gh api ${endpoint}\`) before running this again.`
       }`,
     );

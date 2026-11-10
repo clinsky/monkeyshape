@@ -29,7 +29,11 @@ if (args.includes("--input")) {
   await Bun.write(log, posted + review + "\\n");
   console.log("https://example.test/pr/3#review-1");
 } else {
-  for (const line of posted.split("\\n").filter(Boolean)) console.log(JSON.parse(line).body);
+  // As \`-q '.[] | {body, commit_id} | @json'\`: one review per line.
+  for (const line of posted.split("\\n").filter(Boolean)) {
+    const review = JSON.parse(line);
+    console.log(JSON.stringify({ body: review.body, commit_id: review.commit_id }));
+  }
 }
 `;
 
@@ -118,9 +122,9 @@ describe("mshape scan", () => {
 });
 
 describe("mshape review post", () => {
-  const review = (body: string, comment: string) =>
+  const review = (body: string, comment: string, commit = "abc") =>
     JSON.stringify({
-      commit_id: "abc",
+      commit_id: commit,
       event: "COMMENT",
       body,
       comments: [{ path: "src/a.ts", line: 3, side: "RIGHT", body: comment }],
@@ -162,12 +166,31 @@ describe("mshape review post", () => {
     await writeFile(join(repo, "review.json"), review("Fit: one", "x"));
     await writeFile(join(base, "fail"), "after");
     expect(mshape(undefined, "review", "post", "3", "review.json").stderr).toContain(
-      "HTTP 502. A review with this body's first line is on the PR now: it was posted; don't post again.",
+      "HTTP 502. A review with this exact body, on this commit, is on the PR now: it was posted; don't post again.",
     );
     await rm(join(base, "posted.log"));
     await writeFile(join(base, "fail"), "before");
     expect(mshape(undefined, "review", "post", "3", "review.json").stderr).toContain(
-      "No review with this body's first line is on the PR",
+      "No review with this exact body is on the PR",
+    );
+  });
+
+  test("a failed post isn't called posted because an earlier review opens alike (#73's blocker)", async () => {
+    await writeFile(join(repo, "r1.json"), review("## Fit\n\nFirst round: two blockers.", "x"));
+    expect(mshape(undefined, "review", "post", "3", "r1.json").code).toBe(0);
+    await writeFile(join(base, "fail"), "before");
+    await writeFile(join(repo, "r2.json"), review("## Fit\n\nSecond review, never posted.", "y"));
+    const failed = mshape(undefined, "review", "post", "3", "r2.json");
+    expect(failed.code).toBe(1);
+    expect(failed.stderr).toContain("No review with this exact body is on the PR yet");
+    expect(failed.stderr).not.toContain("it was posted");
+    // The same body on another commit (a re-review's) isn't this one either.
+    await writeFile(
+      join(repo, "r3.json"),
+      review("## Fit\n\nFirst round: two blockers.", "x", "def"),
+    );
+    expect(mshape(undefined, "review", "post", "3", "r3.json").stderr).toContain(
+      "No review with this exact body is on the PR yet",
     );
   });
 
