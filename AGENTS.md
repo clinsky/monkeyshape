@@ -83,7 +83,9 @@ would fire on this repo, it fires on adopters too: fix this repo first, or the r
 ## Rules that aren't mechanical
 
 - Public repo: examples and messages stay generic. No names of private projects or people.
-  (Can't be a check: the names that matter are exactly the ones this repo must not contain.)
+  The check is a denylist kept outside every repo (`mshape scan` says where): `track pr`
+  refuses to push and `mshape review post` to post a term on it. Text sent any other way
+  (a hand-run `gh`, a thread reply) is unchecked, so keep it generic by hand.
 - A check's message must let an agent fix the violation without reading anything else.
   (Judgement about wording; reviewed in PRs.)
 

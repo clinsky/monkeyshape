@@ -53,7 +53,8 @@ Everything else has one home too:
   domain invariant is **a test named after it**. The local reason for some code is **a
   comment at that code**.
 - **DECISIONS.md** holds only live decisions worth their budget. Its header says what earns
-  an entry and how one is added or retired; agents read it there.
+  an entry and how one is added or retired; agents read it there. A repo made before the
+  header existed copies it from the template's DECISIONS.md.
 - **Notes** are immutable: write a new one instead of updating an old one. A lesson that
   should apply going forward is promoted to a check, a test or a decision.
 

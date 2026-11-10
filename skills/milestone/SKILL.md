@@ -93,7 +93,9 @@ charter, a reviewer's "Fit" and the next retrospective all read them, so none is
 - P1 is the critical path only.
 - Each bd memory (`bd memories`): re-verify it against the code, then promote it to a
   check, a test, an AGENTS.md gotcha or a decision (by the merit test in DECISIONS.md's
-  header), or delete it with `bd forget <key>`. Keep one only if it is still true and has
+  header; a file without one predates it: copy the header from monkeyshape's
+  template/DECISIONS.md, shipped in node_modules/monkeyshape, in this PR), or delete it
+  with `bd forget <key>`. Keep one only if it is still true and has
   no better home yet, and say why in the PR.
 - Every `TODO(<bead id>)` in code whose bead is now closed: fix it or re-point it.
 
@@ -190,8 +192,13 @@ at the human's next prompt, says one arrived. Read each with `mshape msg read <i
   otherwise ask the human, and send the track their answer.
 - **What another track must know:** send it to that track; never edit a handoff.
 
-Amendments go to `main` as their own small PR (one per batch, not one per divergence), so
+Amendments go to `main` as their own PR, one per batch rather than one per divergence, so
 every track sees the plan it is held to; tracks and reviewers read the plan from `main`.
+The PR size default is for tracks' work and doesn't apply. Never branch the main checkout
+itself (other sessions and `mshape track new` use it). From it:
+`git fetch && git worktree add -b amendments-<date> <scratch>/amend origin/main`; edit
+plan/MILESTONE.md there, commit, `git push -u origin amendments-<date>`,
+`gh pr create --body-file <file>`, then `git worktree remove <scratch>/amend`.
 
 Review this skill after each boundary it runs: what the retrospective found about the
 process applies to this file too.
