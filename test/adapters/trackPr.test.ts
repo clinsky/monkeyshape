@@ -63,13 +63,16 @@ const state = Bun.file(dir + "/pr.json");
 await Bun.write(dir + "/calls.log", ((await Bun.file(dir + "/calls.log").exists()) ? await Bun.file(dir + "/calls.log").text() : "") + args.join(" ") + "\\n");
 const flag = (name) => args[args.indexOf(name) + 1];
 if (args[1] === "list") {
-  if (!(await state.exists())) console.log("[]");
-  else {
-    // The PR's head is what the remote's branch is at, as GitHub reports it.
-    const head = Bun.spawnSync(["git", "rev-parse", "refs/heads/track/docs"], { cwd: dir + "/../remote.git" });
-    const pr = JSON.parse(await state.text());
-    console.log(JSON.stringify([{ ...pr, headRefOid: head.stdout.toString().trim() }]));
+  // As gh 2.4: a JSON field it doesn't know fails the call.
+  if (flag("--json").split(",").some((field) => !["number", "url", "body", "title"].includes(field))) {
+    console.error("Unknown JSON field: " + flag("--json"));
+    process.exit(1);
   }
+  console.log((await state.exists()) ? "[" + (await state.text()) + "]" : "[]");
+} else if (args[0] === "api" && (args[1] ?? "").split("/").at(-2) === "pulls" && !args.includes("--method")) {
+  // The PR's head is what the remote's branch is at, as GitHub reports it.
+  const head = Bun.spawnSync(["git", "rev-parse", "refs/heads/track/docs"], { cwd: dir + "/../remote.git" });
+  console.log(head.stdout.toString().trim());
 } else if (args[0] === "api" && (args[1] ?? "").endsWith("/reviews")) {
   // The commit_id of each review posted, one per line, as \`-q '.[].commit_id'\` prints them.
   const reviews = Bun.file(dir + "/reviews.txt");

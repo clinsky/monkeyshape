@@ -80,8 +80,6 @@ interface OpenPr {
   readonly number: number;
   readonly url: string;
   readonly body: string;
-  /** The commit the PR's branch is at on GitHub: what a reviewer is reviewing. */
-  readonly headRefOid: string;
 }
 
 /** The open PR from `branch`, if any; a `gh` that can't answer refuses, saying why. */
@@ -96,7 +94,7 @@ const openPr = (cwd: string, branch: string) =>
       "--state",
       "open",
       "--json",
-      "number,url,body,headRefOid",
+      "number,url,body",
     ]);
     if (listed.missing)
       return yield* refuse(
@@ -141,6 +139,14 @@ const reviewFacts = (cwd: string, common: string, pr: OpenPr, claudeDir: string,
     const registered = recorded.some((file) => file.endsWith(".json") && !file.startsWith("."));
     if (live.length === 0 && !registered)
       return { pr: pr.number, live, registered, reviewedHead: false } satisfies ReviewFacts;
+    // REST, not `pr list --json headRefOid`, which gh 2.4 doesn't know.
+    const head = yield* spawn(cwd, [
+      "gh",
+      "api",
+      `repos/{owner}/{repo}/pulls/${pr.number}`,
+      "-q",
+      ".head.sha",
+    ]);
     const reviews = yield* spawn(cwd, [
       "gh",
       "api",
@@ -149,11 +155,13 @@ const reviewFacts = (cwd: string, common: string, pr: OpenPr, claudeDir: string,
       "-q",
       ".[].commit_id",
     ]);
-    if (reviews.code !== 0)
+    const failed = [head, reviews].find((ran) => ran.code !== 0 || ran.stdout.trim() === "");
+    if (failed !== undefined && (failed === head || failed.code !== 0))
       return yield* refuse(
-        `a session is registered at \`${address}\`, and the PR's reviews couldn't be read to tell whether its review is posted (${reviews.stderr || `exit ${reviews.code}`}), so nothing was pushed or posted`,
+        `a session is registered at \`${address}\`, and the PR's head and reviews couldn't be read to tell whether its review is posted (${failed.stderr || `exit ${failed.code}`}), so nothing was pushed or posted`,
       );
-    const reviewedHead = reviews.stdout.split("\n").some((id) => id.trim() === pr.headRefOid);
+    const headSha = head.stdout.trim();
+    const reviewedHead = reviews.stdout.split("\n").some((id) => id.trim() === headSha);
     return { pr: pr.number, live, registered, reviewedHead } satisfies ReviewFacts;
   });
 
