@@ -4,6 +4,7 @@ import {
   findings,
   parseDenylist,
   parseOutgoing,
+  REFUSAL_PLACES,
   scanText,
 } from "../../src/core/denylist.ts";
 
@@ -151,5 +152,12 @@ describe("findings", () => {
     expect(refusal).toContain("a denylisted term would leave the machine, so nothing was pushed");
     expect(refusal).toContain('  the PR title, line 1, column 1: "x"');
     expect(refusal).toContain("git commit --amend");
+  });
+
+  test("the refusal lists the first REFUSAL_PLACES places and counts the rest", () => {
+    const many = Array.from({ length: REFUSAL_PLACES + 3 }, (_, i) => `place ${i}`);
+    const refusal = denylistRefusal(many, "nothing was pushed");
+    expect(refusal).toContain(`  place ${REFUSAL_PLACES - 1}\n  and 3 more\n`);
+    expect(refusal).not.toContain(`place ${REFUSAL_PLACES}\n`);
   });
 });
