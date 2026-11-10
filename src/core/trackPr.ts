@@ -9,6 +9,7 @@ import {
   parsePrBody,
   setPrSections,
 } from "./conventions.ts";
+import { worktreesDir } from "./layout.ts";
 
 /** Lines of the gate's output that go in the body: its summary is at the end. */
 export const GATE_TAIL_LINES = 15;
@@ -105,3 +106,60 @@ export const planPrBody = (source: string, gate: string): PrBodyPlan => {
 /** What `pr.yml` and `track pr` say about a body that lacks required sections. */
 export const missingSectionsProblem = (missing: ReadonlyArray<string>): string =>
   `the PR body lacks ${missing.map((name) => `\`## ${name}\``).join(", ")}: add each heading with its text (a heading with only the template's placeholder counts as missing). The sections and what goes in each are in .github/pull_request_template.md`;
+
+/**
+ * Where `track pr` gates: a detached checkout of the tip beside the tracks, so nothing
+ * untracked or ignored in the track's worktree can pass a gate the pushed commit fails. It
+ * sits under the worktrees directory so dependency lookups that walk up reach the repo.
+ */
+export const gateCheckoutPath = (repo: string, track: string): string => {
+  const root = repo.replace(/\/+$/, "");
+  return `${worktreesDir(root)}/${root.slice(root.lastIndexOf("/") + 1)}.gate-${track}`;
+};
+
+/** The last gate run's whole output, kept inside git's directory, never committed. */
+export const gateLogPath = (common: string, track: string): string =>
+  `${common.replace(/\/+$/, "")}/monkeyshape/gate/${track}.log`;
+
+/** The tests a gate run names as failed: bun's `(fail) <describe> > <test>` lines. */
+export const failingTests = (output: string): ReadonlyArray<string> =>
+  output
+    // biome-ignore lint/suspicious/noControlCharactersInRegex: matching ESC is the point
+    .replace(/\u001b\[[0-9;?]*[A-Za-z]/g, "")
+    .split(/\r?\n/)
+    .filter((line) => line.startsWith("(fail) "))
+    .map((line) => line.slice("(fail) ".length).replace(/ \[[0-9.]+m?s\]$/, ""));
+
+/** What `track pr` knows about a review of its PR on this machine. */
+export interface ReviewFacts {
+  readonly pr: number;
+  /** Live sessions registered at `review-<n>`. */
+  readonly live: ReadonlyArray<string>;
+  /** Whether any session was ever registered there and is still recorded, live or not. */
+  readonly registered: boolean;
+  /** Whether a review on the PR has the PR's head as its `commit_id`. */
+  readonly reviewedHead: boolean;
+}
+
+/**
+ * Whether `track pr` may push. A review is in progress while a live session is registered
+ * at `review-<n>` and no review has the PR's head as its commit: no clock, since commit dates
+ * are the author's. Once a review is on the head, its findings are there to answer.
+ */
+export const reviewDecision = (
+  facts: ReviewFacts,
+): { readonly refuse: string } | { readonly note: string | undefined } => {
+  const address = `review-${facts.pr}`;
+  if (facts.live.length > 0 && !facts.reviewedHead)
+    return {
+      refuse: `a review of #${facts.pr} is in progress (session ${facts.live.join(", ")} at \`${address}\`) and hasn't posted on the PR's head yet, so nothing was pushed or posted: a push now would change the PR under its reviewer. Wait for the review, then answer it; keep new work on a local branch meanwhile`,
+    };
+  if (facts.live.length > 0) return { note: undefined };
+  if (facts.registered && !facts.reviewedHead)
+    return {
+      note: `note: a reviewer's session at \`${address}\` ended without posting a review on the PR's head; pushing`,
+    };
+  return {
+    note: `note: no review of #${facts.pr} is in progress on this machine; a reviewer on another machine can't be seen from here`,
+  };
+};
