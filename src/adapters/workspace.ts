@@ -249,7 +249,11 @@ export const installDependencies = (dir: string) =>
       .split("\n")
       .filter((line) => line.trim() !== "");
     const why = (lines.find((line) => line.startsWith("error:")) ?? lines.at(-1) ?? "").trim();
-    return `note: ${shown} failed in ${dir} (exit ${result.code}${why === "" ? "" : `: ${why}`}); run it there. Until then \`mshape check\` uses the main checkout's tsc and biome`;
+    // A drifted lockfile fails the same command again: the fix is a new lockfile, committed.
+    const fix = why.includes("lockfile is frozen")
+      ? "the lockfile is out of date with package.json: run `bun install` there and commit the lockfile it updates"
+      : "fix what bun says, then run `bun install` there";
+    return `note: ${shown} failed in ${dir} (exit ${result.code}${why === "" ? "" : `: ${why}`}); ${fix}. Until then \`mshape check\` uses the main checkout's tsc and biome`;
   });
 
 /** The main checkout of `root`'s repository, which a track worktree shares; undefined if git can't say. */

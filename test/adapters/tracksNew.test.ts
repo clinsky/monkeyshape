@@ -75,6 +75,11 @@ describe("track new", () => {
     expect(drifted.code).toBe(0);
     expect(drifted.stdout).toContain("note: `bun install --frozen-lockfile` failed in");
     expect(drifted.stdout).toContain("error: lockfile had changes");
+    // Not the command that just failed: the fix the drift needs.
+    expect(drifted.stdout).toContain(
+      "the lockfile is out of date with package.json: run `bun install` there and commit the lockfile it updates",
+    );
+    expect(drifted.stdout).not.toContain("run it there");
     expect(drifted.stdout).toContain("uses the main checkout's tsc and biome");
     expect(sh(wt("drift"), "branch", "--show-current")).toBe("track/drift");
   });
