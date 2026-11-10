@@ -44,7 +44,7 @@ import type { CheckName } from "../core/model.ts";
 import { formatDelivery, unregisteredNote } from "../core/notices.ts";
 import { count, tighten } from "../core/ratchet.ts";
 import { packVersion } from "../core/release.ts";
-import { formatCheck, formatGarden, formatViolation } from "../core/report.ts";
+import { formatCheck, formatGarden, formatViolation, tallyByRule } from "../core/report.ts";
 import { formatRules } from "../core/rules/engine.ts";
 import { RULES } from "../core/rules/registry.ts";
 import { nextStep, REPO_NAME } from "../core/scaffold.ts";
@@ -597,15 +597,10 @@ const baseline = (root: string, args: ReadonlyArray<string>) =>
     );
     if (args.includes("--init")) {
       yield* writeBaseline(root, count(violations));
-      // By rule, most first: what to review, since one rule's count is usually one habit.
-      const byRule = new Map<string, number>();
-      for (const v of violations) byRule.set(v.rule, (byRule.get(v.rule) ?? 0) + 1);
       return {
         output: [
           `${BASELINE_FILE}: grandfathered ${violations.length} violation(s)`,
-          ...[...byRule]
-            .sort(([a, x], [b, y]) => y - x || a.localeCompare(b))
-            .map(([rule, n]) => `  ${String(n).padStart(6)}  ${rule}`),
+          ...tallyByRule(violations.map((v) => v.rule)),
         ].join("\n"),
         code: 0,
       };

@@ -13,6 +13,18 @@ const plural = (n: number, word: string): string => `${n} ${word}${n === 1 ? "" 
 const byLocation = (a: Violation, b: Violation): number =>
   a.file.localeCompare(b.file) || (a.line ?? 0) - (b.line ?? 0) || a.rule.localeCompare(b.rule);
 
+/**
+ * How many findings each rule has, most first, one per line: what to review, since one
+ * rule's count is usually one habit.
+ */
+export const tallyByRule = (rules: ReadonlyArray<string>): ReadonlyArray<string> => {
+  const counts = new Map<string, number>();
+  for (const rule of rules) counts.set(rule, (counts.get(rule) ?? 0) + 1);
+  return [...counts]
+    .sort(([a, x], [b, y]) => y - x || a.localeCompare(b))
+    .map(([rule, n]) => `  ${String(n).padStart(6)}  ${rule}`);
+};
+
 /** What follows a check's outcome on its line. */
 const detail = (outcome: Outcome): string => {
   switch (outcome.state) {
@@ -28,8 +40,8 @@ const detail = (outcome: Outcome): string => {
 };
 
 /**
- * Notes, then each finding, then one line per check (its outcome and what it examined), then
- * the summary, which is always the last line.
+ * Notes, then each finding, then one line per check (its outcome and what it examined), then,
+ * on a failing run, the findings per rule, then the summary, which is always the last line.
  */
 /** The longest a part's label prints, and how much of its start it keeps when shortened. */
 const PART_LABEL = 40;
@@ -70,9 +82,13 @@ export const formatCheck = ({ reports, result, notes }: CheckRun): string => {
     `  ${line(r.check, r.outcome, 0)}`,
     ...(r.parts ?? []).map((part) => `    ${line(short(part.label), part.outcome, 2)}`),
   ]);
+  const tally = tallyByRule([...result.failing, ...result.loose].map((v) => v.rule));
   return [
     ...notes.map((note) => `note: ${note}`),
-    [...entries, [...lines, "", summary].join("\n")].join("\n\n"),
+    [
+      ...entries,
+      [...lines, ...(problems === 0 ? [] : ["", ...tally]), "", summary].join("\n"),
+    ].join("\n\n"),
   ].join("\n");
 };
 
