@@ -6,6 +6,8 @@ import {
   gateSection,
   listedBeads,
   planPrBody,
+  REVIEW_MARKER,
+  reviewedHead,
 } from "../../src/core/trackPr.ts";
 
 const filled = prSkeleton({
@@ -89,5 +91,20 @@ describe("track pr's body", () => {
     expect("problems" in noBeads ? noBeads.problems : []).toEqual([
       "the Beads section lists no bead: put each one this PR works on as a list item that starts with its id (`- <bead id> what it is`)",
     ]);
+  });
+});
+
+describe("reviewedHead", () => {
+  const head = "h".repeat(40);
+  test("a thread reply (empty body) on the head isn't a review of it", () => {
+    expect(reviewedHead([{ commit_id: head, body: "" }], head)).toBe(false);
+    expect(reviewedHead([{ commit_id: head, body: "## Fit" }], head)).toBe(true);
+  });
+  test("once any review is marked, only marked ones count", () => {
+    const marked = { commit_id: "o".repeat(40), body: `round 1\n\n${REVIEW_MARKER}` };
+    expect(reviewedHead([marked, { commit_id: head, body: "the author's probe" }], head)).toBe(
+      false,
+    );
+    expect(reviewedHead([marked, { commit_id: head, body: REVIEW_MARKER }], head)).toBe(true);
   });
 });

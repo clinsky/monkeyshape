@@ -3,6 +3,7 @@ import { chmod, mkdir, mkdtemp, realpath, rm, writeFile } from "node:fs/promises
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { prSkeleton } from "../../src/core/conventions.ts";
+import { REVIEW_MARKER } from "../../src/core/trackPr.ts";
 
 const CLI = join(import.meta.dir, "..", "..", "src", "cli", "main.ts");
 let base = "";
@@ -74,9 +75,18 @@ if (args[1] === "list") {
   const head = Bun.spawnSync(["git", "rev-parse", "refs/heads/track/docs"], { cwd: dir + "/../remote.git" });
   console.log(head.stdout.toString().trim());
 } else if (args[0] === "api" && (args[1] ?? "").endsWith("/reviews")) {
-  // The commit_id of each review posted, one per line, as \`-q '.[].commit_id'\` prints them.
-  const reviews = Bun.file(dir + "/reviews.txt");
-  if (await reviews.exists()) process.stdout.write(await reviews.text());
+  // The reviews, as each query track pr has sent prints them; any other query fails, so a
+  // test can't pass on a query the fake doesn't model.
+  const file = Bun.file(dir + "/reviews.json");
+  const reviews = (await file.exists()) ? JSON.parse(await file.text()) : [];
+  const query = flag("-q");
+  if (query === ".[] | {commit_id, body} | @json")
+    for (const review of reviews) console.log(JSON.stringify({ commit_id: review.commit_id, body: review.body }));
+  else if (query === ".[].commit_id") for (const review of reviews) console.log(review.commit_id);
+  else {
+    console.error("fake gh: unmodelled query " + query);
+    process.exit(1);
+  }
 }
 else if (args[1] === "create") {
   if (await Bun.file(dir + "/fail").exists()) { console.error("HTTP 502"); process.exit(1); }
@@ -339,6 +349,10 @@ const reviewer = async (live: boolean) => {
   return session;
 };
 
+/** The reviews the fake `gh` lists on the PR. */
+const reviews = (list: ReadonlyArray<{ commit_id: string; body: string }>) =>
+  writeFile(`${gh}/reviews.json`, JSON.stringify(list));
+
 /** Opens the PR (#7), then commits more, as answering a review would. */
 const openThenCommit = async () => {
   await writeFile(`${wt()}/body.md`, body("x"));
@@ -370,14 +384,45 @@ describe("track pr: the branch tip, and a review in progress", () => {
     expect(refused.stderr).not.toContain("running the gate");
     expect(remoteTip()).toBe(before);
     // An earlier head's review doesn't count: the reviewer is on this one.
-    await writeFile(`${gh}/reviews.txt`, "0000000000000000000000000000000000000000\n");
+    await reviews([{ commit_id: "0".repeat(40), body: "## Fit\n\nround 1" }]);
     expect(mshape(wt(), "pr").code).toBe(1);
+  });
+
+  test("a thread reply on the head (an empty-bodied review) isn't the reviewer's review (#79's blocker)", async () => {
+    await openThenCommit();
+    await reviewer(true);
+    // Round 1 on an earlier head; the author's replies in its threads are on the current one.
+    await reviews([
+      { commit_id: "0".repeat(40), body: "## Fit\n\nround 1" },
+      { commit_id: remoteTip(), body: "" },
+      { commit_id: remoteTip(), body: "" },
+    ]);
+    const before = remoteTip();
+    const refused = mshape(wt(), "pr");
+    expect(refused.code).toBe(1);
+    expect(refused.stderr).toContain("a review of #7 is in progress");
+    expect(remoteTip()).toBe(before);
+  });
+
+  test("once a review is marked by review post, only marked ones count: the author's own review doesn't (#79's nit)", async () => {
+    await openThenCommit();
+    await reviewer(true);
+    await reviews([
+      { commit_id: "0".repeat(40), body: `## Fit\n\nround 1\n\n${REVIEW_MARKER}` },
+      { commit_id: remoteTip(), body: "A probe by the author, unmarked." },
+    ]);
+    expect(mshape(wt(), "pr").code).toBe(1);
+    await reviews([
+      { commit_id: "0".repeat(40), body: `## Fit\n\nround 1\n\n${REVIEW_MARKER}` },
+      { commit_id: remoteTip(), body: `## Re-review\n\n${REVIEW_MARKER}` },
+    ]);
+    expect(mshape(wt(), "pr").code).toBe(0);
   });
 
   test("a live reviewer whose review is on the PR's head (findings to answer): pushes", async () => {
     await openThenCommit();
     await reviewer(true);
-    await writeFile(`${gh}/reviews.txt`, `${remoteTip()}\n`);
+    await reviews([{ commit_id: remoteTip(), body: "## Fit\n\nfindings" }]);
     const pushed = mshape(wt(), "pr");
     expect(pushed.code).toBe(0);
     expect(remoteTip()).toBe(sh(wt(), "rev-parse", "HEAD"));

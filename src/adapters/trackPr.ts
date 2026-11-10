@@ -28,6 +28,8 @@ import {
   gateLogPath,
   gateSection,
   gateTail,
+  reviewedHead as isReviewed,
+  type PostedReview,
   planPrBody,
   type ReviewFacts,
   reviewDecision,
@@ -153,15 +155,25 @@ const reviewFacts = (cwd: string, common: string, pr: OpenPr, claudeDir: string,
       `repos/{owner}/{repo}/pulls/${pr.number}/reviews`,
       "--paginate",
       "-q",
-      ".[].commit_id",
+      ".[] | {commit_id, body} | @json",
     ]);
-    const failed = [head, reviews].find((ran) => ran.code !== 0 || ran.stdout.trim() === "");
-    if (failed !== undefined && (failed === head || failed.code !== 0))
+    const unreadable = [head, reviews].find((ran) => ran.code !== 0);
+    const posted =
+      unreadable === undefined && head.stdout.trim() !== ""
+        ? yield* Effect.try({
+            try: () =>
+              reviews.stdout
+                .split("\n")
+                .filter((line) => line.trim() !== "")
+                .map((line) => JSON.parse(line) as PostedReview),
+            catch: () => undefined,
+          }).pipe(Effect.orElseSucceed(() => undefined))
+        : undefined;
+    if (posted === undefined)
       return yield* refuse(
-        `a session is registered at \`${address}\`, and the PR's head and reviews couldn't be read to tell whether its review is posted (${failed.stderr || `exit ${failed.code}`}), so nothing was pushed or posted`,
+        `a session is registered at \`${address}\`, and the PR's head and reviews couldn't be read to tell whether its review is posted (${unreadable?.stderr || "no head, or reviews that aren't JSON"}), so nothing was pushed or posted`,
       );
-    const headSha = head.stdout.trim();
-    const reviewedHead = reviews.stdout.split("\n").some((id) => id.trim() === headSha);
+    const reviewedHead = isReviewed(posted, head.stdout.trim());
     return { pr: pr.number, live, registered, reviewedHead } satisfies ReviewFacts;
   });
 

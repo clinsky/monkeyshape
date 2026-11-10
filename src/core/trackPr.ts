@@ -130,6 +130,31 @@ export const failingTests = (output: string): ReadonlyArray<string> =>
     .filter((line) => line.startsWith("(fail) "))
     .map((line) => line.slice("(fail) ".length).replace(/ \[[0-9.]+m?s\]$/, ""));
 
+/**
+ * What `mshape review post` adds to every review it posts, hidden when GitHub renders it, so
+ * `track pr` can tell a reviewer's review from anything else on the PR.
+ */
+export const REVIEW_MARKER = "<!-- posted by mshape review post -->";
+
+/** A review as GitHub lists it: thread replies are reviews too, with an empty body. */
+export interface PostedReview {
+  readonly commit_id: string;
+  readonly body: string;
+}
+
+/**
+ * Whether a reviewer has posted on `head`. A thread reply is a review with an empty body (the
+ * author answering findings makes one), so it never counts. Once any review carries
+ * `REVIEW_MARKER`, only marked ones count, since the author's account may be the reviewer's;
+ * before then, any review with a body does, as a reviewer posting by hand leaves no mark.
+ */
+export const reviewedHead = (reviews: ReadonlyArray<PostedReview>, head: string): boolean => {
+  const marked = reviews.filter((review) => review.body.includes(REVIEW_MARKER));
+  const counted =
+    marked.length > 0 ? marked : reviews.filter((review) => review.body.trim() !== "");
+  return counted.some((review) => review.commit_id === head);
+};
+
 /** What `track pr` knows about a review of its PR on this machine. */
 export interface ReviewFacts {
   readonly pr: number;
