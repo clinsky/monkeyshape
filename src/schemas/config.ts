@@ -271,6 +271,8 @@ export const ShapeConfig = Schema.Struct({
 export type ShapeConfig = typeof ShapeConfig.Type;
 
 export interface ResolvedConfig {
+  /** The config file as its reader names it: `shape.config.ts`, or what `--config` loaded. */
+  readonly configFile: string;
   readonly layers: ReadonlyArray<"core" | "agentic">;
   readonly sources: {
     readonly include: ReadonlyArray<string>;
@@ -350,7 +352,9 @@ export const DEFAULT_DOCS: ReadonlyArray<string> = [
 const normalRoot = (root: string): string =>
   root.replace(/^(\.\/)+/, "").replace(/\/+$/, "") || ".";
 
-export const resolveConfig = (config: ShapeConfig): ResolvedConfig => ({
+/** `file`: the config as its reader names it, where findings about the config point. */
+export const resolveConfig = (config: ShapeConfig, file = "shape.config.ts"): ResolvedConfig => ({
+  configFile: file,
   layers: config.layers ?? ["core"],
   sources: {
     include: globsOf(config.sources?.include ?? ["src/**/*.{ts,tsx}", "tools/**/*.{ts,tsx}"]),

@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { checkArch, moduleOf } from "../../src/core/arch.ts";
+import { resolveConfig } from "../../src/schemas/config.ts";
 import { config, repo } from "../support.ts";
 
 const layered = config({
@@ -136,6 +137,13 @@ describe("arch", () => {
   test("third-party packages need an allowlist entry", () => {
     expect(rules({ "src/core/b.ts": 'import pg from "pg";' })).toEqual(["arch/forbidden-package"]);
     expect(rules({ "src/adapters/db/b.ts": 'import pg from "pg/lib";' })).toEqual([]);
+  });
+
+  test("a finding about the config names the config loaded, as --config gave it", () => {
+    const trial = resolveConfig({}, "../trial/shape.config.ts");
+    expect(
+      checkArch(trial, repo({ "src/a.ts": "export const a = 1;" })).map((v) => [v.rule, v.file]),
+    ).toEqual([["arch/no-module-map", "../trial/shape.config.ts"]]);
   });
 
   test("effect stays allowed when allowedPackages lists other packages", () => {

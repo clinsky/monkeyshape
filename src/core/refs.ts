@@ -72,9 +72,10 @@ export const pathCandidate = (span: string): string | undefined => {
  * reported so it doesn't outlive its reason.
  */
 const applySettings = (
-  settings: ResolvedConfig["refs"]["rules"],
+  config: ResolvedConfig,
   found: ReadonlyArray<Violation>,
 ): ReadonlyArray<Violation> => {
+  const settings = config.refs.rules;
   const used = new Set<string>();
   const kept = found.filter((v) => {
     const kind = REFS_KINDS.find((k) => v.rule === `refs/${k}`);
@@ -93,7 +94,7 @@ const applySettings = (
           .map((a) =>
             violation(
               "unused-allowance",
-              "shape.config.ts",
+              config.configFile,
               1,
               `refs.rules.${kind}.allow '${a.path}' allows nothing; delete it`,
             ),
@@ -289,4 +290,4 @@ const findRefs = (config: ResolvedConfig, snapshot: Snapshot): ReadonlyArray<Vio
 };
 
 export const checkRefs = (config: ResolvedConfig, snapshot: Snapshot): ReadonlyArray<Violation> =>
-  applySettings(config.refs.rules, findRefs(config, snapshot));
+  applySettings(config, findRefs(config, snapshot));

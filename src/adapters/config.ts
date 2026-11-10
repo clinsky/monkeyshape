@@ -143,5 +143,5 @@ export const loadConfig = (root: string, path = `${root}/${CONFIG_FILE}`) =>
     const config = yield* decodeStrict(ShapeConfig)(module.default).pipe(
       Effect.mapError((error) => new ConfigError({ path: shown, reason: error.message })),
     );
-    return resolveConfig(config);
+    return resolveConfig(config, shown);
   });

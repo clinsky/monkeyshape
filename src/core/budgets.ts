@@ -210,7 +210,7 @@ export const checkBudgets = (
       violations.push(
         violation(
           "unused-allowance",
-          "shape.config.ts",
+          config.configFile,
           `budgets.largeFiles '${allowance.path}' allows nothing; delete it`,
         ),
       );
