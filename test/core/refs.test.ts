@@ -281,6 +281,20 @@ describe("refs.rules: off and allow per kind, as rules takes them", () => {
     ]);
   });
 
+  test("a bead-in-code allowance isn't unused where bd and its export are missing", () => {
+    const allowed = config({
+      refs: { rules: { "bead-in-code": { allow: [{ path: "src/a.ts", reason: REASON }] } } },
+    });
+    const files = { "DECISIONS.md": DECISIONS, "src/a.ts": "// see x-1 here\n" };
+    const noBd = repo(files, { beads: { state: "unavailable", reason: "bd is not on PATH" } });
+    expect(checkRefs(allowed, noBd)).toEqual([]);
+    // Where it runs, the allowance is tested as any other.
+    expect(checkRefs(allowed, repo(files, { beadIds: ["x-1"] }))).toEqual([]);
+    expect(checkRefs(allowed, repo(files, { beadIds: [] })).map((v) => v.rule)).toEqual([
+      "refs/unused-allowance",
+    ]);
+  });
+
   test("an allowance that silences nothing is reported, naming it", () => {
     const stale = config({
       refs: { rules: { "missing-path": { allow: [{ path: "docs/**", reason: REASON }] } } },

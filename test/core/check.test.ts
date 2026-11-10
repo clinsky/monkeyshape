@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { notices, prerequisites, runChecks, unevaluated } from "../../src/core/check.ts";
 import { applyBaseline, count, tighten } from "../../src/core/ratchet.ts";
-import type { ShapeConfig } from "../../src/schemas/config.ts";
+import { resolveConfig, type ShapeConfig } from "../../src/schemas/config.ts";
 import { config, repo } from "../support.ts";
 
 const shape: ShapeConfig = {
@@ -115,5 +115,36 @@ describe("integrations", () => {
 
   test("tools that ran leave nothing to say", () => {
     expect(notices(config(), repo({}, { typechecked: [], linted: [], memories: {} }))).toEqual([]);
+  });
+});
+
+describe("a --config run", () => {
+  test("every finding about the config names the file loaded, not the repo's shape.config.ts", () => {
+    const trial = resolveConfig(
+      {
+        sources: { include: ["src/**/*.ts", { path: "gone/**", optional: false }] },
+        coverage: {
+          commands: [{ files: ["native/**"], run: ["true"] }],
+          exemptFiles: [{ path: "nowhere.py", reason: "a reason a later agent can weigh" }],
+        },
+        files: { large: [{ path: "data/big.bin", reason: "a reason a later agent can weigh" }] },
+      },
+      "../trial/shape.config.ts",
+    );
+    const found = runChecks(trial, repo({ "src/a.ts": "export const a = 1;\n" }), [
+      "arch",
+      "sources",
+      "coverage",
+      "files",
+    ]);
+    const aboutConfig = found.filter((v) => v.file.endsWith("shape.config.ts"));
+    expect(aboutConfig.map((v) => v.rule).sort()).toEqual([
+      "arch/no-module-map",
+      "coverage/command-unmatched",
+      "coverage/exempt-unmatched",
+      "files/large-unmatched",
+      "sources/unmatched",
+    ]);
+    expect(new Set(aboutConfig.map((v) => v.file))).toEqual(new Set(["../trial/shape.config.ts"]));
   });
 });

@@ -6,6 +6,46 @@
  */
 import type { ChangedLines, Violation } from "./model.ts";
 
+/** What git writes after a backslash in a quoted path, besides three octal digits. */
+const ESCAPES: Readonly<Record<string, number>> = {
+  a: 7,
+  b: 8,
+  t: 9,
+  n: 10,
+  v: 11,
+  f: 12,
+  r: 13,
+  '"': 34,
+  "\\": 92,
+};
+
+/**
+ * A path as git writes it after `+++ `: `b/<path>`, with a trailing tab when the path holds a
+ * space, or quoted C-style (`"b/a\"b"`, bytes in octal) when it holds a quote, a backslash or
+ * a control character. Undefined for anything else, such as `/dev/null`.
+ */
+export const diffPath = (written: string): string | undefined => {
+  const raw = written.replace(/\t$/, "");
+  if (raw.startsWith("b/")) return raw.slice(2);
+  if (!raw.startsWith('"b/') || !raw.endsWith('"')) return undefined;
+  const body = raw.slice(3, -1);
+  const bytes: Array<number> = [];
+  for (let i = 0; i < body.length; i++) {
+    const char = body[i] ?? "";
+    if (char !== "\\") {
+      bytes.push(...new TextEncoder().encode(char));
+      continue;
+    }
+    const octal = /^[0-7]{3}/.exec(body.slice(i + 1))?.[0];
+    const escaped = ESCAPES[body[i + 1] ?? ""];
+    if (octal !== undefined) bytes.push(Number.parseInt(octal, 8));
+    else if (escaped !== undefined) bytes.push(escaped);
+    else return undefined;
+    i += octal === undefined ? 1 : 3;
+  }
+  return new TextDecoder().decode(new Uint8Array(bytes));
+};
+
 /** The new side's lines in a `git diff -U0` against the merge base, by the file they land in. */
 export const parseChangedLines = (diff: string): ChangedLines => {
   const changed = new Map<string, Set<number> | "all">();
@@ -16,9 +56,9 @@ export const parseChangedLines = (diff: string): ChangedLines => {
       file = undefined;
       added = false;
     } else if (line === "--- /dev/null") added = true;
-    else if (line.startsWith("+++ b/")) {
-      file = line.slice("+++ b/".length);
-      if (added) changed.set(file, "all");
+    else if (line.startsWith("+++ ")) {
+      file = diffPath(line.slice("+++ ".length));
+      if (added && file !== undefined) changed.set(file, "all");
     } else if (line.startsWith("@@ ") && file !== undefined && !added) {
       const match = /^@@ -\S+ \+(\d+)(?:,(\d+))? @@/.exec(line);
       if (match === null) continue;

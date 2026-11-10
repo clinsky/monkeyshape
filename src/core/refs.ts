@@ -69,12 +69,16 @@ export const pathCandidate = (span: string): string | undefined => {
 /**
  * `refs.rules`, as the rules engine applies `rules`: a kind turned off reports nothing, an
  * allowance silences its kind in the files it matches, and one that silences nothing is
- * reported so it doesn't outlive its reason.
+ * reported so it doesn't outlive its reason. A kind that couldn't run here (`bead-in-code`
+ * without bd or its export) tested no allowance, so none of its is called unused.
  */
 const applySettings = (
   config: ResolvedConfig,
+  snapshot: Snapshot,
   found: ReadonlyArray<Violation>,
 ): ReadonlyArray<Violation> => {
+  const unrun = (kind: (typeof REFS_KINDS)[number]): boolean =>
+    kind === "bead-in-code" && snapshot.beadIds === undefined;
   const settings = config.refs.rules;
   const used = new Set<string>();
   const kept = found.filter((v) => {
@@ -87,7 +91,7 @@ const applySettings = (
     return false;
   });
   const unused = REFS_KINDS.flatMap((kind) =>
-    settings[kind]?.off !== undefined
+    settings[kind]?.off !== undefined || unrun(kind)
       ? []
       : (settings[kind]?.allow ?? [])
           .filter((a) => !used.has(`${kind}\0${a.path}`))
@@ -290,4 +294,4 @@ const findRefs = (config: ResolvedConfig, snapshot: Snapshot): ReadonlyArray<Vio
 };
 
 export const checkRefs = (config: ResolvedConfig, snapshot: Snapshot): ReadonlyArray<Violation> =>
-  applySettings(config, findRefs(config, snapshot));
+  applySettings(config, snapshot, findRefs(config, snapshot));

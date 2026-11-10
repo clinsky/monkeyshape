@@ -40,6 +40,17 @@ describe("readChangedLines", () => {
     expect(await changed()).toEqual({ "a.ts": [2, 5], "c.ts": "all" });
   });
 
+  test("a path with a space or a quote is read as itself", async () => {
+    for (const name of ["my file.ts", 'say "hi".ts']) await Bun.write(join(repo, name), "1\n2\n");
+    await git("add", "-A");
+    await git("commit", "-qm", "base");
+    await git("switch", "-qc", "track/x");
+    for (const name of ["my file.ts", 'say "hi".ts'])
+      await Bun.write(join(repo, name), "1\n2\n3\n");
+    await git("commit", "-qam", "a third line each");
+    expect(await changed()).toEqual({ "my file.ts": [3], 'say "hi".ts': [3] });
+  });
+
   test("on main itself nothing changed; with no main to diff from, undefined", async () => {
     await Bun.write(join(repo, "a.ts"), "1\n");
     await git("add", "-A");

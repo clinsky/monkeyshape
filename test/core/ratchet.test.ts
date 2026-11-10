@@ -1,6 +1,12 @@
 import { describe, expect, test } from "bun:test";
 import type { ChangedLines, Violation } from "../../src/core/model.ts";
-import { applyBaseline, count, parseChangedLines, tighten } from "../../src/core/ratchet.ts";
+import {
+  applyBaseline,
+  count,
+  diffPath,
+  parseChangedLines,
+  tighten,
+} from "../../src/core/ratchet.ts";
 
 /** The ratchet keys on rule and file; `check` is the rule's own namespace, as checks set it. */
 const v = (file: string, rule: Violation["rule"] = "rules/no-throw"): Violation =>
@@ -138,5 +144,20 @@ describe("parseChangedLines", () => {
       ["src/a.ts", [3, 11, 12]],
       ["src/new.ts", "all"],
     ]);
+  });
+});
+
+describe("diffPath", () => {
+  test("a plain path, one with a space (git ends it with a tab), and a quoted one", () => {
+    expect(diffPath("b/src/a.ts")).toBe("src/a.ts");
+    expect(diffPath("b/src/my file.ts\t")).toBe("src/my file.ts");
+    expect(diffPath('"b/src/a\\"b.ts"')).toBe('src/a"b.ts');
+    expect(diffPath('"b/src/back\\\\slash\\ttab.ts"')).toBe("src/back\\slash\ttab.ts");
+    expect(diffPath('"b/src/caf\\303\\251.ts"')).toBe("src/café.ts");
+  });
+
+  test("not a new-side path: undefined", () => {
+    expect(diffPath("/dev/null")).toBeUndefined();
+    expect(diffPath('"b/bad\\q"')).toBeUndefined();
   });
 });

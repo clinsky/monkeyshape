@@ -48,6 +48,25 @@ describe("rule engine", () => {
     expect(run({ "src/a.ts": "" }, allow)).toEqual(["rules/unused-allowance shape.config.ts:1"]);
   });
 
+  test("a rule whose layer is off here ran nowhere: its allowances aren't called unused", () => {
+    const agentic: Rule = {
+      ...(RULES.find((rule) => rule.id === "no-throw") as Rule),
+      id: "agentic-only",
+      layer: "agentic",
+    };
+    const allow = {
+      rules: {
+        "agentic-only": { allow: [{ path: "src/legacy/**", reason: "a reason to weigh" }] },
+      },
+    };
+    const found = (layers: ReadonlyArray<"core" | "agentic">) =>
+      checkRules(config({ ...allow, layers }), repo({ "src/a.ts": "" }), [agentic]).map(
+        (v) => v.rule,
+      );
+    expect(found(["core"])).toEqual([]);
+    expect(found(["core", "agentic"])).toEqual(["rules/unused-allowance"]);
+  });
+
   test("a rule can be turned off with a reason; unknown rules are config errors", () => {
     expect(
       run(
