@@ -27,6 +27,8 @@ const mshape = (cwd: string, ...args: ReadonlyArray<string>) => {
       PATH: `${bin}:/usr/bin:/bin`,
       FAKE_GH: gh,
       CLAUDE_CONFIG_DIR: join(base, "no-claude"),
+      // Never this machine's own denylist.
+      XDG_CONFIG_HOME: join(base, "config"),
     },
     stdout: "pipe",
     stderr: "pipe",
@@ -264,6 +266,163 @@ describe("track pr", () => {
     );
     expect(proseBeads.out).toBe("the PR body has every required section\n");
     expect(proseBeads.code).toBe(0);
+  });
+});
+
+/** The machine's list, under the test's XDG_CONFIG_HOME, and the clone's, inside .git. */
+const machineList = async (text: string) => {
+  await mkdir(join(base, "config", "monkeyshape"), { recursive: true });
+  await writeFile(join(base, "config", "monkeyshape", "denylist"), text);
+};
+const cloneList = async (text: string) => {
+  await mkdir(join(repo, ".git", "monkeyshape"), { recursive: true });
+  await writeFile(join(repo, ".git", "monkeyshape", "denylist"), text);
+};
+
+const commitFile = async (path: string, text: string, message: string) => {
+  await mkdir(join(wt(), path, ".."), { recursive: true });
+  await writeFile(join(wt(), path), text);
+  sh(wt(), "add", ".");
+  sh(wt(), "commit", "-qm", message);
+};
+
+// The plan's denylist table, row by row, with invented terms.
+describe("track pr: the denylist", () => {
+  /** Refused before anything was pushed or posted, saying `where`. */
+  const refusedNaming = async (result: ReturnType<typeof mshape>, where: string) => {
+    expect(result.code).toBe(1);
+    expect(result.stderr).toContain(
+      "a denylisted term would leave the machine, so nothing was pushed or posted",
+    );
+    expect(result.stderr).toContain(where);
+    expect(result.stderr).not.toContain("running the gate");
+    expect(remoteHas()).toBe(false);
+    expect(await Bun.file(`${gh}/pr.json`).exists()).toBe(false);
+  };
+
+  test("no denylist file anywhere: passes, noting none is configured", async () => {
+    await writeFile(`${wt()}/body.md`, body("zorblax"));
+    const opened = mshape(wt(), "pr", "--title", "t", "--body-file", "body.md");
+    expect(opened.code).toBe(0);
+    expect(opened.stderr).toContain("note: no denylist is configured");
+    expect(opened.stderr).toContain(join(base, "config", "monkeyshape", "denylist"));
+  });
+
+  test("a term in the PR body: refused, naming its line and column", async () => {
+    await machineList("# invented\nzorblax\n");
+    await writeFile(`${wt()}/body.md`, body("Asked for by zorblax."));
+    await refusedNaming(
+      mshape(wt(), "pr", "--title", "t", "--body-file", "body.md"),
+      'the PR body, line 3, column 14: "zorblax"',
+    );
+  });
+
+  test("a term in the PR title: refused", async () => {
+    await machineList("zorblax\n");
+    await writeFile(`${wt()}/body.md`, body("x"));
+    await refusedNaming(
+      mshape(wt(), "pr", "--title", "Zorblax support", "--body-file", "body.md"),
+      'the PR title, line 1, column 1: "zorblax"',
+    );
+  });
+
+  test("a term only in a commit message being pushed: refused, naming the commit", async () => {
+    await machineList("zorblax\n");
+    await commitFile("ok.md", "ok\n", "Fix what zorblax hit");
+    const sha = sh(wt(), "rev-parse", "HEAD").slice(0, 12);
+    await writeFile(`${wt()}/body.md`, body("x"));
+    await refusedNaming(
+      mshape(wt(), "pr", "--title", "t", "--body-file", "body.md"),
+      `the message of commit ${sha}, line 1, column 10: "zorblax"`,
+    );
+  });
+
+  test("a term on a line this push adds: refused, naming the file and line", async () => {
+    await machineList("zorblax\n");
+    await commitFile("notes/a.md", "one\ntwo zorblax\n", "notes");
+    const sha = sh(wt(), "rev-parse", "HEAD").slice(0, 12);
+    await writeFile(`${wt()}/body.md`, body("x"));
+    await refusedNaming(
+      mshape(wt(), "pr", "--title", "t", "--body-file", "body.md"),
+      `notes/a.md:2:5, added by commit ${sha}: "zorblax"`,
+    );
+  });
+
+  test("a term in a file path this push adds, an empty file's too: refused, naming the path", async () => {
+    await machineList("zorblax\n");
+    await commitFile("for-zorblax/empty.md", "", "an empty file");
+    await writeFile(`${wt()}/body.md`, body("x"));
+    await refusedNaming(
+      mshape(wt(), "pr", "--title", "t", "--body-file", "body.md"),
+      "the path for-zorblax/empty.md, added by commit",
+    );
+  });
+
+  test("a term differing in case matches", async () => {
+    await machineList("ZORBLAX\n");
+    await writeFile(`${wt()}/body.md`, body("zorblax"));
+    await refusedNaming(
+      mshape(wt(), "pr", "--title", "t", "--body-file", "body.md"),
+      'the PR body, line 3, column 1: "ZORBLAX"',
+    );
+  });
+
+  test("both lists exist: both apply", async () => {
+    await machineList("zorblax\n");
+    await cloneList("quuxcorp\n");
+    await writeFile(`${wt()}/body.md`, body("For Quuxcorp."));
+    await refusedNaming(
+      mshape(wt(), "pr", "--title", "t", "--body-file", "body.md"),
+      'the PR body, line 3, column 5: "quuxcorp"',
+    );
+    await writeFile(`${wt()}/body.md`, body("x"));
+    await refusedNaming(
+      mshape(wt(), "pr", "--title", "zorblax", "--body-file", "body.md"),
+      'the PR title, line 1, column 1: "zorblax"',
+    );
+  });
+
+  test("a term already on the remote, and the first push's main commits: not scanned", async () => {
+    // main's own commit, on the remote, holds the term; so does the branch's pushed commit.
+    await writeFile(`${wt()}/body.md`, body("x"));
+    await commitFile("old.md", "zorblax, before it was listed\n", "zorblax notes");
+    expect(mshape(wt(), "pr", "--title", "t", "--body-file", "body.md").code).toBe(0);
+    await machineList("zorblax\n");
+    await commitFile("new.md", "clean\n", "more");
+    const updated = mshape(wt(), "pr");
+    expect(updated.stderr).not.toContain("denylisted");
+    expect(updated.code).toBe(0);
+  });
+
+  test("the branch merged main since its last push: main's commits aren't scanned, the merge's own changes are", async () => {
+    await writeFile(`${wt()}/body.md`, body("x"));
+    expect(mshape(wt(), "pr", "--title", "t", "--body-file", "body.md").code).toBe(0);
+    // main moves on, with the term in a line and a path, and is pushed.
+    await writeFile(join(repo, "zorblax.md"), "zorblax\n");
+    sh(repo, "add", ".");
+    sh(repo, "commit", "-qm", "zorblax on main");
+    sh(repo, "push", "-q", "origin", "main");
+    await machineList("zorblax\n");
+    sh(wt(), "merge", "-q", "--no-edit", "main");
+    const merged = mshape(wt(), "pr");
+    expect(merged.stderr).not.toContain("denylisted");
+    expect(merged.code).toBe(0);
+
+    // An evil merge: the merge commit adds a line of its own.
+    await writeFile(join(repo, "later.md"), "later\n");
+    sh(repo, "add", ".");
+    sh(repo, "commit", "-qm", "later on main");
+    sh(repo, "push", "-q", "origin", "main");
+    sh(wt(), "merge", "-q", "--no-commit", "main");
+    await writeFile(`${wt()}/page.md`, "page\nzorblax in the merge\n");
+    sh(wt(), "add", ".");
+    sh(wt(), "commit", "-qm", "Merge main");
+    const sha = sh(wt(), "rev-parse", "HEAD").slice(0, 12);
+    const evil = mshape(wt(), "pr");
+    expect(evil.code).toBe(1);
+    expect(evil.stderr).toContain(`page.md:2:1, added by commit ${sha}: "zorblax"`);
+    expect(evil.stderr).not.toContain("later.md");
+    expect(evil.stderr).not.toContain("zorblax.md");
   });
 });
 
