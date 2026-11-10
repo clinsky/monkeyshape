@@ -62,6 +62,25 @@ describe("refs in docs", () => {
     );
   });
 
+  test("a path under a placeholder is relative to a run-time directory, not checked", () => {
+    const found = checkRefs(
+      config(),
+      repo({
+        "AGENTS.md": "It writes `state/db/` and reads `config/run.yaml`.",
+        "state/README.md": "",
+      }),
+    );
+    expect(found.map((v) => v.message)).toEqual([
+      "`state/db/` does not exist in the repo. Fix the path; or, if it is relative to a directory created at run time, name that directory with a placeholder (`<workdir>/state/db`), which refs doesn't resolve.",
+      "`config/run.yaml` does not exist in the repo. Fix the path; or, if it is relative to a directory created at run time, name that directory with a placeholder (`<workdir>/config/run.yaml`), which refs doesn't resolve.",
+    ]);
+    expect(
+      rules({
+        "AGENTS.md": "It writes `<workdir>/state/db/` and reads `<workdir>/config/run.yaml`.",
+      }),
+    ).toEqual([]);
+  });
+
   test("bare file names resolve anywhere; package subpaths and placeholders are not paths", () => {
     expect(
       rules({

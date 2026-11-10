@@ -228,14 +228,26 @@ const findRefs = (config: ResolvedConfig, snapshot: Snapshot): ReadonlyArray<Vio
         }
         const path = pathCandidate(span.replace(/^bun (run )?/, ""));
         if (path !== undefined && checkable(path) && !pathExists(doc, path))
-          violations.push(violation("missing-path", doc, n, `\`${span}\` does not exist`));
+          violations.push(
+            violation(
+              "missing-path",
+              doc,
+              n,
+              `\`${span}\` does not exist in the repo. Fix the path; or, if it is relative to a directory created at run time, name that directory with a placeholder (\`<workdir>/${path}\`), which refs doesn't resolve.`,
+            ),
+          );
       }
       for (const match of line.matchAll(/\]\(([^)\s]+)\)/g)) {
         const target = (match[1] ?? "").split("#")[0] ?? "";
         if (target === "" || /^[a-z]+:/.test(target)) continue;
         if (!pathExists(doc, target))
           violations.push(
-            violation("missing-path", doc, n, `link target '${target}' does not exist`),
+            violation(
+              "missing-path",
+              doc,
+              n,
+              `link target '${target}' does not exist in the repo. Fix the link, or unlink a path that only exists at run time.`,
+            ),
           );
       }
     });
