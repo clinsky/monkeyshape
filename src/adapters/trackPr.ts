@@ -2,8 +2,8 @@
  * `mshape track pr`: run the gate fresh, push `track/<name>`, and open or update its PR. The
  * Gate section is the only one it writes, from the run it just did; the rest of the body is
  * the agent's (`--body-file`, or the PR as it stands). Nothing is pushed or posted unless the
- * worktree is clean, the gate passes and the body has every required section, so a failure
- * leaves the PR as it was. The decisions are in `src/core/trackPr.ts`.
+ * worktree is clean, nothing it would send holds a denylisted term, the gate passes and the
+ * body has every required section, so a failure leaves the PR as it was. The decisions are in `src/core/trackPr.ts`.
  */
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -13,6 +13,7 @@ import { GATE_COMMAND, GATE_SCRIPT, prSizeNote } from "../core/conventions.ts";
 import { MAIN_BRANCH, trackBranch } from "../core/layout.ts";
 import { changedLines, gateSection, gateTail, planPrBody } from "../core/trackPr.ts";
 import { WorkspaceError } from "../schemas/errors.ts";
+import { guard, outgoingCommits } from "./denylist.ts";
 import { fetchUpstream, git, gitOk, locate, mergeTargets, refuse, trackCurrent } from "./tracks.ts";
 
 /** A command's exit and output; `missing` when it isn't on PATH. */
@@ -89,6 +90,8 @@ export const trackPr = (
     readonly body: string | undefined;
     /** The environment for git's network calls: one where it can't prompt. */
     readonly fetchEnv: Readonly<Record<string, string | undefined>>;
+    /** The machine's config directory, which holds its denylist. */
+    readonly configDir: string;
   },
   say: (line: string) => Effect.Effect<void>,
 ) =>
@@ -124,6 +127,23 @@ export const trackPr = (
     yield* say(prSizeNote(lines));
 
     const commit = yield* gitOk(top, ["rev-parse", "HEAD"]);
+    // Before the slow gate, and after the fetch, so the remote refs say what is published.
+    const remote =
+      (yield* git(repo, ["config", `branch.${MAIN_BRANCH}.remote`])).stdout.trim() || "origin";
+    const unpublished = yield* outgoingCommits(top, commit, remote);
+    const notConfigured = yield* guard(
+      top,
+      options.configDir,
+      {
+        commits: unpublished,
+        texts: [
+          ...(options.title === undefined ? [] : [{ name: "the PR title", text: options.title }]),
+          { name: "the PR body", text: options.body ?? existing?.body ?? "" },
+        ],
+      },
+      "nothing was pushed or posted",
+    );
+    if (notConfigured !== undefined) yield* say(notConfigured);
     yield* say(
       `running the gate, \`${GATE_COMMAND}\`, on ${commit.slice(0, 12)}: it can take minutes`,
     );
@@ -143,6 +163,13 @@ export const trackPr = (
       return yield* refuse(
         ["the body isn't ready, so nothing was pushed or posted:", ...plan.problems].join("\n  "),
       );
+    // The Gate section is new text too: the gate's output could print anything.
+    yield* guard(
+      top,
+      options.configDir,
+      { commits: [], texts: [{ name: "the PR body", text: plan.body }] },
+      "nothing was pushed or posted",
+    );
     const unknown: Array<string> = [];
     for (const id of plan.beads) {
       const shown = yield* spawn(repo, ["bd", "show", id, "--json"]);
@@ -157,8 +184,6 @@ export const trackPr = (
         `the Beads section lists ${unknown.map((id) => `\`${id}\``).join(", ")}, which bd doesn't know: fix the id, or file the bead first. Nothing was pushed or posted`,
       );
 
-    const remote =
-      (yield* git(repo, ["config", `branch.${MAIN_BRANCH}.remote`])).stdout.trim() || "origin";
     // The commit the gate ran on, not the branch: one made while the gate ran is ungated.
     const pushed = yield* git(top, ["push", "--quiet", remote, `${commit}:refs/heads/${branch}`], {
       env: { ...options.fetchEnv },
