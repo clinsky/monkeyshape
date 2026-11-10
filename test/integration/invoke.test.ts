@@ -63,6 +63,9 @@ describe("running mshape from a hook", () => {
   test("works from a track worktree with no node_modules, and runs there", async () => {
     const worktree = join(repo, ".agents", "worktrees", "demo@a");
     expect(await Bun.file(join(worktree, "package.json")).exists()).toBe(true);
+    // `track new` installs; a track made before it did, or whose install failed, has none.
+    expect(await Bun.file(join(worktree, "node_modules", ".bin", "mshape")).exists()).toBe(true);
+    await rm(join(worktree, "node_modules"), { recursive: true, force: true });
     expect(await Bun.file(join(worktree, "node_modules", ".bin", "mshape")).exists()).toBe(false);
     const current = await hook(worktree, ["track", "current"]);
     expect(current.output).toBe("a\n");

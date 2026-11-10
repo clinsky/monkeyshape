@@ -23,6 +23,7 @@ describe("scaffold", () => {
     expect(files.get("AGENTS.md")).toBe("# my-app\n");
     expect(files.get(".gitignore")).toBe("node_modules/\n");
     expect(files.has("gitignore")).toBe(false);
+    expect(targetPath("bunfig")).toBe("bunfig.toml");
     expect(targetPath(".claude/settings.json")).toBe(".claude/settings.json");
   });
 
