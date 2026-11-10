@@ -555,7 +555,8 @@ export type BeadsById = ReadonlyMap<
 /**
  * Beads a merged PR of the track lists in its Beads section but that are still open: the
  * work merged, so each is either done and needs closing, or has work left, which deferring
- * with a note sets aside (a deferred or pinned bead isn't flagged).
+ * with a note sets aside (a deferred or pinned bead isn't flagged), taking it off the track,
+ * since the beads check flags a deferred bead that keeps its track label.
  * Only the track's own (its label) or nobody's (no track label, and not owned without one, as
  * `ownedWithoutTrack` says): another track's bead is in that track's count and is its to
  * settle, and an epic, a milestone or process work is no track's to close. A listed id bd doesn't know is skipped,
@@ -575,8 +576,14 @@ export const openAfterMerge = (
         const tracks = bead.labels.filter((label) => label.startsWith("track:"));
         if (tracks.length > 0 ? !tracks.includes(trackLabel(track)) : ownedWithoutTrack(bead))
           return [];
+        // Deferred, the bead must leave the track too, or the beads check flags it
+        // (deferred-in-track) and the track is never done.
+        const defer =
+          tracks.length > 0
+            ? `bd update ${id} --status deferred ${tracks.map((label) => `--remove-label ${label}`).join(" ")}`
+            : `bd defer ${id}`;
         return [
-          `${id} (${bead.status}) is listed in merged PR #${pr.number} but still open: close it if its work is done (\`bd close ${id}\`), or write what is left in its notes and defer it (\`bd defer ${id}\`)`,
+          `${id} (${bead.status}) is listed in merged PR #${pr.number} but still open: close it if its work is done (\`bd close ${id}\`), or write what is left in its notes and defer it${tracks.length > 0 ? " off the track" : ""} (\`${defer}\`)`,
         ];
       }),
     );

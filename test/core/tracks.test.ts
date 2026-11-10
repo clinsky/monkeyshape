@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
-import type { Integration } from "../../src/core/model.ts";
+import { checkBeads } from "../../src/core/beads.ts";
+import type { BeadSummary, Integration } from "../../src/core/model.ts";
 import {
   type BeadsById,
   describeStep,
@@ -15,6 +16,7 @@ import {
   type TrackPr,
   trackDone,
 } from "../../src/core/tracks.ts";
+import { repo } from "../support.ts";
 
 describe("shared paths as a whole", () => {
   test("distinct, non-nested paths outside .handoffs and .git pass", () => {
@@ -417,8 +419,49 @@ describe("whether a track is done", () => {
       ),
     ).toEqual([
       "x-abc.1 (open) is listed in merged PR #5 but still open: close it if its work is done (`bd close x-abc.1`), or write what is left in its notes and defer it (`bd defer x-abc.1`)",
-      "x-abc.4 (in_progress) is listed in merged PR #5 but still open: close it if its work is done (`bd close x-abc.4`), or write what is left in its notes and defer it (`bd defer x-abc.4`)",
+      "x-abc.4 (in_progress) is listed in merged PR #5 but still open: close it if its work is done (`bd close x-abc.4`), or write what is left in its notes and defer it off the track (`bd update x-abc.4 --status deferred --remove-label track:docs --remove-label track:review`)",
     ]);
+  });
+
+  test("following the advice for a bead left open leaves the beads check green (4sa.13)", () => {
+    const task = (status: string, labels: ReadonlyArray<string>) => ({
+      status,
+      type: "task",
+      labels,
+    });
+    // Each bead as track list sees it, then as bd leaves it after the advised command.
+    const cases = [
+      { labels: ["track:docs"], id: "x-1" },
+      { labels: ["track:docs", "track:review"], id: "x-2" },
+      { labels: [] as Array<string>, id: "x-3" },
+    ];
+    for (const { id, labels } of cases) {
+      const [advice] = openAfterMerge(
+        [pr(5, "MERGED", `## Beads\n\n- ${id}\n`)],
+        new Map([[id, task("in_progress", labels)]]),
+        "docs",
+      );
+      const command = /defer it(?: off the track)? \(`([^`]+)`\)/.exec(advice ?? "")?.[1] ?? "";
+      const args = command.split(" ");
+      const removed = args.flatMap((arg, i) => (args[i - 1] === "--remove-label" ? [arg] : []));
+      expect(command === `bd defer ${id}` || args.includes("deferred")).toBe(true);
+      const after: BeadSummary = {
+        id,
+        title: "t",
+        status: "deferred",
+        type: "task",
+        labels: labels.filter((label) => !removed.includes(label)),
+      };
+      // Another bead keeps the repo in tracks, so ownership is checked at all.
+      const others: BeadSummary = {
+        id: "x-9",
+        title: "o",
+        status: "closed",
+        type: "task",
+        labels: ["track:docs"],
+      };
+      expect(checkBeads({}, repo({}, { beadRows: [after, others] }))).toEqual([]);
+    }
   });
 
   test("hygiene: a State older than the branch's last commit; a done track still on disk", () => {
