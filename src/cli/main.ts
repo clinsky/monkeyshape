@@ -14,6 +14,7 @@ import { mailInbox, mailInboxAll, mailRead, mailSend } from "../adapters/mail.ts
 import {
   type Caller,
   claudeCodeNotifier,
+  enterTrack,
   liveSessions,
   notifyRecipient,
   register,
@@ -234,7 +235,7 @@ const track = (root: string, args: ReadonlyArray<string>) =>
     const flags = rest.filter((arg) => arg.startsWith("--"));
     const names = rest.filter((arg) => !arg.startsWith("--"));
     const allowed = sub === "rm" ? ["--force", "--keep-handoff", "--keep-beads"] : [];
-    const takesName = sub === "new" || sub === "rm";
+    const takesName = sub === "new" || sub === "rm" || sub === "enter";
     if (flags.some((flag) => !allowed.includes(flag))) return usage();
     if (names.length !== (takesName ? 1 : 0)) return usage();
     const name = names[0] ?? "";
@@ -256,6 +257,8 @@ const track = (root: string, args: ReadonlyArray<string>) =>
       return { output, code: unmigrated === 0 ? 0 : 1 };
     }
     if (sub === "current") return { output: yield* trackCurrent(root), code: 0 };
+    if (sub === "enter")
+      return { output: (yield* enterTrack(root, caller(), name)).join("\n"), code: 0 };
     if (sub === "rm")
       return {
         output: yield* trackRm(
@@ -709,6 +712,12 @@ export const COMMANDS: ReadonlyArray<Command> = [
       left as it was, saying why.
   mshape track current
       The track of this directory, name only; exit 1, saying why, outside a track.
+  mshape track enter <name>
+      Move this Claude Code session to track <name>, from main or any other address: its
+      mail and notices become the track's (unread mail stays where it was), and the last line
+      printed is the track's worktree, where the session then works. Refuses an unknown track,
+      or a session Claude Code didn't identify. A new session id (/clear, a fresh start)
+      registers by its directory again.
   mshape track pr [--title <title>] [--body-file <path>]
       From a track's worktree: prints the PR's size against the batching default, runs the
       gate fresh, pushes track/<name> and opens its PR (--title and --body-file needed) or

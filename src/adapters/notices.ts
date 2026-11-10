@@ -21,12 +21,14 @@ import {
 } from "node:fs/promises";
 import { connect } from "node:net";
 import { Effect } from "effect";
+import { mshapeCommand } from "../core/hooks.ts";
 import {
   reviewOf,
   reviewPath,
   sessionPath,
   sessionsDir,
   TRACK_NAME,
+  trackOf,
   trackSessionsDir,
   worktreePath,
 } from "../core/layout.ts";
@@ -250,6 +252,34 @@ export const register = (cwd: string, caller: Caller) =>
   );
 
 /**
+ * Moves the caller's registration from `from` to `to`, as `review <pr>` and `track enter` do:
+ * a write at `to`, then the delete. A caller identified but never registered starts at `to`.
+ * Mail is never moved: what is unread at `from` stays there. Returns what it did.
+ */
+const moveSession = (common: string, caller: Caller, self: Self, from: string, to: string) =>
+  Effect.gen(function* () {
+    if (self.kind === "registered") {
+      // Stamped now, so a copy a cut-short move leaves behind is the older one.
+      yield* writeRegistration(common, to, {
+        ...self.placed.registration,
+        registered: caller.now.toISOString(),
+      });
+      yield* removeRegistration(common, self.placed);
+      return [`session ${self.placed.registration.session}: ${from} -> ${to}`];
+    }
+    const { session } = caller.identity;
+    const pid =
+      caller.identity.pid ??
+      (session === undefined ? undefined : (yield* claudeSession(caller.claudeDir, session))?.pid);
+    if (session === undefined || pid === undefined)
+      return [
+        `note: no session moved to ${to}: this session isn't registered, and Claude Code gave ${session === undefined ? "no session id" : "no CLAUDE_PID"} to register it with`,
+      ];
+    yield* writeRegistration(common, to, { session, pid, registered: caller.now.toISOString() });
+    return [`session ${session}: ${from} -> ${to} (it wasn't registered; now it is)`];
+  });
+
+/**
  * The move `mshape review <pr>` makes, worked out before the review's worktree is touched,
  * so an ambiguous caller is refused before anything happens. `apply` moves the session (a
  * write at the new address, then the delete) and says what it did.
@@ -271,31 +301,44 @@ export const planReviewMove = (cwd: string, caller: Caller, pr: string) =>
     if (to === undefined || from === undefined) return { apply: none };
     if (self.kind === "anonymous")
       return { apply: Effect.succeed([`note: no session moved to ${to}: ${NO_IDENTITY}`]) };
-    const { session } = caller.identity;
-    const apply = Effect.gen(function* () {
-      if (self.kind === "registered") {
-        // Stamped now, so a copy a cut-short move leaves behind is the older one.
-        yield* writeRegistration(common, to, {
-          ...self.placed.registration,
-          registered: caller.now.toISOString(),
-        });
-        yield* removeRegistration(common, self.placed);
-        return [`session ${self.placed.registration.session}: ${from} -> ${to}`];
-      }
-      // Identified but never registered: it starts at the review.
-      const pid =
-        caller.identity.pid ??
-        (session === undefined
-          ? undefined
-          : (yield* claudeSession(caller.claudeDir, session))?.pid);
-      if (session === undefined || pid === undefined)
-        return [
-          `note: no session moved to ${to}: this session isn't registered, and Claude Code gave ${session === undefined ? "no session id" : "no CLAUDE_PID"} to register it with`,
-        ];
-      yield* writeRegistration(common, to, { session, pid, registered: caller.now.toISOString() });
-      return [`session ${session}: ${from} -> ${to} (it wasn't registered; now it is)`];
+    return { apply: moveSession(common, caller, self, from, to) };
+  });
+
+/**
+ * `mshape track enter <track>`: moves the calling session's registration to `track`, so its
+ * mail and notices are the track's, and returns what it did and, last, the track's worktree,
+ * where the session then works. Unread mail stays where it was. A restart with a new session
+ * id registers by its directory again (`register`), until this runs again.
+ */
+export const enterTrack = (cwd: string, caller: Caller, track: string) =>
+  Effect.gen(function* () {
+    const { common, repo } = yield* locate(cwd);
+    const tracks = (yield* worktrees(repo)).flatMap((worktree) => {
+      const name = trackOf(repo, worktree.path);
+      return name === undefined ? [] : [name];
     });
-    return { apply };
+    if (!tracks.includes(track))
+      return yield* refuse(
+        `no track \`${track}\`: ${tracks.length === 0 ? "there are none" : `the tracks are ${tracks.sort().join(", ")}`}. Start it with \`${mshapeCommand(["track", "new", track])}\``,
+      );
+    const self = yield* selfIn(yield* allPlaced(common), caller);
+    if (self.kind === "anonymous") return yield* refuse(`nothing to move: ${NO_IDENTITY}`);
+    if (self.kind === "ambiguous") return yield* refuse(ambiguousSelf(self.placed));
+    const path = worktreePath(repo, track);
+    if (self.kind === "registered" && self.placed.address === track)
+      return [`session ${self.placed.registration.session} is at ${track} already`, path];
+    const directory = yield* directoryAddressOf(cwd).pipe(
+      Effect.catchTag("TrackError", () => Effect.succeed({ reason: "" })),
+    );
+    const from =
+      self.kind === "registered"
+        ? self.placed.address
+        : "address" in directory
+          ? directory.address
+          : "nowhere";
+    const moved = yield* moveSession(common, caller, self, from, track);
+    if (moved[0]?.startsWith("note:")) return yield* refuse(moved[0].slice("note: ".length));
+    return [...moved, path];
   });
 
 /** How one notice went: the session is gone (prune it), or it couldn't be told (say why). */
