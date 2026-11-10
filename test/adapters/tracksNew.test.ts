@@ -44,6 +44,46 @@ describe("track new", () => {
     expect(again.stderr).toContain("track `docs` exists");
   });
 
+  test("installs dependencies in the new worktree; a failed install is a note, not a refusal", async () => {
+    await setup();
+    // A local dependency: bun links it without the network.
+    await mkdir(join(repo, "local"));
+    await writeFile(join(repo, "local", "package.json"), '{"name":"local","version":"1.0.0"}');
+    await writeFile(
+      join(repo, "package.json"),
+      JSON.stringify({ name: "app", dependencies: { local: "file:./local" } }),
+    );
+    await writeFile(join(repo, ".gitignore"), "node_modules\n", { flag: "a" });
+    expect(Bun.spawnSync([process.execPath, "install"], { cwd: repo }).exitCode).toBe(0);
+    sh(repo, "add", ".");
+    sh(repo, "commit", "-qm", "deps");
+    const made = mshape(repo, "new", "app");
+    expect(made.code).toBe(0);
+    expect(made.stdout).toContain("ran `bun install --frozen-lockfile` in");
+    expect(await exists(`${wt("app")}/node_modules/local/package.json`)).toBe(true);
+
+    // A lockfile that no longer matches package.json: frozen install fails, the track stands.
+    await writeFile(
+      join(repo, "package.json"),
+      JSON.stringify({
+        name: "app",
+        dependencies: { local: "file:./local", other: "file:./local" },
+      }),
+    );
+    sh(repo, "commit", "-qam", "drift");
+    const drifted = mshape(repo, "new", "drift");
+    expect(drifted.code).toBe(0);
+    expect(drifted.stdout).toContain("note: `bun install --frozen-lockfile` failed in");
+    expect(drifted.stdout).toContain("error: lockfile had changes");
+    // Not the command that just failed: the fix the drift needs.
+    expect(drifted.stdout).toContain(
+      "the lockfile is out of date with package.json: run `bun install` there and commit the lockfile it updates",
+    );
+    expect(drifted.stdout).not.toContain("run it there");
+    expect(drifted.stdout).toContain("uses the main checkout's tsc and biome");
+    expect(sh(wt("drift"), "branch", "--show-current")).toBe("track/drift");
+  });
+
   test("from inside a worktree, the new track still lands under the main checkout", async () => {
     await setup();
     expect(mshape(repo, "new", "a").code).toBe(0);

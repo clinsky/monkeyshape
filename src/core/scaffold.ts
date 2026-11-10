@@ -26,10 +26,14 @@ export interface Toolchain {
 }
 
 /**
- * npm drops `.gitignore` from published packages, so the template stores it without the dot.
- * Any other dotfile ships as is.
+ * Files a package can't carry under their own names: npm drops `.gitignore` from published
+ * packages and `bun pm pack` drops `bunfig.toml`, so the template stores them renamed. Any
+ * other dotfile ships as is.
  */
-const RENAMED: Readonly<Record<string, string>> = { gitignore: ".gitignore" };
+const RENAMED: Readonly<Record<string, string>> = {
+  gitignore: ".gitignore",
+  bunfig: "bunfig.toml",
+};
 
 export const targetPath = (templatePath: string): string => RENAMED[templatePath] ?? templatePath;
 
