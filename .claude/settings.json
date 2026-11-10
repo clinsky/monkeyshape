@@ -15,7 +15,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bun run --silent mshape msg register || echo 'note: mshape could not run here, so this hook did nothing. Either bun is not on this session'\\''s PATH (run `command -v bun`; add bun'\\''s bin directory, often ~/.bun/bin, to the PATH Claude Code starts with), or monkeyshape is not installed (run `bun install`; package.json needs the script `\"mshape\": \"mshape\"`).'"
+            "command": "PATH=\"$PATH:$HOME/.bun/bin\"; if command -v bun >/dev/null; then bun run --silent mshape msg register || echo 'note: mshape could not run here, so this hook did nothing. Run `bun install`; package.json needs the script `\"mshape\": \"mshape\"`.'; else echo 'note: bun is neither on this session'\\''s PATH nor in ~/.bun/bin, so this hook did nothing. Install bun (https://bun.sh), or add the directory holding it to the PATH Claude Code starts with.'; fi"
           }
         ]
       },
@@ -24,7 +24,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bun run --silent mshape msg inbox --quiet || echo 'note: mshape could not run here, so this hook did nothing. Either bun is not on this session'\\''s PATH (run `command -v bun`; add bun'\\''s bin directory, often ~/.bun/bin, to the PATH Claude Code starts with), or monkeyshape is not installed (run `bun install`; package.json needs the script `\"mshape\": \"mshape\"`).'"
+            "command": "PATH=\"$PATH:$HOME/.bun/bin\"; if command -v bun >/dev/null; then bun run --silent mshape msg inbox --quiet || echo 'note: mshape could not run here, so this hook did nothing. Run `bun install`; package.json needs the script `\"mshape\": \"mshape\"`.'; else echo 'note: bun is neither on this session'\\''s PATH nor in ~/.bun/bin, so this hook did nothing. Install bun (https://bun.sh), or add the directory holding it to the PATH Claude Code starts with.'; fi"
           }
         ]
       }
@@ -35,7 +35,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bun run --silent mshape msg inbox --quiet || echo 'note: mshape could not run here, so this hook did nothing. Either bun is not on this session'\\''s PATH (run `command -v bun`; add bun'\\''s bin directory, often ~/.bun/bin, to the PATH Claude Code starts with), or monkeyshape is not installed (run `bun install`; package.json needs the script `\"mshape\": \"mshape\"`).'"
+            "command": "PATH=\"$PATH:$HOME/.bun/bin\"; if command -v bun >/dev/null; then bun run --silent mshape msg inbox --quiet || echo 'note: mshape could not run here, so this hook did nothing. Run `bun install`; package.json needs the script `\"mshape\": \"mshape\"`.'; else echo 'note: bun is neither on this session'\\''s PATH nor in ~/.bun/bin, so this hook did nothing. Install bun (https://bun.sh), or add the directory holding it to the PATH Claude Code starts with.'; fi"
           }
         ]
       }

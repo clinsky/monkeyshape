@@ -45,22 +45,44 @@ export const withNote = (command: string, note: string): string =>
   `${command} || echo ${quote(`note: ${note}`)}`;
 
 /**
- * Either cause, since the hook can't tell them apart cheaply: a session whose PATH lacks bun
- * (a shell profile that adds it only to login shells) fails the same way as a missing install.
+ * What 0.4's hooks printed, when they couldn't tell a session without bun from a missing
+ * install: sync replaces a hook carrying it.
  */
-const MSHAPE_MISSING =
+const MSHAPE_MISSING_0_4 =
   'mshape could not run here, so this hook did nothing. Either bun is not on this session\'s PATH (run `command -v bun`; add bun\'s bin directory, often ~/.bun/bin, to the PATH Claude Code starts with), or monkeyshape is not installed (run `bun install`; package.json needs the script `"mshape": "mshape"`).';
 
-/** What 0.3's hooks printed: sync replaces a hook carrying it, as it replaces the bare command. */
-const MSHAPE_MISSING_0_3 =
+/** With bun found, the one reason left for `mshape` not running. 0.3's hooks printed it too. */
+const MSHAPE_MISSING =
   'mshape could not run here, so this hook did nothing. Run `bun install`; package.json needs the script `"mshape": "mshape"`.';
+
+/**
+ * Where a hook looks for bun: the session's PATH, then bun's default install. A session
+ * restarted from a shell that sets PATH only for login shells has no bun on its PATH.
+ */
+export const BUN_FALLBACK = "$HOME/.bun/bin";
+
+const BUN_MISSING =
+  "bun is neither on this session's PATH nor in ~/.bun/bin, so this hook did nothing. Install bun (https://bun.sh), or add the directory holding it to the PATH Claude Code starts with.";
+
+/**
+ * `command`, run with bun found when the hook runs: the session's PATH first, then
+ * `BUN_FALLBACK`. The fallback joins the PATH, not just the command, since `mshape` itself
+ * starts with `#!/usr/bin/env bun`. `$HOME` stays a variable, so `.claude/settings.json` is
+ * the same on every machine. Without bun, a note and exit 0.
+ */
+export const withBun = (command: string): string =>
+  `PATH="$PATH:${BUN_FALLBACK}"; if command -v bun >/dev/null; then ${command}; else echo ${quote(`note: ${BUN_MISSING}`)}; fi`;
 
 /** A hook running `mshape <args>`, degrading to a note, replacing what earlier versions ran. */
 const mshapeHook = (event: HookEvent, args: ReadonlyArray<string>): Hook => ({
   event,
   matcher: "",
-  command: withNote(mshapeCommand(args), MSHAPE_MISSING),
-  retired: [mshapeCommand(args), withNote(mshapeCommand(args), MSHAPE_MISSING_0_3)],
+  command: withBun(withNote(mshapeCommand(args), MSHAPE_MISSING)),
+  retired: [
+    mshapeCommand(args),
+    withNote(mshapeCommand(args), MSHAPE_MISSING),
+    withNote(mshapeCommand(args), MSHAPE_MISSING_0_4),
+  ],
 });
 
 /** Every hook, in the order each event runs them. */

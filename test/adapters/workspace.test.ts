@@ -64,6 +64,35 @@ describe("typecheck coverage through project references", () => {
   });
 });
 
+describe("tsc and biome for a worktree with no install of its own", () => {
+  test("found in the main checkout's node_modules; missing in both, unavailable", async () => {
+    // Outside the main checkout, so bun's own walk up the directories can't be what finds them.
+    const outside = await mkdtemp(join(tmpdir(), "mshape-wt-"));
+    const worktree = join(outside, "track");
+    try {
+      const git = (cwd: string, ...args: ReadonlyArray<string>) =>
+        Bun.$`git -c user.email=t@example.com -c user.name=t ${args}`.cwd(cwd).quiet();
+      await git(repo, "add", ".");
+      await git(repo, "commit", "-qm", "init");
+      await git(repo, "worktree", "add", "-q", "-b", "track/x", worktree);
+      const shape = config();
+      const found = await Effect.runPromise(loadSnapshot(worktree, shape, `${repo}/no-package`));
+      expect(found.integrations.tsc).toEqual({ state: "ok" });
+      expect(found.integrations.biome).toEqual({ state: "ok" });
+      expect(found.typechecked?.has("packages/core/src/c.ts")).toBe(true);
+      // No install anywhere: the main checkout's link removed, and the worktree has none.
+      await rm(join(repo, "node_modules"));
+      const missing = await Effect.runPromise(loadSnapshot(worktree, shape, `${repo}/no-package`));
+      expect(missing.integrations.tsc.state).toBe("unavailable");
+      expect(missing.integrations.biome.state).toBe("unavailable");
+    } finally {
+      await symlink(join(ROOT, "node_modules"), join(repo, "node_modules")).catch(() => undefined);
+      await Bun.$`git worktree remove --force ${worktree}`.cwd(repo).quiet().nothrow();
+      await rm(outside, { recursive: true, force: true });
+    }
+  });
+});
+
 describe("the note for a clone with no beads database", () => {
   const REMOTE = "git+https://example.com/team/repo.git";
 

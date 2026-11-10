@@ -5,6 +5,7 @@ import { Effect } from "effect";
 import { PRIME_FILE } from "../core/conventions.ts";
 import { parseJsonc } from "../core/coverage.ts";
 import { SETTINGS_FILE } from "../core/hooks.ts";
+import { mainCheckout } from "../core/layout.ts";
 import {
   type BeadSummary,
   classify,
@@ -230,13 +231,52 @@ const beads = (root: string) =>
   });
 
 /**
- * A tool installed in the repo, as a command. Run through the current bun: the bin shims
- * start with `#!/usr/bin/env node`, and a Bun-only machine has no node.
+ * `bun install` in a new worktree, so its gate is green with no manual step: frozen when a
+ * lockfile is committed, as CI installs. Never fails: a worktree that couldn't install still
+ * works, its gate using the main checkout's tools (`localBin`), and the line says so.
+ * Undefined when there is no package.json to install.
+ */
+export const installDependencies = (dir: string) =>
+  Effect.gen(function* () {
+    if (!(yield* exists(dir, "package.json"))) return undefined;
+    const locked = (yield* exists(dir, "bun.lock")) || (yield* exists(dir, "bun.lockb"));
+    const args = ["install", ...(locked ? ["--frozen-lockfile"] : [])];
+    const shown = `\`bun ${args.join(" ")}\``;
+    const result = yield* runTool(dir, [process.execPath, ...args]);
+    if (result.code === 0) return `ran ${shown} in ${dir}`;
+    // bun prints its version first: the error line says why, else the last line does.
+    const lines = `${result.stdout}\n${result.stderr}`
+      .split("\n")
+      .filter((line) => line.trim() !== "");
+    const why = (lines.find((line) => line.startsWith("error:")) ?? lines.at(-1) ?? "").trim();
+    // A drifted lockfile fails the same command again: the fix is a new lockfile, committed.
+    const fix = why.includes("lockfile is frozen")
+      ? "the lockfile is out of date with package.json: run `bun install` there and commit the lockfile it updates"
+      : "fix what bun says, then run `bun install` there";
+    return `note: ${shown} failed in ${dir} (exit ${result.code}${why === "" ? "" : `: ${why}`}); ${fix}. Until then \`mshape check\` uses the main checkout's tsc and biome`;
+  });
+
+/** The main checkout of `root`'s repository, which a track worktree shares; undefined if git can't say. */
+const mainOf = (root: string) =>
+  Effect.map(
+    runTool(root, ["git", "rev-parse", "--path-format=absolute", "--git-common-dir"]),
+    (got) => (got.code === 0 ? mainCheckout(got.stdout.trim()) : undefined),
+  );
+
+/**
+ * A tool installed in the repo, as a command: the worktree's own install, else the main
+ * checkout's, so a track worktree nobody ran `bun install` in still has tsc and biome. Run
+ * through the current bun: the bin shims start with `#!/usr/bin/env node`, and a Bun-only
+ * machine has no node.
  */
 const localBin = (root: string, name: string) =>
-  Effect.map(exists(root, `node_modules/.bin/${name}`), (found) =>
-    found ? [process.execPath, `${root}/node_modules/.bin/${name}`] : undefined,
-  );
+  Effect.gen(function* () {
+    const main = yield* mainOf(root);
+    for (const dir of main === undefined || main === root ? [root] : [root, main])
+      if (yield* exists(dir, `node_modules/.bin/${name}`))
+        return [process.execPath, `${dir}/node_modules/.bin/${name}`];
+    return undefined;
+  });
 
 /**
  * The tsconfigs a project's references point at. A reference names a tsconfig file or a

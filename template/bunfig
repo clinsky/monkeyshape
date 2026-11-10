@@ -1,0 +1,5 @@
+# Where `bun test` looks for tests. Without a root it searches the whole checkout, and a
+# shared path a track links in (tracks.sharedPaths: data, a sibling checkout) can hold tests
+# of its own, or files enough to slow every run. Tests live under test/.
+[test]
+root = "test"

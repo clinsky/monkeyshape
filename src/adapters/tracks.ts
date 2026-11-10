@@ -61,7 +61,7 @@ import {
 } from "../core/tracks.ts";
 import { TrackError, WorkspaceError } from "../schemas/errors.ts";
 import { loadConfig } from "./config.ts";
-import { beadRows } from "./workspace.ts";
+import { beadRows, installDependencies } from "./workspace.ts";
 
 export const refuse = (reason: string) => Effect.fail(new TrackError({ reason }));
 
@@ -602,7 +602,13 @@ export const trackNew = (
         ),
       ),
     );
-    return [...notes, ...said, `next: cd ${path}, then run /track`].join("\n");
+    const installed = yield* installDependencies(path);
+    return [
+      ...notes,
+      ...said,
+      ...(installed === undefined ? [] : [installed]),
+      `next: cd ${path}, then run /track`,
+    ].join("\n");
   });
 
 /**

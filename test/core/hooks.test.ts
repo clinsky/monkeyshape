@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
-import { mkdir, mkdtemp, rm, symlink } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { chmod, mkdir, mkdtemp, rm, symlink } from "node:fs/promises";
+import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   addHooks,
@@ -102,6 +102,56 @@ describe("hooks", () => {
           expect(ran.stdout.toString()).toStartWith("note: ");
         }
       }
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("a hook finds bun when it runs: PATH, then ~/.bun/bin, else a note", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "mshape-hooks-bun-"));
+    // A fake bun that says which one ran; `fails` exits 1, as bun does with no mshape script.
+    const fakeBun = async (at: string, fails = false) => {
+      await mkdir(at, { recursive: true });
+      await Bun.write(join(at, "bun"), `#!/bin/sh\necho "ran ${at}"\n${fails ? "exit 1\n" : ""}`);
+      await chmod(join(at, "bun"), 0o755);
+    };
+    const empty = join(dir, "empty");
+    await mkdir(empty);
+    const onPath = join(dir, "path-bin");
+    const home = join(dir, "home");
+    const elsewhere = join(dir, "opt", "bun", "bin");
+    const broken = join(dir, "broken");
+    await fakeBun(onPath);
+    await fakeBun(join(home, ".bun", "bin"));
+    await fakeBun(elsewhere);
+    await fakeBun(broken, true);
+    const hook = HOOKS.find((candidate) => candidate.command.includes("msg register"));
+    if (hook === undefined) throw new Error("no msg register hook");
+    const runHook = (PATH: string, HOME: string) => {
+      const ran = Bun.spawnSync(["/bin/sh", "-c", hook.command], { cwd: dir, env: { PATH, HOME } });
+      return { code: ran.exitCode, out: ran.stdout.toString().trim() };
+    };
+    const noHome = join(dir, "no-home");
+    try {
+      // The plan's table, a row each.
+      expect(runHook(onPath, home)).toEqual({ code: 0, out: `ran ${onPath}` });
+      expect(runHook(empty, home)).toEqual({ code: 0, out: `ran ${home}/.bun/bin` });
+      const neither = runHook(empty, noHome);
+      expect(neither.code).toBe(0);
+      expect(neither.out).toStartWith(
+        "note: bun is neither on this session's PATH nor in ~/.bun/bin",
+      );
+      expect(runHook(elsewhere, noHome)).toEqual({ code: 0, out: `ran ${elsewhere}` });
+      // bun found, mshape not installed: the install note, still exit 0.
+      const uninstalled = runHook(broken, noHome);
+      expect(uninstalled.code).toBe(0);
+      expect(uninstalled.out).toContain("note: mshape could not run here");
+      // The committed settings name no machine's paths: the fallback is `$HOME`, unexpanded.
+      for (const each of HOOKS) {
+        expect(each.command).not.toContain(homedir());
+        expect(each.command).not.toContain(process.execPath);
+      }
+      expect(hook.command).toContain('"$PATH:$HOME/.bun/bin"');
     } finally {
       await rm(dir, { recursive: true, force: true });
     }
