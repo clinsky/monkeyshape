@@ -159,6 +159,20 @@ export const shortLabel = (command: DeclaredCommand): string =>
 export const commandFiles = (command: DeclaredCommand, files: ReadonlyArray<string>) =>
   files.filter((file) => command.files.some((pattern) => matchesPathOrBelow(file, pattern)));
 
+/** An argument of a declared command's `run` that stands for the files its `files` matched. */
+export const FILES_ARGUMENT = "{files}";
+
+/**
+ * The argv a declared command runs: `run`, with each `{files}` argument replaced by the files
+ * its `files` matched, in order, so the command checks exactly those and no glob is wider
+ * than what runs. Without one, `run` as written.
+ */
+export const commandArgv = (
+  command: DeclaredCommand,
+  files: ReadonlyArray<string>,
+): ReadonlyArray<string> =>
+  command.run.flatMap((arg) => (arg === FILES_ARGUMENT ? commandFiles(command, files) : [arg]));
+
 /** One declared command's line under `coverage`, in the outcome contract's terms. */
 export interface CommandReport {
   readonly label: string;

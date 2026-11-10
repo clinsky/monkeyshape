@@ -86,11 +86,13 @@ Each check reads its own part of the config.
   - Executable source that isn't TypeScript needs a command that checks it. That includes C,
     Python, shell, Java and Go, or any file with git's executable bit.
   - Declare it as `coverage: { commands: [{ files: ["native/**"], run: ["make", "-C", "native", "check"] }] }`.
-    `files` says which files the command covers. Nothing is passed to it: `run` is argv, not a
-    shell line, and names what it checks, like any command line.
-  - Make it write nothing into the tree. For one Python script, use
-    `["python3", "-c", "import ast, sys; [ast.parse(open(f).read(), f) for f in sys.argv[1:]]", "scripts/report.py"]`,
-    not `py_compile`. For one shell script, use `["bash", "-n", "scripts/setup.sh"]`.
+    `files` says which files the command covers. `run` is argv, not a shell line. An argument
+    `"{files}"` becomes exactly the files `files` matched, so the glob can't claim more than
+    the command checks; without it, nothing is passed, and `run` names what it checks.
+  - Make it write nothing into the tree. For Python scripts, use
+    `["python3", "-c", "import ast, sys; [ast.parse(open(f).read(), f) for f in sys.argv[1:]]", "{files}"]`,
+    not `py_compile`. For shell scripts, loop, since `bash -n` reads only its first file:
+    `["sh", "-c", 'for f; do bash -n "$f" || exit; done', "sh", "{files}"]`.
   - `optional: true` turns a missing program into a note. A program that runs and fails is red.
     So is exit 127, which is also how `bash` reports a file it can't find.
   - A file no command can check here, such as a test fixture or a plugin compiled by another

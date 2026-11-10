@@ -146,6 +146,38 @@ describe("arch", () => {
     ).toEqual([["arch/no-module-map", "../trial/shape.config.ts"]]);
   });
 
+  test("local rules the config imports need no module, outside arch.root or under it", () => {
+    const shape = {
+      arch: { modules: { core: { description: "logic" } } },
+      sources: { include: ["src/**/*.ts", "rules/**/*.ts"] },
+    };
+    const files = {
+      "src/core/a.ts": "export const a = 1;",
+      "rules/indexWrites.ts":
+        'import { defineRule } from "monkeyshape";\nimport { x } from "./helper.ts";',
+      "rules/helper.ts": "export const x = 1;",
+      "src/lint/own.ts": "export const y = 1;",
+    };
+    const rules = (modules: ReadonlyArray<string>) =>
+      checkArch(resolveConfig(shape, "shape.config.ts", modules), repo(files)).map(
+        (v) => `${v.rule} ${v.file}`,
+      );
+    expect(rules([])).toEqual([
+      "arch/unknown-module rules/indexWrites.ts",
+      "arch/unknown-module rules/helper.ts",
+      "arch/unknown-module src/lint/own.ts",
+    ]);
+    expect(rules(["rules/helper.ts", "rules/indexWrites.ts", "src/lint/own.ts"])).toEqual([]);
+  });
+
+  test("a file the config imports that a module maps is layered as that module's", () => {
+    const shape = config({ arch: { modules: { core: { description: "logic" } } } });
+    const mapped = { ...shape, configModules: ["src/core/a.ts"] };
+    expect(
+      checkArch(mapped, repo({ "src/core/a.ts": 'import pg from "pg";' })).map((v) => v.rule),
+    ).toEqual(["arch/forbidden-package"]);
+  });
+
   test("effect stays allowed when allowedPackages lists other packages", () => {
     const listed = config({
       arch: { modules: { core: { description: "logic" } }, allowedPackages: ["zod"] },

@@ -82,7 +82,8 @@ export default defineRule({
 
 `shape.config.ts` imports the module and lists it. It also adds `rules/` to `sources`, so the
 rule modules are checked like the rest of the code; without that, `sources` fails on them as
-TypeScript that no rule analyzes:
+TypeScript that no rule analyzes. With a module map, they need no module: what the config
+imports, a rule and the files it imports, belongs to the config, as `shape.config.ts` does.
 
 ```ts
 // shape.config.ts

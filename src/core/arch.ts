@@ -311,13 +311,15 @@ export const moduleOf = (arch: Arch, path: string): string | undefined => {
 /**
  * The files arch layers: the code under `arch.root`, and any code in `sources` outside it,
  * which belongs to no module. Tests, declaration files and exempt files are not code here,
- * so a root of `.` doesn't ask a module for `tests/` or `shape.config.ts`.
+ * so a root of `.` doesn't ask a module for `tests/` or `shape.config.ts`; nor are the local
+ * rules the config imports, unless a module maps them: they are the config's, as it is mshape's.
  */
 export const archFiles = (config: ResolvedConfig, snapshot: Snapshot): ReadonlyArray<string> => {
   const arch = config.arch;
   if (arch === undefined) return [];
   return snapshot.files.filter((file) => {
     if (!isTsSource(file)) return false;
+    if (config.configModules.includes(file) && moduleOf(arch, file) === undefined) return false;
     const kind = placeOf(config, file).kind;
     if (kind !== "source" && kind !== "outside") return false;
     return underRoot(arch, file) !== undefined || kind === "source";

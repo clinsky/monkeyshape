@@ -37,6 +37,22 @@ describe("loadConfig", () => {
     ).toBe("trial/try.ts");
   });
 
+  test("the repo files the config reaches by relative import are its own; packages aren't", async () => {
+    await Bun.write(join(dir, "rules", "helper.ts"), "export const x = 1;\n");
+    await Bun.write(
+      join(dir, "rules", "a.ts"),
+      'import { x } from "./helper.ts";\nexport default { x };\n',
+    );
+    await Bun.write(
+      join(dir, "shape.config.ts"),
+      'import a from "./rules/a.ts";\nexport default { sources: { include: [String(Boolean(a))] } };\n',
+    );
+    expect((await Effect.runPromise(loadConfig(dir))).configModules).toEqual([
+      "rules/a.ts",
+      "rules/helper.ts",
+    ]);
+  });
+
   test("names the file it tried: --config's path, not shape.config.ts", async () => {
     const given = await Effect.runPromise(Effect.flip(loadConfig(dir, join(dir, "nope.ts"))));
     expect(given.message).toBe("nope.ts: not found");
