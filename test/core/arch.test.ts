@@ -138,6 +138,14 @@ describe("arch", () => {
     expect(rules({ "src/adapters/db/b.ts": 'import pg from "pg/lib";' })).toEqual([]);
   });
 
+  test("effect stays allowed when allowedPackages lists other packages", () => {
+    const listed = config({
+      arch: { modules: { core: { description: "logic" } }, allowedPackages: ["zod"] },
+    });
+    const source = 'import { Effect } from "effect";\nimport { z } from "zod";';
+    expect(checkArch(listed, repo({ "src/core/b.ts": source }))).toEqual([]);
+  });
+
   test("files outside every module, unresolved imports and the manifest are reported", () => {
     expect(rules({ "src/misc/x.ts": "" })).toEqual(["arch/unknown-module"]);
     expect(rules({ "src/core/b.ts": 'import "./missing";' })).toEqual(["arch/unresolved-import"]);

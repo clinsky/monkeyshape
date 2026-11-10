@@ -168,6 +168,7 @@ export const ShapeConfig = Schema.Struct({
     Schema.Struct({
       root: Schema.optionalKey(Schema.String),
       modules: Schema.Record(Schema.String, ModuleRule),
+      /** Third-party packages every module may import, in addition to `effect`. */
       allowedPackages: Schema.optionalKey(Schema.Array(Schema.String)),
       hostSpecifiers: Schema.optionalKey(Schema.Array(Schema.String)),
     }),
@@ -356,7 +357,7 @@ export const resolveConfig = (config: ShapeConfig): ResolvedConfig => ({
       : {
           root: normalRoot(config.arch.root ?? "src"),
           modules: config.arch.modules,
-          allowedPackages: config.arch.allowedPackages ?? ["effect"],
+          allowedPackages: [...new Set(["effect", ...(config.arch.allowedPackages ?? [])])],
           hostSpecifiers: config.arch.hostSpecifiers ?? [
             "bun",
             "bun:*",
