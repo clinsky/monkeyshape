@@ -60,7 +60,10 @@ charter, a reviewer's "Fit" and the next retrospective all read them, so none is
 - **What changed since the last milestone, and why.**
 - **Interfaces the tracks share:** every path, command, format or schema two tracks both
   touch, with its owner and consumer, settled before anyone starts. This is the section
-  that keeps parallel work from colliding; spend the effort here.
+  that keeps parallel work from colliding; spend the effort here. Give each file an owning
+  track too. Ownership says who to tell, not who may edit: a track whose change needs
+  another's file (to keep it in step with its code) edits it, says so in its PR body and
+  sends the owner one line naming the file and why. Conflicts are settled as they come.
   - **A case table for each lifecycle or workflow fact** the plan introduces or changes: a
     state something is in, derived from other facts (a track is done, a session's address,
     a check's outcome). One sentence defining it hides its edge cases, and each one costs a
