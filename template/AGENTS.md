@@ -27,6 +27,12 @@ where the two differ.
 
 None yet. Add one when a mistake is worth a line, and replace it with a check when it can be.
 
+## Real-data probes
+
+What a reviewer runs, beyond the gate, to see a change work on real data: one row per probe,
+each a command and what it should print. `review-pr` runs each the PR could affect. None yet:
+add the first with the first real target.
+
 ## Decision authority
 
 Needs the maintainer: priorities, publishing, a new runtime dependency, anything public

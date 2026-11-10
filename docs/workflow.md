@@ -3,6 +3,9 @@
 How a repo made by `mshape init` is worked, by a human and coding agents together. Read this
 once after `init`; the skills it names carry the detail, so you don't need it again.
 
+This page is for humans; agents don't load it. What they follow is in PRIME.md, the skills,
+file headers and check messages, so a rule stated only here binds no agent: put it there.
+
 The split: **skills carry judgement, the `mshape` CLI carries everything deterministic.** A
 skill interviews, proposes, writes prose and grooms beads; it never builds a worktree or a
 file layout by hand, because the CLI does that and is tested. Each skill is started by name

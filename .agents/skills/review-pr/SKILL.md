@@ -85,7 +85,9 @@ Read the PR body and every changed file. Then go through it for:
 From cheapest to most expensive:
 
 1. **Run what the PR adds**, on real data, in every mode it has. Do the numbers in the PR
-   body reproduce? Does each exit code mean what its doc says?
+   body reproduce? Does each exit code mean what its doc says? Run each probe in AGENTS.md's
+   "Real-data probes" that the PR could affect, and quote what it prints. If that section is
+   empty and the PR has a real target, say so in the review: the author adds the first row.
 2. **Probe checks adversarially**: throwaway scripts that build inputs which should be
    rejected, one variation each, from a real artifact where there is one. **A bad input
    that passes is a finding**, and the probe's input and output are its evidence on the PR.
@@ -127,6 +129,10 @@ acceptance, the plan's row or non-goal, the file it duplicates):
   track, is a priority call: say so, and tell the human.
 - Is it redundant with code or docs that already exist?
 - Is there prose where a check belongs: a rule a machine could check, written as a sentence?
+- Does a decision it adds to DECISIONS.md earn its slot, by the merit test in that file's
+  header: name the tempting wrong fix it guards against, or why no test can express it. One
+  that fails the test is a blocker: it belongs in the code, a test or a comment. Does one it
+  retires leave its reason in the test that enforces it?
 
 Then what was run and what came out, the blockers, the nits with no line, and what looked
 good. Use `COMMENT`: GitHub refuses approve and request-changes on your own

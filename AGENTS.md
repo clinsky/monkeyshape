@@ -60,6 +60,17 @@ where the two differ.
 - The code blocks in `docs/adopting.md` are the consumer test's fixture, and the README's
   `$ mshape check` block its expected output: edit both as code.
 
+## Real-data probes
+
+What a reviewer runs, beyond the gate, to see a change work. `review-pr` runs each that the
+PR could affect, in its review worktree; quote what each prints in the review.
+
+| Probe | How | Expect |
+|---|---|---|
+| This repo | `bun src/cli/main.ts check` | passes, every line as on `main` but what the PR changes |
+| A born repo | in a scratch directory, `bun <worktree>/src/cli/main.ts init born`, then `bun run check` in `born/` | green |
+| An adopter | a scratch clone of an adopter on this machine (the maintainer says which; never name it on GitHub), then `bun <worktree>/src/cli/main.ts check` there | the same outcome as `main`'s CLI there, but what the PR changes |
+
 ## Adding a rule
 
 One file in `src/core/rules/`, one entry in `registry.ts`, and `test/rules/<id>.test.ts` with
