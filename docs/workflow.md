@@ -49,10 +49,8 @@ Everything else has one home too:
 - A rule a machine can check is **a check**, whose message gives the reason and the fix. A
   domain invariant is **a test named after it**. The local reason for some code is **a
   comment at that code**.
-- **DECISIONS.md** holds only live decisions worth their budget: a surprising external fact
-  that was measured, or a choice between real alternatives that would be expensive to undo.
-  The best entries name the tempting wrong fix. A feature design isn't one; it goes in the
-  code.
+- **DECISIONS.md** holds only live decisions worth their budget. Its header says what earns
+  an entry and how one is added or retired; agents read it there.
 - **Notes** are immutable: write a new one instead of updating an old one. A lesson that
   should apply going forward is promoted to a check, a test or a decision.
 

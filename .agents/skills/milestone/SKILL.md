@@ -91,7 +91,10 @@ charter, a reviewer's "Fit" and the next retrospective all read them, so none is
 - Close, defer or rewrite every open story the milestone doesn't need, with a reason. A
   story deferred out of the milestone drops its `track:` label.
 - P1 is the critical path only.
-- Re-verify each bd memory (`bd memories`) against the code; rewrite or delete stale ones.
+- Each bd memory (`bd memories`): re-verify it against the code, then promote it to a
+  check, a test, an AGENTS.md gotcha or a decision (by the merit test in DECISIONS.md's
+  header), or delete it with `bd forget <key>`. Keep one only if it is still true and has
+  no better home yet, and say why in the PR.
 - Every `TODO(<bead id>)` in code whose bead is now closed: fix it or re-point it.
 
 ## 6. Garden
