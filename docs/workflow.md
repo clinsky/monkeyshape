@@ -108,10 +108,11 @@ was already sent with `mshape msg`.
 ## Pull requests and review
 
 - Agents commit, push and open PRs; the human merges. A track has one PR open at a time, from
-  its branch. Batch a track's beads into PRs of one theme, typically 1k to 2.5k changed
-  lines: many small PRs cost more review than a few large ones. That is a default for
-  batching, not a gate: a small PR is fine when it unblocks work or keeps docs in step with
-  code.
+  its branch, and while it is in review that branch takes only commits that answer the
+  review; the next work waits on a local branch until it merges. Batch a track's beads into
+  PRs of one theme, typically 1k to 2.5k changed lines: many small PRs cost more review than
+  a few large ones. That is a default for batching, not a gate: a small PR is fine when it
+  unblocks another track or ends one.
 - The PR body says what changed and why, the evidence on real data, the gate output, the bug
   class a new check closes, what is not done, and the beads it works on: the sections of the
   repo's `.github/pull_request_template.md`, which `mshape init` writes from `PR_SECTIONS`.

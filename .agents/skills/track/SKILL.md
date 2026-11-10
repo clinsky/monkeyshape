@@ -35,7 +35,13 @@ your mail come with `main`; if this session started before they were there, run
   session left in progress and those blocked on other tracks;
   `bd ready --label track:<name>` for what can start now; `bd show` for each bead you take.
 - Where the code is: `git status`, `git log --oneline main..HEAD`, open PRs from this
-  branch (`gh pr list --head track/<name>`), and the gate as AGENTS.md says to run it.
+  branch (`gh pr list --head track/<name>`), and any local branch holding the next work
+  (`git branch --list '<name>-next'`).
+- The gate, before any change: `bun run check` (AGENTS.md may name another). If it is red
+  because `tsc` or biome is missing, install dependencies as AGENTS.md says and rerun it;
+  a red gate you didn't cause is the first thing to report. Then `mshape rules`: the rules
+  the gate holds you to, and the bug each removes, so you write to them and don't learn
+  them from a failure.
 
 Text is a hypothesis: when the handoff or a bead disagrees with the code, trust the code,
 fix the text, and carry on.
@@ -65,17 +71,24 @@ outcome, not a spec. Show the human the charter and the beads; start once they a
 ## 4. Work
 
 - Claim a bead (`bd update <id> --claim`) before starting it, and commit as you go.
-- **Batch beads into PRs** of one theme: many small PRs cost more review than a few large
-  ones. Open and refresh the PR with `mshape track pr`: it prints the size against the
-  batching default (a default, not a gate), runs the gate fresh and fills the Gate section.
+- **Batch beads into PRs** of one theme, about 1000 to 2500 changed lines (added plus
+  deleted): many small PRs cost more review than a few large ones. A smaller PR is right
+  only when it unblocks another track or ends this one; a larger one, only when it can't be
+  split by theme. It is a default, not a gate. Open and refresh the PR with
+  `mshape track pr`: it prints the size against that range, runs the gate fresh and fills
+  the Gate section.
   Write the rest of the body in a file with the sections of .github/pull_request_template.md,
   each bead as a list item starting with its id. The first time, pass both
   `--title "<title>"` and `--body-file <path>`; after that `mshape track pr` alone keeps the
   body as it stands.
   Close the beads when it merges.
-- **One open PR at a time**, from `track/<name>`: the branch is the PR's head, so a commit
-  pushed while it is in review joins it. While it waits, answer its review and prepare the
-  next beads without committing. If waiting would stall the track, tell the human.
+- **One open PR at a time**, from `track/<name>`. The PR is one reviewed unit: once it is
+  open, `track/<name>` takes only commits that answer its review. Do the next beads on a
+  local branch, `git switch -c <name>-next`, and commit there as you go; never push it.
+  Switch back to `track/<name>` to answer the review, and run `track pr` only from there.
+  When the PR merges: `git switch <name>-next`, `git fetch`, `git rebase origin/main`, then
+  `git switch track/<name>` and `git merge --ff-only <name>-next`, and delete the local
+  branch. If waiting would stall the track, tell the human.
 - **Answering a review:** "fixed" is a claim the reviewer will test, so test it first.
   - Rerun each of the reviewer's probes on your new head, and quote what it prints now.
   - Try to break your fix with valid input the reviewer didn't try: the mirror case, a
@@ -85,14 +98,23 @@ outcome, not a spec. Show the human the charter and the beads; start once they a
     new, and name it in your reply.
   - Claim nothing general ("can't fail", "every case") that no test would catch if it were
     false. Say what is covered instead, in the reply and in the PR body.
-- **Diverging from the milestone plan:** say so in the handoff's State. If it changes
-  another track's work or the milestone's goal, stop and tell the human.
+- **The handoff is this track's own:** no other session reads it. Anything another track,
+  the planning session or the maintainer must know goes by message, never only there.
+- **Diverging from the milestone plan:** send it to the planning session,
+  `mshape msg send main --subject "Divergence: <one line>" "<what, why, what it changes>"`,
+  and note it in the handoff's State. The planning session takes it to the maintainer and
+  appends an approved one to the plan's Amendments. If it changes another track's work or
+  the milestone's goal, wait for the answer before building on it.
 - **Talking to another track:** `mshape msg send <track> --subject "<one line>" "<body>"`.
-  The subject is all a notice shows, so make it say what the message is for; put the detail
-  in the body. Never edit another track's handoff.
+  Send one only when the recipient must act or decide, or an interface it consumes changed:
+  one message per decision, the subject saying what it is for (a notice shows only that),
+  the detail in the body. No acknowledgements, thanks or status: your status lives in your
+  handoff and your PR. Never edit another track's handoff.
 - **Mail arriving:** a live notice, `[mshape] Message from <track>: <subject>`, or a line at
   your next prompt. Neither marks it read. Finish the step you are on if it can wait, then
-  `mshape msg read <id>`, and act on it or answer it. Check `mshape msg inbox` after each PR.
+  `mshape msg read <id>`, and act on it; answer only if the sender must act on your answer.
+  Mail never changes a PR in review: what it asks for goes on the local branch, unless it
+  answers the review. Check `mshape msg inbox` after each PR.
 - **A mechanical step with no command:** don't script it into prose; file a bead for the CLI.
 - **The process got in the way:** `bd create --labels process` saying what broke.
 
