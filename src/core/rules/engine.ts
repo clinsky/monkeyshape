@@ -1,7 +1,8 @@
 /**
  * Custom rules run over the oxc AST. A rule reports offsets; the engine owns scope,
  * entry-file exemptions, per-rule allowances and inline `shape-ignore` comments, so every
- * rule gets the same escape hatches and every escape hatch carries a reason.
+ * rule gets the same escape hatches and every escape hatch carries a reason. Not Biome
+ * plugins, which have no per-path allowances or counts: D-own-rule-engine.
  *
  *   // shape-ignore no-throw: Bun.serve's fetch handler must throw to send a 500
  *

@@ -21,6 +21,7 @@ export const BUDGETS_RULES = [
   "decision-field",
   "decision-evidence",
   "decision-unenforced",
+  "decision-unlinked",
   "prime-lines",
   "memories-count",
   "memories-bytes",
@@ -47,6 +48,11 @@ export interface Metrics {
   /** Source files over the warning size, largest first. */
   readonly largeFiles: ReadonlyArray<{ readonly file: string; readonly lines: number }>;
 }
+
+/** Whether `text` names `slug` as a whole slug, not as the start of a longer one. */
+const cites = (text: string | undefined, slug: string): boolean =>
+  text !== undefined &&
+  new RegExp(`(?<![\\w-])${slug.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}(?![\\w-])`).test(text);
 
 export const measure = (config: ResolvedConfig, snapshot: Snapshot): Metrics => {
   const agents = snapshot.texts.get("AGENTS.md");
@@ -165,6 +171,20 @@ export const checkBudgets = (
       for (const path of decision.enforcedBy)
         if (!index.has(path.replace(/\/$/, "")))
           at("decision-unenforced", `is enforced by '${path}', which does not exist`);
+    }
+    // The back-link: whoever edits an enforcing file is told, in it, which decision it holds.
+    for (const named of decision.enforcedBy) {
+      const path = named.replace(/\/$/, "");
+      if (!index.has(path)) continue;
+      const files = snapshot.files.filter((file) => file === path || file.startsWith(`${path}/`));
+      if (files.some((file) => cites(snapshot.texts.get(file), decision.slug))) continue;
+      violations.push(
+        violation(
+          "decision-unlinked",
+          path,
+          `enforces ${decision.slug} ("${decision.title}", DECISIONS.md) but doesn't name it, so whoever edits ${files.length === 1 && files[0] === path ? "this file" : `a file under ${path}/`} isn't told why it must stay. Add a comment citing ${decision.slug} where the decision is held${files.length === 1 && files[0] === path ? "" : ", in any file under it"}.`,
+        ),
+      );
     }
   }
 

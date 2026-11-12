@@ -1,3 +1,4 @@
+/** Checks run on in-memory Snapshots (`repo` in test/support.ts), never a temp repo: D-pure-checks. */
 import { describe, expect, test } from "bun:test";
 import { notices, prerequisites, runChecks, unevaluated } from "../../src/core/check.ts";
 import { applyBaseline, count, tighten } from "../../src/core/ratchet.ts";

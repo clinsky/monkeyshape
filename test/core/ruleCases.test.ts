@@ -219,11 +219,11 @@ const entry = (slug: string, overrides: Record<string, string> = {}): string => 
     .join("\n")}\n`;
 };
 
-/** A repo whose DECISIONS.md holds `entries`, with the file they're enforced by. */
+/** A repo whose DECISIONS.md holds `entries`, with the file they're enforced by, citing each. */
 const decisions = (...entries: ReadonlyArray<string>): Case => ({
   files: {
     ...AGENTS,
-    "test/a.test.ts": "",
+    "test/a.test.ts": `// ${entries.map((e) => /^## (\S+?):/.exec(e)?.[1] ?? "").join(" ")}\n`,
     "DECISIONS.md": `# Decisions\n\n${entries.join("\n")}`,
   },
 });
@@ -275,6 +275,23 @@ const budgets: Record<string, Cases> = {
       entry("D-one", { "Enforced by": "`test/a.test.ts` (its second case)" }),
       entry("D-two", { "Enforced by": "none", Evidence: "policy" }),
     ),
+  },
+  "budgets/decision-unlinked": {
+    fail: {
+      files: {
+        ...AGENTS,
+        "test/a.test.ts": "// enforced here, but which decision?\n",
+        "DECISIONS.md": `# Decisions\n\n${entry("D-one")}`,
+      },
+    },
+    pass: {
+      files: {
+        ...AGENTS,
+        "test/a/one.test.ts": "// Held here: D-one.\n",
+        "test/a/two.test.ts": "",
+        "DECISIONS.md": `# Decisions\n\n${entry("D-one", { "Enforced by": "test/a/ (either file)" })}`,
+      },
+    },
   },
   "budgets/prime-lines": {
     fail: { files: { ...AGENTS, [PRIME_FILE]: lines(PRIME_LINES + 1) } },
