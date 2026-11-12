@@ -188,3 +188,65 @@ export const reviewDecision = (
     note: `note: no review of #${facts.pr} is in progress on this machine; a reviewer on another machine can't be seen from here`,
   };
 };
+
+/** The commit the Gate section says it ran on: `# at <sha>, run by mshape track pr`. */
+export const gatedCommit = (body: string): string | undefined =>
+  /# at ([0-9a-f]{7,40}), run by mshape track pr/.exec(
+    parsePrBody(body).find((section) => section.name === "Gate")?.text ?? "",
+  )?.[1];
+
+/**
+ * `--body-only`: the body may change without a push or a gate only while the Gate section is
+ * still true, so the branch's tip, the PR's head and the commit the Gate section names are one.
+ */
+export const bodyOnlyProblem = (facts: {
+  readonly tip: string;
+  readonly head: string;
+  readonly gated: string | undefined;
+}): string | undefined => {
+  if (facts.gated === undefined)
+    return "--body-only keeps the Gate section, and the PR's body has none written by track pr: run track pr without --body-only";
+  if (!facts.tip.startsWith(facts.gated) || facts.head !== facts.tip)
+    return `--body-only would leave the Gate section false: it ran on ${facts.gated}, the PR's head is ${facts.head.slice(0, 12)} and the branch's tip ${facts.tip.slice(0, 12)}. Run track pr without --body-only to gate and push the tip`;
+  return undefined;
+};
+
+/** The warning when the tip is behind the branch it merges into, or conflicts with it. */
+export const behindWarning = (facts: {
+  readonly target: string;
+  readonly behind: number;
+  /** Files that conflict when merging the target in; undefined when git couldn't say. */
+  readonly conflicts: ReadonlyArray<string> | undefined;
+}): string | undefined => {
+  if (facts.behind === 0) return undefined;
+  const conflict =
+    facts.conflicts === undefined || facts.conflicts.length === 0
+      ? ""
+      : `, and conflicts with it in ${facts.conflicts.slice(0, 5).join(", ")}${facts.conflicts.length > 5 ? ", ..." : ""}`;
+  return `warning: the branch is ${facts.behind} commit${facts.behind === 1 ? "" : "s"} behind \`${facts.target}\`${conflict}. Merge it in (\`git merge ${facts.target}\`) when the review allows, so CI tests what will merge`;
+};
+
+/** A CI check run on a commit, as GitHub's check-runs API lists it. */
+export interface CheckRun {
+  readonly name: string;
+  readonly status: string;
+  readonly conclusion: string | null;
+}
+
+/** Where CI is on a commit: still running, or done with what passed and what didn't. */
+export const ciState = (
+  runs: ReadonlyArray<CheckRun>,
+):
+  | { readonly kind: "none" }
+  | { readonly kind: "running"; readonly pending: ReadonlyArray<string> }
+  | { readonly kind: "done"; readonly failed: ReadonlyArray<string>; readonly lines: string } => {
+  if (runs.length === 0) return { kind: "none" };
+  const pending = runs.filter((run) => run.status !== "completed").map((run) => run.name);
+  if (pending.length > 0) return { kind: "running", pending };
+  const ok = new Set(["success", "neutral", "skipped"]);
+  const failed = runs
+    .filter((run) => !ok.has(run.conclusion ?? ""))
+    .map((run) => `${run.name} (${run.conclusion ?? "no conclusion"})`);
+  const lines = runs.map((run) => `  ${run.name}: ${run.conclusion}`).join("\n");
+  return { kind: "done", failed, lines };
+};

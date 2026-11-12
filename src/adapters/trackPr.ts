@@ -12,7 +12,7 @@ import { mkdir, mkdtemp, readdir, realpath, rm, writeFile } from "node:fs/promis
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { Clock, Effect } from "effect";
-import { GATE_COMMAND, GATE_SCRIPT, prSizeNote } from "../core/conventions.ts";
+import { GATE_COMMAND, GATE_SCRIPT, parsePrBody, prSizeNote } from "../core/conventions.ts";
 import {
   MAIN_BRANCH,
   reviewAddress,
@@ -22,9 +22,14 @@ import {
   worktreePath,
 } from "../core/layout.ts";
 import {
+  behindWarning,
+  bodyOnlyProblem,
+  type CheckRun,
   changedLines,
+  ciState,
   failingTests,
   gateCheckoutPath,
+  gatedCommit,
   gateLogPath,
   gateSection,
   gateTail,
@@ -244,6 +249,176 @@ const removeCheckout = (repo: string, path: string) =>
     yield* git(repo, ["worktree", "prune"]);
   });
 
+/** How often to poll CI, and how long to wait for it to start and to finish. */
+export interface CiTiming {
+  readonly pollMs: number;
+  readonly startMs: number;
+  readonly limitMs: number;
+}
+
+export const CI_TIMING: CiTiming = { pollMs: 15_000, startMs: 180_000, limitMs: 3_600_000 };
+
+/** Fails naming the beads `bd` doesn't know; a missing `bd` is a note. */
+const checkBeads = (
+  repo: string,
+  beads: ReadonlyArray<string>,
+  say: (line: string) => Effect.Effect<void>,
+) =>
+  Effect.gen(function* () {
+    const unknown: Array<string> = [];
+    for (const id of beads) {
+      const shown = yield* spawn(repo, ["bd", "show", id, "--json"]);
+      if (shown.missing) {
+        yield* say("note: `bd` is not on PATH, so the listed beads weren't checked");
+        break;
+      }
+      if (shown.code !== 0) unknown.push(id);
+    }
+    if (unknown.length > 0)
+      return yield* refuse(
+        `the Beads section lists ${unknown.map((id) => `\`${id}\``).join(", ")}, which bd doesn't know: fix the id, or file the bead first. Nothing was pushed or posted`,
+      );
+  });
+
+/** The warning when `tip` is behind `target`, naming the files a merge would conflict in. */
+const behind = (repo: string, tip: string, target: string) =>
+  Effect.gen(function* () {
+    const count = yield* git(repo, ["rev-list", "--count", `${tip}..${target}`]);
+    const commits = Number(count.stdout.trim());
+    if (count.code !== 0 || !Number.isInteger(commits) || commits === 0) return undefined;
+    // Exit 1 lists the conflicted files after the tree; anything else, git couldn't say.
+    const merged = yield* git(repo, [
+      "merge-tree",
+      "--write-tree",
+      "--name-only",
+      "--no-messages",
+      tip,
+      target,
+    ]);
+    const conflicts =
+      merged.code === 0
+        ? []
+        : merged.code === 1
+          ? merged.stdout
+              .split("\n")
+              .slice(1)
+              .filter((line) => line.trim() !== "")
+          : undefined;
+    return behindWarning({
+      target: target.replace(/^refs\/(?:remotes|heads)\//, ""),
+      behind: commits,
+      conflicts,
+    });
+  });
+
+/**
+ * Opens the PR or updates its body (and title); the PR's URL. A failure says whether a PR is
+ * open now, since gh sometimes fails after GitHub acted, so nothing is posted twice.
+ */
+const publish = (
+  top: string,
+  branch: string,
+  existing: OpenPr | undefined,
+  title: string | undefined,
+  body: string,
+) =>
+  Effect.gen(function* () {
+    const dir = yield* Effect.promise(() => mkdtemp(join(tmpdir(), "mshape-pr-")));
+    const file = join(dir, "body.md");
+    yield* Effect.promise(() => writeFile(file, body));
+    // An update goes through REST: `gh pr edit` fails on some gh versions, since GitHub
+    // retired the Projects (classic) field it asks for.
+    const posted = existing
+      ? yield* spawn(top, [
+          "gh",
+          "api",
+          "--method",
+          "PATCH",
+          `repos/{owner}/{repo}/pulls/${existing.number}`,
+          "-F",
+          `body=@${file}`,
+          ...(title === undefined ? [] : ["-f", `title=${title}`]),
+        ])
+      : yield* spawn(top, [
+          "gh",
+          "pr",
+          "create",
+          "--base",
+          MAIN_BRANCH,
+          "--head",
+          branch,
+          "--title",
+          title ?? "",
+          "--body-file",
+          file,
+        ]);
+    yield* Effect.promise(() => rm(dir, { recursive: true, force: true }));
+    if (posted.code !== 0) {
+      const now = yield* openPr(top, branch).pipe(Effect.orElseSucceed(() => undefined));
+      return yield* refuse(
+        `${existing ? `updating PR #${existing.number}` : "`gh pr create`"} failed: ${posted.stderr || `exit ${posted.code}`}. ${
+          now === undefined
+            ? "No PR is open from the branch."
+            : `A PR is open now (${now.url}): look at it before running track pr again.`
+        }`,
+      );
+    }
+    return existing?.url ?? posted.stdout.trim().split("\n").at(-1) ?? "";
+  });
+
+/**
+ * `--wait`: polls the check runs on `sha` until every one has finished; `done` and CI's
+ * outcome, or a failure naming the checks that didn't pass. gh 2.4 has no `pr checks --watch`.
+ */
+export const awaitCi = (
+  cwd: string,
+  sha: string,
+  done: string,
+  timing: CiTiming,
+  say: (line: string) => Effect.Effect<void>,
+) =>
+  Effect.gen(function* () {
+    yield* say(`waiting for CI on ${sha.slice(0, 12)}`);
+    const started = yield* Clock.currentTimeMillis;
+    for (;;) {
+      const listed = yield* spawn(cwd, [
+        "gh",
+        "api",
+        `repos/{owner}/{repo}/commits/${sha}/check-runs`,
+        "--paginate",
+        "-q",
+        ".check_runs[] | {name, status, conclusion} | @json",
+      ]);
+      if (listed.code !== 0)
+        return yield* refuse(
+          `${done}; but CI's checks on ${sha.slice(0, 12)} couldn't be read: ${listed.stderr || `exit ${listed.code}`}`,
+        );
+      const runs = yield* Effect.try({
+        try: () =>
+          listed.stdout
+            .split("\n")
+            .filter((line) => line.trim() !== "")
+            .map((line) => JSON.parse(line) as CheckRun),
+        catch: () => undefined,
+      }).pipe(Effect.orElseSucceed(() => [] as Array<CheckRun>));
+      const state = ciState(runs);
+      const waited = (yield* Clock.currentTimeMillis) - started;
+      if (state.kind === "done")
+        return state.failed.length === 0
+          ? `${done}\nCI passed on ${sha.slice(0, 12)}:\n${state.lines}`
+          : yield* refuse(
+              `${done}; but CI failed on ${sha.slice(0, 12)}: ${state.failed.join(", ")}\n${state.lines}`,
+            );
+      if (state.kind === "none" && waited >= timing.startMs)
+        return `${done}\nnote: no CI check started on ${sha.slice(0, 12)} within ${Math.round(timing.startMs / 1000)}s, so there is nothing to wait for`;
+      if (waited >= timing.limitMs)
+        return yield* refuse(
+          `${done}; but CI hadn't finished on ${sha.slice(0, 12)} after ${Math.round(timing.limitMs / 1000)}s (still running: ${state.kind === "running" ? state.pending.join(", ") : "none listed"})`,
+        );
+      yield* Effect.sleep(timing.pollMs);
+    }
+  });
+
 export const trackPr = (
   cwd: string,
   options: {
@@ -256,6 +431,10 @@ export const trackPr = (
     readonly configDir: string;
     /** Claude Code's config directory, where it records the sessions a review runs in. */
     readonly claudeDir: string;
+    /** Edit the body only: no push and no gate, refused unless the Gate section still holds. */
+    readonly bodyOnly?: boolean;
+    /** Wait for CI on the pushed commit after posting, and fail when it fails. */
+    readonly wait?: CiTiming;
   },
   say: (line: string) => Effect.Effect<void>,
 ) =>
@@ -293,6 +472,53 @@ export const trackPr = (
         `no PR is open from \`${branch}\`: opening one needs --title "<title>" and --body-file <path>, a body with every section of .github/pull_request_template.md; track pr fills the Gate section itself`,
       );
     yield* waitOutReview(top, common, existing, options.claudeDir, say);
+    if (options.bodyOnly) {
+      if (existing === undefined)
+        return yield* refuse(
+          `--body-only edits an open PR's body, and no PR is open from \`${branch}\`: open one with --title and --body-file`,
+        );
+      const head = yield* spawn(top, [
+        "gh",
+        "api",
+        `repos/{owner}/{repo}/pulls/${existing.number}`,
+        "-q",
+        ".head.sha",
+      ]);
+      if (head.code !== 0 || head.stdout.trim() === "")
+        return yield* refuse(
+          `--body-only needs the PR's head to tell whether its Gate section still holds, and \`gh api\` couldn't say (${head.stderr || `exit ${head.code}`}). Nothing was posted`,
+        );
+      const problem = bodyOnlyProblem({
+        tip,
+        head: head.stdout.trim(),
+        gated: gatedCommit(existing.body),
+      });
+      if (problem !== undefined) return yield* refuse(`${problem}. Nothing was posted`);
+      const kept =
+        parsePrBody(existing.body).find((section) => section.name === "Gate")?.text ?? "";
+      const plan = planPrBody(options.body ?? existing.body, kept);
+      if ("problems" in plan)
+        return yield* refuse(
+          ["the body isn't ready, so nothing was posted:", ...plan.problems].join("\n  "),
+        );
+      const note = yield* guard(
+        top,
+        options.configDir,
+        {
+          commits: [],
+          texts: [
+            ...(options.title === undefined ? [] : [{ name: "the PR title", text: options.title }]),
+            { name: "the PR body", text: plan.body },
+          ],
+        },
+        "nothing was posted",
+      );
+      if (note !== undefined) yield* say(note);
+      yield* checkBeads(repo, plan.beads, say);
+      const url = yield* publish(top, branch, existing, options.title, plan.body);
+      const done = `updated ${url}: the body only, with no push and no gate; the Gate section is still the run on ${tip.slice(0, 12)}`;
+      return options.wait === undefined ? done : yield* awaitCi(top, tip, done, options.wait, say);
+    }
 
     const unfetched = yield* fetchUpstream(repo, options.fetchEnv);
     if (unfetched !== undefined) yield* say(`note: ${unfetched}`);
@@ -304,6 +530,8 @@ export const trackPr = (
     ]);
     const lines = changedLines(yield* gitOk(repo, ["diff", "--shortstat", base, tip]));
     yield* say(prSizeNote(lines));
+    const warning = yield* behind(repo, tip, targets[targets.length - 1] ?? MAIN_BRANCH);
+    if (warning !== undefined) yield* say(warning);
 
     // Before the slow gate, and after the fetch, so the remote refs say what is published.
     const remote =
@@ -359,19 +587,7 @@ export const trackPr = (
       { commits: [], texts: [{ name: "the PR body", text: plan.body }] },
       "nothing was pushed or posted",
     );
-    const unknown: Array<string> = [];
-    for (const id of plan.beads) {
-      const shown = yield* spawn(repo, ["bd", "show", id, "--json"]);
-      if (shown.missing) {
-        yield* say("note: `bd` is not on PATH, so the listed beads weren't checked");
-        break;
-      }
-      if (shown.code !== 0) unknown.push(id);
-    }
-    if (unknown.length > 0)
-      return yield* refuse(
-        `the Beads section lists ${unknown.map((id) => `\`${id}\``).join(", ")}, which bd doesn't know: fix the id, or file the bead first. Nothing was pushed or posted`,
-      );
+    yield* checkBeads(repo, plan.beads, say);
 
     // Again: a review can start while the gate runs.
     yield* waitOutReview(top, common, existing, options.claudeDir, () => Effect.void);
@@ -394,51 +610,9 @@ export const trackPr = (
         `note: \`${branch}\` moved to ${now.slice(0, 12)} while the gate ran; pushed ${tip.slice(0, 12)}, the commit it gated. Run track pr again to gate and push the rest`,
       );
 
-    const dir = yield* Effect.promise(() => mkdtemp(join(tmpdir(), "mshape-pr-")));
-    const file = join(dir, "body.md");
-    yield* Effect.promise(() => writeFile(file, plan.body));
-    // An update goes through REST: `gh pr edit` fails on some gh versions, since GitHub
-    // retired the Projects (classic) field it asks for.
-    const posted = existing
-      ? yield* spawn(top, [
-          "gh",
-          "api",
-          "--method",
-          "PATCH",
-          `repos/{owner}/{repo}/pulls/${existing.number}`,
-          "-F",
-          `body=@${file}`,
-          ...(options.title === undefined ? [] : ["-f", `title=${options.title}`]),
-        ])
-      : yield* spawn(top, [
-          "gh",
-          "pr",
-          "create",
-          "--base",
-          MAIN_BRANCH,
-          "--head",
-          branch,
-          "--title",
-          options.title ?? "",
-          "--body-file",
-          file,
-        ]);
-    yield* Effect.promise(() => rm(dir, { recursive: true, force: true }));
-    if (posted.code !== 0) {
-      // gh sometimes fails after GitHub acted: say what is there now, so nothing is posted twice.
-      const now = yield* openPr(top, branch).pipe(Effect.orElseSucceed(() => undefined));
-      return yield* refuse(
-        `${existing ? `updating PR #${existing.number}` : "`gh pr create`"} failed: ${posted.stderr || `exit ${posted.code}`}. ${
-          now === undefined
-            ? "No PR is open from the branch."
-            : `A PR is open now (${now.url}): look at it before running track pr again.`
-        }`,
-      );
-    }
-    const url = existing?.url ?? posted.stdout.trim().split("\n").at(-1) ?? "";
-    return [
-      existing
-        ? `updated ${url}: the Gate section is from this run; every other section is ${options.body === undefined ? "as it was" : "from --body-file"}`
-        : `opened ${url}`,
-    ].join("\n");
+    const url = yield* publish(top, branch, existing, options.title, plan.body);
+    const done = existing
+      ? `updated ${url}: the Gate section is from this run; every other section is ${options.body === undefined ? "as it was" : "from --body-file"}`
+      : `opened ${url}`;
+    return options.wait === undefined ? done : yield* awaitCi(top, tip, done, options.wait, say);
   });
