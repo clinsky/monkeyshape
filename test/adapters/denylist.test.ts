@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { chmod, mkdir, mkdtemp, realpath, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { REVIEW_MARKER } from "../../src/core/trackPr.ts";
 
 const CLI = join(import.meta.dir, "..", "..", "src", "cli", "main.ts");
 let base = "";
@@ -152,7 +153,12 @@ describe("mshape review post", () => {
     const ok = mshape(undefined, "review", "post", "3", "review.json");
     expect(ok.code).toBe(0);
     expect(ok.stdout).toBe("posted https://example.test/pr/3#review-1");
-    expect((await posted()).split("\n").filter(Boolean)).toHaveLength(1);
+    const sent = (await posted()).split("\n").filter(Boolean);
+    expect(sent).toHaveLength(1);
+    // Marked, so track pr can tell it from the author's replies; the rest is as written.
+    const sentReview = JSON.parse(sent[0] ?? "{}");
+    expect(sentReview.body).toBe(`Fit: fine\n\n${REVIEW_MARKER}`);
+    expect(sentReview.comments[0].body).toBe("a nit");
   });
 
   test("with no denylist, it posts with the note", async () => {

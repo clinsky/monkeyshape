@@ -55,14 +55,20 @@ const fetchHead = (repo: string, pr: string) =>
  * `tracks.sharedPaths` linked into the review's worktree, after a create or a move alike: a path
  * the head tracks is the PR's own (git put it there) and only noted; a missing link is made.
  */
-const linkShared = (repo: string, path: string, pr: string, shared: ReadonlyArray<string>) =>
+export const linkShared = (
+  repo: string,
+  path: string,
+  /** What the checkout holds, for its notes: `the head of #12`. */
+  what: string,
+  shared: ReadonlyArray<string>,
+) =>
   Effect.gen(function* () {
     const said: Array<string> = [];
     for (const entry of shared) {
       const target = `${repo}/${entry}`;
       if ((yield* git(path, ["cat-file", "-e", `HEAD:${entry}`])).code === 0)
         said.push(
-          `note: shared path \`${entry}\` is tracked at the head of #${pr}; not linked. A shared path must be gitignored, never tracked`,
+          `note: shared path \`${entry}\` is tracked at ${what}; not linked. A shared path must be gitignored, never tracked`,
         );
       else if (yield* lexists(`${path}/${entry}`)) continue;
       else if (!(yield* lexists(target)))
@@ -79,7 +85,7 @@ const linkShared = (repo: string, path: string, pr: string, shared: ReadonlyArra
  * The handoffs linked in as `.handoffs`, as in every checkout, so a review reads the charter of
  * the track the PR comes from. A repo with no handoffs store yet has none to read.
  */
-const linkHandoffs = (common: string, repo: string, path: string) =>
+export const linkHandoffs = (common: string, repo: string, path: string) =>
   Effect.gen(function* () {
     const link = `${path}/${HANDOFFS_LINK}`;
     const store = handoffsStore(common);
@@ -140,7 +146,7 @@ export const reviewNew = (
       const before = yield* gitOk(path, ["rev-parse", "HEAD"]);
       yield* resetTo(path, head, say);
       const linked = [
-        ...(yield* linkShared(repo, path, pr, shared)),
+        ...(yield* linkShared(repo, path, `the head of #${pr}`, shared)),
         ...(yield* linkHandoffs(common, repo, path)),
       ];
       return [
@@ -161,7 +167,10 @@ export const reviewNew = (
     yield* gitOk(repo, ["worktree", "add", "--quiet", "--detach", path, head]);
     const created = `created ${path} at the head of #${pr}: ${head}`;
     const linked = yield* Effect.map(
-      Effect.zip(linkShared(repo, path, pr, shared), linkHandoffs(common, repo, path)),
+      Effect.zip(
+        linkShared(repo, path, `the head of #${pr}`, shared),
+        linkHandoffs(common, repo, path),
+      ),
       ([sharedLinks, handoffLinks]) => [...sharedLinks, ...handoffLinks],
     ).pipe(
       Effect.catch((error) =>
