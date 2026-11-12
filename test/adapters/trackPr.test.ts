@@ -88,6 +88,16 @@ if (args[1] === "list") {
     process.exit(1);
   }
 }
+else if (args[0] === "api" && (args[1] ?? "").endsWith("/check-runs")) {
+  // CI's check runs: checks.json, or the next of checks-<n>.json on each call.
+  if (flag("-q") !== ".check_runs[] | {id, name, status, conclusion} | @json") { console.error("fake gh: unmodelled query"); process.exit(1); }
+  const count = Bun.file(dir + "/polls");
+  const n = (await count.exists()) ? Number(await count.text()) : 0;
+  await Bun.write(count, String(n + 1));
+  const staged = Bun.file(dir + "/checks-" + n + ".json");
+  const file = (await staged.exists()) ? staged : Bun.file(dir + "/checks.json");
+  if (await file.exists()) for (const run of JSON.parse(await file.text())) console.log(JSON.stringify(run));
+}
 else if (args[1] === "create") {
   if (await Bun.file(dir + "/fail").exists()) { console.error("HTTP 502"); process.exit(1); }
   const pr = { number: 7, url: "https://example.test/pr/7", title: flag("--title"), body: await Bun.file(flag("--body-file")).text() };
@@ -491,6 +501,181 @@ describe("track pr: the branch tip, and a review in progress", () => {
     expect(
       await Bun.file(join(repo, ".agents", "worktrees", "repo.gate-docs", "page.md")).exists(),
     ).toBe(false);
+  });
+});
+
+const checks = (name: string, runs: ReadonlyArray<object>) =>
+  writeFile(`${gh}/${name}`, JSON.stringify(runs));
+
+// The plan's --body-only and behind rows, and --wait.
+describe("track pr: --body-only, behind main, --wait", () => {
+  test("--body-only with the tip unchanged since the gate: edits the body, no push, no gate", async () => {
+    await writeFile(`${wt()}/body.md`, body("First."));
+    expect(mshape(wt(), "pr", "--title", "t", "--body-file", "body.md").code).toBe(0);
+    const gate = (await pr()).body.split("## Gate")[1].split("## ")[0];
+    await writeFile(`${wt()}/body.md`, body("Reworded while the PR waits."));
+    const edited = mshape(wt(), "pr", "--body-only", "--body-file", "body.md");
+    expect(edited.code).toBe(0);
+    expect(edited.stderr).not.toContain("running the gate");
+    expect(edited.stdout).toContain("the body only, with no push and no gate");
+    const after = await pr();
+    expect(after.body).toContain("Reworded while the PR waits.");
+    expect(after.body.split("## Gate")[1].split("## ")[0]).toBe(gate);
+  });
+
+  test("--body-only with the tip moved: refused, since the Gate section would be false", async () => {
+    await writeFile(`${wt()}/body.md`, body("First."));
+    expect(mshape(wt(), "pr", "--title", "t", "--body-file", "body.md").code).toBe(0);
+    const pushed = remoteTip();
+    await commitFile("more.md", "more\n", "more");
+    const refused = mshape(wt(), "pr", "--body-only", "--body-file", "body.md");
+    expect(refused.code).toBe(1);
+    expect(refused.stderr).toContain("--body-only would leave the Gate section false");
+    expect(refused.stderr).toContain("Nothing was posted");
+    expect(remoteTip()).toBe(pushed);
+    expect((await pr()).body).toContain("First.");
+  });
+
+  test("--body-only with no PR open: refused", async () => {
+    await writeFile(`${wt()}/body.md`, body("x"));
+    expect(mshape(wt(), "pr", "--body-only", "--body-file", "body.md").stderr).toContain(
+      "no PR is open from `track/docs`",
+    );
+  });
+
+  test("behind main: pushes, warning how far; conflicting: names the files", async () => {
+    await writeFile(join(repo, "other.md"), "main's\n");
+    sh(repo, "add", ".");
+    sh(repo, "commit", "-qm", "main moves");
+    sh(repo, "push", "-q", "origin", "main");
+    await writeFile(`${wt()}/body.md`, body("x"));
+    const behind = mshape(wt(), "pr", "--title", "t", "--body-file", "body.md");
+    expect(behind.code).toBe(0);
+    expect(behind.stderr).toContain("warning: the branch is 1 commit behind `origin/main`.");
+
+    await writeFile(join(repo, "page.md"), "main's own page\n");
+    sh(repo, "add", ".");
+    sh(repo, "commit", "-qm", "main writes the page too");
+    sh(repo, "push", "-q", "origin", "main");
+    await commitFile("more.md", "more\n", "more");
+    const conflicting = mshape(wt(), "pr");
+    expect(conflicting.code).toBe(0);
+    expect(conflicting.stderr).toContain(
+      "warning: the branch is 2 commits behind `origin/main`, and conflicts with it in page.md.",
+    );
+  });
+
+  test("up to date with main: no warning", async () => {
+    await writeFile(`${wt()}/body.md`, body("x"));
+    expect(mshape(wt(), "pr", "--title", "t", "--body-file", "body.md").stderr).not.toContain(
+      "warning:",
+    );
+  });
+
+  test("--wait returns CI's outcome: passed, or exit 1 naming the failed check", async () => {
+    await writeFile(`${wt()}/body.md`, body("x"));
+    // Before the post, the commit has no runs; after it, checks.json's.
+    await checks("checks-0.json", []);
+    await checks("checks.json", [
+      { id: 101, name: "check", status: "completed", conclusion: "success" },
+      { id: 102, name: "body", status: "completed", conclusion: "success" },
+    ]);
+    const passed = mshape(wt(), "pr", "--title", "t", "--body-file", "body.md", "--wait");
+    expect(passed.code).toBe(0);
+    expect(passed.stdout).toContain(
+      `CI passed on ${remoteTip().slice(0, 12)}:\n  body: success\n  check: success`,
+    );
+
+    await checks("checks.json", [
+      { id: 103, name: "check", status: "completed", conclusion: "failure" },
+      { id: 104, name: "body", status: "completed", conclusion: "success" },
+    ]);
+    await rm(`${gh}/polls`);
+    const failed = mshape(wt(), "pr", "--body-only", "--wait");
+    expect(failed.code).toBe(1);
+    expect(failed.stderr).toContain("but CI failed on");
+    expect(failed.stderr).toContain("check (failure)");
+  });
+
+  /** `awaitCi` in a child process, its env pointing at the fake gh: stdout, or the failure. */
+  const awaitCiRun = async (
+    sha: string,
+    timing: object,
+    conflicts = false,
+    before: ReadonlyArray<number> = [],
+  ) => {
+    const script = join(base, "await.ts");
+    await writeFile(
+      script,
+      // By absolute path: the script is in a temp directory, with no node_modules above it.
+      `import { Effect } from ${JSON.stringify(Bun.resolveSync("effect", import.meta.dir))};
+import { awaitCi } from ${JSON.stringify(join(import.meta.dir, "..", "..", "src", "adapters", "trackPr.ts"))};
+const out = await Effect.runPromise(
+  awaitCi(process.cwd(), ${JSON.stringify(sha)}, new Set(${JSON.stringify(before)}), "updated", ${JSON.stringify(timing)}, (line) => Effect.sync(() => console.error(line)), ${conflicts}),
+);
+console.log(out);
+`,
+    );
+    // --no-install: as CI, where bun never fetches a missing package.
+    const result = Bun.spawnSync([process.execPath, "--no-install", script], {
+      cwd: wt(),
+      env: { ...process.env, PATH: `${bin}:/usr/bin:/bin`, FAKE_GH: gh },
+      stdout: "pipe",
+      stderr: "pipe",
+    });
+    return { stdout: result.stdout.toString().trim(), stderr: result.stderr.toString().trim() };
+  };
+
+  test("awaitCi polls until every check has finished", async () => {
+    await checks("checks-0.json", []);
+    await checks("checks-1.json", [
+      { id: 105, name: "check", status: "in_progress", conclusion: null },
+    ]);
+    await checks("checks-2.json", [
+      { id: 106, name: "check", status: "completed", conclusion: "success" },
+    ]);
+    const ran = await awaitCiRun("a".repeat(40), { pollMs: 5, startMs: 10_000, limitMs: 10_000 });
+    expect(ran).toEqual({
+      stdout: "updated\nCI passed on aaaaaaaaaaaa:\n  check: success",
+      stderr: "waiting for CI on aaaaaaaaaaaa",
+    });
+    expect(await Bun.file(`${gh}/polls`).text()).toBe("3");
+  });
+
+  test("awaitCi after a body edit: the old runs don't answer it; the rerun does (#80's real run)", async () => {
+    const old = { id: 1, name: "body", status: "completed", conclusion: "success" };
+    await checks("checks-0.json", [old]);
+    await checks("checks-1.json", [
+      old,
+      { id: 2, name: "body", status: "queued", conclusion: null },
+    ]);
+    await checks("checks-2.json", [
+      old,
+      { id: 2, name: "body", status: "completed", conclusion: "failure" },
+    ]);
+    const ran = await awaitCiRun(
+      "d".repeat(40),
+      { pollMs: 5, startMs: 10_000, limitMs: 10_000 },
+      false,
+      [1],
+    );
+    expect(ran.stderr).toContain("but CI failed on dddddddddddd: body (failure)");
+    expect(await Bun.file(`${gh}/polls`).text()).toBe("3");
+  });
+
+  test("awaitCi with no check starting: says so, and stops waiting", async () => {
+    const ran = await awaitCiRun("b".repeat(40), { pollMs: 5, startMs: 20, limitMs: 10_000 });
+    expect(`${ran.stdout}\n${ran.stderr}`).toContain("note: no CI check started on bbbbbbbbbbbb");
+    expect(ran.stdout).not.toContain("conflicts with main");
+    // As #80's real run hit: a PR that conflicts with main gets no CI at all.
+    const conflicting = await awaitCiRun(
+      "c".repeat(40),
+      { pollMs: 5, startMs: 20, limitMs: 10_000 },
+      true,
+    );
+    expect(conflicting.stdout).toContain(
+      "GitHub runs no pull_request workflow on a PR that can't merge: merge main in",
+    );
   });
 });
 

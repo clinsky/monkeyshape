@@ -32,7 +32,7 @@ import { runTool } from "../adapters/process.ts";
 import { packSource, packWorkingTree } from "../adapters/release.ts";
 import { reviewNew, reviewRm } from "../adapters/reviews.ts";
 import { syncAll } from "../adapters/sync.ts";
-import { trackPr } from "../adapters/trackPr.ts";
+import { CI_TIMING, trackPr } from "../adapters/trackPr.ts";
 import {
   type CarryMessages,
   currentTrackOf,
@@ -216,8 +216,11 @@ const trackPrCommand = (root: string, args: ReadonlyArray<string>) =>
       const at = args.indexOf(flag);
       return at === -1 ? undefined : args[at + 1];
     };
+    const switches = new Set(["--body-only", "--wait"]);
+    const valued = args.filter((arg) => !switches.has(arg));
     const known = new Set(["--title", "--body-file"]);
-    const pairs = args.length % 2 === 0 && args.every((arg, i) => i % 2 === 1 || known.has(arg));
+    const pairs =
+      valued.length % 2 === 0 && valued.every((arg, i) => i % 2 === 1 || known.has(arg));
     if (!pairs) return usage();
     const title = value("--title");
     const bodyFile = value("--body-file");
@@ -237,6 +240,8 @@ const trackPrCommand = (root: string, args: ReadonlyArray<string>) =>
         fetchEnv: { ...process.env, GIT_TERMINAL_PROMPT: "0" },
         configDir: configDir(),
         claudeDir: claudeDir(),
+        bodyOnly: args.includes("--body-only"),
+        ...(args.includes("--wait") ? { wait: CI_TIMING } : {}),
       },
       (line) => Effect.sync(() => console.error(line)),
     );
@@ -841,7 +846,7 @@ export const COMMANDS: ReadonlyArray<Command> = [
       printed is the track's worktree, where the session then works. Refuses an unknown track,
       or a session Claude Code didn't identify. A new session id (/clear, a fresh start)
       registers by its directory again.
-  mshape track pr [--title <title>] [--body-file <path>]
+  mshape track pr [--title <title>] [--body-file <path>] [--body-only] [--wait]
       From a track's worktree, whatever branch it has checked out: prints the PR's size
       against the batching default, runs the gate on a clean checkout of track/<name>'s tip,
       pushes that tip and opens its PR (--title and --body-file needed) or updates it. Writes
@@ -851,7 +856,11 @@ export const COMMANDS: ReadonlyArray<Command> = [
       to track/<name>, a denylisted term in what it would send (see scan: the commits the
       remote lacks, their messages, added lines and paths, the title and body), a failing gate
       (naming its failing tests; the whole output is kept under .git/monkeyshape/gate/), a
-      missing required section or a bead bd doesn't know.
+      missing required section or a bead bd doesn't know. Warns when the tip is behind main,
+      naming the files a merge would conflict in. --body-only edits the body (and title)
+      with no push and no gate, keeping the Gate section; refused unless that section ran on
+      the tip and the tip is the PR's head. --wait then waits for CI on the commit and exits
+      1 when a check fails.
   mshape track pr --check-body
       Read a PR body on stdin; exit 1 naming the required sections it lacks (CI's pr.yml).
       track pr also needs each bead as a list item starting with its id, to check it with bd.
