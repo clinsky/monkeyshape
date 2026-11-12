@@ -378,6 +378,13 @@ const msgSend = (root: string, args: ReadonlyArray<string>) =>
       positional.length < (all ? 0 : 1)
     )
       return usage();
+    // A recipient left beside --all would otherwise go to every track as the body.
+    const lone = all && before.length === 1 ? before[0] : undefined;
+    if (lone !== undefined && (yield* isAddress(root, lone)))
+      return {
+        output: `mshape msg send: \`${lone}\` reads as a recipient, and --all sends to every track. Drop --all to send to ${lone} alone, or drop \`${lone}\`; to send it as the body, put -- before it`,
+        code: 2,
+      };
     const [to = "", inline = ""] = all ? ["", ...positional] : positional;
     const body =
       bodyFile === undefined
@@ -416,6 +423,14 @@ const msgSend = (root: string, args: ReadonlyArray<string>) =>
       said.push(formatSent(message), formatDelivery(recipient, delivery));
     }
     return { output: said.join("\n"), code: 0 };
+  });
+
+/** Whether `word` names an address a message can go to: a track, `main` or a review. */
+const isAddress = (root: string, word: string) =>
+  Effect.gen(function* () {
+    if (word === "main" || /^review-\d+$/.test(word)) return true;
+    const { repo } = yield* locate(root);
+    return (yield* trackNames(repo)).includes(word);
   });
 
 /** `--all`'s recipients: every track, less the sender's own address. Refuses when none is left. */

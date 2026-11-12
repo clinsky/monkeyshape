@@ -191,6 +191,18 @@ describe("msg", () => {
 
   test("--all with a recipient, or with no other track, is refused", async () => {
     expect(mshape(repo, "msg", "send", "--all", "docs", "--subject", "s", "body").code).toBe(2);
+    // A recipient left beside --all, with no body: refused, never broadcast as the body.
+    for (const recipient of ["docs", "main", "review-12"]) {
+      const lone = mshape(repo, "msg", "send", recipient, "--all", "--subject", "s");
+      expect(lone.code).toBe(2);
+      expect(lone.stderr).toContain(`\`${recipient}\` reads as a recipient`);
+    }
+    expect(await files(mailbox("docs"))).toEqual([]);
+    // Meant as the body: after --, it is one.
+    const meant = mshape(repo, "msg", "send", "--all", "--subject", "s", "--", "docs");
+    expect(meant.code).toBe(0);
+    // Any other lone word is the body, as without --all.
+    expect(mshape(repo, "msg", "send", "--all", "--subject", "s", "shipped").code).toBe(0);
     expect(mshape(repo, "track", "rm", "tracks", "--force").code).toBe(0);
     const alone = mshape(wt("docs"), "msg", "send", "--all", "--subject", "s");
     expect(alone.code).toBe(1);
