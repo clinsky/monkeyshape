@@ -78,18 +78,15 @@ export const sharedPathProblems = (paths: ReadonlyArray<string>): ReadonlyArray<
   return problems.map((problem) => `tracks.sharedPaths in shape.config.ts: ${problem}`);
 };
 
-/** Why the directory `toplevel` is or is not a track: the name, or which check failed. */
+/**
+ * Why the directory `toplevel` is or is not a track: the name, or which check failed. The
+ * path names the track on any branch: while a PR is in review the next bead's work sits on a
+ * local branch in the same worktree, and its mail mustn't stop. `offBranch` says which.
+ */
 export const currentTrack = (
   repo: string,
   toplevel: string,
   worktrees: ReadonlyArray<Worktree>,
-  /**
-   * Whether the worktree must have `track/<name>` checked out. The worktree's path names the
-   * track, so its mail and `track current` don't depend on the branch: the next bead's work
-   * sits on a local branch there while a PR is in review. `track pr`, which pushes `HEAD`
-   * until it reads the branch's tip itself, still needs it.
-   */
-  onTrackBranch = false,
 ): { readonly track: string; readonly offBranch?: string } | { readonly reason: string } => {
   const track = trackOf(repo, toplevel);
   if (track === undefined)
@@ -103,7 +100,7 @@ export const currentTrack = (
     };
   if (registered.branch === trackBranch(track)) return { track };
   const offBranch = `${toplevel} is on ${registered.branch === undefined ? "a detached HEAD" : `branch \`${registered.branch}\``}, not \`${trackBranch(track)}\``;
-  return onTrackBranch ? { reason: offBranch } : { track, offBranch };
+  return { track, offBranch };
 };
 
 /** A bead that isn't closed, as `bd list --json` reports it. */

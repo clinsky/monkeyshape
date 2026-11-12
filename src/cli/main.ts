@@ -267,10 +267,10 @@ const track = (root: string, args: ReadonlyArray<string>) =>
     }
     if (sub === "current") {
       // The name alone on stdout, which skills read; another branch is said on stderr.
-      const found = yield* currentTrackOf(root, false);
+      const found = yield* currentTrackOf(root);
       if (found.offBranch !== undefined)
         console.error(
-          `note: ${found.offBranch}. Mail and \`track current\` follow the worktree; \`track pr\` acts on \`track/${found.track}\` only`,
+          `note: ${found.offBranch}. Mail and \`track pr\` follow the worktree; \`track pr\` gates and pushes \`track/${found.track}\`'s tip, not this branch`,
         );
       return { output: found.track, code: 0 };
     }

@@ -814,22 +814,19 @@ export const trackList = (cwd: string) =>
     return [...notes, formatTracks(rows)].join("\n");
   });
 
-/**
- * The track of `cwd`'s worktree. Strict by default (on `track/<name>`), for `track pr`, which
- * pushes `HEAD`; an address and `track current` pass `onTrackBranch: false`.
- */
-export const trackCurrent = (cwd: string, { onTrackBranch = true } = {}) =>
-  Effect.map(currentTrackOf(cwd, onTrackBranch), (found) => found.track);
+/** The track of `cwd`'s worktree, on any branch. */
+export const trackCurrent = (cwd: string) =>
+  Effect.map(currentTrackOf(cwd), (found) => found.track);
 
 /** The track of `cwd`'s worktree, with why it isn't on `track/<name>` when it isn't. */
-export const currentTrackOf = (cwd: string, onTrackBranch: boolean) =>
+export const currentTrackOf = (cwd: string) =>
   Effect.gen(function* () {
     const { repo } = yield* locate(cwd);
     const toplevel = yield* Effect.flatMap(
       gitOk(cwd, ["rev-parse", "--show-toplevel"]),
       yield* canonical(repo),
     );
-    const found = currentTrack(repo, toplevel, yield* worktrees(repo), onTrackBranch);
+    const found = currentTrack(repo, toplevel, yield* worktrees(repo));
     return "track" in found ? found : yield* refuse(found.reason);
   });
 

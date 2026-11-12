@@ -113,7 +113,7 @@ export const directoryAddressOf = (cwd: string) =>
     let toplevel = here;
     for (const worktree of registered)
       if ((yield* real(worktree.path)) === here) toplevel = worktree.path;
-    const track = yield* trackCurrent(cwd, { onTrackBranch: false }).pipe(
+    const track = yield* trackCurrent(cwd).pipe(
       Effect.map((name) => ({ track: name })),
       Effect.catchTag("TrackError", (error) => Effect.succeed({ reason: error.reason })),
     );
