@@ -153,6 +153,23 @@ describe("the decision back-link: each file a decision names cites its slug", ()
     expect(found("src/gone.ts", {})).toEqual(["budgets/decision-unenforced DECISIONS.md"]);
   });
 
+  test("a file that can't hold a comment is told to name the check that reads it instead", () => {
+    const message = (path: string) =>
+      checkBudgets(
+        config(),
+        repo({
+          "AGENTS.md": "# Agents\n",
+          "DECISIONS.md": `# Decisions\n\n${entry("D-one", { "Enforced by": path })}`,
+          [path]: "{}",
+        }),
+      ).find((v) => v.rule === "budgets/decision-unlinked")?.message ?? "";
+    const insteadOf = "name the test or check that reads it instead, and cite D-one there";
+    for (const path of ["package.json", "bun.lock", "sub/yarn.lock", "pnpm-lock.yaml", "bun.lockb"])
+      expect(message(path)).toContain(insteadOf);
+    for (const path of ["tsconfig.json", "tsconfig.base.json", "src/a.ts", "ci.yaml"])
+      expect(message(path)).toContain("Add a comment citing D-one where the decision is held.");
+  });
+
   test("one file enforcing two decisions must cite both", () => {
     const two = (text: string) =>
       checkBudgets(
