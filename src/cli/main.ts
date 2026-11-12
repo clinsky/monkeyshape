@@ -1,12 +1,18 @@
 #!/usr/bin/env bun
 /** The `mshape` executable: the composition root, and the only place effects are run. */
-import { mkdtemp, realpath, rm } from "node:fs/promises";
+import { mkdtemp, readFile, realpath, rm } from "node:fs/promises";
 import { homedir, tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { Effect } from "effect";
 import pkg from "../../package.json" with { type: "json" };
-import { BASELINE_FILE, readBaseline, writeBaseline } from "../adapters/baseline.ts";
+import {
+  BASELINE_FILE,
+  readBaseline,
+  readChangedLines,
+  writeBaseline,
+} from "../adapters/baseline.ts";
+import { withBeadsExport } from "../adapters/beads.ts";
 import { CONFIG_FILE, loadConfig } from "../adapters/config.ts";
 import { reviewPost, scanFile } from "../adapters/denylist.ts";
 import { depBump } from "../adapters/dep.ts";
@@ -15,10 +21,12 @@ import { mailInbox, mailInboxAll, mailRead, mailSend } from "../adapters/mail.ts
 import {
   type Caller,
   claudeCodeNotifier,
+  enterTrack,
   liveSessions,
   notifyRecipient,
   register,
   removeSessions,
+  sessionAddress,
 } from "../adapters/notices.ts";
 import { runTool } from "../adapters/process.ts";
 import { packSource, packWorkingTree } from "../adapters/release.ts";
@@ -27,11 +35,12 @@ import { syncAll } from "../adapters/sync.ts";
 import { trackPr } from "../adapters/trackPr.ts";
 import {
   type CarryMessages,
+  currentTrackOf,
   locate,
   type TrackSessions,
-  trackCurrent,
   trackList,
   trackMigrate,
+  trackNames,
   trackNew,
   trackRm,
 } from "../adapters/tracks.ts";
@@ -45,14 +54,14 @@ import type { CheckName } from "../core/model.ts";
 import { formatDelivery, unregisteredNote } from "../core/notices.ts";
 import { count, tighten } from "../core/ratchet.ts";
 import { packVersion } from "../core/release.ts";
-import { formatCheck, formatGarden, formatViolation } from "../core/report.ts";
+import { formatCheck, formatGarden, formatViolation, tallyByRule } from "../core/report.ts";
 import { formatRules } from "../core/rules/engine.ts";
 import { RULES } from "../core/rules/registry.ts";
 import { nextStep, REPO_NAME } from "../core/scaffold.ts";
 import { formatCollisions, formatSync, SKILL_NAME } from "../core/skills.ts";
 import { formatSyncPlan } from "../core/sync.ts";
 import { headingProblems } from "../core/trackPr.ts";
-import { type ConfigError, type TrackError, WorkspaceError } from "../schemas/errors.ts";
+import { type ConfigError, TrackError, WorkspaceError } from "../schemas/errors.ts";
 
 /** What a command returns: the text to print, and the exit code (0 prints to stdout). */
 interface Outcome {
@@ -241,7 +250,7 @@ const track = (root: string, args: ReadonlyArray<string>) =>
     const flags = rest.filter((arg) => arg.startsWith("--"));
     const names = rest.filter((arg) => !arg.startsWith("--"));
     const allowed = sub === "rm" ? ["--force", "--keep-handoff", "--keep-beads"] : [];
-    const takesName = sub === "new" || sub === "rm";
+    const takesName = sub === "new" || sub === "rm" || sub === "enter";
     if (flags.some((flag) => !allowed.includes(flag))) return usage();
     if (names.length !== (takesName ? 1 : 0)) return usage();
     const name = names[0] ?? "";
@@ -262,7 +271,17 @@ const track = (root: string, args: ReadonlyArray<string>) =>
       const { output, unmigrated } = yield* trackMigrate(root, carryMessages(root));
       return { output, code: unmigrated === 0 ? 0 : 1 };
     }
-    if (sub === "current") return { output: yield* trackCurrent(root), code: 0 };
+    if (sub === "current") {
+      // The name alone on stdout, which skills read; another branch is said on stderr.
+      const found = yield* currentTrackOf(root);
+      if (found.offBranch !== undefined)
+        console.error(
+          `note: ${found.offBranch}. Mail and \`track pr\` follow the worktree; \`track pr\` gates and pushes \`track/${found.track}\`'s tip, not this branch`,
+        );
+      return { output: found.track, code: 0 };
+    }
+    if (sub === "enter")
+      return { output: (yield* enterTrack(root, caller(), name)).join("\n"), code: 0 };
     if (sub === "rm")
       return {
         output: yield* trackRm(
@@ -332,18 +351,29 @@ const randomHex = (): string =>
     .map((b) => b.toString(16).padStart(2, "0"))
     .join("");
 
+/** `msg send`'s flags that take a value. */
+const SEND_VALUES = ["--subject", "--body-file"] as const;
+
 /**
- * `send <track> --subject <subject> [body]`. Everything after `--` is positional, so a body
- * about a flag (`--force does ...`) can be sent; without it, such a body is refused with the
- * reason rather than the whole help.
+ * `send <track>|--all --subject <subject> [body | --body-file <path>]`. Everything after `--`
+ * is positional, so a body about a flag (`--force does ...`) can be sent; without it, such a
+ * body is refused with the reason rather than the whole help. `--body-file` reads the body
+ * from a file, so no shell quoting stands between the writer and the text. `--all` sends to
+ * every track but the sender's own.
  */
 const msgSend = (root: string, args: ReadonlyArray<string>) =>
   Effect.gen(function* () {
     const end = args.indexOf("--");
     const options = end === -1 ? args : args.slice(0, end);
-    const flag = options.indexOf("--subject");
-    const subject = flag === -1 ? undefined : options[flag + 1];
-    const before = options.filter((_, i) => flag === -1 || (i !== flag && i !== flag + 1));
+    const values = new Map<string, string | undefined>();
+    const before: Array<string> = [];
+    let all = false;
+    for (let i = 0; i < options.length; i++) {
+      const arg = options[i] ?? "";
+      if ((SEND_VALUES as ReadonlyArray<string>).includes(arg)) values.set(arg, options[++i]);
+      else if (arg === "--all") all = true;
+      else before.push(arg);
+    }
     const stray = before.find((arg) => arg.startsWith("--"));
     if (stray !== undefined)
       return {
@@ -351,24 +381,84 @@ const msgSend = (root: string, args: ReadonlyArray<string>) =>
         code: 2,
       };
     const positional = [...before, ...(end === -1 ? [] : args.slice(end + 1))];
-    if (subject === undefined || positional.length < 1 || positional.length > 2) return usage();
-    const [to = "", body = ""] = positional;
-    const message = yield* mailSend(root, to, subject, body, new Date(), randomHex, caller());
-    // Stored first: whatever happens to the notices, the mail waits for them.
-    const delivery = yield* notifyRecipient(
-      root,
-      message,
-      claudeCodeNotifier,
-      claudeDir(),
-      new Date(),
-    ).pipe(
-      Effect.catchTags({
-        TrackError: (error) => Effect.succeed({ notified: 0, pruned: [], skipped: [error.reason] }),
-        WorkspaceError: (error) =>
-          Effect.succeed({ notified: 0, pruned: [], skipped: [error.message] }),
-      }),
+    const subject = values.get("--subject");
+    const bodyFile = values.get("--body-file");
+    const wanted = (all ? 0 : 1) + (values.has("--body-file") ? 0 : 1);
+    if (
+      subject === undefined ||
+      (values.has("--body-file") && bodyFile === undefined) ||
+      positional.length > wanted ||
+      positional.length < (all ? 0 : 1)
+    )
+      return usage();
+    // A recipient left beside --all would otherwise go to every track as the body.
+    const lone = all && before.length === 1 ? before[0] : undefined;
+    if (lone !== undefined && (yield* isAddress(root, lone)))
+      return {
+        output: `mshape msg send: \`${lone}\` reads as a recipient, and --all sends to every track. Drop --all to send to ${lone} alone, or drop \`${lone}\`; to send it as the body, put -- before it`,
+        code: 2,
+      };
+    const [to = "", inline = ""] = all ? ["", ...positional] : positional;
+    const body =
+      bodyFile === undefined
+        ? inline
+        : yield* Effect.tryPromise({
+            try: () => readFile(resolve(root, bodyFile), "utf8"),
+            catch: () => new TrackError({ reason: `--body-file ${bodyFile}: can't read it` }),
+          });
+    const recipients = all ? yield* everyTrackBut(root, caller()) : [to];
+    const said: Array<string> = [];
+    for (const recipient of recipients) {
+      const message = yield* mailSend(
+        root,
+        recipient,
+        subject,
+        body,
+        new Date(),
+        randomHex,
+        caller(),
+      );
+      // Stored first: whatever happens to the notices, the mail waits for them.
+      const delivery = yield* notifyRecipient(
+        root,
+        message,
+        claudeCodeNotifier,
+        claudeDir(),
+        new Date(),
+      ).pipe(
+        Effect.catchTags({
+          TrackError: (error) =>
+            Effect.succeed({ notified: 0, pruned: [], skipped: [error.reason] }),
+          WorkspaceError: (error) =>
+            Effect.succeed({ notified: 0, pruned: [], skipped: [error.message] }),
+        }),
+      );
+      said.push(formatSent(message), formatDelivery(recipient, delivery));
+    }
+    return { output: said.join("\n"), code: 0 };
+  });
+
+/** Whether `word` names an address a message can go to: a track, `main` or a review. */
+const isAddress = (root: string, word: string) =>
+  Effect.gen(function* () {
+    if (word === "main" || /^review-\d+$/.test(word)) return true;
+    const { repo } = yield* locate(root);
+    return (yield* trackNames(repo)).includes(word);
+  });
+
+/** `--all`'s recipients: every track, less the sender's own address. Refuses when none is left. */
+const everyTrackBut = (root: string, who: Caller) =>
+  Effect.gen(function* () {
+    const { repo } = yield* locate(root);
+    const { address } = yield* sessionAddress(root, who).pipe(
+      Effect.orElseSucceed(() => ({ address: "" })),
     );
-    return { output: `${formatSent(message)}\n${formatDelivery(to, delivery)}`, code: 0 };
+    const tracks = (yield* trackNames(repo)).filter((track) => track !== address);
+    if (tracks.length === 0)
+      return yield* Effect.fail(
+        new TrackError({ reason: "msg send --all: there is no track to send to" }),
+      );
+    return tracks;
   });
 
 /**
@@ -561,8 +651,16 @@ const configFlag = (root: string, args: ReadonlyArray<string>): string | undefin
 const load = (root: string, args: ReadonlyArray<string>, checks: ReadonlyArray<CheckName>) =>
   Effect.gen(function* () {
     const config = yield* loadConfig(root, configFlag(root, args));
-    const snapshot = yield* loadSnapshot(root, config, PACKAGE_ROOT, { checks });
+    const loaded = yield* Effect.flatMap(
+      loadSnapshot(root, config, PACKAGE_ROOT, { checks }),
+      (snapshot) => withBeadsExport(root, snapshot),
+    );
     const baseline = yield* readBaseline(root);
+    // Only a baseline needs to know which occurrence is new.
+    const snapshot =
+      Object.keys(baseline).length === 0
+        ? loaded
+        : { ...loaded, changedLines: yield* readChangedLines(root) };
     return { config, snapshot, baseline };
   });
 
@@ -630,15 +728,10 @@ const baseline = (root: string, args: ReadonlyArray<string>) =>
     );
     if (args.includes("--init")) {
       yield* writeBaseline(root, count(violations));
-      // By rule, most first: what to review, since one rule's count is usually one habit.
-      const byRule = new Map<string, number>();
-      for (const v of violations) byRule.set(v.rule, (byRule.get(v.rule) ?? 0) + 1);
       return {
         output: [
           `${BASELINE_FILE}: grandfathered ${violations.length} violation(s)`,
-          ...[...byRule]
-            .sort(([a, x], [b, y]) => y - x || a.localeCompare(b))
-            .map(([rule, n]) => `  ${String(n).padStart(6)}  ${rule}`),
+          ...tallyByRule(violations.map((v) => v.rule)),
         ].join("\n"),
         code: 0,
       };
@@ -742,6 +835,12 @@ export const COMMANDS: ReadonlyArray<Command> = [
       left as it was, saying why.
   mshape track current
       The track of this directory, name only; exit 1, saying why, outside a track.
+  mshape track enter <name>
+      Move this Claude Code session to track <name>, from main or any other address: its
+      mail and notices become the track's (unread mail stays where it was), and the last line
+      printed is the track's worktree, where the session then works. Refuses an unknown track,
+      or a session Claude Code didn't identify. A new session id (/clear, a fresh start)
+      registers by its directory again.
   mshape track pr [--title <title>] [--body-file <path>]
       From a track's worktree, whatever branch it has checked out: prints the PR's size
       against the batching default, runs the gate on a clean checkout of track/<name>'s tip,
@@ -807,11 +906,13 @@ export const COMMANDS: ReadonlyArray<Command> = [
   },
   {
     name: "msg",
-    usage: `  mshape msg send <track> --subject <subject> [body]
+    usage: `  mshape msg send <track> --subject <subject> [body | --body-file <path>]
       Leave a message in the mailbox of <track>, main or review-<n>, from this session's
-      address, then push its subject to the sessions registered there. The subject is one line; it is all a
-      notice shows. Quote the body; put -- before a body
-      that starts with --.
+      address, then push its subject to the sessions registered there. The subject is one
+      line; it is all a notice shows. --body-file reads the body from a file, with no shell
+      quoting to get wrong; else quote the body, and put -- before one that starts with --.
+  mshape msg send --all --subject <subject> [body | --body-file <path>]
+      The same message to every track but this session's own, one mailbox each.
   mshape msg inbox [--quiet]
       Unread messages at this session's address, oldest first. --quiet, for hooks: nothing
       when there are none or there is no address, and never a failure.

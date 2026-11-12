@@ -100,7 +100,7 @@ export const checkSources = (
       violations.push(
         violation(
           "unmatched",
-          CONFIG_FILE,
+          config.configFile,
           `\`${declared.section}\` lists '${declared.glob}', which matches no file. Fix the glob, remove it, or write it as \`{ path: "${declared.glob}", optional: true }\` if the files are still to come.`,
         ),
       );

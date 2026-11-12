@@ -102,6 +102,40 @@ const outsideCopies = async (
   return copies;
 };
 
+/**
+ * The repo's files the config reaches by relative import, directly or through other files it
+ * imports, wherever the config is: its local rules and their helpers, repo-relative.
+ */
+const reachedFrom = async (config: string, root: string): Promise<ReadonlyArray<string>> => {
+  const seen = new Set<string>([config]);
+  const queue = [config];
+  for (let file = queue.shift(); file !== undefined; file = queue.shift()) {
+    let imports: ReturnType<Bun.Transpiler["scanImports"]> = [];
+    try {
+      imports = new Bun.Transpiler({ loader: "tsx" }).scanImports(await Bun.file(file).text());
+    } catch {
+      // Unreadable or unparseable: loading the config reports it, if it matters.
+    }
+    for (const { path } of imports) {
+      if (!path.startsWith(".")) continue;
+      let target: string;
+      try {
+        target = Bun.resolveSync(path, dirname(file));
+      } catch {
+        continue;
+      }
+      if (seen.has(target) || !SOURCE.test(target)) continue;
+      seen.add(target);
+      queue.push(target);
+    }
+  }
+  seen.delete(config);
+  return [...seen]
+    .map((file) => relative(root, file))
+    .filter((file) => !file.startsWith(".."))
+    .sort();
+};
+
 /** `path` overrides the repo's own config, e.g. to try monkeyshape on a repo before adopting it. */
 export const loadConfig = (root: string, path = `${root}/${CONFIG_FILE}`) =>
   Effect.gen(function* () {
@@ -143,5 +177,6 @@ export const loadConfig = (root: string, path = `${root}/${CONFIG_FILE}`) =>
     const config = yield* decodeStrict(ShapeConfig)(module.default).pipe(
       Effect.mapError((error) => new ConfigError({ path: shown, reason: error.message })),
     );
-    return resolveConfig(config);
+    const reached = yield* Effect.promise(() => reachedFrom(path, root));
+    return resolveConfig(config, shown, reached);
   });

@@ -61,3 +61,45 @@ test("a path that isn't plain says how to write it, not the regex", async () => 
   expect(X.isFailure(exit)).toBe(true);
   expect(X.isFailure(exit) ? Cause.pretty(exit.cause) : "").toContain("not `./vendor/x.tgz`");
 });
+
+describe("arch.allowedPackages", () => {
+  const allowed = (allowedPackages?: ReadonlyArray<string>) =>
+    resolveConfig({
+      arch: { modules: {}, ...(allowedPackages ? { allowedPackages } : {}) },
+    }).arch?.allowedPackages;
+
+  test("unset, only effect is allowed", () => {
+    expect(allowed()).toEqual(["effect"]);
+  });
+
+  test("set, the list adds to effect instead of replacing it", () => {
+    expect(allowed(["zod", "pg"])).toEqual(["effect", "zod", "pg"]);
+  });
+
+  test("listing effect again doesn't repeat it", () => {
+    expect(allowed(["effect", "pg"])).toEqual(["effect", "pg"]);
+  });
+});
+
+describe("refs.rules", () => {
+  test("takes off and allow per refs kind, with reasons", () => {
+    const reason = "a reason a later agent can weigh";
+    expect(
+      decodes({
+        refs: {
+          rules: {
+            "section-citation": { off: reason },
+            "missing-path": { allow: [{ path: "AGENTS.md", reason }] },
+          },
+        },
+      }),
+    ).toBe(true);
+  });
+
+  test("an unknown kind, or an off without a reason, fails", () => {
+    expect(
+      decodes({ refs: { rules: { "no-such-kind": { off: "a reason a later agent can weigh" } } } }),
+    ).toBe(false);
+    expect(decodes({ refs: { rules: { "missing-path": { off: "" } } } })).toBe(false);
+  });
+});

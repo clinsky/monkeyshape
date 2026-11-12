@@ -1,6 +1,7 @@
 /** In-memory repos for tests: checks are pure, so no temp directories are needed. */
 import type {
   BeadSummary,
+  BeadsExport,
   CommandRun,
   FileMode,
   Integration,
@@ -26,6 +27,8 @@ export const repo = (
     /** Beads for the beads check; their ids join `beadIds`. */
     readonly beadRows?: ReadonlyArray<BeadSummary>;
     readonly beads?: Integration;
+    /** The export as the loader read it, where bd couldn't be. */
+    readonly beadsExport?: BeadsExport;
     readonly typechecked?: ReadonlyArray<string>;
     readonly linted?: ReadonlyArray<string>;
     /** Overrides the state the lists above imply, e.g. a tool that ran and failed. */
@@ -61,6 +64,7 @@ export const repo = (
       ? new Set([...(options.beadIds ?? []), ...(options.beadRows ?? []).map((bead) => bead.id)])
       : undefined,
     beadRows: beadsOk ? (options.beadRows ?? []) : undefined,
+    ...(options.beadsExport === undefined ? {} : { beadsExport: options.beadsExport }),
     typechecked: options.typechecked === undefined ? undefined : new Set(options.typechecked),
     linted: options.linted === undefined ? undefined : new Set(options.linted),
     integrations: {

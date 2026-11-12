@@ -21,8 +21,6 @@ export const FILES_RULES = [
   "vendored-package",
 ] as const;
 
-const CONFIG_FILE = "shape.config.ts";
-
 const violation = (
   rule: (typeof FILES_RULES)[number],
   file: string,
@@ -76,7 +74,7 @@ export const checkFiles = (
         violation(
           "too-large",
           file,
-          `is ${formatBytes(size)}, past the ${formatBytes(maxBytes)} cap. Keep large data outside the repo (\`tracks.sharedPaths\` links it into worktrees); if it must be tracked, list it in \`files.large\` in ${CONFIG_FILE} with the reason.`,
+          `is ${formatBytes(size)}, past the ${formatBytes(maxBytes)} cap. Keep large data outside the repo (\`tracks.sharedPaths\` links it into worktrees); if it must be tracked, list it in \`files.large\` in ${config.configFile} with the reason.`,
         ),
       );
     const name = file.slice(file.lastIndexOf("/") + 1);
@@ -93,7 +91,7 @@ export const checkFiles = (
         violation(
           "vendored-unrecorded",
           file,
-          `is a vendored archive with no record. Add \`{ path, package, sha256 }\` for it to \`files.vendored\` in ${CONFIG_FILE}, with the digest from its upstream release (\`sha256sum\` prints it), or remove it. A recorded artifact is verified on every check and exempts it from the size cap.`,
+          `is a vendored archive with no record. Add \`{ path, package, sha256 }\` for it to \`files.vendored\` in ${config.configFile}, with the digest from its upstream release (\`sha256sum\` prints it), or remove it. A recorded artifact is verified on every check and exempts it from the size cap.`,
         ),
       );
   }
@@ -103,7 +101,7 @@ export const checkFiles = (
       out.push(
         violation(
           "large-unmatched",
-          CONFIG_FILE,
+          config.configFile,
           `\`files.large\` lists '${entry.path}', which matches no file. Remove the entry, or fix its glob.`,
         ),
       );
@@ -115,7 +113,7 @@ export const checkFiles = (
       out.push(
         violation(
           "vendored-missing",
-          CONFIG_FILE,
+          config.configFile,
           `\`files.vendored\` records '${entry.path}', which is not in the repo. Commit the tarball, or fix or remove the record.`,
         ),
       );

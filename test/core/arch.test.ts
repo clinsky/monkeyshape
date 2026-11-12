@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { checkArch, moduleOf } from "../../src/core/arch.ts";
+import { resolveConfig } from "../../src/schemas/config.ts";
 import { config, repo } from "../support.ts";
 
 const layered = config({
@@ -136,6 +137,53 @@ describe("arch", () => {
   test("third-party packages need an allowlist entry", () => {
     expect(rules({ "src/core/b.ts": 'import pg from "pg";' })).toEqual(["arch/forbidden-package"]);
     expect(rules({ "src/adapters/db/b.ts": 'import pg from "pg/lib";' })).toEqual([]);
+  });
+
+  test("a finding about the config names the config loaded, as --config gave it", () => {
+    const trial = resolveConfig({}, "../trial/shape.config.ts");
+    expect(
+      checkArch(trial, repo({ "src/a.ts": "export const a = 1;" })).map((v) => [v.rule, v.file]),
+    ).toEqual([["arch/no-module-map", "../trial/shape.config.ts"]]);
+  });
+
+  test("local rules the config imports need no module, outside arch.root or under it", () => {
+    const shape = {
+      arch: { modules: { core: { description: "logic" } } },
+      sources: { include: ["src/**/*.ts", "rules/**/*.ts"] },
+    };
+    const files = {
+      "src/core/a.ts": "export const a = 1;",
+      "rules/indexWrites.ts":
+        'import { defineRule } from "monkeyshape";\nimport { x } from "./helper.ts";',
+      "rules/helper.ts": "export const x = 1;",
+      "src/lint/own.ts": "export const y = 1;",
+    };
+    const rules = (modules: ReadonlyArray<string>) =>
+      checkArch(resolveConfig(shape, "shape.config.ts", modules), repo(files)).map(
+        (v) => `${v.rule} ${v.file}`,
+      );
+    expect(rules([])).toEqual([
+      "arch/unknown-module rules/indexWrites.ts",
+      "arch/unknown-module rules/helper.ts",
+      "arch/unknown-module src/lint/own.ts",
+    ]);
+    expect(rules(["rules/helper.ts", "rules/indexWrites.ts", "src/lint/own.ts"])).toEqual([]);
+  });
+
+  test("a file the config imports that a module maps is layered as that module's", () => {
+    const shape = config({ arch: { modules: { core: { description: "logic" } } } });
+    const mapped = { ...shape, configModules: ["src/core/a.ts"] };
+    expect(
+      checkArch(mapped, repo({ "src/core/a.ts": 'import pg from "pg";' })).map((v) => v.rule),
+    ).toEqual(["arch/forbidden-package"]);
+  });
+
+  test("effect stays allowed when allowedPackages lists other packages", () => {
+    const listed = config({
+      arch: { modules: { core: { description: "logic" } }, allowedPackages: ["zod"] },
+    });
+    const source = 'import { Effect } from "effect";\nimport { z } from "zod";';
+    expect(checkArch(listed, repo({ "src/core/b.ts": source }))).toEqual([]);
   });
 
   test("files outside every module, unresolved imports and the manifest are reported", () => {

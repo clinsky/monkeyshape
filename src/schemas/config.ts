@@ -86,6 +86,32 @@ export const RuleSetting = Schema.Struct({
   off: Schema.optionalKey(Reason),
   allow: Schema.optionalKey(Schema.Array(Allowance)),
 });
+export type RuleSetting = typeof RuleSetting.Type;
+
+/** Every refs kind a repo can configure, as `refs.rules.<kind>`; the refs check reports them as `refs/<kind>`. */
+export const REFS_KINDS = [
+  "section-citation",
+  "forbidden",
+  "unknown-decision",
+  "split-code-span",
+  "normative-link",
+  "unknown-script",
+  "missing-path",
+  "bead-in-code",
+] as const;
+export type RefsKind = (typeof REFS_KINDS)[number];
+
+/** `off` and `allow` per refs kind, as `rules` takes them per rule; an unknown kind fails decoding. */
+const RefsRules = Schema.Struct({
+  "section-citation": Schema.optionalKey(RuleSetting),
+  forbidden: Schema.optionalKey(RuleSetting),
+  "unknown-decision": Schema.optionalKey(RuleSetting),
+  "split-code-span": Schema.optionalKey(RuleSetting),
+  "normative-link": Schema.optionalKey(RuleSetting),
+  "unknown-script": Schema.optionalKey(RuleSetting),
+  "missing-path": Schema.optionalKey(RuleSetting),
+  "bead-in-code": Schema.optionalKey(RuleSetting),
+} satisfies Record<RefsKind, unknown>);
 
 /**
  * Repo-relative and already normal: segments joined by single `/`, none empty, `.` or `..`.
@@ -104,7 +130,11 @@ export const SharedPath = Schema.String.check(
  */
 export const DeclaredCommand = Schema.Struct({
   files: Schema.Array(Schema.String).check(Schema.isMinLength(1)),
-  /** argv, not a shell line: `["make", "-C", "native", "check"]` or `["bun", "run", "check:c"]`. */
+  /**
+   * argv, not a shell line: `["make", "-C", "native", "check"]` or `["bun", "run", "check:c"]`.
+   * An argument `"{files}"` becomes the files `files` matched, so it checks exactly those:
+   * `["shellcheck", "{files}"]`.
+   */
   run: Schema.Array(Schema.String).check(Schema.isMinLength(1)),
   /**
    * Green when its program isn't installed here (a toolchain CI lacks), and when its files
@@ -168,6 +198,7 @@ export const ShapeConfig = Schema.Struct({
     Schema.Struct({
       root: Schema.optionalKey(Schema.String),
       modules: Schema.Record(Schema.String, ModuleRule),
+      /** Third-party packages every module may import, in addition to `effect`. */
       allowedPackages: Schema.optionalKey(Schema.Array(Schema.String)),
       hostSpecifiers: Schema.optionalKey(Schema.Array(Schema.String)),
     }),
@@ -203,6 +234,8 @@ export const ShapeConfig = Schema.Struct({
        */
       formOnlyDocs: Schema.optionalKey(Globs),
       forbidden: Schema.optionalKey(Schema.Array(ForbiddenPattern)),
+      /** Per kind, as `rules` per rule: `off` with a reason, or `allow` for paths with reasons. */
+      rules: Schema.optionalKey(RefsRules),
     }),
   ),
   budgets: Schema.optionalKey(
@@ -242,6 +275,13 @@ export const ShapeConfig = Schema.Struct({
 export type ShapeConfig = typeof ShapeConfig.Type;
 
 export interface ResolvedConfig {
+  /** The config file as its reader names it: `shape.config.ts`, or what `--config` loaded. */
+  readonly configFile: string;
+  /**
+   * The repo's files the config imports, directly or not: its local rules and their helpers.
+   * Like the config, they are mshape's, so arch asks no module to own them.
+   */
+  readonly configModules: ReadonlyArray<string>;
   readonly layers: ReadonlyArray<"core" | "agentic">;
   readonly sources: {
     readonly include: ReadonlyArray<string>;
@@ -279,6 +319,7 @@ export interface ResolvedConfig {
     readonly narrativeDocs: ReadonlyArray<string>;
     readonly formOnlyDocs: ReadonlyArray<string>;
     readonly forbidden: ReadonlyArray<{ readonly pattern: string; readonly reason: string }>;
+    readonly rules: Readonly<Partial<Record<RefsKind, RuleSetting>>>;
   };
   readonly budgets: {
     readonly agentsLines: number;
@@ -320,7 +361,14 @@ export const DEFAULT_DOCS: ReadonlyArray<string> = [
 const normalRoot = (root: string): string =>
   root.replace(/^(\.\/)+/, "").replace(/\/+$/, "") || ".";
 
-export const resolveConfig = (config: ShapeConfig): ResolvedConfig => ({
+/** `file`: the config as its reader names it, where findings about the config point. */
+export const resolveConfig = (
+  config: ShapeConfig,
+  file = "shape.config.ts",
+  modules: ReadonlyArray<string> = [],
+): ResolvedConfig => ({
+  configFile: file,
+  configModules: modules,
   layers: config.layers ?? ["core"],
   sources: {
     include: globsOf(config.sources?.include ?? ["src/**/*.{ts,tsx}", "tools/**/*.{ts,tsx}"]),
@@ -356,7 +404,7 @@ export const resolveConfig = (config: ShapeConfig): ResolvedConfig => ({
       : {
           root: normalRoot(config.arch.root ?? "src"),
           modules: config.arch.modules,
-          allowedPackages: config.arch.allowedPackages ?? ["effect"],
+          allowedPackages: [...new Set(["effect", ...(config.arch.allowedPackages ?? [])])],
           hostSpecifiers: config.arch.hostSpecifiers ?? [
             "bun",
             "bun:*",
@@ -371,6 +419,7 @@ export const resolveConfig = (config: ShapeConfig): ResolvedConfig => ({
     narrativeDocs: config.refs?.narrativeDocs ?? ["README.md"],
     formOnlyDocs: config.refs?.formOnlyDocs ?? ["plan/**/*.md", "notes/**/*.md"],
     forbidden: config.refs?.forbidden ?? [],
+    rules: config.refs?.rules ?? {},
   },
   budgets: {
     agentsLines: config.budgets?.agentsLines ?? 150,

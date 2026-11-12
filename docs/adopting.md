@@ -86,11 +86,13 @@ Each check reads its own part of the config.
   - Executable source that isn't TypeScript needs a command that checks it. That includes C,
     Python, shell, Java and Go, or any file with git's executable bit.
   - Declare it as `coverage: { commands: [{ files: ["native/**"], run: ["make", "-C", "native", "check"] }] }`.
-    `files` says which files the command covers. Nothing is passed to it: `run` is argv, not a
-    shell line, and names what it checks, like any command line.
-  - Make it write nothing into the tree. For one Python script, use
-    `["python3", "-c", "import ast, sys; [ast.parse(open(f).read(), f) for f in sys.argv[1:]]", "scripts/report.py"]`,
-    not `py_compile`. For one shell script, use `["bash", "-n", "scripts/setup.sh"]`.
+    `files` says which files the command covers. `run` is argv, not a shell line. An argument
+    `"{files}"` becomes exactly the files `files` matched, so the glob can't claim more than
+    the command checks; without it, nothing is passed, and `run` names what it checks.
+  - Make it write nothing into the tree. For Python scripts, use
+    `["python3", "-c", "import ast, sys; [ast.parse(open(f).read(), f) for f in sys.argv[1:]]", "{files}"]`,
+    not `py_compile`. For shell scripts, loop, since `bash -n` reads only its first file:
+    `["sh", "-c", 'for f; do bash -n "$f" || exit; done', "sh", "{files}"]`.
   - `optional: true` turns a missing program into a note. A program that runs and fails is red.
     So is exit 127, which is also how `bash` reports a file it can't find.
   - A file no command can check here, such as a test fixture or a plugin compiled by another
@@ -105,6 +107,10 @@ Each check reads its own part of the config.
   `bun run --silent mshape dep bump <name> <tarball> --sha256 <digest>`.
 - **Invariants of your own** become adopter rules: `docs/local-rules.md` shows how. List each
   rule module's directory in `sources.include`, for example `rules/**/*.ts`.
+- **A rule that misfits some files** takes `allow: [{ path, reason }]`, or `off: "<reason>"`
+  to stop it everywhere: `rules: { "no-throw": { ... } }` for a rule, and
+  `refs: { rules: { "section-citation": { ... } } }` for a `refs/` kind. An allowance that
+  silences nothing fails, so delete it once its files are fixed.
 
 ## 4. tsc and biome
 
@@ -181,6 +187,8 @@ database, run `bd bootstrap`. If the `sync.remote` in `.beads/config.yaml` alrea
 beads, it clones them from there, so run it only where that remote is the one you mean.
 Otherwise it rebuilds them from the issues file git tracks under `.beads/`. Either way it
 records that remote for `bd dolt push`, which you run only when you mean to share.
+Where bd can't run, as in CI, `mshape check` reads the beads from bd's export, if you commit
+one as `issues.jsonl` in `.beads/` (`bd export -o <file>`), and its `beads` line says so.
 
 Then run `bun run --silent mshape sync`. It installs:
 
@@ -210,7 +218,8 @@ current violation per file in .shape/baseline.json, and prints the counts by rul
 by rule, not line by line: a large count of one rule is usually one habit of the codebase, and
 each rule's message says what it costs. As you fix
 things, `mshape baseline --tighten` lowers the counts, and a count is never raised. Then
-commit, and the gate is green.
+commit, and the gate is green. A file over its count later reports the occurrences on lines
+your branch changed since `main`, or every one when none is, as after moving code.
 
 ## Afterwards: your knowledge, in four kinds
 
