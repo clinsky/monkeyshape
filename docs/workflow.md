@@ -3,6 +3,9 @@
 How a repo made by `mshape init` is worked, by a human and coding agents together. Read this
 once after `init`; the skills it names carry the detail, so you don't need it again.
 
+This page is for humans; agents don't load it. What they follow is in PRIME.md, the skills,
+file headers and check messages, so a rule stated only here binds no agent: put it there.
+
 The split: **skills carry judgement, the `mshape` CLI carries everything deterministic.** A
 skill interviews, proposes, writes prose and grooms beads; it never builds a worktree or a
 file layout by hand, because the CLI does that and is tested. Each skill is started by name
@@ -26,8 +29,10 @@ Plan in detail only what is near. Each horizon has one home and one way of stayi
   things stand, the tracks with their beads and acceptance, the interfaces between tracks,
   decision points and what is deferred. When a track diverges from it, the track sends the
   divergence to `main` by message (`mshape msg send main`), since no other session reads its
-  handoff; the planning session takes it to the human and appends an approved one to the
-  plan's Amendments. Only handoffs and beads cite it.
+  handoff. The planning session, the chat that ran `/milestone` and stays open for the
+  milestone, approves a routine one itself, escalates to the human one that changes a goal,
+  acceptance, a non-goal or an interface between tracks, and appends what is approved to
+  the plan's Amendments. Only handoffs and beads cite it.
 - **A handoff** is what a fresh chat reads to continue a track: its charter (`Serves:`,
   `Out of scope:`, `Done means:`), its dated State, lessons not yet promoted, and traps.
   Handoffs live inside git's directory and are linked into every checkout as `.handoffs`;
@@ -47,10 +52,9 @@ Everything else has one home too:
 - A rule a machine can check is **a check**, whose message gives the reason and the fix. A
   domain invariant is **a test named after it**. The local reason for some code is **a
   comment at that code**.
-- **DECISIONS.md** holds only live decisions worth their budget: a surprising external fact
-  that was measured, or a choice between real alternatives that would be expensive to undo.
-  The best entries name the tempting wrong fix. A feature design isn't one; it goes in the
-  code.
+- **DECISIONS.md** holds only live decisions worth their budget. Its header says what earns
+  an entry and how one is added or retired; agents read it there. A repo made before the
+  header existed copies it from the template's DECISIONS.md.
 - **Notes** are immutable: write a new one instead of updating an old one. A lesson that
   should apply going forward is promoted to a check, a test or a decision.
 

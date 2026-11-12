@@ -104,9 +104,10 @@ outcome, not a spec. Show the human the charter and the beads; start once they a
   the planning session or the maintainer must know goes by message, never only there.
 - **Diverging from the milestone plan:** send it to the planning session,
   `mshape msg send main --subject "Divergence: <one line>" "<what, why, what it changes>"`,
-  and note it in the handoff's State. The planning session takes it to the maintainer and
-  appends an approved one to the plan's Amendments. If it changes another track's work or
-  the milestone's goal, wait for the answer before building on it.
+  and note it in the handoff's State. The planning session approves a routine one itself,
+  takes one that changes a goal, an acceptance line, a non-goal or an interface to the
+  maintainer, and appends what is approved to the plan's Amendments. Wait for its answer
+  before building on a divergence that changes another track's work or the milestone's goal.
 - **Talking to another track:** `mshape msg send <track> --subject "<one line>" "<body>"`.
   Send one only when the recipient must act or decide, or an interface it consumes changed:
   one message per decision, the subject saying what it is for (a notice shows only that),
