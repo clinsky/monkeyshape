@@ -85,7 +85,10 @@ outcome, not a spec. Show the human the charter and the beads; start once they a
 - **One open PR at a time**, from `track/<name>`. The PR is one reviewed unit: once it is
   open, `track/<name>` takes only commits that answer its review. Do the next beads on a
   local branch, `git switch -c <name>-next`, and commit there as you go; never push it.
-  Switch back to `track/<name>` to answer the review, and run `track pr` only from there.
+  Switch back to `track/<name>` to commit an answer to the review. `track pr` gates and
+  pushes that branch's tip whatever is checked out, so the next work never joins the PR. It
+  refuses while a review is in progress (a live session at `review-<n>`, nothing posted on
+  the head yet): wait for the review, then answer it.
   When the PR merges, however it was merged, replay only the next work onto `main`:
   `git fetch`, `git rebase --onto origin/main track/<name> <name>-next`, then
   `git switch track/<name>`, `git reset --hard <name>-next` and `git branch -d <name>-next`.
