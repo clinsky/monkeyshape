@@ -285,7 +285,8 @@ const behind = (repo: string, tip: string, target: string) =>
   Effect.gen(function* () {
     const count = yield* git(repo, ["rev-list", "--count", `${tip}..${target}`]);
     const commits = Number(count.stdout.trim());
-    if (count.code !== 0 || !Number.isInteger(commits) || commits === 0) return undefined;
+    if (count.code !== 0 || !Number.isInteger(commits) || commits === 0)
+      return { warning: undefined, conflicts: false };
     // Exit 1 lists the conflicted files after the tree; anything else, git couldn't say.
     const merged = yield* git(repo, [
       "merge-tree",
@@ -304,11 +305,14 @@ const behind = (repo: string, tip: string, target: string) =>
               .slice(1)
               .filter((line) => line.trim() !== "")
           : undefined;
-    return behindWarning({
-      target: target.replace(/^refs\/(?:remotes|heads)\//, ""),
-      behind: commits,
-      conflicts,
-    });
+    return {
+      warning: behindWarning({
+        target: target.replace(/^refs\/(?:remotes|heads)\//, ""),
+        behind: commits,
+        conflicts,
+      }),
+      conflicts: conflicts !== undefined && conflicts.length > 0,
+    };
   });
 
 /**
@@ -376,6 +380,8 @@ export const awaitCi = (
   done: string,
   timing: CiTiming,
   say: (line: string) => Effect.Effect<void>,
+  /** The branch conflicts with its base, so GitHub runs no pull_request workflow on it. */
+  conflicts = false,
 ) =>
   Effect.gen(function* () {
     yield* say(`waiting for CI on ${sha.slice(0, 12)}`);
@@ -410,7 +416,11 @@ export const awaitCi = (
               `${done}; but CI failed on ${sha.slice(0, 12)}: ${state.failed.join(", ")}\n${state.lines}`,
             );
       if (state.kind === "none" && waited >= timing.startMs)
-        return `${done}\nnote: no CI check started on ${sha.slice(0, 12)} within ${Math.round(timing.startMs / 1000)}s, so there is nothing to wait for`;
+        return `${done}\nnote: no CI check started on ${sha.slice(0, 12)} within ${Math.round(timing.startMs / 1000)}s, so there is nothing to wait for${
+          conflicts
+            ? ". The branch conflicts with main, and GitHub runs no pull_request workflow on a PR that can't merge: merge main in, then run track pr --wait again"
+            : ""
+        }`;
       if (waited >= timing.limitMs)
         return yield* refuse(
           `${done}; but CI hadn't finished on ${sha.slice(0, 12)} after ${Math.round(timing.limitMs / 1000)}s (still running: ${state.kind === "running" ? state.pending.join(", ") : "none listed"})`,
@@ -530,8 +540,8 @@ export const trackPr = (
     ]);
     const lines = changedLines(yield* gitOk(repo, ["diff", "--shortstat", base, tip]));
     yield* say(prSizeNote(lines));
-    const warning = yield* behind(repo, tip, targets[targets.length - 1] ?? MAIN_BRANCH);
-    if (warning !== undefined) yield* say(warning);
+    const behindMain = yield* behind(repo, tip, targets[targets.length - 1] ?? MAIN_BRANCH);
+    if (behindMain.warning !== undefined) yield* say(behindMain.warning);
 
     // Before the slow gate, and after the fetch, so the remote refs say what is published.
     const remote =
@@ -614,5 +624,7 @@ export const trackPr = (
     const done = existing
       ? `updated ${url}: the Gate section is from this run; every other section is ${options.body === undefined ? "as it was" : "from --body-file"}`
       : `opened ${url}`;
-    return options.wait === undefined ? done : yield* awaitCi(top, tip, done, options.wait, say);
+    return options.wait === undefined
+      ? done
+      : yield* awaitCi(top, tip, done, options.wait, say, behindMain.conflicts);
   });

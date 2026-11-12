@@ -593,7 +593,7 @@ describe("track pr: --body-only, behind main, --wait", () => {
   });
 
   /** `awaitCi` in a child process, its env pointing at the fake gh: stdout, or the failure. */
-  const awaitCiRun = async (sha: string, timing: object) => {
+  const awaitCiRun = async (sha: string, timing: object, conflicts = false) => {
     const script = join(base, "await.ts");
     await writeFile(
       script,
@@ -601,7 +601,7 @@ describe("track pr: --body-only, behind main, --wait", () => {
       `import { Effect } from ${JSON.stringify(Bun.resolveSync("effect", import.meta.dir))};
 import { awaitCi } from ${JSON.stringify(join(import.meta.dir, "..", "..", "src", "adapters", "trackPr.ts"))};
 const out = await Effect.runPromise(
-  awaitCi(process.cwd(), ${JSON.stringify(sha)}, "updated", ${JSON.stringify(timing)}, (line) => Effect.sync(() => console.error(line))),
+  awaitCi(process.cwd(), ${JSON.stringify(sha)}, "updated", ${JSON.stringify(timing)}, (line) => Effect.sync(() => console.error(line)), ${conflicts}),
 );
 console.log(out);
 `,
@@ -631,6 +631,16 @@ console.log(out);
   test("awaitCi with no check starting: says so, and stops waiting", async () => {
     const ran = await awaitCiRun("b".repeat(40), { pollMs: 5, startMs: 20, limitMs: 10_000 });
     expect(`${ran.stdout}\n${ran.stderr}`).toContain("note: no CI check started on bbbbbbbbbbbb");
+    expect(ran.stdout).not.toContain("conflicts with main");
+    // As #80's real run hit: a PR that conflicts with main gets no CI at all.
+    const conflicting = await awaitCiRun(
+      "c".repeat(40),
+      { pollMs: 5, startMs: 20, limitMs: 10_000 },
+      true,
+    );
+    expect(conflicting.stdout).toContain(
+      "GitHub runs no pull_request workflow on a PR that can't merge: merge main in",
+    );
   });
 });
 
