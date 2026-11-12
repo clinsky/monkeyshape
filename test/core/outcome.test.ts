@@ -345,6 +345,35 @@ describe("the outcome contract", () => {
     expect(output.split("\n").at(-1)).toBe("mshape check passed");
   });
 
+  test("every failing run tallies its findings per rule, most first; a passing run doesn't", () => {
+    const failing = formatCheck(
+      assess(
+        config(ARCH),
+        repo(
+          {
+            "AGENTS.md": "# A\n",
+            "src/core/a.ts": "throw 1;\nthrow 2;\nexport const a = Date.now();\n",
+          },
+          tools("src/core/a.ts"),
+        ),
+      ),
+    ).split("\n");
+    expect(failing.slice(-5)).toEqual([
+      "",
+      "       2  rules/no-throw",
+      "       1  rules/no-nondeterminism",
+      "",
+      "mshape check failed: 3 problems",
+    ]);
+    const passing = formatCheck(
+      assess(
+        config(ARCH),
+        repo({ "AGENTS.md": "# A\n", "src/core/a.ts": "" }, tools("src/core/a.ts")),
+      ),
+    );
+    expect(passing).not.toMatch(/^ +\d+ {2}\S+\/\S+$/m);
+  });
+
   test("a long command's label is shortened, so it doesn't push every state across", () => {
     const run = assess(
       config(ARCH),

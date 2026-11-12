@@ -62,6 +62,25 @@ describe("refs in docs", () => {
     );
   });
 
+  test("a path under a placeholder is relative to a run-time directory, not checked", () => {
+    const found = checkRefs(
+      config(),
+      repo({
+        "AGENTS.md": "It writes `state/db/` and reads `config/run.yaml`.",
+        "state/README.md": "",
+      }),
+    );
+    expect(found.map((v) => v.message)).toEqual([
+      "`state/db/` does not exist in the repo. Fix the path; or, if it is relative to a directory created at run time, name that directory with a placeholder (`<workdir>/state/db`), which refs doesn't resolve.",
+      "`config/run.yaml` does not exist in the repo. Fix the path; or, if it is relative to a directory created at run time, name that directory with a placeholder (`<workdir>/config/run.yaml`), which refs doesn't resolve.",
+    ]);
+    expect(
+      rules({
+        "AGENTS.md": "It writes `<workdir>/state/db/` and reads `<workdir>/config/run.yaml`.",
+      }),
+    ).toEqual([]);
+  });
+
   test("bare file names resolve anywhere; package subpaths and placeholders are not paths", () => {
     expect(
       rules({
@@ -219,6 +238,79 @@ describe("refs in code comments", () => {
 
   test("strings are not comments", () => {
     expect(rules({ "src/a.ts": 'const s = "notes/2026-01-01-x.md §3 D-gone";\n' })).toEqual([]);
+  });
+});
+
+describe("refs.rules: off and allow per kind, as rules takes them", () => {
+  const REASON = "a reason a later agent can weigh";
+  const files = {
+    "AGENTS.md": "As the plan says in §3.",
+    "skills/a/SKILL.md": "See §2 there.",
+  };
+
+  test("an allowance silences its kind only in the paths it matches", () => {
+    const allowed = config({
+      refs: { rules: { "section-citation": { allow: [{ path: "skills/**", reason: REASON }] } } },
+    });
+    expect(
+      checkRefs(allowed, repo({ "DECISIONS.md": DECISIONS, ...files })).map(
+        (v) => `${v.rule} ${v.file}`,
+      ),
+    ).toEqual(["refs/section-citation AGENTS.md"]);
+  });
+
+  test("an allowance silences only its own kind", () => {
+    const allowed = config({
+      refs: { rules: { "missing-path": { allow: [{ path: "AGENTS.md", reason: REASON }] } } },
+    });
+    expect(rules({ "AGENTS.md": "As in §3, see `src/gone.ts`." }, allowed)).toEqual([
+      "refs/section-citation",
+    ]);
+  });
+
+  test("a kind turned off reports nothing; an allowance under it can't silence anything, so it's reported", () => {
+    const off = config({
+      refs: {
+        rules: {
+          "section-citation": { off: REASON, allow: [{ path: "nowhere/**", reason: REASON }] },
+        },
+      },
+    });
+    expect(rules({ ...files, "AGENTS.md": "See `src/gone.ts` in §3." }, off)).toEqual([
+      "refs/missing-path",
+      "refs/unused-allowance",
+    ]);
+    const offOnly = config({ refs: { rules: { "section-citation": { off: REASON } } } });
+    expect(rules({ ...files, "AGENTS.md": "See `src/gone.ts` in §3." }, offOnly)).toEqual([
+      "refs/missing-path",
+    ]);
+  });
+
+  test("a bead-in-code allowance isn't unused where bd and its export are missing", () => {
+    const allowed = config({
+      refs: { rules: { "bead-in-code": { allow: [{ path: "src/a.ts", reason: REASON }] } } },
+    });
+    const files = { "DECISIONS.md": DECISIONS, "src/a.ts": "// see x-1 here\n" };
+    const noBd = repo(files, { beads: { state: "unavailable", reason: "bd is not on PATH" } });
+    expect(checkRefs(allowed, noBd)).toEqual([]);
+    // Where it runs, the allowance is tested as any other.
+    expect(checkRefs(allowed, repo(files, { beadIds: ["x-1"] }))).toEqual([]);
+    expect(checkRefs(allowed, repo(files, { beadIds: [] })).map((v) => v.rule)).toEqual([
+      "refs/unused-allowance",
+    ]);
+  });
+
+  test("an allowance that silences nothing is reported, naming it", () => {
+    const stale = config({
+      refs: { rules: { "missing-path": { allow: [{ path: "docs/**", reason: REASON }] } } },
+    });
+    const found = checkRefs(stale, repo({ "DECISIONS.md": DECISIONS, "AGENTS.md": "Fine." }));
+    expect(found.map((v) => [v.rule, v.message])).toEqual([
+      [
+        "refs/unused-allowance",
+        "refs.rules.missing-path.allow 'docs/**' allows nothing; delete it",
+      ],
+    ]);
   });
 });
 

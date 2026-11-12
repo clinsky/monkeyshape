@@ -311,13 +311,15 @@ export const moduleOf = (arch: Arch, path: string): string | undefined => {
 /**
  * The files arch layers: the code under `arch.root`, and any code in `sources` outside it,
  * which belongs to no module. Tests, declaration files and exempt files are not code here,
- * so a root of `.` doesn't ask a module for `tests/` or `shape.config.ts`.
+ * so a root of `.` doesn't ask a module for `tests/` or `shape.config.ts`; nor are the local
+ * rules the config imports, unless a module maps them: they are the config's, as it is mshape's.
  */
 export const archFiles = (config: ResolvedConfig, snapshot: Snapshot): ReadonlyArray<string> => {
   const arch = config.arch;
   if (arch === undefined) return [];
   return snapshot.files.filter((file) => {
     if (!isTsSource(file)) return false;
+    if (config.configModules.includes(file) && moduleOf(arch, file) === undefined) return false;
     const kind = placeOf(config, file).kind;
     if (kind !== "source" && kind !== "outside") return false;
     return underRoot(arch, file) !== undefined || kind === "source";
@@ -345,7 +347,7 @@ export const checkArch = (config: ResolvedConfig, snapshot: Snapshot): ReadonlyA
     return [
       violation(
         "no-module-map",
-        "shape.config.ts",
+        config.configFile,
         "declares no `arch.modules`. Layering is the cheapest structure to enforce; map every source directory to a module.",
       ),
     ];
@@ -357,7 +359,7 @@ export const checkArch = (config: ResolvedConfig, snapshot: Snapshot): ReadonlyA
         violations.push(
           violation(
             "config",
-            "shape.config.ts",
+            config.configFile,
             `module '${name}' lists unknown module '${target}' in mayImport`,
           ),
         );
@@ -374,7 +376,7 @@ export const checkArch = (config: ResolvedConfig, snapshot: Snapshot): ReadonlyA
       violations.push(
         violation(
           "empty-module",
-          "shape.config.ts",
+          config.configFile,
           `module '${name}' matches no TypeScript file under ${directoryOf(arch, name)}/. Fix its name, remove it, or mark it \`optional: true\` if its code is still to come.`,
         ),
       );
@@ -391,7 +393,7 @@ export const checkArch = (config: ResolvedConfig, snapshot: Snapshot): ReadonlyA
           file,
           underRoot(arch, file) === undefined
             ? `is in \`sources\` but outside \`arch.root\` ('${arch.root}'), so no module owns it. Set \`arch.root: "."\` and map its directory as a module, or move it under ${arch.root}/.`
-            : `is not inside any module in \`arch.modules\` (shape.config.ts). ${suggestModule(underRoot(arch, file) ?? file)}`,
+            : `is not inside any module in \`arch.modules\` (${config.configFile}). ${suggestModule(underRoot(arch, file) ?? file)}`,
         ),
       );
       continue;

@@ -99,6 +99,35 @@ describe("runCommands", () => {
     expect(script).toEqual({ state: "ran", code: 0, output: "checked\n" });
     expect(bun).toEqual({ state: "ran", code: 0, output: "object\n" });
   });
+
+  test("a {files} argument receives exactly the files the glob matched, in order", async () => {
+    const shape = config({
+      coverage: {
+        commands: [
+          {
+            files: ["tools/**/*.py", "bin/**"],
+            run: ["sh", "-c", 'printf "%s|" "$@"', "sh", "{files}"],
+          },
+          {
+            files: ["tools/**/*.py"],
+            run: ["sh", "-c", 'printf "%s|" "$@"', "sh", "--", "{files}", "end"],
+          },
+        ],
+      },
+    });
+    const files = ["tools/gen.py", "tools/plain.sh", "bin/run", "tools/sub/more.py", "docs/a.py"];
+    const runs = await Effect.runPromise(runCommands(repo, shape, files));
+    expect(runs.get(0)).toEqual({
+      state: "ran",
+      code: 0,
+      output: "tools/gen.py|bin/run|tools/sub/more.py|",
+    });
+    expect(runs.get(1)).toEqual({
+      state: "ran",
+      code: 0,
+      output: "--|tools/gen.py|tools/sub/more.py|end|",
+    });
+  });
 });
 
 describe("declared commands run only when coverage is selected", () => {

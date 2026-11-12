@@ -142,8 +142,6 @@ export const checkCoverage = (
   return [...violations, ...others];
 };
 
-const CONFIG_FILE = "shape.config.ts";
-
 /** The command as a reader types it, for messages and the per-command line. */
 export const commandLabel = (command: DeclaredCommand): string => command.run.join(" ");
 
@@ -158,6 +156,20 @@ export const shortLabel = (command: DeclaredCommand): string =>
 /** The files a declared command covers, in `snapshot.files` order. */
 export const commandFiles = (command: DeclaredCommand, files: ReadonlyArray<string>) =>
   files.filter((file) => command.files.some((pattern) => matchesPathOrBelow(file, pattern)));
+
+/** An argument of a declared command's `run` that stands for the files its `files` matched. */
+export const FILES_ARGUMENT = "{files}";
+
+/**
+ * The argv a declared command runs: `run`, with each `{files}` argument replaced by the files
+ * its `files` matched, in order, so the command checks exactly those and no glob is wider
+ * than what runs. Without one, `run` as written.
+ */
+export const commandArgv = (
+  command: DeclaredCommand,
+  files: ReadonlyArray<string>,
+): ReadonlyArray<string> =>
+  command.run.flatMap((arg) => (arg === FILES_ARGUMENT ? commandFiles(command, files) : [arg]));
 
 /** One declared command's line under `coverage`, in the outcome contract's terms. */
 export interface CommandReport {
@@ -226,7 +238,7 @@ const commandViolations = (config: ResolvedConfig, snapshot: Snapshot): Readonly
     const own = (optional ? [] : unmatched).map((pattern) =>
       violation(
         "command-unmatched",
-        CONFIG_FILE,
+        config.configFile,
         `declared command \`${label}\` covers '${pattern}', which matches no file. Fix the glob, remove it, or set \`optional: true\` if its files may be absent.`,
       ),
     );
@@ -239,7 +251,7 @@ const commandViolations = (config: ResolvedConfig, snapshot: Snapshot): Readonly
             ...own,
             violation(
               "command-unavailable",
-              CONFIG_FILE,
+              config.configFile,
               `declared command \`${label}\` could not run: ${ran.reason}. Install its toolchain here (and in CI), or set \`optional: true\` on it if this machine may lack it.`,
             ),
           ];
@@ -248,7 +260,7 @@ const commandViolations = (config: ResolvedConfig, snapshot: Snapshot): Readonly
       ...own,
       violation(
         "command-failed",
-        CONFIG_FILE,
+        config.configFile,
         `declared command \`${label}\` exited ${ran.code}. Fix what it reports:${ran.output.trim() === "" ? " it printed nothing." : `\n${tail(ran.output)}`}`,
       ),
     ];
@@ -280,7 +292,7 @@ const uncovered = (config: ResolvedConfig, snapshot: Snapshot): ReadonlyArray<Vi
       violation(
         "uncovered",
         file,
-        `is ${snapshot.modes.get(file) === "executable" ? "an executable file" : "source"} that monkeyshape doesn't analyze, and no declared command checks it. Add a command that does to \`coverage.commands\` in ${CONFIG_FILE} (\`{ files, run }\`), or list it in \`coverage.exemptFiles\` with the reason it needs none.${snapshot.modes.get(file) === "executable" ? " If it is a compiled binary, no command checks it: exempt it with that reason, or stop tracking it and build it instead. A vendored release belongs in `files.vendored` with its package and sha256." : ""}`,
+        `is ${snapshot.modes.get(file) === "executable" ? "an executable file" : "source"} that monkeyshape doesn't analyze, and no declared command checks it. Add a command that does to \`coverage.commands\` in ${config.configFile} (\`{ files, run }\`), or list it in \`coverage.exemptFiles\` with the reason it needs none.${snapshot.modes.get(file) === "executable" ? " If it is a compiled binary, no command checks it: exempt it with that reason, or stop tracking it and build it instead. A vendored release belongs in `files.vendored` with its package and sha256." : ""}`,
       ),
     );
   }
@@ -289,7 +301,7 @@ const uncovered = (config: ResolvedConfig, snapshot: Snapshot): ReadonlyArray<Vi
       out.push(
         violation(
           "exempt-unmatched",
-          CONFIG_FILE,
+          config.configFile,
           `\`coverage.exemptFiles\` lists '${entry.path}', which matches no file. Remove the entry, or fix its glob.`,
         ),
       );

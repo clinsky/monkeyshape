@@ -7,7 +7,7 @@
  * path still exists. Code comments: no links into
  * those either, no `§N` citations, decision slugs must exist, bead ids only in `TODO(id)`.
  */
-import type { ResolvedConfig } from "../schemas/config.ts";
+import { REFS_KINDS, type ResolvedConfig } from "../schemas/config.ts";
 import { parseDecisions, SLUG } from "./decisions.ts";
 import { matchesAny } from "./glob.ts";
 import { fencedLines, splitCodeSpans } from "./markdown.ts";
@@ -27,16 +27,7 @@ const KNOWN_EXTENSION =
   /\.(ts|tsx|mts|cts|js|mjs|json|jsonc|jsonl|md|yaml|yml|toml|sh|txt|lock|grit|java|py)$/;
 
 /** Every rule this check reports, as `refs/<kind>`; test/core/ruleCases.test.ts covers each. */
-export const REFS_RULES = [
-  "section-citation",
-  "forbidden",
-  "unknown-decision",
-  "split-code-span",
-  "normative-link",
-  "unknown-script",
-  "missing-path",
-  "bead-in-code",
-] as const;
+export const REFS_RULES = [...REFS_KINDS, "unused-allowance"] as const;
 
 const violation = (
   rule: (typeof REFS_RULES)[number],
@@ -75,7 +66,49 @@ export const pathCandidate = (span: string): string | undefined => {
   return token.replace(/\/$/, "");
 };
 
-export const checkRefs = (config: ResolvedConfig, snapshot: Snapshot): ReadonlyArray<Violation> => {
+/**
+ * `refs.rules`, as the rules engine applies `rules`: a kind turned off reports nothing, an
+ * allowance silences its kind in the files it matches, and one that silences nothing is
+ * reported so it doesn't outlive its reason, under `off` too, where it can never silence
+ * anything. Only a kind whose running depends on the machine (`bead-in-code`, without bd or
+ * its export) skips that: its allowance may be used where it runs.
+ */
+const applySettings = (
+  config: ResolvedConfig,
+  snapshot: Snapshot,
+  found: ReadonlyArray<Violation>,
+): ReadonlyArray<Violation> => {
+  const unrun = (kind: (typeof REFS_KINDS)[number]): boolean =>
+    kind === "bead-in-code" && snapshot.beadIds === undefined;
+  const settings = config.refs.rules;
+  const used = new Set<string>();
+  const kept = found.filter((v) => {
+    const kind = REFS_KINDS.find((k) => v.rule === `refs/${k}`);
+    const setting = kind === undefined ? undefined : settings[kind];
+    if (setting?.off !== undefined) return false;
+    const allowance = setting?.allow?.find((a) => matchesAny(v.file, [a.path]));
+    if (allowance === undefined) return true;
+    used.add(`${kind}\0${allowance.path}`);
+    return false;
+  });
+  const unused = REFS_KINDS.flatMap((kind) =>
+    unrun(kind)
+      ? []
+      : (settings[kind]?.allow ?? [])
+          .filter((a) => !used.has(`${kind}\0${a.path}`))
+          .map((a) =>
+            violation(
+              "unused-allowance",
+              config.configFile,
+              1,
+              `refs.rules.${kind}.allow '${a.path}' allows nothing; delete it`,
+            ),
+          ),
+  );
+  return [...kept, ...unused];
+};
+
+const findRefs = (config: ResolvedConfig, snapshot: Snapshot): ReadonlyArray<Violation> => {
   const violations: Array<Violation> = [];
   const index = pathIndex(snapshot.files);
   const files = new Set(snapshot.files);
@@ -201,14 +234,26 @@ export const checkRefs = (config: ResolvedConfig, snapshot: Snapshot): ReadonlyA
         }
         const path = pathCandidate(span.replace(/^bun (run )?/, ""));
         if (path !== undefined && checkable(path) && !pathExists(doc, path))
-          violations.push(violation("missing-path", doc, n, `\`${span}\` does not exist`));
+          violations.push(
+            violation(
+              "missing-path",
+              doc,
+              n,
+              `\`${span}\` does not exist in the repo. Fix the path; or, if it is relative to a directory created at run time, name that directory with a placeholder (\`<workdir>/${path}\`), which refs doesn't resolve.`,
+            ),
+          );
       }
       for (const match of line.matchAll(/\]\(([^)\s]+)\)/g)) {
         const target = (match[1] ?? "").split("#")[0] ?? "";
         if (target === "" || /^[a-z]+:/.test(target)) continue;
         if (!pathExists(doc, target))
           violations.push(
-            violation("missing-path", doc, n, `link target '${target}' does not exist`),
+            violation(
+              "missing-path",
+              doc,
+              n,
+              `link target '${target}' does not exist in the repo. Fix the link, or unlink a path that only exists at run time.`,
+            ),
           );
       }
     });
@@ -248,3 +293,6 @@ export const checkRefs = (config: ResolvedConfig, snapshot: Snapshot): ReadonlyA
   }
   return violations;
 };
+
+export const checkRefs = (config: ResolvedConfig, snapshot: Snapshot): ReadonlyArray<Violation> =>
+  applySettings(config, snapshot, findRefs(config, snapshot));

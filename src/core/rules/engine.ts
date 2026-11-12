@@ -97,7 +97,7 @@ export const checkRules = (
   const violations: Array<Violation> = [];
   const local = localRules(config.localRules);
   for (const reason of local.broken)
-    violations.push(violation("local-rule", "shape.config.ts", 1, reason));
+    violations.push(violation("local-rule", config.configFile, 1, reason));
   const all = [...rules, ...local.rules];
   const active = all.filter(
     (rule) => config.layers.includes(rule.layer) && config.rules[rule.id]?.off === undefined,
@@ -106,7 +106,7 @@ export const checkRules = (
     for (const problem of local.cases.get(rule.id)?.(
       (config.rules[rule.id]?.allow ?? []).map((allowance) => allowance.path),
     ) ?? [])
-      violations.push(violation("local-cases", "shape.config.ts", 1, problem));
+      violations.push(violation("local-cases", config.configFile, 1, problem));
   const usedAllowances = new Set<string>();
   const known = new Set([...all.map((rule) => rule.id), ...local.brokenIds]);
   /** A local rule that broke: reported once, at the first file, with how many it broke on. */
@@ -114,7 +114,7 @@ export const checkRules = (
 
   for (const id of Object.keys(config.rules))
     if (!known.has(id))
-      violations.push(violation("config", "shape.config.ts", 1, `configures unknown rule '${id}'`));
+      violations.push(violation("config", config.configFile, 1, `configures unknown rule '${id}'`));
 
   for (const file of snapshot.files) {
     if (!matchesAny(file, config.sources.include) || matchesAny(file, config.sources.exclude))
@@ -200,7 +200,8 @@ export const checkRules = (
       ),
     );
 
-  // A misshaped local rule never ran, so its allowances weren't tested, not unused.
+  // A misshaped local rule never ran, so its allowances weren't tested, not unused. A rule
+  // whose layer is off is different: `layers` is config, so its allowance is dead everywhere.
   const unrun = new Set(local.brokenIds);
   for (const [id, setting] of Object.entries(config.rules))
     for (const allowance of unrun.has(id) ? [] : (setting.allow ?? []))
@@ -208,7 +209,7 @@ export const checkRules = (
         violations.push(
           violation(
             "unused-allowance",
-            "shape.config.ts",
+            config.configFile,
             1,
             `rules.${id}.allow '${allowance.path}' allows nothing; delete it`,
           ),

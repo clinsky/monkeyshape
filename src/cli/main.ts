@@ -6,7 +6,13 @@ import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { Effect } from "effect";
 import pkg from "../../package.json" with { type: "json" };
-import { BASELINE_FILE, readBaseline, writeBaseline } from "../adapters/baseline.ts";
+import {
+  BASELINE_FILE,
+  readBaseline,
+  readChangedLines,
+  writeBaseline,
+} from "../adapters/baseline.ts";
+import { withBeadsExport } from "../adapters/beads.ts";
 import { CONFIG_FILE, loadConfig } from "../adapters/config.ts";
 import { reviewPost, scanFile } from "../adapters/denylist.ts";
 import { depBump } from "../adapters/dep.ts";
@@ -45,7 +51,7 @@ import type { CheckName } from "../core/model.ts";
 import { formatDelivery, unregisteredNote } from "../core/notices.ts";
 import { count, tighten } from "../core/ratchet.ts";
 import { packVersion } from "../core/release.ts";
-import { formatCheck, formatGarden, formatViolation } from "../core/report.ts";
+import { formatCheck, formatGarden, formatViolation, tallyByRule } from "../core/report.ts";
 import { formatRules } from "../core/rules/engine.ts";
 import { RULES } from "../core/rules/registry.ts";
 import { nextStep, REPO_NAME } from "../core/scaffold.ts";
@@ -561,8 +567,16 @@ const configFlag = (root: string, args: ReadonlyArray<string>): string | undefin
 const load = (root: string, args: ReadonlyArray<string>, checks: ReadonlyArray<CheckName>) =>
   Effect.gen(function* () {
     const config = yield* loadConfig(root, configFlag(root, args));
-    const snapshot = yield* loadSnapshot(root, config, PACKAGE_ROOT, { checks });
+    const loaded = yield* Effect.flatMap(
+      loadSnapshot(root, config, PACKAGE_ROOT, { checks }),
+      (snapshot) => withBeadsExport(root, snapshot),
+    );
     const baseline = yield* readBaseline(root);
+    // Only a baseline needs to know which occurrence is new.
+    const snapshot =
+      Object.keys(baseline).length === 0
+        ? loaded
+        : { ...loaded, changedLines: yield* readChangedLines(root) };
     return { config, snapshot, baseline };
   });
 
@@ -630,15 +644,10 @@ const baseline = (root: string, args: ReadonlyArray<string>) =>
     );
     if (args.includes("--init")) {
       yield* writeBaseline(root, count(violations));
-      // By rule, most first: what to review, since one rule's count is usually one habit.
-      const byRule = new Map<string, number>();
-      for (const v of violations) byRule.set(v.rule, (byRule.get(v.rule) ?? 0) + 1);
       return {
         output: [
           `${BASELINE_FILE}: grandfathered ${violations.length} violation(s)`,
-          ...[...byRule]
-            .sort(([a, x], [b, y]) => y - x || a.localeCompare(b))
-            .map(([rule, n]) => `  ${String(n).padStart(6)}  ${rule}`),
+          ...tallyByRule(violations.map((v) => v.rule)),
         ].join("\n"),
         code: 0,
       };
