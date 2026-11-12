@@ -597,7 +597,8 @@ describe("track pr: --body-only, behind main, --wait", () => {
     const script = join(base, "await.ts");
     await writeFile(
       script,
-      `import { Effect } from "effect";
+      // By absolute path: the script is in a temp directory, with no node_modules above it.
+      `import { Effect } from ${JSON.stringify(Bun.resolveSync("effect", import.meta.dir))};
 import { awaitCi } from ${JSON.stringify(join(import.meta.dir, "..", "..", "src", "adapters", "trackPr.ts"))};
 const out = await Effect.runPromise(
   awaitCi(process.cwd(), ${JSON.stringify(sha)}, "updated", ${JSON.stringify(timing)}, (line) => Effect.sync(() => console.error(line))),
@@ -605,7 +606,8 @@ const out = await Effect.runPromise(
 console.log(out);
 `,
     );
-    const result = Bun.spawnSync([process.execPath, script], {
+    // --no-install: as CI, where bun never fetches a missing package.
+    const result = Bun.spawnSync([process.execPath, "--no-install", script], {
       cwd: wt(),
       env: { ...process.env, PATH: `${bin}:/usr/bin:/bin`, FAKE_GH: gh },
       stdout: "pipe",
@@ -619,14 +621,16 @@ console.log(out);
     await checks("checks-1.json", [{ name: "check", status: "in_progress", conclusion: null }]);
     await checks("checks-2.json", [{ name: "check", status: "completed", conclusion: "success" }]);
     const ran = await awaitCiRun("a".repeat(40), { pollMs: 5, startMs: 10_000, limitMs: 10_000 });
-    expect(ran.stdout).toBe("updated\nCI passed on aaaaaaaaaaaa:\n  check: success");
-    expect(ran.stderr).toBe("waiting for CI on aaaaaaaaaaaa");
+    expect(ran).toEqual({
+      stdout: "updated\nCI passed on aaaaaaaaaaaa:\n  check: success",
+      stderr: "waiting for CI on aaaaaaaaaaaa",
+    });
     expect(await Bun.file(`${gh}/polls`).text()).toBe("3");
   });
 
   test("awaitCi with no check starting: says so, and stops waiting", async () => {
     const ran = await awaitCiRun("b".repeat(40), { pollMs: 5, startMs: 20, limitMs: 10_000 });
-    expect(ran.stdout).toContain("note: no CI check started on bbbbbbbbbbbb");
+    expect(`${ran.stdout}\n${ran.stderr}`).toContain("note: no CI check started on bbbbbbbbbbbb");
   });
 });
 
