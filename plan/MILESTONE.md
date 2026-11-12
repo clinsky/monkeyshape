@@ -363,4 +363,21 @@ None: no model calls in this milestone's code.
 
 ## Amendments
 
-None yet.
+- **2026-11-10, `bunfig.toml` ships as `template/bunfig` (#74), approved by the planning
+  session.** `bun pm pack` drops a `bunfig.toml` from the package, so the template stores it as
+  `template/bunfig` and `init` renames it, as it does `gitignore`. `env` owns `template/bunfig`
+  and the `bunfig` entry it adds to `RENAMED` in `src/core/scaffold.ts`; the rest of that file
+  stays `checks'`.
+- **2026-11-10, file ownership is who to tell, not a lock (#75, `jbq`), the maintainer's
+  ruling.** A track may edit a file another track owns when its change needs it (for example
+  in lockstep with code a test holds it to). It says so in its PR body and sends the owning
+  track one line naming the file and why; merge conflicts are settled as they come. This
+  replaces Interfaces' "Text one track needs in another's file goes as a message with the
+  exact wording", and the ownership lists above name who to tell.
+- **2026-11-10, the beads export doesn't satisfy `beads: "required"` (`checks`), approved by
+  the planning session.** In the beads-source table, a repo that requires beads needs the
+  database: with no `bd` or no database, it fails even when an export is committed. The
+  export serves only `optional`.
+- **2026-11-12, 0.4.1 tagged, not published (#76), the maintainer's call.** `v0.4.1` is tagged
+  and pushed, but never published; adopters get this milestone's changes in 0.5.0 at the end.
+  Acceptance's "0.4.1 as soon as goal 2's first PR merges" is replaced by 0.5.0.
