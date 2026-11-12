@@ -21,6 +21,7 @@ export const BUDGETS_RULES = [
   "decision-field",
   "decision-evidence",
   "decision-unenforced",
+  "decision-unlinked",
   "prime-lines",
   "memories-count",
   "memories-bytes",
@@ -47,6 +48,18 @@ export interface Metrics {
   /** Source files over the warning size, largest first. */
   readonly largeFiles: ReadonlyArray<{ readonly file: string; readonly lines: number }>;
 }
+
+/**
+ * Files a decision can't be cited in: JSON, which has no comments (a tsconfig's JSONC does),
+ * and lockfiles, which their package manager rewrites.
+ */
+const UNCOMMENTABLE =
+  /(?:^|\/)(?:(?!tsconfig)[^/]*\.json|[^/]*\.lockb?|pnpm-lock\.yaml|Cargo\.lock|go\.sum)$/;
+
+/** Whether `text` names `slug` as a whole slug, not as the start of a longer one. */
+const cites = (text: string | undefined, slug: string): boolean =>
+  text !== undefined &&
+  new RegExp(`(?<![\\w-])${slug.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}(?![\\w-])`).test(text);
 
 export const measure = (config: ResolvedConfig, snapshot: Snapshot): Metrics => {
   const agents = snapshot.texts.get("AGENTS.md");
@@ -165,6 +178,25 @@ export const checkBudgets = (
       for (const path of decision.enforcedBy)
         if (!index.has(path.replace(/\/$/, "")))
           at("decision-unenforced", `is enforced by '${path}', which does not exist`);
+    }
+    // The back-link: whoever edits an enforcing file is told, in it, which decision it holds.
+    for (const named of decision.enforcedBy) {
+      const path = named.replace(/\/$/, "");
+      if (!index.has(path)) continue;
+      const files = snapshot.files.filter((file) => file === path || file.startsWith(`${path}/`));
+      if (files.some((file) => cites(snapshot.texts.get(file), decision.slug))) continue;
+      const single = files.length === 1 && files[0] === path;
+      const fix =
+        single && UNCOMMENTABLE.test(path)
+          ? `This file can't hold a comment, or loses one when regenerated: in "Enforced by", name the test or check that reads it instead, and cite ${decision.slug} there.`
+          : `Add a comment citing ${decision.slug} where the decision is held${single ? "" : ", in any file under it"}.`;
+      violations.push(
+        violation(
+          "decision-unlinked",
+          path,
+          `enforces ${decision.slug} ("${decision.title}", DECISIONS.md) but doesn't name it, so whoever edits ${single ? "this file" : `a file under ${path}/`} isn't told why it must stay. ${fix}`,
+        ),
+      );
     }
   }
 

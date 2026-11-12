@@ -16,6 +16,7 @@ export default defineConfig({
       helpers: { description: "Runtime helpers adopters import, e.g. decodeStrict." },
       core: {
         description: "Every check, as pure functions over a Snapshot. No host I/O.",
+        // No hostAccess: only adapters touch disk, git or bd (D-pure-checks).
         mayImport: ["schemas"],
         packages: ["oxc-parser"],
       },

@@ -4,6 +4,7 @@ import { posix } from "node:path";
 import { Effect } from "effect";
 import { PRIME_FILE } from "../core/conventions.ts";
 import { parseJsonc } from "../core/coverage.ts";
+import { parseDecisions } from "../core/decisions.ts";
 import { SETTINGS_FILE } from "../core/hooks.ts";
 import { mainCheckout } from "../core/layout.ts";
 import {
@@ -410,9 +411,19 @@ export const loadSnapshot = (
     // Source in other languages is read for its lines (budgets, garden), within the size cap:
     // past it, \`files\` already speaks for it, and a large binary needn't be read as text.
     const readable = (file: string) => (sizes.get(file) ?? 0) <= config.files.maxBytes;
+    // A decision's enforcing files are read whatever they are, for the back-link to its slug.
+    const decisionsText = present.includes("DECISIONS.md")
+      ? yield* readText(root, "DECISIONS.md").pipe(Effect.orElseSucceed(() => ""))
+      : "";
+    const enforcing = parseDecisions(decisionsText).flatMap((d) =>
+      d.enforcedBy.map((path) => path.replace(/\/$/, "")),
+    );
+    const enforces = (file: string) =>
+      enforcing.some((path) => file === path || file.startsWith(`${path}/`));
     const wanted = present.filter(
       (file) =>
         isTsSource(file) ||
+        (enforces(file) && readable(file)) ||
         file.endsWith(".md") ||
         configs.has(file) ||
         classify(file, undefined) === "data" ||

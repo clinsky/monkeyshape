@@ -19,7 +19,11 @@ const entry = (slug: string, overrides: Record<string, string> = {}) => {
     .join("\n")}\n`;
 };
 
-const base = { "AGENTS.md": "# Agents\n", "test/a.test.ts": "" };
+/** The enforcing file cites every slug the cases use, as the back-link asks. */
+const base = {
+  "AGENTS.md": "# Agents\n",
+  "test/a.test.ts": `// D-one ${Array.from({ length: 16 }, (_, i) => `D-n${i}`).join(" ")}\n`,
+};
 const rules = (
   files: Record<string, string>,
   input = config(),
@@ -87,5 +91,98 @@ describe("budgets", () => {
     });
     expect(rules({ "src/big.ts": lines(1201) }, allowed)).toEqual([]);
     expect(rules({ "src/big.ts": lines(10) }, allowed)).toEqual(["budgets/unused-allowance"]);
+  });
+});
+
+describe("the decision back-link: each file a decision names cites its slug", () => {
+  const found = (enforcedBy: string, files: Record<string, string>, evidence = "measured: x") =>
+    checkBudgets(
+      config(),
+      repo({
+        "AGENTS.md": "# Agents\n",
+        "DECISIONS.md": `# Decisions\n\n${entry("D-one", { "Enforced by": enforcedBy, Evidence: evidence })}`,
+        ...files,
+      }),
+    )
+      .filter((v) => v.rule.startsWith("budgets/decision-"))
+      .map((v) => `${v.rule} ${v.file}`);
+
+  test("a file that cites the slug passes", () => {
+    expect(found("src/a.ts", { "src/a.ts": "// Held here: D-one.\n" })).toEqual([]);
+  });
+
+  test("a file that doesn't fails, naming the decision and the file", () => {
+    const [v] = checkBudgets(
+      config(),
+      repo({
+        "AGENTS.md": "# Agents\n",
+        "DECISIONS.md": `# Decisions\n\n${entry("D-one", { "Enforced by": "src/a.ts" })}`,
+        "src/a.ts": "// D-one-more is another decision\n",
+      }),
+    ).filter((x) => x.rule === "budgets/decision-unlinked");
+    expect([v?.file, v?.message]).toEqual([
+      "src/a.ts",
+      "enforces D-one (\"Title\", DECISIONS.md) but doesn't name it, so whoever edits this file isn't told why it must stay. Add a comment citing D-one where the decision is held.",
+    ]);
+  });
+
+  test("a directory passes when any file under it cites the slug", () => {
+    expect(
+      found("test/core/", { "test/core/a.test.ts": "", "test/core/b.test.ts": "// D-one" }),
+    ).toEqual([]);
+    expect(
+      found("test/core/", { "test/core/a.test.ts": "", "test/coreish.ts": "// D-one" }),
+    ).toEqual(["budgets/decision-unlinked test/core"]);
+  });
+
+  test("a path followed by a parenthetical note: the note is ignored, the path checked", () => {
+    expect(found("`src/a.ts` (its second case)", { "src/a.ts": "// D-one" })).toEqual([]);
+    expect(found("`src/a.ts` (D-one is cited here)", { "src/a.ts": "" })).toEqual([
+      "budgets/decision-unlinked src/a.ts",
+    ]);
+  });
+
+  test("policy with no enforcement: nothing to link; a policy that names a file links it", () => {
+    expect(found("none", {}, "policy")).toEqual([]);
+    expect(found("src/a.ts", { "src/a.ts": "" }, "policy")).toEqual([
+      "budgets/decision-unlinked src/a.ts",
+    ]);
+  });
+
+  test("a named path that doesn't exist fails as a missing path, not as unlinked", () => {
+    expect(found("src/gone.ts", {})).toEqual(["budgets/decision-unenforced DECISIONS.md"]);
+  });
+
+  test("a file that can't hold a comment is told to name the check that reads it instead", () => {
+    const message = (path: string) =>
+      checkBudgets(
+        config(),
+        repo({
+          "AGENTS.md": "# Agents\n",
+          "DECISIONS.md": `# Decisions\n\n${entry("D-one", { "Enforced by": path })}`,
+          [path]: "{}",
+        }),
+      ).find((v) => v.rule === "budgets/decision-unlinked")?.message ?? "";
+    const insteadOf = "name the test or check that reads it instead, and cite D-one there";
+    for (const path of ["package.json", "bun.lock", "sub/yarn.lock", "pnpm-lock.yaml", "bun.lockb"])
+      expect(message(path)).toContain(insteadOf);
+    for (const path of ["tsconfig.json", "tsconfig.base.json", "src/a.ts", "ci.yaml"])
+      expect(message(path)).toContain("Add a comment citing D-one where the decision is held.");
+  });
+
+  test("one file enforcing two decisions must cite both", () => {
+    const two = (text: string) =>
+      checkBudgets(
+        config(),
+        repo({
+          "AGENTS.md": "# Agents\n",
+          "DECISIONS.md": `# Decisions\n\n${entry("D-one", { "Enforced by": "src/a.ts" })}\n${entry("D-two", { "Enforced by": "src/a.ts" })}`,
+          "src/a.ts": text,
+        }),
+      )
+        .filter((v) => v.rule === "budgets/decision-unlinked")
+        .map((v) => v.message.split(" ")[1]);
+    expect(two("// D-one\n")).toEqual(["D-two"]);
+    expect(two("// D-one and D-two\n")).toEqual([]);
   });
 });
