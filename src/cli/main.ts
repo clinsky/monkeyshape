@@ -8,6 +8,7 @@ import { Effect } from "effect";
 import pkg from "../../package.json" with { type: "json" };
 import { BASELINE_FILE, readBaseline, writeBaseline } from "../adapters/baseline.ts";
 import { CONFIG_FILE, loadConfig } from "../adapters/config.ts";
+import { reviewPost, scanFile } from "../adapters/denylist.ts";
 import { depBump } from "../adapters/dep.ts";
 import { initRepo, vendoredSpec } from "../adapters/init.ts";
 import { mailInbox, mailInboxAll, mailRead, mailSend } from "../adapters/mail.ts";
@@ -224,7 +225,13 @@ const trackPrCommand = (root: string, args: ReadonlyArray<string>) =>
           });
     const output = yield* trackPr(
       root,
-      { title, body, fetchEnv: { ...process.env, GIT_TERMINAL_PROMPT: "0" } },
+      {
+        title,
+        body,
+        fetchEnv: { ...process.env, GIT_TERMINAL_PROMPT: "0" },
+        configDir: configDir(),
+        claudeDir: claudeDir(),
+      },
       (line) => Effect.sync(() => console.error(line)),
     );
     return { output, code: 0 };
@@ -480,6 +487,25 @@ const msgInbox = (root: string, quiet: boolean) =>
     }),
   );
 
+/** This machine's config directory, which holds its denylist: XDG's, else `~/.config`. */
+const configDir = (): string => {
+  const xdg = process.env["XDG_CONFIG_HOME"] ?? "";
+  return xdg.startsWith("/") ? xdg : `${homedir()}/.config`;
+};
+
+/** `scan <file>`, or `scan -` for stdin: the denylisted terms in it, exit 1 on any. */
+const scan = (root: string, args: ReadonlyArray<string>) =>
+  Effect.gen(function* () {
+    const [file] = args;
+    if (args.length !== 1 || file === undefined) return usage();
+    const text = yield* Effect.tryPromise({
+      try: () => (file === "-" ? Bun.stdin.text() : Bun.file(file).text()),
+      catch: (cause) =>
+        new WorkspaceError({ operation: "read", path: file, reason: String(cause) }),
+    });
+    return yield* scanFile(root, configDir(), file === "-" ? "stdin" : file, text);
+  });
+
 /** Claude Code's config directory, where it records each session: `~/.claude` by default. */
 const claudeDir = (): string => process.env["CLAUDE_CONFIG_DIR"] ?? `${homedir()}/.claude`;
 
@@ -542,6 +568,13 @@ const review = (root: string, args: ReadonlyArray<string>) =>
           args[0] ?? "",
           (line) => Effect.sync(() => console.error(line)),
           caller(),
+        ),
+        code: 0,
+      };
+    if (args.length === 3 && args[0] === "post")
+      return {
+        output: yield* reviewPost(root, configDir(), args[1] ?? "", args[2] ?? "", (line) =>
+          Effect.sync(() => console.error(line)),
         ),
         code: 0,
       };
@@ -800,11 +833,16 @@ export const COMMANDS: ReadonlyArray<Command> = [
       or a session Claude Code didn't identify. A new session id (/clear, a fresh start)
       registers by its directory again.
   mshape track pr [--title <title>] [--body-file <path>]
-      From a track's worktree: prints the PR's size against the batching default, runs the
-      gate fresh, pushes track/<name> and opens its PR (--title and --body-file needed) or
-      updates it. Writes only the Gate section, from that run; the rest of the body is
-      --body-file's, or the PR's as it stands. Refuses, posting nothing, on uncommitted
-      changes, a failing gate, a missing required section or a bead bd doesn't know.
+      From a track's worktree, whatever branch it has checked out: prints the PR's size
+      against the batching default, runs the gate on a clean checkout of track/<name>'s tip,
+      pushes that tip and opens its PR (--title and --body-file needed) or updates it. Writes
+      only the Gate section, from that run; the rest of the body is --body-file's, or the
+      PR's as it stands. Refuses, posting nothing: while a review of the PR is in progress (a
+      live session at review-<n> with no review on the PR's head yet), on uncommitted changes
+      to track/<name>, a denylisted term in what it would send (see scan: the commits the
+      remote lacks, their messages, added lines and paths, the title and body), a failing gate
+      (naming its failing tests; the whole output is kept under .git/monkeyshape/gate/), a
+      missing required section or a bead bd doesn't know.
   mshape track pr --check-body
       Read a PR body on stdin; exit 1 naming the required sections it lacks (CI's pr.yml).
       track pr also needs each bead as a list item starting with its id, to check it with bd.
@@ -840,8 +878,22 @@ export const COMMANDS: ReadonlyArray<Command> = [
       is the review's; a session at a track stays there.
   mshape review rm <n>
       Remove that worktree, listing what it discards and review-<n>'s unread mail, its fetched
-      ref and the sessions registered at review-<n>. Never the shared data or the handoffs.`,
+      ref and the sessions registered at review-<n>. Never the shared data or the handoffs.
+  mshape review post <n> <file>
+      Post <file>, a review as GitHub's reviews API takes it ({commit_id, event, body,
+      comments}), on pull request <n>, after scanning every string in it for denylisted terms
+      (see scan): a match refuses, naming where, and nothing is posted.`,
     run: review,
+  },
+  {
+    name: "scan",
+    usage: `  mshape scan <file>
+      Print each denylisted term in <file> (- for stdin) with its line and column; exit 1 on
+      any. The lists, one term per line matched case-insensitively, are never in a repo:
+      ~/.config/monkeyshape/denylist (or under $XDG_CONFIG_HOME) for the machine, and
+      <git common dir>/monkeyshape/denylist for the clone. track pr scans what its push adds
+      and the PR's title and body the same way, refusing before it pushes.`,
+    run: scan,
   },
   {
     name: "msg",

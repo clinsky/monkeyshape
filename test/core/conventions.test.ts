@@ -190,3 +190,20 @@ describe("prSizeNote", () => {
     );
   });
 });
+
+describe("the PR size where it is read", () => {
+  // The track skill and PRIME.md word the size for their reader; `conventions.ts` is its one
+  // home. Every "<n> to <m> changed lines" either says must be `PR_SIZE`, and each says it.
+  const stated = /(\d[\d,]*)\s+to\s+(\d[\d,]*)\s+changed\s+lines/g;
+  const number = (text: string): number => Number(text.replaceAll(",", ""));
+  for (const file of ["skills/track/SKILL.md", "template/.beads/PRIME.md"])
+    test(`${file} states PR_SIZE`, async () => {
+      const text = await Bun.file(join(ROOT, file)).text();
+      const ranges = [...text.matchAll(stated)].map((m) => [
+        number(m[1] ?? ""),
+        number(m[2] ?? ""),
+      ]);
+      expect(ranges.length).toBeGreaterThan(0);
+      for (const range of ranges) expect(range).toEqual([PR_SIZE.min, PR_SIZE.max]);
+    });
+});

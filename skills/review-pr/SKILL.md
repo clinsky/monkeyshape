@@ -85,7 +85,11 @@ Read the PR body and every changed file. Then go through it for:
 From cheapest to most expensive:
 
 1. **Run what the PR adds**, on real data, in every mode it has. Do the numbers in the PR
-   body reproduce? Does each exit code mean what its doc says?
+   body reproduce? Does each exit code mean what its doc says? Run each probe in AGENTS.md's
+   "Real-data probes" that the PR could affect, and quote what it prints. If that section is
+   empty or missing (an AGENTS.md older than it) and the PR has a real target, say so in the
+   review: the author adds the section with its first row, or moves the repo's existing
+   real-data guidance under that heading.
 2. **Probe checks adversarially**: throwaway scripts that build inputs which should be
    rejected, one variation each, from a real artifact where there is one. **A bad input
    that passes is a finding**, and the probe's input and output are its evidence on the PR.
@@ -105,8 +109,12 @@ the quoting survives:
 
 ```bash
 # review.json: {commit_id, event: "COMMENT", body, comments: [{path, line, side: "RIGHT", body}]}
-gh api repos/{owner}/{repo}/pulls/$N/reviews --input review.json -q .html_url
+mshape review post $N review.json
 ```
+
+It scans every string in the review against the denylist first and posts nothing on a
+match, naming where; reword and run it again. If the post fails, it says whether GitHub has
+the review anyway: never post twice. Post reviews only this way.
 
 Anchor each comment to a head-commit line that is in the diff; a finding with no such line
 goes in the review body. Each comment opens with a **bold one-sentence finding** and its
@@ -127,6 +135,12 @@ acceptance, the plan's row or non-goal, the file it duplicates):
   track, is a priority call: say so, and tell the human.
 - Is it redundant with code or docs that already exist?
 - Is there prose where a check belongs: a rule a machine could check, written as a sentence?
+- Does a decision it adds to DECISIONS.md earn its slot, by the merit test in that file's
+  header: name the tempting wrong fix it guards against, or why no test can express it. One
+  that fails the test is a blocker: it belongs in the code, a test or a comment. Does one it
+  retires leave its reason in the test that enforces it? If the header has no merit test,
+  the file predates it: apply the one in monkeyshape's template/DECISIONS.md (shipped in
+  node_modules/monkeyshape), and ask the author to copy that header in, in this PR.
 
 Then what was run and what came out, the blockers, the nits with no line, and what looked
 good. Use `COMMENT`: GitHub refuses approve and request-changes on your own
@@ -160,8 +174,9 @@ worktree to the new head; it prints the previous one too.
    the fix changed what the PR does, answer Fit again.
 3. **Pushback is an argument, not a refusal.** If it holds, say so and drop the point; if it
    doesn't, answer with evidence.
-4. Reply in the threads, then post a short summary review: what was re-verified, what is
-   resolved, what is still open. Tell the human.
+4. Reply in the threads, then post a short summary review through `mshape review post`:
+   what was re-verified, what is resolved, what is still open. Tell the human. Thread
+   replies go through `gh api`, which nothing scans: keep them free of private names.
 
 **When nothing is open, say "LGTM"** explicitly, on the PR and to the human: every blocker
 resolved and verified, every nit settled. Never while a finding is open or unverified.
