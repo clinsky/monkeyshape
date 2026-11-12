@@ -44,13 +44,14 @@ describe("garden and line budgets over any text source", () => {
     ]);
   });
 
-  test("allowances count coverage.exemptFiles and files.large too", () => {
+  test("allowances count refs.rules, coverage.exemptFiles and files.large too", () => {
     const shape = config({
+      refs: { rules: { "missing-path": { allow: [{ path: "d.md", reason: "a runtime path" }] } } },
       budgets: { largeFiles: [{ path: "a.ts", reason: "a generated table" }] },
       coverage: { exemptFiles: [{ path: "b.py", reason: "run once, by hand" }] },
       files: { large: [{ path: "c.bin", reason: "the fixture parsers read" }] },
     });
-    expect(garden(shape, repo({}), {}).escapeHatches.allowances).toBe(3);
+    expect(garden(shape, repo({}), {}).escapeHatches.allowances).toBe(4);
   });
 });
 

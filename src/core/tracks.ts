@@ -78,12 +78,16 @@ export const sharedPathProblems = (paths: ReadonlyArray<string>): ReadonlyArray<
   return problems.map((problem) => `tracks.sharedPaths in shape.config.ts: ${problem}`);
 };
 
-/** Why the directory `toplevel` is or is not a track: the name, or which check failed. */
+/**
+ * Why the directory `toplevel` is or is not a track: the name, or which check failed. The
+ * path names the track on any branch: while a PR is in review the next bead's work sits on a
+ * local branch in the same worktree, and its mail mustn't stop. `offBranch` says which.
+ */
 export const currentTrack = (
   repo: string,
   toplevel: string,
   worktrees: ReadonlyArray<Worktree>,
-): { readonly track: string } | { readonly reason: string } => {
+): { readonly track: string; readonly offBranch?: string } | { readonly reason: string } => {
   const track = trackOf(repo, toplevel);
   if (track === undefined)
     return {
@@ -94,11 +98,9 @@ export const currentTrack = (
     return {
       reason: `${toplevel} is named like track \`${track}\`, but git has no worktree registered there for ${repo}`,
     };
-  if (registered.branch !== trackBranch(track))
-    return {
-      reason: `${toplevel} is on ${registered.branch === undefined ? "a detached HEAD" : `branch \`${registered.branch}\``}, not \`${trackBranch(track)}\``,
-    };
-  return { track };
+  if (registered.branch === trackBranch(track)) return { track };
+  const offBranch = `${toplevel} is on ${registered.branch === undefined ? "a detached HEAD" : `branch \`${registered.branch}\``}, not \`${trackBranch(track)}\``;
+  return { track, offBranch };
 };
 
 /** A bead that isn't closed, as `bd list --json` reports it. */
@@ -550,7 +552,8 @@ export type BeadsById = ReadonlyMap<
 /**
  * Beads a merged PR of the track lists in its Beads section but that are still open: the
  * work merged, so each is either done and needs closing, or has work left, which deferring
- * with a note sets aside (a deferred or pinned bead isn't flagged).
+ * with a note sets aside (a deferred or pinned bead isn't flagged), taking it off the track,
+ * since the beads check flags a deferred bead that keeps its track label.
  * Only the track's own (its label) or nobody's (no track label, and not owned without one, as
  * `ownedWithoutTrack` says): another track's bead is in that track's count and is its to
  * settle, and an epic, a milestone or process work is no track's to close. A listed id bd doesn't know is skipped,
@@ -570,8 +573,14 @@ export const openAfterMerge = (
         const tracks = bead.labels.filter((label) => label.startsWith("track:"));
         if (tracks.length > 0 ? !tracks.includes(trackLabel(track)) : ownedWithoutTrack(bead))
           return [];
+        // Deferred, the bead must leave the track too, or the beads check flags it
+        // (deferred-in-track) and the track is never done.
+        const defer =
+          tracks.length > 0
+            ? `bd update ${id} --status deferred ${tracks.map((label) => `--remove-label ${label}`).join(" ")}`
+            : `bd defer ${id}`;
         return [
-          `${id} (${bead.status}) is listed in merged PR #${pr.number} but still open: close it if its work is done (\`bd close ${id}\`), or write what is left in its notes and defer it (\`bd defer ${id}\`)`,
+          `${id} (${bead.status}) is listed in merged PR #${pr.number} but still open: close it if its work is done (\`bd close ${id}\`), or write what is left in its notes and defer it${tracks.length > 0 ? " off the track" : ""} (\`${defer}\`)`,
         ];
       }),
     );

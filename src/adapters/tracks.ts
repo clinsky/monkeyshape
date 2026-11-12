@@ -160,6 +160,12 @@ export const worktrees = (repo: string) =>
     );
   });
 
+/** The tracks that have a worktree, by name, sorted: who `track enter` and `msg send --all` reach. */
+export const trackNames = (repo: string) =>
+  Effect.map(worktrees(repo), (listed) =>
+    listed.flatMap((worktree) => trackOf(repo, worktree.path) ?? []).sort(),
+  );
+
 const branchExists = (repo: string, branch: string) =>
   Effect.map(
     git(repo, ["show-ref", "--verify", "--quiet", head(branch)]),
@@ -808,7 +814,12 @@ export const trackList = (cwd: string) =>
     return [...notes, formatTracks(rows)].join("\n");
   });
 
+/** The track of `cwd`'s worktree, on any branch. */
 export const trackCurrent = (cwd: string) =>
+  Effect.map(currentTrackOf(cwd), (found) => found.track);
+
+/** The track of `cwd`'s worktree, with why it isn't on `track/<name>` when it isn't. */
+export const currentTrackOf = (cwd: string) =>
   Effect.gen(function* () {
     const { repo } = yield* locate(cwd);
     const toplevel = yield* Effect.flatMap(
@@ -816,7 +827,7 @@ export const trackCurrent = (cwd: string) =>
       yield* canonical(repo),
     );
     const found = currentTrack(repo, toplevel, yield* worktrees(repo));
-    return "track" in found ? found.track : yield* refuse(found.reason);
+    return "track" in found ? found : yield* refuse(found.reason);
   });
 
 /** `*.json` in a directory, or none when it doesn't exist; `.<id>.tmp` files are a send in flight. */

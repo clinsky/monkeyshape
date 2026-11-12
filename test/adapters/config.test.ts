@@ -28,6 +28,31 @@ describe("loadConfig", () => {
     expect(error.message).toContain("Unexpected");
   });
 
+  test("the loaded config is named as the reader named it", async () => {
+    await Bun.write(join(dir, "shape.config.ts"), "export default {};\n");
+    await Bun.write(join(dir, "trial", "try.ts"), "export default {};\n");
+    expect((await Effect.runPromise(loadConfig(dir))).configFile).toBe("shape.config.ts");
+    expect(
+      (await Effect.runPromise(loadConfig(dir, join(dir, "trial", "try.ts")))).configFile,
+    ).toBe("trial/try.ts");
+  });
+
+  test("the repo files the config reaches by relative import are its own; packages aren't", async () => {
+    await Bun.write(join(dir, "rules", "helper.ts"), "export const x = 1;\n");
+    await Bun.write(
+      join(dir, "rules", "a.ts"),
+      'import { x } from "./helper.ts";\nexport default { x };\n',
+    );
+    await Bun.write(
+      join(dir, "shape.config.ts"),
+      'import a from "./rules/a.ts";\nexport default { sources: { include: [String(Boolean(a))] } };\n',
+    );
+    expect((await Effect.runPromise(loadConfig(dir))).configModules).toEqual([
+      "rules/a.ts",
+      "rules/helper.ts",
+    ]);
+  });
+
   test("names the file it tried: --config's path, not shape.config.ts", async () => {
     const given = await Effect.runPromise(Effect.flip(loadConfig(dir, join(dir, "nope.ts"))));
     expect(given.message).toBe("nope.ts: not found");
@@ -49,6 +74,8 @@ describe("loadConfig", () => {
       );
       const config = await Effect.runPromise(loadConfig(dir, join(outside, "try.config.ts")));
       expect(config.refs.docs).toEqual(["AGENTS.md"]);
+      // Findings about the config point at the file loaded, not the repo's shape.config.ts.
+      expect(config.configFile).toBe(join(outside, "try.config.ts"));
       // A string equal to an import's specifier, outside an import, is data: left as written.
       expect(config.files.vendored[0]?.package).toBe("monkeyshape");
       // An error names the file given, not the copy loaded.

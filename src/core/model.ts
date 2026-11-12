@@ -93,7 +93,25 @@ export interface Snapshot {
   readonly sizes: ReadonlyMap<string, number>;
   /** What each recorded vendored artifact is, by its recorded path, when it is in `files`. */
   readonly vendored: ReadonlyMap<string, VendoredRead>;
+  /**
+   * The committed export, `.beads/issues.jsonl`, read where bd couldn't be: then `beadIds` and
+   * `beadRows` come from it, and the beads checks run without bd. Undefined when unread.
+   */
+  readonly beadsExport?: BeadsExport | undefined;
+  /** Read only where a baseline needs it; undefined when unread or there is no merge base. */
+  readonly changedLines?: ChangedLines | undefined;
 }
+
+/** The beads export as read: its beads, or why it doesn't decode. */
+export type BeadsExport =
+  | { readonly path: string; readonly state: "read" }
+  | { readonly path: string; readonly state: "invalid"; readonly reason: string };
+
+/**
+ * The lines this branch changed since it left the main line, by file: `"all"` for a file
+ * that is new (untracked, or added). A file absent changed nothing.
+ */
+export type ChangedLines = ReadonlyMap<string, ReadonlySet<number> | "all">;
 
 /**
  * A vendored artifact as read from disk: its digest, and the name in its

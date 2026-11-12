@@ -106,6 +106,109 @@ describe("msg", () => {
     expect(mshape(wt("tracks"), "msg", "read", id).stdout).toEndWith("\n\n--force is gone");
   });
 
+  test("--body-file: the body arrives byte for byte, quotes and a leading -- included", async () => {
+    const body = `it's "quoted", with a $HOME and a \`backtick\`\n--force on its own line\n`;
+    await writeFile(join(base, "body.md"), body);
+    // Relative to the directory the command runs in, as any path argument is.
+    await writeFile(join(wt("docs"), "rel.md"), "relative");
+    const sent = mshape(
+      wt("docs"),
+      "msg",
+      "send",
+      "tracks",
+      "--subject",
+      "s",
+      "--body-file",
+      join(base, "body.md"),
+    );
+    expect(sent.code).toBe(0);
+    const id = /Sent (\S+)/.exec(sent.stdout)?.[1] ?? "";
+    expect(mshape(wt("tracks"), "msg", "read", id).stdout).toEndWith(`\n\n${body.trimEnd()}`);
+    const relative = mshape(
+      wt("docs"),
+      "msg",
+      "send",
+      "tracks",
+      "--body-file",
+      "rel.md",
+      "--subject",
+      "r",
+    );
+    expect(relative.code).toBe(0);
+    const rid = /Sent (\S+)/.exec(relative.stdout)?.[1] ?? "";
+    expect(mshape(wt("tracks"), "msg", "read", rid).stdout).toEndWith("\n\nrelative");
+  });
+
+  test("--body-file refuses a missing file, and a body given both ways; nothing is sent", async () => {
+    const missing = mshape(
+      wt("docs"),
+      "msg",
+      "send",
+      "tracks",
+      "--subject",
+      "s",
+      "--body-file",
+      "nope.md",
+    );
+    expect(missing.code).toBe(1);
+    expect(missing.stderr).toContain("--body-file nope.md: can't read it");
+    await writeFile(join(base, "b.md"), "b");
+    const both = mshape(
+      wt("docs"),
+      "msg",
+      "send",
+      "tracks",
+      "--subject",
+      "s",
+      "--body-file",
+      join(base, "b.md"),
+      "inline",
+    );
+    expect(both.code).toBe(2);
+    const dangling = mshape(wt("docs"), "msg", "send", "tracks", "--subject", "s", "--body-file");
+    expect(dangling.code).toBe(2);
+    expect(await files(mailbox("tracks"))).toEqual([]);
+  });
+
+  test("--all: one message to every track but the sender's own", async () => {
+    expect(mshape(repo, "track", "new", "third").code).toBe(0);
+    const fromMain = mshape(repo, "msg", "send", "--all", "--subject", "to everyone", "the body");
+    expect(fromMain.code).toBe(0);
+    for (const track of ["docs", "third", "tracks"]) {
+      expect(fromMain.stdout).toContain(` to ${track}:`);
+      const inbox = mshape(wt(track), "msg", "inbox");
+      expect(inbox.stdout).toContain("from main, ");
+      expect(inbox.stdout).toContain(": to everyone");
+    }
+    // From a track: the others, never itself.
+    const fromDocs = mshape(wt("docs"), "msg", "send", "--all", "--subject", "from docs");
+    expect(fromDocs.code).toBe(0);
+    expect(fromDocs.stdout).not.toContain(" to docs:");
+    expect(mshape(wt("docs"), "msg", "inbox").stdout).not.toContain("from docs");
+    expect(mshape(wt("third"), "msg", "inbox").stdout).toContain(": from docs");
+    expect(mshape(wt("tracks"), "msg", "inbox").stdout).toContain(": from docs");
+  });
+
+  test("--all with a recipient, or with no other track, is refused", async () => {
+    expect(mshape(repo, "msg", "send", "--all", "docs", "--subject", "s", "body").code).toBe(2);
+    // A recipient left beside --all, with no body: refused, never broadcast as the body.
+    for (const recipient of ["docs", "main", "review-12"]) {
+      const lone = mshape(repo, "msg", "send", recipient, "--all", "--subject", "s");
+      expect(lone.code).toBe(2);
+      expect(lone.stderr).toContain(`\`${recipient}\` reads as a recipient`);
+    }
+    expect(await files(mailbox("docs"))).toEqual([]);
+    // Meant as the body: after --, it is one.
+    const meant = mshape(repo, "msg", "send", "--all", "--subject", "s", "--", "docs");
+    expect(meant.code).toBe(0);
+    // Any other lone word is the body, as without --all.
+    expect(mshape(repo, "msg", "send", "--all", "--subject", "s", "shipped").code).toBe(0);
+    expect(mshape(repo, "track", "rm", "tracks", "--force").code).toBe(0);
+    const alone = mshape(wt("docs"), "msg", "send", "--all", "--subject", "s");
+    expect(alone.code).toBe(1);
+    expect(alone.stderr).toContain("there is no track to send to");
+  });
+
   test("from the main checkout the sender is main; an address can't read another's mail", () => {
     const sent = mshape(repo, "msg", "send", "docs", "--subject", "from main");
     const id = /Sent (\S+)/.exec(sent.stdout)?.[1] ?? "";

@@ -38,6 +38,9 @@ src/core/client.ts:1  arch/host-access
   sync      not-applicable  sync has not run here: no .agents/skills/monkeyshape.json
   beads     not-applicable  no .beads/
 
+       1  arch/host-access
+       1  rules/no-nondeterminism
+
 mshape check failed: 2 problems
 ```
 

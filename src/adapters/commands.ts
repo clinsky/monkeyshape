@@ -1,7 +1,7 @@
 /** File modes and declared commands: what `coverage` judges of source it doesn't analyze. */
 import { lstat } from "node:fs/promises";
 import { Effect } from "effect";
-import { commandFiles } from "../core/coverage.ts";
+import { commandArgv, commandFiles } from "../core/coverage.ts";
 import type { CommandRun, FileMode } from "../core/model.ts";
 import type { DeclaredCommand, ResolvedConfig } from "../schemas/config.ts";
 import { run, runTool } from "./process.ts";
@@ -139,9 +139,9 @@ const COMMAND_NOT_FOUND = 127;
 const TOOL_MISSING =
   /\b(not found|not installed)\b|^(\S*\/)?env: \S.*: No such file or directory/im;
 
-const runCommand = (root: string, command: DeclaredCommand) =>
+const runCommand = (root: string, command: DeclaredCommand, files: ReadonlyArray<string>) =>
   Effect.gen(function* () {
-    const program = yield* resolveProgram(root, command.run);
+    const program = yield* resolveProgram(root, commandArgv(command, files));
     if ("missing" in program)
       return { state: "unavailable", reason: program.missing } satisfies CommandRun;
     const ran = yield* runTool(root, program.argv);
@@ -165,6 +165,6 @@ export const runCommands = (root: string, config: ResolvedConfig, files: Readonl
     const runs = new Map<number, CommandRun>();
     for (const [index, command] of config.coverage.commands.entries())
       if (commandFiles(command, files).length > 0)
-        runs.set(index, yield* runCommand(root, command));
+        runs.set(index, yield* runCommand(root, command, files));
     return runs as ReadonlyMap<number, CommandRun>;
   });
