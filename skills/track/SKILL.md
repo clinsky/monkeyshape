@@ -21,7 +21,10 @@ If it exits 1 because this is the main checkout and the human named a track
 to the track and prints the track's worktree as its last line. Work there for the rest of
 the session: `cd` into it, give paths under it, and read its AGENTS.md and handoff, not the
 main checkout's. After a `/clear`, the session is at the main checkout again: rerun
-`track enter`. An unknown name is refused with the real ones listed.
+`track enter`. An unknown name is refused with the real ones listed. If it refuses for
+another reason (the session has no identity to move, as in a harness that gives none),
+stop: tell the human to start the agent in the track's worktree (`mshape track list` shows
+it) and run `/track` there.
 
 If it exits 1 for any other reason, or no track was named, stop: tell the human the reason
 it gave, and suggest `mshape track list` to find the track they meant, or

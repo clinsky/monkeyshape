@@ -49,6 +49,7 @@ Run `mshape track list`: this track must show `stub` (if the charter isn't agree
 leave it empty, never write one the human hasn't agreed) or `active`, never `invalid`. If it
 shows `invalid`, each problem is printed under its row: fix them all and run it again. Then
 tell the human, in a few lines: what is done and in flight, anything waiting on their
-decision, and "open a fresh chat in this worktree and run `/track`".
+decision, and "open a fresh chat in this worktree and run `/track` (or `/track <name>` from
+the main checkout)".
 
 Review this skill when a fresh chat had to rediscover something the last one knew.
