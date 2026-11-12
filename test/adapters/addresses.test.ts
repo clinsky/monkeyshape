@@ -189,6 +189,19 @@ describe("session addresses: the plan's case table", () => {
     expect(await registered("docs")).toEqual(at(1));
   });
 
+  test("a session in a track's worktree on another branch (the next bead's): still <track>; its mail and notices follow", async () => {
+    sh(wt("docs"), "switch", "-qc", "docs-next");
+    const received = await claudeSession(1, wt("docs"));
+    expect(await start(wt("docs"), 1)).toEqual({ code: 0, stdout: "", stderr: "" });
+    expect(await registered("docs")).toEqual(at(1));
+    const sent = await send(repo, "docs", "while you wait");
+    expect(sent.stdout).toContain("Notified 1 live session of docs.");
+    expect(received).toHaveLength(1);
+    expect((await prompt(wt("docs"), 1)).stdout).toContain("while you wait");
+    sh(wt("docs"), "switch", "-q", "--detach");
+    expect((await prompt(wt("docs"), 1)).stdout).toContain("while you wait");
+  });
+
   test("a session starts in the main checkout: registered at main", async () => {
     await claudeSession(1);
     expect(await start(repo, 1)).toEqual({ code: 0, stdout: "", stderr: "" });
@@ -460,5 +473,118 @@ describe("addresses beyond the table", () => {
     const sent = await send(wt("docs"), "review-99", "s");
     expect(sent.code).not.toBe(0);
     expect(`${sent.stdout}\n${sent.stderr}`).toContain("review-99");
+  });
+});
+
+describe("track enter: the plan's case table", () => {
+  test("a session at main runs `track enter <name>`: moves to <name>, prints the worktree last; any other session at main is untouched", async () => {
+    const mover = await claudeSession(1);
+    const other = await claudeSession(2);
+    for (const n of [1, 2]) await start(repo, n);
+    const entered = await mshape(repo, ["track", "enter", "docs"], 1);
+    expect(entered.code).toBe(0);
+    expect(entered.stdout.split("\n")).toEqual([`session ${uuid(1)}: main -> docs`, wt("docs")]);
+    expect(await registered("main")).toEqual(at(2));
+    expect(await registered("docs")).toEqual(at(1));
+    // The maintainer's run: the moved session receives the track's mail, live and at its prompt,
+    // with its hooks still running in the main checkout.
+    const sent = await send(wt("tracks"), "docs", "for the docs track");
+    expect(sent.stdout).toContain("Notified 1 live session of docs.");
+    expect(mover).toHaveLength(1);
+    expect(other).toEqual([]);
+    expect((await prompt(repo, 1)).stdout).toContain("for the docs track");
+    expect((await prompt(repo, 2)).stdout).toBe("");
+    const reply = await mshape(repo, ["msg", "send", "tracks", "--subject", "thanks"], 1);
+    expect(reply.code).toBe(0);
+    expect((await mshape(wt("tracks"), ["msg", "inbox"], undefined)).stdout).toContain("from docs");
+  });
+
+  test("a session at <a> runs `track enter <b>`: moves to <b>; <a>'s unread mail stays at <a>", async () => {
+    await claudeSession(1, wt("docs"));
+    await start(wt("docs"), 1);
+    await send(repo, "docs", "unread at docs");
+    const entered = await mshape(wt("docs"), ["track", "enter", "tracks"], 1);
+    expect(entered.code).toBe(0);
+    expect(entered.stdout).toContain(`session ${uuid(1)}: docs -> tracks`);
+    expect(await registered("docs")).toEqual([]);
+    expect(await registered("tracks")).toEqual(at(1));
+    expect((await prompt(wt("docs"), 1)).stdout).toBe("");
+    const docs = await mshape(wt("docs"), ["msg", "inbox"], undefined);
+    expect(docs.stdout).toContain("unread at docs");
+  });
+
+  test("`track enter` a track that doesn't exist: refuses, listing the tracks; nothing moves", async () => {
+    await claudeSession(1);
+    await start(repo, 1);
+    const refused = await mshape(repo, ["track", "enter", "nope"], 1);
+    expect(refused.code).toBe(1);
+    expect(refused.stderr).toContain("no track `nope`: the tracks are docs, tracks");
+    expect(refused.stderr).toContain("bun run --silent mshape track new nope");
+    expect(await registered("main")).toEqual(at(1));
+  });
+
+  test("`track enter` with no session identity: refuses with a note, nothing to move", async () => {
+    const refused = await mshape(repo, ["track", "enter", "docs"], undefined);
+    expect(refused.code).toBe(1);
+    expect(refused.stderr).toContain("nothing to move: no session identity");
+    expect(await registered("docs")).toEqual([]);
+  });
+
+  test("a session started in the worktree: registered at <name> as today; `track enter` is a no-op", async () => {
+    await claudeSession(1, wt("docs"));
+    await start(wt("docs"), 1);
+    const entered = await mshape(wt("docs"), ["track", "enter", "docs"], 1);
+    expect(entered.code).toBe(0);
+    expect(entered.stdout.split("\n")).toEqual([
+      `session ${uuid(1)} is at docs already`,
+      wt("docs"),
+    ]);
+    expect(await registered("docs")).toEqual(at(1));
+  });
+
+  test("an identified session that never registered: `track enter` registers it at <name>", async () => {
+    await claudeSession(1);
+    const entered = await mshape(repo, ["track", "enter", "docs"], 1);
+    expect(entered.code).toBe(0);
+    expect(entered.stdout).toContain(
+      `session ${uuid(1)}: main -> docs (it wasn't registered; now it is)`,
+    );
+    expect(await registered("docs")).toEqual(at(1));
+  });
+
+  test("`track rm <name>` with a moved session live: refuses, naming it", async () => {
+    await claudeSession(1);
+    await start(repo, 1);
+    await mshape(repo, ["track", "enter", "tracks"], 1);
+    const removed = await mshape(repo, ["track", "rm", "tracks"], undefined);
+    expect(removed.code).not.toBe(0);
+    expect(`${removed.stdout}\n${removed.stderr}`).toContain(uuid(1));
+    expect(await registered("tracks")).toEqual(at(1));
+  });
+
+  test("`/clear` or a restart of a moved session: registers by its directory again, until `track enter` reruns", async () => {
+    await claudeSession(1);
+    await start(repo, 1);
+    await mshape(repo, ["track", "enter", "docs"], 1);
+    // A compaction or a resume keeps the session id, so it keeps the track.
+    expect((await hook(repo, ["msg", "register"], 1, "compact")).code).toBe(0);
+    expect(await registered("docs")).toEqual(at(1));
+    // /clear: a new session id, registered where the hook runs: the main checkout here.
+    await writeFile(
+      `${claude}/sessions/1001.json`,
+      JSON.stringify({
+        ...(await Bun.file(`${claude}/sessions/1001.json`).json()),
+        sessionId: uuid(5),
+      }),
+    );
+    expect((await hook(repo, ["msg", "register"], 5, "clear", 1001)).code).toBe(0);
+    expect(await registered("main")).toEqual(at(5));
+    const again = await mshape(repo, ["track", "enter", "docs"], { session: 5, pid: 1001 });
+    expect(again.code).toBe(0);
+    expect(await registered("main")).toEqual([]);
+    expect(await registered("docs")).toContain(`${uuid(5)}.json`);
+    // Claude Code follows the chat's `cd`: a /clear after working in the worktree lands there.
+    expect((await hook(wt("docs"), ["msg", "register"], 6, "clear", 1001)).code).toBe(0);
+    expect(await registered("docs")).toContain(`${uuid(6)}.json`);
   });
 });
