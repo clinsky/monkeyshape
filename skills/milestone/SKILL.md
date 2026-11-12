@@ -60,7 +60,10 @@ charter, a reviewer's "Fit" and the next retrospective all read them, so none is
 - **What changed since the last milestone, and why.**
 - **Interfaces the tracks share:** every path, command, format or schema two tracks both
   touch, with its owner and consumer, settled before anyone starts. This is the section
-  that keeps parallel work from colliding; spend the effort here.
+  that keeps parallel work from colliding; spend the effort here. Give each file an owning
+  track too. Ownership says who to tell, not who may edit: a track whose change needs
+  another's file (to keep it in step with its code) edits it, says so in its PR body and
+  sends the owner one line naming the file and why. Conflicts are settled as they come.
   - **A case table for each lifecycle or workflow fact** the plan introduces or changes: a
     state something is in, derived from other facts (a track is done, a session's address,
     a check's outcome). One sentence defining it hides its edge cases, and each one costs a
@@ -170,8 +173,8 @@ Once the PR is merged (or the human says to start):
   `mshape msg send <name> --subject "<one line>" "<body>"`, run from the main checkout, so
   it arrives from `main` and the answer comes back to `main`'s mailbox.
 
-Finish by telling the human what to launch: for each track, the worktree path and "open a
-chat there and run `/track`". Then tell them to keep this chat open for the milestone: it is
+Finish by telling the human what to launch: for each track, "open a fresh chat in the main
+checkout and run `/track <name>`" (or in the worktree path, with `/track`). Then tell them to keep this chat open for the milestone: it is
 the planning session, where tracks' divergences and questions arrive (step 9).
 
 ## 9. Stay open: the planning session

@@ -54,14 +54,16 @@ cd my-app && bun run check
 `init` installs and commits a repo whose gate passes, with the five skills the table runs. It
 needs Bun 1.4.2 or later, git, beads' `bd`, and `gh` for the loop. An existing repo: [docs/adopting.md](docs/adopting.md).
 
-| Start a fresh agent in | Then run | What happens |
-|---|---|---|
-| Main checkout | `/roadmap` and a brain-dump | You and the agent agree the direction in `docs/roadmap.md`. |
-| Main checkout | `/milestone` and your priorities | You agree a goal met on real data. The agent writes the plan, files the beads and splits the work into tracks, each with its own worktree and agent. |
-| Each track's worktree | `/track` | Agents work in parallel, one per track, each from its own handoff, beads and mail, so its context holds one line of work. Each opens PRs. |
-| Main checkout | `/review-pr <n>` | Another agent runs the PR on real data and posts findings until it can say LGTM. You merge. |
+Start each step in a fresh agent in the main checkout:
 
-When a session's context runs low, run `/handoff`, then `/track` in a fresh one. When every
+| Run | What happens |
+|---|---|
+| `/roadmap` and a brain-dump | You and the agent agree the direction in `docs/roadmap.md`. |
+| `/milestone` and your priorities | You agree a goal met on real data. The agent writes the plan, files the beads and splits the work into tracks, each with its own worktree and agent. |
+| `/track <name>`, one agent per track | Agents work in parallel, each in its track's worktree, from its own handoff, beads and mail, so its context holds one line of work. Each opens PRs. |
+| `/review-pr <n>` | Another agent runs the PR on real data and posts findings until it can say LGTM. You merge. |
+
+When a session's context runs low, run `/handoff`, then `/track <name>` in a fresh one. When every
 track is done (`mshape track list`), run `/milestone` again. In full: [docs/workflow.md](docs/workflow.md).
 
 ## What `mshape check` catches

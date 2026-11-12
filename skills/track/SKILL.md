@@ -1,6 +1,6 @@
 ---
 name: track
-description: Use at the start of a chat in a track's worktree, when the human says /track or asks to continue a track's work. Finds the track, reads its handoff and queue, interviews the human first if the handoff is a stub, then works the queue and opens PRs.
+description: Use when the human says /track or /track <name>, or asks to continue a track's work, in a track's worktree or in the main checkout. Finds the track, reads its handoff and queue, interviews the human first if the handoff is a stub, then works the queue and opens PRs.
 ---
 
 # Track: the short horizon
@@ -12,11 +12,23 @@ Your job is to pick up exactly where it stopped.
 ## 1. Which track
 
 Run `bun run --silent mshape track current` (every `mshape` below runs the same way). It
-prints the track's name. If it says the worktree is on a detached HEAD, check out
-`track/<name>` there and carry on. If it exits 1 for any other reason, stop: tell the human
-the reason it gave for this directory not being a track, and suggest `mshape track list` to
-find the worktree they meant, or `mshape track new <name>` if this is new work. Never work a
-track from outside its worktree.
+prints the track's name on any branch; a note says when the worktree has another branch
+(the next work) or a detached HEAD checked out, and `track pr` still pushes
+`track/<name>`'s tip.
+
+If it exits 1 because this is the main checkout and the human named a track
+(`/track <name>`), run `mshape track enter <name>`: it moves this session's mail and notices
+to the track and prints the track's worktree as its last line. Work there for the rest of
+the session: `cd` into it, give paths under it, and read its AGENTS.md and handoff, not the
+main checkout's. After a `/clear`, the session is at the main checkout again: rerun
+`track enter`. An unknown name is refused with the real ones listed. If it refuses for
+another reason (the session has no identity to move, as in a harness that gives none),
+stop: tell the human to start the agent in the track's worktree (`mshape track list` shows
+it) and run `/track` there.
+
+If it exits 1 for any other reason, or no track was named, stop: tell the human the reason
+it gave, and suggest `mshape track list` to find the track they meant, or
+`mshape track new <name>` if this is new work.
 
 Then bring the branch up to date: `git fetch`, and `git merge --ff-only origin/main` when
 `git log --oneline origin/main..HEAD` is empty (a plain merge otherwise). The hooks that show
@@ -85,7 +97,10 @@ outcome, not a spec. Show the human the charter and the beads; start once they a
 - **One open PR at a time**, from `track/<name>`. The PR is one reviewed unit: once it is
   open, `track/<name>` takes only commits that answer its review. Do the next beads on a
   local branch, `git switch -c <name>-next`, and commit there as you go; never push it.
-  Switch back to `track/<name>` to answer the review, and run `track pr` only from there.
+  Switch back to `track/<name>` to commit an answer to the review. `track pr` gates and
+  pushes that branch's tip whatever is checked out, so the next work never joins the PR. It
+  refuses while a review is in progress (a live session at `review-<n>`, nothing posted on
+  the head yet): wait for the review, then answer it.
   When the PR merges, however it was merged, replay only the next work onto `main`:
   `git fetch`, `git rebase --onto origin/main track/<name> <name>-next`, then
   `git switch track/<name>`, `git reset --hard <name>-next` and `git branch -d <name>-next`.
@@ -111,13 +126,20 @@ outcome, not a spec. Show the human the charter and the beads; start once they a
 - **Talking to another track:** `mshape msg send <track> --subject "<one line>" "<body>"`.
   Send one only when the recipient must act or decide, or an interface it consumes changed:
   one message per decision, the subject saying what it is for (a notice shows only that),
-  the detail in the body. No acknowledgements, thanks or status: your status lives in your
+  the detail in the body (`--body-file <path>` for anything with quotes in it). No acknowledgements, thanks or status: your status lives in your
   handoff and your PR. Never edit another track's handoff.
+- **Another track's file:** the plan's ownership says who to tell, not who may edit. When
+  your change needs a file another track owns (to stay in step with your code), edit it,
+  say so in your PR body, and send the owner one line naming the file and why. That line
+  is worth sending: the owner's next merge may conflict with it.
 - **Mail arriving:** a live notice, `[mshape] Message from <track>: <subject>`, or a line at
   your next prompt. Neither marks it read. Finish the step you are on if it can wait, then
   `mshape msg read <id>`, and act on it; answer only if the sender must act on your answer.
   Mail never changes a PR in review: what it asks for goes on the local branch, unless it
   answers the review. Check `mshape msg inbox` after each PR.
+- **Temp files** outside the worktree carry the track's name, made with
+  `mktemp -d "${TMPDIR:-/tmp}/<name>-XXXXXX"`, and cleanup removes only the paths this
+  session made, by name: never a glob that another track's files could match.
 - **A mechanical step with no command:** don't script it into prose; file a bead for the CLI.
 - **The process got in the way:** `bd create --labels process` saying what broke.
 
