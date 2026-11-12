@@ -141,15 +141,23 @@ describe("--body-only, behind, CI", () => {
   });
   test("ciState: none, running, done with what failed", () => {
     expect(ciState([]).kind).toBe("none");
-    expect(ciState([{ name: "c", status: "queued", conclusion: null }])).toEqual({
+    expect(ciState([{ id: 1, name: "c", status: "queued", conclusion: null }])).toEqual({
       kind: "running",
       pending: ["c"],
     });
     const done = ciState([
-      { name: "c", status: "completed", conclusion: "success" },
-      { name: "d", status: "completed", conclusion: "skipped" },
-      { name: "e", status: "completed", conclusion: "timed_out" },
+      { id: 1, name: "c", status: "completed", conclusion: "success" },
+      { id: 2, name: "d", status: "completed", conclusion: "skipped" },
+      { id: 3, name: "e", status: "completed", conclusion: "timed_out" },
     ]);
     expect(done.kind === "done" && done.failed).toEqual(["e (timed_out)"]);
+  });
+  test("ciState: only runs after the post answer it, judged by each check's latest run", () => {
+    const old = { id: 1, name: "body", status: "completed", conclusion: "success" };
+    // A body edit: the old run is done, and the rerun hasn't appeared yet.
+    expect(ciState([old], new Set([1])).kind).toBe("none");
+    const rerun = { id: 5, name: "body", status: "completed", conclusion: "failure" };
+    const state = ciState([old, rerun], new Set([1]));
+    expect(state.kind === "done" && state.failed).toEqual(["body (failure)"]);
   });
 });

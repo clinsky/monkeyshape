@@ -228,25 +228,34 @@ export const behindWarning = (facts: {
 
 /** A CI check run on a commit, as GitHub's check-runs API lists it. */
 export interface CheckRun {
+  readonly id: number;
   readonly name: string;
   readonly status: string;
   readonly conclusion: string | null;
 }
 
-/** Where CI is on a commit: still running, or done with what passed and what didn't. */
+/**
+ * Where CI is on a commit, judged by the latest run of each check. `before` holds the runs
+ * that existed before this post: until a run not among them appears, CI hasn't answered this
+ * post yet (a body edit reruns a workflow on the same commit, and its old runs are done).
+ */
 export const ciState = (
   runs: ReadonlyArray<CheckRun>,
+  before: ReadonlySet<number> = new Set(),
 ):
   | { readonly kind: "none" }
   | { readonly kind: "running"; readonly pending: ReadonlyArray<string> }
   | { readonly kind: "done"; readonly failed: ReadonlyArray<string>; readonly lines: string } => {
-  if (runs.length === 0) return { kind: "none" };
-  const pending = runs.filter((run) => run.status !== "completed").map((run) => run.name);
+  if (!runs.some((run) => !before.has(run.id))) return { kind: "none" };
+  const latest = new Map<string, CheckRun>();
+  for (const run of runs) if ((latest.get(run.name)?.id ?? -1) < run.id) latest.set(run.name, run);
+  const current = [...latest.values()].sort((a, b) => a.name.localeCompare(b.name));
+  const pending = current.filter((run) => run.status !== "completed").map((run) => run.name);
   if (pending.length > 0) return { kind: "running", pending };
   const ok = new Set(["success", "neutral", "skipped"]);
-  const failed = runs
+  const failed = current
     .filter((run) => !ok.has(run.conclusion ?? ""))
     .map((run) => `${run.name} (${run.conclusion ?? "no conclusion"})`);
-  const lines = runs.map((run) => `  ${run.name}: ${run.conclusion}`).join("\n");
+  const lines = current.map((run) => `  ${run.name}: ${run.conclusion}`).join("\n");
   return { kind: "done", failed, lines };
 };

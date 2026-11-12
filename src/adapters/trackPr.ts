@@ -370,6 +370,40 @@ const publish = (
     return existing?.url ?? posted.stdout.trim().split("\n").at(-1) ?? "";
   });
 
+/** With --wait, the ids of the runs already on `tip`, so only CI's answer to this post counts. */
+const runsBefore = (cwd: string, tip: string, wait: CiTiming | undefined) =>
+  wait === undefined
+    ? Effect.succeed(new Set<number>())
+    : Effect.map(
+        checkRuns(cwd, tip, "nothing was posted"),
+        (runs) => new Set(runs.map((run) => run.id)),
+      );
+
+/** The check runs on `sha`; `done` says what was already posted, if they can't be read. */
+export const checkRuns = (cwd: string, sha: string, done: string) =>
+  Effect.gen(function* () {
+    const listed = yield* spawn(cwd, [
+      "gh",
+      "api",
+      `repos/{owner}/{repo}/commits/${sha}/check-runs`,
+      "--paginate",
+      "-q",
+      ".check_runs[] | {id, name, status, conclusion} | @json",
+    ]);
+    if (listed.code !== 0)
+      return yield* refuse(
+        `${done}; but CI's checks on ${sha.slice(0, 12)} couldn't be read: ${listed.stderr || `exit ${listed.code}`}`,
+      );
+    return yield* Effect.try({
+      try: () =>
+        listed.stdout
+          .split("\n")
+          .filter((line) => line.trim() !== "")
+          .map((line) => JSON.parse(line) as CheckRun),
+      catch: () => undefined,
+    }).pipe(Effect.orElseSucceed(() => [] as Array<CheckRun>));
+  });
+
 /**
  * `--wait`: polls the check runs on `sha` until every one has finished; `done` and CI's
  * outcome, or a failure naming the checks that didn't pass. gh 2.4 has no `pr checks --watch`.
@@ -377,6 +411,8 @@ const publish = (
 export const awaitCi = (
   cwd: string,
   sha: string,
+  /** The runs on `sha` before this post: CI's answer to it is a run not among them. */
+  before: ReadonlySet<number>,
   done: string,
   timing: CiTiming,
   say: (line: string) => Effect.Effect<void>,
@@ -387,27 +423,8 @@ export const awaitCi = (
     yield* say(`waiting for CI on ${sha.slice(0, 12)}`);
     const started = yield* Clock.currentTimeMillis;
     for (;;) {
-      const listed = yield* spawn(cwd, [
-        "gh",
-        "api",
-        `repos/{owner}/{repo}/commits/${sha}/check-runs`,
-        "--paginate",
-        "-q",
-        ".check_runs[] | {name, status, conclusion} | @json",
-      ]);
-      if (listed.code !== 0)
-        return yield* refuse(
-          `${done}; but CI's checks on ${sha.slice(0, 12)} couldn't be read: ${listed.stderr || `exit ${listed.code}`}`,
-        );
-      const runs = yield* Effect.try({
-        try: () =>
-          listed.stdout
-            .split("\n")
-            .filter((line) => line.trim() !== "")
-            .map((line) => JSON.parse(line) as CheckRun),
-        catch: () => undefined,
-      }).pipe(Effect.orElseSucceed(() => [] as Array<CheckRun>));
-      const state = ciState(runs);
+      const runs = yield* checkRuns(cwd, sha, done);
+      const state = ciState(runs, before);
       const waited = (yield* Clock.currentTimeMillis) - started;
       if (state.kind === "done")
         return state.failed.length === 0
@@ -525,9 +542,12 @@ export const trackPr = (
       );
       if (note !== undefined) yield* say(note);
       yield* checkBeads(repo, plan.beads, say);
+      const before = yield* runsBefore(top, tip, options.wait);
       const url = yield* publish(top, branch, existing, options.title, plan.body);
       const done = `updated ${url}: the body only, with no push and no gate; the Gate section is still the run on ${tip.slice(0, 12)}`;
-      return options.wait === undefined ? done : yield* awaitCi(top, tip, done, options.wait, say);
+      return options.wait === undefined
+        ? done
+        : yield* awaitCi(top, tip, before, done, options.wait, say);
     }
 
     const unfetched = yield* fetchUpstream(repo, options.fetchEnv);
@@ -620,11 +640,12 @@ export const trackPr = (
         `note: \`${branch}\` moved to ${now.slice(0, 12)} while the gate ran; pushed ${tip.slice(0, 12)}, the commit it gated. Run track pr again to gate and push the rest`,
       );
 
+    const before = yield* runsBefore(top, tip, options.wait);
     const url = yield* publish(top, branch, existing, options.title, plan.body);
     const done = existing
       ? `updated ${url}: the Gate section is from this run; every other section is ${options.body === undefined ? "as it was" : "from --body-file"}`
       : `opened ${url}`;
     return options.wait === undefined
       ? done
-      : yield* awaitCi(top, tip, done, options.wait, say, behindMain.conflicts);
+      : yield* awaitCi(top, tip, before, done, options.wait, say, behindMain.conflicts);
   });
