@@ -69,8 +69,9 @@ export const pathCandidate = (span: string): string | undefined => {
 /**
  * `refs.rules`, as the rules engine applies `rules`: a kind turned off reports nothing, an
  * allowance silences its kind in the files it matches, and one that silences nothing is
- * reported so it doesn't outlive its reason. A kind that couldn't run here (`bead-in-code`
- * without bd or its export) tested no allowance, so none of its is called unused.
+ * reported so it doesn't outlive its reason, under `off` too, where it can never silence
+ * anything. Only a kind whose running depends on the machine (`bead-in-code`, without bd or
+ * its export) skips that: its allowance may be used where it runs.
  */
 const applySettings = (
   config: ResolvedConfig,
@@ -91,7 +92,7 @@ const applySettings = (
     return false;
   });
   const unused = REFS_KINDS.flatMap((kind) =>
-    settings[kind]?.off !== undefined || unrun(kind)
+    unrun(kind)
       ? []
       : (settings[kind]?.allow ?? [])
           .filter((a) => !used.has(`${kind}\0${a.path}`))

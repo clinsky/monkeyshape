@@ -200,15 +200,9 @@ export const checkRules = (
       ),
     );
 
-  // A misshaped local rule, or one whose layer is off here, never ran: its allowances weren't
-  // tested, not unused.
-  const ran = new Set(
-    all.filter((rule) => config.layers.includes(rule.layer)).map((rule) => rule.id),
-  );
-  const unrun = new Set([
-    ...local.brokenIds,
-    ...all.map((rule) => rule.id).filter((id) => !ran.has(id)),
-  ]);
+  // A misshaped local rule never ran, so its allowances weren't tested, not unused. A rule
+  // whose layer is off is different: `layers` is config, so its allowance is dead everywhere.
+  const unrun = new Set(local.brokenIds);
   for (const [id, setting] of Object.entries(config.rules))
     for (const allowance of unrun.has(id) ? [] : (setting.allow ?? []))
       if (!usedAllowances.has(`${id}\0${allowance.path}`))

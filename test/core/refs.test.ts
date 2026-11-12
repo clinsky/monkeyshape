@@ -268,7 +268,7 @@ describe("refs.rules: off and allow per kind, as rules takes them", () => {
     ]);
   });
 
-  test("a kind turned off reports nothing, and its allowances aren't called unused", () => {
+  test("a kind turned off reports nothing; an allowance under it can't silence anything, so it's reported", () => {
     const off = config({
       refs: {
         rules: {
@@ -277,6 +277,11 @@ describe("refs.rules: off and allow per kind, as rules takes them", () => {
       },
     });
     expect(rules({ ...files, "AGENTS.md": "See `src/gone.ts` in §3." }, off)).toEqual([
+      "refs/missing-path",
+      "refs/unused-allowance",
+    ]);
+    const offOnly = config({ refs: { rules: { "section-citation": { off: REASON } } } });
+    expect(rules({ ...files, "AGENTS.md": "See `src/gone.ts` in §3." }, offOnly)).toEqual([
       "refs/missing-path",
     ]);
   });
