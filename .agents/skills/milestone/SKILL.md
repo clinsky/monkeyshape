@@ -173,8 +173,8 @@ Once the PR is merged (or the human says to start):
   `mshape msg send <name> --subject "<one line>" "<body>"`, run from the main checkout, so
   it arrives from `main` and the answer comes back to `main`'s mailbox.
 
-Finish by telling the human what to launch: for each track, the worktree path and "open a
-chat there and run `/track`". Then tell them to keep this chat open for the milestone: it is
+Finish by telling the human what to launch: for each track, "open a fresh chat in the main
+checkout and run `/track <name>`" (or in the worktree path, with `/track`). Then tell them to keep this chat open for the milestone: it is
 the planning session, where tracks' divergences and questions arrive (step 9).
 
 ## 9. Stay open: the planning session
