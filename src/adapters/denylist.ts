@@ -2,6 +2,9 @@
  * The denylist from disk and git: the lists, what a push would send, `mshape scan` and
  * `mshape review post`. Where the lists live and how they match is in `src/core/denylist.ts`.
  */
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { Effect } from "effect";
 import {
   denylistPaths,
@@ -16,6 +19,7 @@ import {
   patchArgs,
 } from "../core/denylist.ts";
 import { PR_NUMBER } from "../core/layout.ts";
+import { REVIEW_MARKER } from "../core/trackPr.ts";
 import { WorkspaceError } from "../schemas/errors.ts";
 import { runTool } from "./process.ts";
 import { git, gitOk, locate, refuse } from "./tracks.ts";
@@ -142,11 +146,28 @@ export const reviewPost = (
     );
     if (note !== undefined) yield* say(note);
     const endpoint = `repos/{owner}/{repo}/pulls/${pr}/reviews`;
-    const posted = yield* runTool(cwd, ["gh", "api", endpoint, "--input", file, "-q", ".html_url"]);
+    // Marked, so track pr can tell this review from the author's thread replies and probes.
+    const given = (parsed as { body?: unknown }).body;
+    const marked = {
+      ...parsed,
+      body: `${typeof given === "string" && given.trim() !== "" ? `${given.trimEnd()}\n\n` : ""}${REVIEW_MARKER}`,
+    };
+    const dir = yield* Effect.promise(() => mkdtemp(join(tmpdir(), "mshape-review-")));
+    const input = join(dir, "review.json");
+    yield* Effect.promise(() => writeFile(input, JSON.stringify(marked)));
+    const posted = yield* runTool(cwd, [
+      "gh",
+      "api",
+      endpoint,
+      "--input",
+      input,
+      "-q",
+      ".html_url",
+    ]).pipe(Effect.ensuring(Effect.promise(() => rm(dir, { recursive: true, force: true }))));
     if (posted.code === 0) return `posted ${posted.stdout.trim()}`;
     // gh sometimes fails after GitHub acted: say whether this very review is there now, by
     // its whole body and commit, since reviews of one PR often open alike (`## Fit`).
-    const { body, commit_id: commit } = parsed as { body?: unknown; commit_id?: unknown };
+    const { body, commit_id: commit } = marked as { body: string; commit_id?: unknown };
     const listed = yield* runTool(cwd, [
       "gh",
       "api",

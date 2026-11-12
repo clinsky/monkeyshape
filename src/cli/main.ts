@@ -227,6 +227,7 @@ const trackPrCommand = (root: string, args: ReadonlyArray<string>) =>
         body,
         fetchEnv: { ...process.env, GIT_TERMINAL_PROMPT: "0" },
         configDir: configDir(),
+        claudeDir: claudeDir(),
       },
       (line) => Effect.sync(() => console.error(line)),
     );
@@ -742,12 +743,15 @@ export const COMMANDS: ReadonlyArray<Command> = [
   mshape track current
       The track of this directory, name only; exit 1, saying why, outside a track.
   mshape track pr [--title <title>] [--body-file <path>]
-      From a track's worktree: prints the PR's size against the batching default, runs the
-      gate fresh, pushes track/<name> and opens its PR (--title and --body-file needed) or
-      updates it. Writes only the Gate section, from that run; the rest of the body is
-      --body-file's, or the PR's as it stands. Refuses, posting nothing, on uncommitted
-      changes, a denylisted term in what it would send (see scan: the commits no remote ref
-      has, their messages, added lines and paths, the title and body), a failing gate, a
+      From a track's worktree, whatever branch it has checked out: prints the PR's size
+      against the batching default, runs the gate on a clean checkout of track/<name>'s tip,
+      pushes that tip and opens its PR (--title and --body-file needed) or updates it. Writes
+      only the Gate section, from that run; the rest of the body is --body-file's, or the
+      PR's as it stands. Refuses, posting nothing: while a review of the PR is in progress (a
+      live session at review-<n> with no review on the PR's head yet), on uncommitted changes
+      to track/<name>, a denylisted term in what it would send (see scan: the commits the
+      remote lacks, their messages, added lines and paths, the title and body), a failing gate
+      (naming its failing tests; the whole output is kept under .git/monkeyshape/gate/), a
       missing required section or a bead bd doesn't know.
   mshape track pr --check-body
       Read a PR body on stdin; exit 1 naming the required sections it lacks (CI's pr.yml).
