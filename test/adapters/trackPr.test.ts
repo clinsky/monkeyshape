@@ -565,6 +565,37 @@ describe("track pr: --body-only, behind main, --wait", () => {
     );
   });
 
+  test("--body-only with nothing changed: posts nothing, and --wait reports CI as it stands (#80's review)", async () => {
+    await checks("checks-0.json", []);
+    await checks("checks.json", [
+      { id: 900, name: "check", status: "completed", conclusion: "success" },
+    ]);
+    await writeFile(`${wt()}/body.md`, body("x"));
+    expect(mshape(wt(), "pr", "--title", "t", "--body-file", "body.md", "--wait").code).toBe(0);
+    const calls = await Bun.file(`${gh}/calls.log`).text();
+    const same = mshape(wt(), "pr", "--body-only", "--wait");
+    expect(same.code).toBe(0);
+    expect(same.stdout).toContain("the body and title are as they were, so nothing was posted");
+    expect(same.stdout).toContain("CI passed on");
+    const added = (await Bun.file(`${gh}/calls.log`).text()).slice(calls.length);
+    expect(added).not.toContain("PATCH");
+  });
+
+  test("--body-only on a branch that conflicts with main: warns, as a push does (#80's review)", async () => {
+    await writeFile(`${wt()}/body.md`, body("x"));
+    expect(mshape(wt(), "pr", "--title", "t", "--body-file", "body.md").code).toBe(0);
+    await writeFile(join(repo, "page.md"), "main's own page\n");
+    sh(repo, "add", ".");
+    sh(repo, "commit", "-qm", "main writes the page too");
+    sh(repo, "push", "-q", "origin", "main");
+    await writeFile(`${wt()}/body.md`, body("Reworded."));
+    const edited = mshape(wt(), "pr", "--body-only", "--body-file", "body.md");
+    expect(edited.code).toBe(0);
+    expect(edited.stderr).toContain(
+      "warning: the branch is 1 commit behind `origin/main`, and conflicts with it in page.md.",
+    );
+  });
+
   test("up to date with main: no warning", async () => {
     await writeFile(`${wt()}/body.md`, body("x"));
     expect(mshape(wt(), "pr", "--title", "t", "--body-file", "body.md").stderr).not.toContain(
@@ -590,7 +621,8 @@ describe("track pr: --body-only, behind main, --wait", () => {
       { id: 103, name: "check", status: "completed", conclusion: "failure" },
       { id: 104, name: "body", status: "completed", conclusion: "success" },
     ]);
-    await rm(`${gh}/polls`);
+    // Unchanged, so nothing is posted: --wait reports the runs as they stand.
+    await rm(`${gh}/checks-0.json`);
     const failed = mshape(wt(), "pr", "--body-only", "--wait");
     expect(failed.code).toBe(1);
     expect(failed.stderr).toContain("but CI failed on");
@@ -623,7 +655,11 @@ console.log(out);
       stdout: "pipe",
       stderr: "pipe",
     });
-    return { stdout: result.stdout.toString().trim(), stderr: result.stderr.toString().trim() };
+    return {
+      code: result.exitCode,
+      stdout: result.stdout.toString().trim(),
+      stderr: result.stderr.toString().trim(),
+    };
   };
 
   test("awaitCi polls until every check has finished", async () => {
@@ -636,6 +672,7 @@ console.log(out);
     ]);
     const ran = await awaitCiRun("a".repeat(40), { pollMs: 5, startMs: 10_000, limitMs: 10_000 });
     expect(ran).toEqual({
+      code: 0,
       stdout: "updated\nCI passed on aaaaaaaaaaaa:\n  check: success",
       stderr: "waiting for CI on aaaaaaaaaaaa",
     });
@@ -667,14 +704,17 @@ console.log(out);
     const ran = await awaitCiRun("b".repeat(40), { pollMs: 5, startMs: 20, limitMs: 10_000 });
     expect(`${ran.stdout}\n${ran.stderr}`).toContain("note: no CI check started on bbbbbbbbbbbb");
     expect(ran.stdout).not.toContain("conflicts with main");
-    // As #80's real run hit: a PR that conflicts with main gets no CI at all.
+    expect(ran.code).toBe(0);
+    // As #80's real run hit: a PR that conflicts with main gets no CI at all. That is not
+    // an outcome to exit 0 on (#80's review).
     const conflicting = await awaitCiRun(
       "c".repeat(40),
       { pollMs: 5, startMs: 20, limitMs: 10_000 },
       true,
     );
-    expect(conflicting.stdout).toContain(
-      "GitHub runs no pull_request workflow on a PR that can't merge: merge main in",
+    expect(conflicting.code).toBe(1);
+    expect(conflicting.stderr).toContain(
+      "the branch conflicts with main, and GitHub runs no pull_request workflow on a PR that can't merge. Merge main in",
     );
   });
 });

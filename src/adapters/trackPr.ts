@@ -87,6 +87,7 @@ interface OpenPr {
   readonly number: number;
   readonly url: string;
   readonly body: string;
+  readonly title: string;
 }
 
 /** The open PR from `branch`, if any; a `gh` that can't answer refuses, saying why. */
@@ -101,7 +102,7 @@ const openPr = (cwd: string, branch: string) =>
       "--state",
       "open",
       "--json",
-      "number,url,body",
+      "number,url,body,title",
     ]);
     if (listed.missing)
       return yield* refuse(
@@ -433,11 +434,12 @@ export const awaitCi = (
               `${done}; but CI failed on ${sha.slice(0, 12)}: ${state.failed.join(", ")}\n${state.lines}`,
             );
       if (state.kind === "none" && waited >= timing.startMs)
-        return `${done}\nnote: no CI check started on ${sha.slice(0, 12)} within ${Math.round(timing.startMs / 1000)}s, so there is nothing to wait for${
-          conflicts
-            ? ". The branch conflicts with main, and GitHub runs no pull_request workflow on a PR that can't merge: merge main in, then run track pr --wait again"
-            : ""
-        }`;
+        // A conflicting PR is untested and can't merge: not an outcome to exit 0 on.
+        return conflicts
+          ? yield* refuse(
+              `${done}; but no CI check started on ${sha.slice(0, 12)} within ${Math.round(timing.startMs / 1000)}s: the branch conflicts with main, and GitHub runs no pull_request workflow on a PR that can't merge. Merge main in, then run track pr --wait again`,
+            )
+          : `${done}\nnote: no CI check started on ${sha.slice(0, 12)} within ${Math.round(timing.startMs / 1000)}s, so there is nothing to wait for (this repo may have no CI)`;
       if (waited >= timing.limitMs)
         return yield* refuse(
           `${done}; but CI hadn't finished on ${sha.slice(0, 12)} after ${Math.round(timing.limitMs / 1000)}s (still running: ${state.kind === "running" ? state.pending.join(", ") : "none listed"})`,
@@ -542,12 +544,27 @@ export const trackPr = (
       );
       if (note !== undefined) yield* say(note);
       yield* checkBeads(repo, plan.beads, say);
-      const before = yield* runsBefore(top, tip, options.wait);
-      const url = yield* publish(top, branch, existing, options.title, plan.body);
-      const done = `updated ${url}: the body only, with no push and no gate; the Gate section is still the run on ${tip.slice(0, 12)}`;
+      // As a push does: a conflict means GitHub runs no CI, which --wait must say.
+      const unfetchedBody = yield* fetchUpstream(repo, options.fetchEnv);
+      if (unfetchedBody !== undefined) yield* say(`note: ${unfetchedBody}`);
+      const bodyTargets = yield* mergeTargets(repo);
+      const bodyBehind = yield* behind(
+        repo,
+        tip,
+        bodyTargets[bodyTargets.length - 1] ?? MAIN_BRANCH,
+      );
+      if (bodyBehind.warning !== undefined) yield* say(bodyBehind.warning);
+      // Unchanged: GitHub would run nothing new, so post nothing and report CI as it stands.
+      const unchanged =
+        plan.body === existing.body &&
+        (options.title === undefined || options.title === existing.title);
+      const before = unchanged ? new Set<number>() : yield* runsBefore(top, tip, options.wait);
+      const done = unchanged
+        ? `${existing.url}: the body and title are as they were, so nothing was posted`
+        : `updated ${yield* publish(top, branch, existing, options.title, plan.body)}: the body only, with no push and no gate; the Gate section is still the run on ${tip.slice(0, 12)}`;
       return options.wait === undefined
         ? done
-        : yield* awaitCi(top, tip, before, done, options.wait, say);
+        : yield* awaitCi(top, tip, before, done, options.wait, say, bodyBehind.conflicts);
     }
 
     const unfetched = yield* fetchUpstream(repo, options.fetchEnv);
