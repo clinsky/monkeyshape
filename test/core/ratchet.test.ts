@@ -34,6 +34,7 @@ describe("ratchet", () => {
     ]);
   });
 
+  // A loose ratchet is a failure, not a warning: D-strict-ratchet.
   test("fewer than the baseline is a loose ratchet", () => {
     const result = applyBaseline([v("a.ts")], { "rules/no-throw": { "a.ts": 3, "gone.ts": 1 } });
     expect(result.loose).toEqual([

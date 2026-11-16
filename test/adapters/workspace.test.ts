@@ -150,3 +150,25 @@ describe("the note for a clone with no beads database", () => {
     expect(note).toContain("don't run `bd bootstrap`");
   });
 });
+
+describe("a decision's enforcing files", () => {
+  test("are read whatever they are, so the back-link can find the slug", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "mshape-enforcing-"));
+    try {
+      await Bun.write(
+        join(dir, "DECISIONS.md"),
+        "# Decisions\n\n## D-one: Title\nEnforced by: Makefile, ops/\n",
+      );
+      await Bun.write(join(dir, "Makefile"), "# D-one\ncheck:\n\ttrue\n");
+      await Bun.write(join(dir, "ops", "deploy.conf"), "# D-one\n");
+      await Bun.write(join(dir, "NOTES.txt"), "not named\n");
+      await Bun.$`git init -q`.cwd(dir);
+      const snapshot = await Effect.runPromise(loadSnapshot(dir, config(), `${dir}/no-package`));
+      expect(snapshot.texts.get("Makefile")).toContain("D-one");
+      expect(snapshot.texts.get("ops/deploy.conf")).toContain("D-one");
+      expect(snapshot.texts.has("NOTES.txt")).toBe(false);
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+});

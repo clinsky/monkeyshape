@@ -187,6 +187,7 @@ describe("syncSkills", () => {
   });
 });
 
+/** The committed relative link, never a copy or an absolute path: D-skills-link. */
 const RELATIVE: SkillsLink = { kind: "link", target: "../.agents/skills" };
 const SHIPPED = { "roadmap/SKILL.md": "r", "track/SKILL.md": "t" };
 const INSTALLED = { ...SHIPPED, "monkeyshape.json": manifest("roadmap", "track") };

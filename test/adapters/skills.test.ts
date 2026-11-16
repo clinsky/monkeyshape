@@ -28,6 +28,7 @@ afterEach(async () => {
 });
 
 describe("installSkills", () => {
+  // Relative, so every clone and worktree resolves its own: D-skills-link.
   test("copies the skills and links .claude/skills relatively to them", async () => {
     const first = await install();
     expect(first.sync.added).toEqual(["roadmap", "track"]);

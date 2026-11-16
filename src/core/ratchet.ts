@@ -2,7 +2,7 @@
  * Ratchets let a rule land before the code is clean: existing violations are counted per
  * rule and file in a baseline, and counts may only go down. A count above the baseline
  * fails; a count below it fails too (the ratchet is loose) until `mshape baseline
- * --tighten` lowers it, so fixed violations can't silently come back.
+ * --tighten` lowers it, so fixed violations can't silently come back (D-strict-ratchet).
  */
 import type { ChangedLines, Violation } from "./model.ts";
 
@@ -151,6 +151,7 @@ export const applyBaseline = (
   for (const [rule, files] of Object.entries(baseline))
     for (const [file, allowed] of Object.entries(files)) {
       const found = current[rule]?.[file] ?? 0;
+      // Loose fails, never only warns or tightens itself: D-strict-ratchet.
       if (found < allowed && !unevaluated.has(rule)) loose.push({ rule, file, allowed, found });
     }
   return { failing, loose, grandfathered };
