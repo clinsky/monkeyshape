@@ -93,6 +93,10 @@ outcome, not a spec. Show the human the charter and the beads; start once they a
   each bead as a list item starting with its id. The first time, pass both
   `--title "<title>"` and `--body-file <path>`; after that `mshape track pr` alone keeps the
   body as it stands.
+  To refresh only the body while the code is unchanged,
+  `mshape track pr --body-only --body-file <path>`: no push and no gate, refused if the Gate
+  section would be false. Add `--wait` to any `track pr` to wait for CI on the PR's head: it
+  exits 1 naming a failed check, or when the branch conflicts with main and so gets no CI.
   Close the beads when it merges.
 - **One open PR at a time**, from `track/<name>`. The PR is one reviewed unit: once it is
   open, `track/<name>` takes only commits that answer its review. Do the next beads on a
