@@ -65,8 +65,8 @@ Everything else has one home too:
 | Init | you: `mshape init <name>` | A new repo whose gate passes, with one starter test: template, toolchain, beads, the five skills, the handoffs store. |
 | Long term | chat: `/roadmap` + a brain-dump | Interview until goals are clear; write docs/roadmap.md; one deferred epic per goal; open a PR. |
 | Mid term | chat: `/milestone` + priorities | Retrospective on the last milestone; agree a goal with acceptance on real data; write plan/MILESTONE.md; groom beads and the roadmap; garden; create the tracks with `mshape track new`; remove finished ones. |
-| Short term | chat in a track's worktree: `/track` | Read the handoff and the track's queue; work; open PRs. |
-| Hand off | you, near 75% of a chat's context: `/handoff` | The handoff is rewritten so a fresh chat can continue; open one in the same worktree and run `/track`. |
+| Short term | chat in the track's worktree (`/track`) or the main checkout (`/track <name>`) | Read the handoff and the track's queue; work; open PRs. |
+| Hand off | you, near 75% of a chat's context: `/handoff` | The handoff is rewritten so a fresh chat can continue; open one in the same worktree and run `/track` (or `/track <name>` from the main checkout). |
 | Review | chat: `/review-pr <number>` | Review against real data in a scratch worktree (`mshape review <n>`); findings go on the PR; you merge. |
 | Bump | you: update `monkeyshape`, then `bun run --silent mshape sync` | Brings what the package ships up to date: the shared skills, `.beads/PRIME.md`, the PR template and monkeyshape's hooks. `mshape check` fails until it has run. |
 
@@ -101,7 +101,7 @@ empty queue doesn't mean the track is done: `bd ready` leaves out beads in progr
 The track is done when `mshape track list` shows it with 0 open beads and `merged: yes`.
 
 **Ad-hoc tracks.** For work that didn't come from a milestone, run `mshape track new <name>`
-yourself, open a chat in the worktree it prints and run `/track`. The handoff starts as a
+yourself, then run `/track <name>` in a fresh chat, in the worktree it prints or the main checkout. The handoff starts as a
 stub (its charter is empty), so `/track` interviews you about the work and writes the
 charter and its beads.
 `mshape track rm <name>` when it's merged.
