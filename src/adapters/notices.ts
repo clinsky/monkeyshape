@@ -24,9 +24,11 @@ import { Effect } from "effect";
 import { mshapeCommand } from "../core/hooks.ts";
 import {
   isReviewAddress,
+  reviewerAddress,
   sessionPath,
   sessionsDir,
   TRACK_NAME,
+  trackOf,
   trackSessionsDir,
   worktreePath,
 } from "../core/layout.ts";
@@ -111,13 +113,19 @@ export interface Caller {
   readonly now: Date;
 }
 
-/** The address of each review worktree there is: a reviewer's address is gone without one. */
+/** The reviewer addresses that still mean something: a review worktree's, or a live track's. */
 const liveReviewAddresses = (repo: string, common: string) =>
   Effect.gen(function* () {
     const tracks = yield* reviewTracks(common);
-    return (yield* worktrees(repo)).flatMap(
-      (worktree) => reviewWorktreeAddress(repo, worktree.path, tracks) ?? [],
-    );
+    const all = yield* worktrees(repo);
+    return [
+      ...all.flatMap((worktree) => reviewWorktreeAddress(repo, worktree.path, tracks) ?? []),
+      // review-<track> is held between the track's PRs, for as long as the track has a worktree.
+      ...all.flatMap((worktree) => {
+        const track = trackOf(repo, worktree.path);
+        return track === undefined ? [] : [reviewerAddress(track)];
+      }),
+    ];
   });
 
 /** The address of the checkout `cwd` is in, or why it has none. */

@@ -116,11 +116,19 @@ export const knownAddresses = (
   worktrees: ReadonlyArray<Worktree>,
   handoffs: ReadonlyArray<string>,
   reviewTracks: ReviewTracks = new Map(),
+  /** Addresses with a session registered: a `review-<track>` there is held between PRs. */
+  registeredAt: ReadonlyArray<string> = [],
 ): ReadonlyArray<string> => {
+  const tracks = knownTracks(repo, worktrees, handoffs);
   const reviews = worktrees.flatMap(
     (worktree) => reviewWorktreeAddress(repo, worktree.path, reviewTracks) ?? [],
   );
-  return [...knownTracks(repo, worktrees, handoffs), MAIN_ADDRESS, ...new Set(reviews.sort())];
+  // A reviewer keeps review-<track> between the track's PRs, while the track exists.
+  const held = registeredAt.filter((address) => {
+    const track = reviewerTrackOf(address);
+    return track !== undefined && tracks.includes(track);
+  });
+  return [...tracks, MAIN_ADDRESS, ...new Set([...reviews, ...held].sort())];
 };
 
 export const recipientProblem = (to: string, known: ReadonlyArray<string>): string | undefined => {
@@ -130,7 +138,7 @@ export const recipientProblem = (to: string, known: ReadonlyArray<string>): stri
     return `no review of #${pr} to send to: \`${to}\` exists while \`mshape review ${pr}\`'s worktree does (addresses: ${known.join(", ")})`;
   const reviewed = reviewerTrackOf(to);
   if (reviewed !== undefined)
-    return `no review of track ${reviewed}'s PRs to send to: \`${to}\` exists while \`mshape review <n>\` has a worktree for one of them (addresses: ${known.join(", ")})`;
+    return `no reviewer of track ${reviewed}'s PRs to send to: \`${to}\` exists once \`mshape review <n>\` has run for one of them, and while its reviewer stays registered there (addresses: ${known.join(", ")})`;
   return `no track \`${to}\` to send to (addresses: ${known.join(", ")}); \`mshape track list\` shows the tracks`;
 };
 

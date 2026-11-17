@@ -895,11 +895,11 @@ export const COMMANDS: ReadonlyArray<Command> = [
       A session at main (or at another review) moves to the reviewer's address, so its mail
       is the review's; a session at a track stays there. The address is review-<track> when
       the PR's head is a track's branch on origin (track/<track>), held across that track's
-      PRs; otherwise review-<n>.
+      PRs and between them, while the track exists; otherwise review-<n>.
   mshape review rm <n>
-      Remove that worktree and its fetched ref. Unless another PR of the same track is still
-      under review, also the sessions registered at the reviewer's address, after listing its
-      unread mail. Never the shared data or the handoffs.
+      Remove that worktree and its fetched ref. A reviewer at review-<track> keeps that
+      address and its mail for the track's next PR; for a PR from no track, review-<n>'s
+      unread mail is listed and its sessions removed. Never the shared data or the handoffs.
   mshape review post <n> <file>
       Post <file>, a review as GitHub's reviews API takes it ({commit_id, event, body,
       comments}), on pull request <n>, after scanning every string in it for denylisted terms

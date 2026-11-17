@@ -242,8 +242,9 @@ export const reviewNew = (
   });
 
 /**
- * Removes the review's worktree, its fetched ref and, unless another PR of the same track is
- * still under review, the registrations at the reviewer's address.
+ * Removes the review's worktree and its fetched ref. A PR from no track also loses its
+ * address, `review-<n>`, after its unread mail is listed; `review-<track>` stays, so the
+ * reviewer keeps its address and mail between the track's PRs.
  * Everything in a review worktree is scratch, so changes in it are discarded, after `say` lists
  * them, and so is the review's unread mail, which stays in its mailbox. Shared data is only
  * ever linked, and removing the worktree removes the links, never their targets.
@@ -263,15 +264,9 @@ export const reviewRm = (cwd: string, pr: string, say: (line: string) => Effect.
     const tracks = yield* reviewTracks(common);
     const track = tracks.get(pr);
     const address = track === undefined ? reviewAddress(pr) : reviewerAddress(track);
-    // review-<track> is held across the track's PRs: kept while another of them is reviewed.
-    const others = all.flatMap((worktree) => {
-      const other = worktree.path.startsWith(reviewPath(repo, ""))
-        ? worktree.path.slice(reviewPath(repo, "").length)
-        : "";
-      return other !== pr && track !== undefined && tracks.get(other) === track ? [other] : [];
-    });
     const removed: Array<string> = [];
-    if (others.length === 0) {
+    // review-<n> ends with its review; review-<track> is the reviewer's between the track's PRs.
+    if (track === undefined) {
       const inbox = yield* addressInbox(cwd, address);
       const unread = formatInbox(address, inbox.messages, inbox.unreadable, true);
       if (unread !== "") yield* say(`${unread}\n(left in ${address}'s mailbox)`);
@@ -289,9 +284,9 @@ export const reviewRm = (cwd: string, pr: string, say: (line: string) => Effect.
       removed.push(`removed ${ref}`);
     }
     yield* recordTrack(common, pr, undefined);
-    if (others.length > 0)
+    if (track !== undefined)
       removed.push(
-        `kept ${address}: track ${track}'s ${others.map((other) => `#${other}`).join(", ")} ${others.length === 1 ? "is" : "are"} still under review`,
+        `kept ${address}: its reviewer stays there for track ${track}'s next PR (\`mshape review <n>\` for it keeps the address)`,
       );
     else {
       const sessions = yield* removeSessions(cwd, address);

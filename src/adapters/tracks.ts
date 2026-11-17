@@ -33,6 +33,7 @@ import {
   PR_NUMBER,
   reviewsDir,
   reviewTrackPath,
+  sessionsDir,
   TRACK_NAME,
   trackBranch,
   trackOf,
@@ -115,6 +116,19 @@ export const reviewTracks = (common: string) =>
       if (pr === undefined || !PR_NUMBER.test(pr)) continue;
       const track = (await readFile(reviewTrackPath(common, pr), "utf8").catch(() => "")).trim();
       if (TRACK_NAME.test(track)) found.set(pr, track);
+    }
+    return found;
+  });
+
+/** The addresses with at least one session registered, from the session registry. */
+export const registeredAddresses = (common: string) =>
+  Effect.promise(async () => {
+    const found: Array<string> = [];
+    for (const address of await readdir(sessionsDir(common)).catch(() => [] as Array<string>)) {
+      if (!TRACK_NAME.test(address)) continue;
+      const files = await readdir(`${sessionsDir(common)}/${address}`).catch(() => []);
+      if (files.some((file) => file.endsWith(".json") && !file.startsWith(".")))
+        found.push(address);
     }
     return found;
   });
