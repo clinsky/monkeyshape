@@ -61,7 +61,7 @@ Start each step in a fresh agent in the main checkout:
 | `/roadmap` and a brain-dump | You and the agent agree the direction in `docs/roadmap.md`. |
 | `/milestone` and your priorities | You agree a goal met on real data. The agent writes the plan, files the beads and splits the work into tracks, each with its own worktree and agent. |
 | `/track <name>`, one agent per track | Agents work in parallel, each in its track's worktree, from its own handoff, beads and mail, so its context holds one line of work. Each opens PRs. |
-| `/review-pr <n>` | Another agent runs the PR on real data and posts findings until it can say LGTM. You merge. |
+| `/review-pr <n>` | Another agent runs the PR on real data and posts findings until it can say LGTM; keep that chat for the track's next PR. You merge. |
 
 When a session's context runs low, run `/handoff`, then `/track <name>` in a fresh one. When every
 track is done (`mshape track list`), run `/milestone` again. In full: [docs/workflow.md](docs/workflow.md).
