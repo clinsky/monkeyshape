@@ -48,7 +48,7 @@ describe("mail", () => {
     expect(subjectProblem("x".repeat(SUBJECT_MAX + 1))).toContain("put the rest in the body");
   });
 
-  test("a directory's address is its track, main, or review-<n>; anywhere else has none", () => {
+  test("a directory's address is its track, main, or a review's (review-<track>, or review-<n> for a PR from no track); anywhere else has none", () => {
     const review = `${REPO}/.agents/worktrees/app.pr-12`;
     const worktrees = [worktree(REPO, "main"), worktree(review)];
     const notTrack = { reason: "not a track" };
@@ -57,8 +57,20 @@ describe("mail", () => {
     expect(at("/anything", { track: "docs" })).toEqual({ address: "docs" });
     expect(at(REPO, notTrack)).toEqual({ address: "main" });
     expect(at(review, notTrack)).toEqual({ address: "review-12" });
+    // A PR from a track: its reviewer's address is the track's, held across its PRs.
+    expect(directoryAddress(REPO, review, worktrees, notTrack, new Map([["12", "docs"]]))).toEqual({
+      address: "review-docs",
+    });
     const stray = at(`${REPO}/.agents/worktrees/app.pr-13`, notTrack);
     expect("reason" in stray && stray.reason).toContain("have an address");
+    // Another worktree git knows, neither a track's nor a review's: no address either.
+    const side = directoryAddress(
+      REPO,
+      "/elsewhere/side",
+      [...worktrees, worktree("/elsewhere/side", "side")],
+      notTrack,
+    );
+    expect("reason" in side && side.reason).toContain("have an address");
   });
 
   test("a recipient is a track with a worktree or a handoff; a typo names the real ones", () => {
