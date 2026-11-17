@@ -78,7 +78,8 @@ export const reviewWorktreeAddress = (
  * review worktree `review-<track>` for a PR from a track, else `review-<n>`. A session's
  * registration overrides it (a session at `main` that runs `mshape review <n>` moves); this
  * is the fallback for a session that has none, for a restart, and for a terminal. Anywhere
- * else (a worktree on the wrong branch, say) has no address, since nobody could reply to it.
+ * else (a directory outside every worktree, or one git doesn't know) has no address, since
+ * nobody could reply to it. A track's worktree is its track on any branch (`currentTrack`).
  */
 export const directoryAddress = (
   repo: string,
