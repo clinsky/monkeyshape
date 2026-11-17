@@ -14,7 +14,7 @@ import { fencedLines } from "./markdown.ts";
 
 /** The package script that is the gate, the same locally and in CI. */
 export const GATE_SCRIPT = "check";
-/** The gate as a command: green before every PR. */
+/** The gate as a command: green in CI before review. */
 export const GATE_COMMAND = `bun run ${GATE_SCRIPT}`;
 
 export interface PrSection {

@@ -278,20 +278,23 @@ const gateOnTip = (
       const installed = yield* installDependencies(path);
       if (installed?.startsWith("note:")) yield* say(installed);
       const plan = yield* planFor(path);
-      const scripts = plan.kind === "full" ? [GATE_SCRIPT] : plan.scripts;
+      // Each step through this bun, which a hook's PATH may lack; mshape through its bin,
+      // whose shim starts with `#!/usr/bin/env node`.
+      const steps =
+        plan.kind === "full"
+          ? [`"$0" run ${GATE_SCRIPT}`]
+          : plan.steps.map((step) =>
+              step.kind === "script"
+                ? `"$0" run ${step.name}`
+                : `"$0" ./node_modules/.bin/mshape ${step.args.join(" ")}`,
+            );
       yield* say(
         plan.kind === "full"
           ? `running the gate, \`${GATE_COMMAND}\`, on a clean checkout of ${tip.slice(0, 12)}: it can take minutes`
           : `running the gate's fast stages, \`${gatePlanCommand(plan)}\`, on a clean checkout of ${tip.slice(0, 12)}; CI runs the tests`,
       );
-      // One stream, as a terminal shows it: the summary lines come from both. Each script
-      // through this bun, which a hook's PATH may lack.
-      const gate = yield* spawn(path, [
-        "sh",
-        "-c",
-        `${scripts.map((name) => `"$0" run ${name}`).join(" && ")} 2>&1`,
-        process.execPath,
-      ]);
+      // One stream, as a terminal shows it: the summary lines come from both.
+      const gate = yield* spawn(path, ["sh", "-c", `${steps.join(" && ")} 2>&1`, process.execPath]);
       const log = gateLogPath(common, track);
       yield* Effect.promise(async () => {
         await mkdir(dirname(log), { recursive: true });

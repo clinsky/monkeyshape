@@ -827,6 +827,34 @@ describe("track pr: the fast stages here, the tests in CI", () => {
     expect((await pr()).body).toContain("check: failure ([run](https://example.test/run/2))");
   });
 
+  test("an adopter's `mshape check` step runs through its bin in the clean checkout (#89's review)", async () => {
+    await withCi();
+    await writeFile(
+      `${wt()}/package.json`,
+      JSON.stringify({
+        scripts: {
+          quick: "echo fast stage ran",
+          check: "bun run quick && mshape check && bun test",
+        },
+      }),
+    );
+    // A stand-in for the installed CLI's bin, as node_modules/.bin holds it.
+    await mkdir(`${wt()}/node_modules/.bin`, { recursive: true });
+    await writeFile(
+      `${wt()}/node_modules/.bin/mshape`,
+      'console.log("mshape ran: " + process.argv.slice(2).join(" "));\n',
+    );
+    sh(wt(), "add", "-f", ".");
+    sh(wt(), "commit", "-qm", "an adopter's gate");
+    await writeFile(`${wt()}/body.md`, body("x"));
+    const opened = mshape(wt(), "pr", "--title", "t", "--body-file", "body.md");
+    expect(opened.code).toBe(0);
+    expect(opened.stderr).toContain("`bun run quick && mshape check`");
+    const gate = (await pr()).body.split("## Gate")[1];
+    expect(gate).toContain("mshape ran: check");
+    expect(gate).not.toContain("red");
+  });
+
   test("a gate with no CI workflow stays whole here", async () => {
     await writeFile(`${wt()}/body.md`, body("x"));
     const opened = mshape(wt(), "pr", "--title", "t", "--body-file", "body.md");

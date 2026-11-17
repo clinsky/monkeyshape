@@ -48,7 +48,54 @@ export const gateSection = (
  */
 export type GatePlan =
   | { readonly kind: "full" }
-  | { readonly kind: "fast"; readonly scripts: ReadonlyArray<string> };
+  | { readonly kind: "fast"; readonly steps: ReadonlyArray<GateStep> };
+
+/** A fast stage: a package script, or the mshape CLI itself (an adopter's `mshape check`). */
+export type GateStep =
+  | { readonly kind: "script"; readonly name: string }
+  | { readonly kind: "mshape"; readonly args: ReadonlyArray<string> };
+
+/** A workflow without its comments: `#` to the line's end, at its start or after a space. */
+const uncommented = (text: string): string =>
+  text
+    .split("\n")
+    .map((line) => line.replace(/(^|\s)#.*$/, ""))
+    .join("\n");
+
+/**
+ * Whether a workflow runs the gate on every pull request: `pull_request` among its triggers
+ * with no `paths`, `paths-ignore`, `branches` or `branches-ignore` filter (a filtered PR may
+ * get no CI at all), and the gate as a whole command, not a longer script's name.
+ */
+export const workflowRunsGate = (workflow: string): boolean => {
+  const text = uncommented(workflow);
+  if (!new RegExp(`(^|[\\s"'])${GATE_COMMAND}(?=$|[\\s"'&;|])`, "m").test(text)) return false;
+  const lines = text.split("\n");
+  const at = lines.findIndex((line) => /(^|[\s[,])pull_request\b/.test(line));
+  if (at === -1) return false;
+  // `pull_request:` opens a block: what is indented under it filters it.
+  const key = /^(\s*)pull_request\s*:\s*$/.exec(lines[at] ?? "");
+  if (key === undefined || key === null) return true;
+  const indent = key[1]?.length ?? 0;
+  for (const line of lines.slice(at + 1)) {
+    if (line.trim() === "") continue;
+    if ((/^\s*/.exec(line)?.[0].length ?? 0) <= indent) break;
+    if (/^\s*(paths|paths-ignore|branches|branches-ignore)\s*:/.test(line)) return false;
+  }
+  return true;
+};
+
+const TEST_STEP = /^bun test(\s|$)/;
+
+/** A gate step this can run without a shell: `bun run <script>` or `mshape <args>`. */
+const gateStep = (step: string): GateStep | undefined => {
+  const script = /^bun run ([\w:.-]+)$/.exec(step)?.[1];
+  if (script !== undefined) return { kind: "script", name: script };
+  const words = step.split(/\s+/);
+  return words[0] === "mshape" && words.slice(1).every((word) => /^[\w:./=-]+$/.test(word))
+    ? { kind: "mshape", args: words.slice(1) }
+    : undefined;
+};
 
 export const gatePlan = (
   /** package.json's `scripts[GATE_SCRIPT]`, if any. */
@@ -56,20 +103,26 @@ export const gatePlan = (
   /** The text of each workflow under `.github/workflows`. */
   workflows: ReadonlyArray<string>,
 ): GatePlan => {
-  const ci = workflows.some((text) => /\bpull_request\b/.test(text) && text.includes(GATE_COMMAND));
-  if (!ci || gate === undefined || /[;|]/.test(gate.replaceAll("&&", ""))) return { kind: "full" };
+  if (!workflows.some(workflowRunsGate) || gate === undefined) return { kind: "full" };
+  if (/[;|]/.test(gate.replaceAll("&&", ""))) return { kind: "full" };
   const steps = gate.split("&&").map((step) => step.trim());
-  const tests = steps.filter((step) => /^bun test(\s|$)/.test(step));
-  const rest = steps.filter((step) => !/^bun test(\s|$)/.test(step));
-  const scripts = rest.map((step) => /^bun run ([\w:.-]+)$/.exec(step)?.[1]);
-  if (tests.length === 0 || scripts.length === 0 || scripts.some((name) => name === undefined))
+  // Only trailing tests are left to CI: a step after them would be skipped with them.
+  const first = steps.findIndex((step) => TEST_STEP.test(step));
+  if (first <= 0 || !steps.slice(first).every((step) => TEST_STEP.test(step)))
     return { kind: "full" };
-  return { kind: "fast", scripts: scripts.filter((name) => name !== undefined) };
+  const fast = steps.slice(0, first).map(gateStep);
+  return fast.every((step) => step !== undefined)
+    ? { kind: "fast", steps: fast.filter((step) => step !== undefined) }
+    : { kind: "full" };
 };
+
+/** How a gate step reads, as package.json writes it. */
+const stepText = (step: GateStep): string =>
+  step.kind === "script" ? `bun run ${step.name}` : ["mshape", ...step.args].join(" ");
 
 /** How a gate plan reads as a command, for the Gate section and what track pr says. */
 export const gatePlanCommand = (plan: GatePlan): string =>
-  plan.kind === "full" ? GATE_COMMAND : plan.scripts.map((name) => `bun run ${name}`).join(" && ");
+  plan.kind === "full" ? GATE_COMMAND : plan.steps.map(stepText).join(" && ");
 
 /**
  * The Gate section's CI line, when CI runs the tests: pending at the push, then CI's verdict
