@@ -852,11 +852,12 @@ export const COMMANDS: ReadonlyArray<Command> = [
       pushes that tip and opens its PR (--title and --body-file needed) or updates it. Writes
       only the Gate section, from that run; the rest of the body is --body-file's, or the
       PR's as it stands. Refuses, posting nothing: while a review of the PR is in progress (a
-      live reviewer at review-<track> or review-<n> with no review on the PR's head yet), on uncommitted changes
-      to track/<name>, a denylisted term in what it would send (see scan: the commits the
-      remote lacks, their messages, added lines and paths, the title and body), a failing gate
-      (naming its failing tests; the whole output is kept under .git/monkeyshape/gate/), a
-      missing required section or a bead bd doesn't know. Warns when the tip is behind main,
+      live reviewer at review-<track> with this PR's review worktree, or at review-<n>, and no
+      review on the PR's head yet), on uncommitted changes to track/<name>, a denylisted term
+      in what it would send (see scan: the commits the remote lacks, their messages, added
+      lines and paths, the title and body), a failing gate (naming its failing tests; the
+      whole output is kept under .git/monkeyshape/gate/), a missing required section or a
+      bead bd doesn't know. Warns when the tip is behind main,
       naming the files a merge would conflict in. --body-only edits the body (and title)
       with no push and no gate, keeping the Gate section; refused unless that section ran on
       the tip and the tip is the PR's head. --wait then waits for CI on the commit and exits
@@ -919,8 +920,9 @@ export const COMMANDS: ReadonlyArray<Command> = [
   {
     name: "msg",
     usage: `  mshape msg send <track> --subject <subject> [body | --body-file <path>]
-      Leave a message in the mailbox of <track>, main or a review (review-<track>, review-<n>), from this session's
-      address, then push its subject to the sessions registered there. The subject is one
+      Leave a message in the mailbox of <track>, main or a reviewer (review-<track>, or
+      review-<n> for a PR from no track), from this session's address, then push its subject
+      to the sessions registered there. The subject is one
       line; it is all a notice shows. --body-file reads the body from a file, with no shell
       quoting to get wrong; else quote the body, and put -- before one that starts with --.
   mshape msg send --all --subject <subject> [body | --body-file <path>]
@@ -934,8 +936,9 @@ export const COMMANDS: ReadonlyArray<Command> = [
   mshape msg read <id>
       Print a message and mark it read at this address. Nothing else marks one read.
   mshape msg register
-      Record this Claude Code session at its checkout's address (a track, main, review-<track> or review-<n>),
-      or where it already is, so send notifies it at once: the SessionStart hook runs it.
+      Record this Claude Code session at its checkout's address (a track, main,
+      review-<track>, or review-<n> for a PR from no track), or where it already is, so send
+      notifies it at once: the SessionStart hook runs it.
       Silent outside every address; never fails.`,
     run: msg,
   },

@@ -327,12 +327,21 @@ describe("track pr", () => {
 const remoteTip = () => sh(join(base, "remote.git"), "rev-parse", "refs/heads/track/docs");
 
 /**
- * A reviewer's session registered at `review-7`: live when Claude Code's record of it exists,
- * ended (registered long ago, no record) otherwise.
+ * A reviewer of track docs' PR #7, live when Claude Code's record of it exists, ended
+ * (registered long ago, no record) otherwise. `reviewing`: at `review-docs` with what
+ * `mshape review 7` leaves, the PR's worktree recorded as the track's; `idle`: at
+ * `review-docs` between the track's PRs, no worktree for this one; `legacy`: at `review-7`,
+ * where a reviewer moved before a track's reviewer had `review-<track>`.
  */
-const reviewer = async (live: boolean, address = "review-7") => {
+const reviewer = async (live: boolean, at: "reviewing" | "idle" | "legacy" = "reviewing") => {
   const session = "11111111-2222-3333-4444-555555555555";
   const pid = 424242;
+  const address = at === "legacy" ? "review-7" : "review-docs";
+  if (at === "reviewing") {
+    sh(repo, "worktree", "add", "-q", "--detach", join(repo, ".agents", "worktrees", "repo.pr-7"));
+    await mkdir(join(repo, ".git", "monkeyshape", "reviews"), { recursive: true });
+    await writeFile(join(repo, ".git", "monkeyshape", "reviews", "pr-7.track"), "docs\n");
+  }
   const dir = join(repo, ".git", "monkeyshape", "sessions", address);
   await mkdir(dir, { recursive: true });
   await writeFile(
@@ -372,7 +381,7 @@ const openThenCommit = async () => {
 
 // The plan's review-in-progress table, row by row.
 describe("track pr: the branch tip, and a review in progress", () => {
-  test("no session at review-<n>: pushes, noting a reviewer elsewhere can't be seen", async () => {
+  test("no reviewer's session here: pushes, noting a reviewer elsewhere can't be seen", async () => {
     await openThenCommit();
     const pushed = mshape(wt(), "pr");
     expect(pushed.code).toBe(0);
@@ -389,7 +398,7 @@ describe("track pr: the branch tip, and a review in progress", () => {
     const refused = mshape(wt(), "pr");
     expect(refused.code).toBe(1);
     expect(refused.stderr).toContain(
-      `a review of #7 is in progress (session ${session} at \`review-7\`)`,
+      `a review of #7 is in progress (session ${session} at \`review-docs\`)`,
     );
     expect(refused.stderr).not.toContain("running the gate");
     expect(remoteTip()).toBe(before);
@@ -438,25 +447,21 @@ describe("track pr: the branch tip, and a review in progress", () => {
     expect(remoteTip()).toBe(sh(wt(), "rev-parse", "HEAD"));
   });
 
-  test("a live reviewer at review-<track> while `mshape review` has this PR: refused (review-<track>)", async () => {
+  test("a live reviewer at review-<n>, where it moved before review-<track>: still refused", async () => {
     await openThenCommit();
     const before = remoteTip();
-    const session = await reviewer(true, "review-docs");
-    // What `mshape review 7` leaves: the PR's worktree, recorded as track docs'.
-    sh(repo, "worktree", "add", "-q", "--detach", join(repo, ".agents", "worktrees", "repo.pr-7"));
-    await mkdir(join(repo, ".git", "monkeyshape", "reviews"), { recursive: true });
-    await writeFile(join(repo, ".git", "monkeyshape", "reviews", "pr-7.track"), "docs\n");
+    const session = await reviewer(true, "legacy");
     const refused = mshape(wt(), "pr");
     expect(refused.code).toBe(1);
     expect(refused.stderr).toContain(
-      `a review of #7 is in progress (session ${session} at \`review-docs\`)`,
+      `a review of #7 is in progress (session ${session} at \`review-7\`)`,
     );
     expect(remoteTip()).toBe(before);
   });
 
   test("a live reviewer at review-<track> between the track's PRs (no worktree for this one): pushes", async () => {
     await openThenCommit();
-    await reviewer(true, "review-docs");
+    await reviewer(true, "idle");
     const pushed = mshape(wt(), "pr");
     expect(pushed.code).toBe(0);
     expect(remoteTip()).toBe(sh(wt(), "rev-parse", "HEAD"));
@@ -468,7 +473,7 @@ describe("track pr: the branch tip, and a review in progress", () => {
     const pushed = mshape(wt(), "pr");
     expect(pushed.code).toBe(0);
     expect(pushed.stderr).toContain(
-      "note: a reviewer's session at `review-7` ended without posting a review on the PR's head; pushing",
+      "note: a reviewer's session at `review-docs` ended without posting a review on the PR's head; pushing",
     );
   });
 
