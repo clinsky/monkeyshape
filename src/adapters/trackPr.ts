@@ -12,7 +12,13 @@ import { mkdir, mkdtemp, readdir, realpath, rm, writeFile } from "node:fs/promis
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { Clock, Effect } from "effect";
-import { GATE_COMMAND, GATE_SCRIPT, parsePrBody, prSizeNote } from "../core/conventions.ts";
+import {
+  GATE_COMMAND,
+  GATE_SCRIPT,
+  parsePrBody,
+  prSizeNote,
+  setPrSections,
+} from "../core/conventions.ts";
 import {
   MAIN_BRANCH,
   reviewAddress,
@@ -28,11 +34,14 @@ import {
   bodyOnlyProblem,
   type CheckRun,
   changedLines,
+  ciLine,
   ciState,
   failingTests,
   gateCheckoutPath,
   gatedCommit,
   gateLogPath,
+  gatePlan,
+  gatePlanCommand,
   gateSection,
   gateTail,
   reviewedHead as isReviewed,
@@ -40,8 +49,9 @@ import {
   planPrBody,
   type ReviewFacts,
   reviewDecision,
+  withCiLine,
 } from "../core/trackPr.ts";
-import { WorkspaceError } from "../schemas/errors.ts";
+import { type TrackError, WorkspaceError } from "../schemas/errors.ts";
 import { loadConfig } from "./config.ts";
 import { guard, outgoingCommits } from "./denylist.ts";
 import { liveSessions } from "./notices.ts";
@@ -267,11 +277,19 @@ const gateOnTip = (
         if (line.startsWith("note:")) yield* say(line);
       const installed = yield* installDependencies(path);
       if (installed?.startsWith("note:")) yield* say(installed);
-      // One stream, as a terminal shows it: the summary lines come from both.
+      const plan = yield* planFor(path);
+      const scripts = plan.kind === "full" ? [GATE_SCRIPT] : plan.scripts;
+      yield* say(
+        plan.kind === "full"
+          ? `running the gate, \`${GATE_COMMAND}\`, on a clean checkout of ${tip.slice(0, 12)}: it can take minutes`
+          : `running the gate's fast stages, \`${gatePlanCommand(plan)}\`, on a clean checkout of ${tip.slice(0, 12)}; CI runs the tests`,
+      );
+      // One stream, as a terminal shows it: the summary lines come from both. Each script
+      // through this bun, which a hook's PATH may lack.
       const gate = yield* spawn(path, [
         "sh",
         "-c",
-        `"$0" run ${GATE_SCRIPT} 2>&1`,
+        `${scripts.map((name) => `"$0" run ${name}`).join(" && ")} 2>&1`,
         process.execPath,
       ]);
       const log = gateLogPath(common, track);
@@ -279,10 +297,29 @@ const gateOnTip = (
         await mkdir(dirname(log), { recursive: true });
         await writeFile(log, gate.stdout);
       });
-      return { ...gate, log };
+      return { ...gate, log, plan };
     }).pipe(
       Effect.ensuring(removeCheckout(repo, path).pipe(Effect.orElseSucceed(() => undefined))),
     );
+  });
+
+/** The gate plan for a checkout: its gate script, and the workflows that might run it. */
+const planFor = (path: string) =>
+  Effect.promise(async () => {
+    const manifest = await Bun.file(`${path}/package.json`)
+      .json()
+      .catch(() => ({}));
+    const gate = (manifest as { scripts?: Record<string, unknown> }).scripts?.[GATE_SCRIPT];
+    const dir = `${path}/.github/workflows`;
+    const files = await readdir(dir).catch(() => [] as Array<string>);
+    const workflows: Array<string> = [];
+    for (const file of files.filter((name) => /\.ya?ml$/.test(name)))
+      workflows.push(
+        await Bun.file(`${dir}/${file}`)
+          .text()
+          .catch(() => ""),
+      );
+    return gatePlan(typeof gate === "string" ? gate : undefined, workflows);
   });
 
 /** Removes a scratch checkout, registered or left behind by a crash. */
@@ -432,7 +469,7 @@ export const checkRuns = (cwd: string, sha: string, done: string) =>
       `repos/{owner}/{repo}/commits/${sha}/check-runs`,
       "--paginate",
       "-q",
-      ".check_runs[] | {id, name, status, conclusion} | @json",
+      ".check_runs[] | {id, name, status, conclusion, html_url} | @json",
     ]);
     if (listed.code !== 0)
       return yield* refuse(
@@ -449,6 +486,22 @@ export const checkRuns = (cwd: string, sha: string, done: string) =>
   });
 
 /**
+ * After `--wait`: CI's verdict in the Gate section's CI line, replacing the pending one, so
+ * the section is CI's result for the pushed commit. A Gate section with no CI line (the full
+ * gate ran here) is left alone.
+ */
+const recordCiResult =
+  (top: string, branch: string, body: string, gate: string) => (runs: ReadonlyArray<CheckRun>) =>
+    Effect.gen(function* () {
+      const commit = /# at ([0-9a-f]+), run by mshape track pr/.exec(gate)?.[1] ?? "";
+      const updated = withCiLine(gate, ciLine(commit, runs));
+      if (updated === undefined) return;
+      const pr = yield* openPr(top, branch);
+      if (pr === undefined) return;
+      yield* publish(top, branch, pr, undefined, setPrSections(body, { Gate: updated }));
+    });
+
+/**
  * `--wait`: polls the check runs on `sha` until every one has finished; `done` and CI's
  * outcome, or a failure naming the checks that didn't pass. gh 2.4 has no `pr checks --watch`.
  */
@@ -462,6 +515,10 @@ export const awaitCi = (
   say: (line: string) => Effect.Effect<void>,
   /** The branch conflicts with its base, so GitHub runs no pull_request workflow on it. */
   conflicts = false,
+  /** Writes CI's verdict where it belongs, once every check has finished. */
+  onDone: (
+    runs: ReadonlyArray<CheckRun>,
+  ) => Effect.Effect<void, TrackError | WorkspaceError> = () => Effect.void,
 ) =>
   Effect.gen(function* () {
     yield* say(`waiting for CI on ${sha.slice(0, 12)}`);
@@ -470,6 +527,7 @@ export const awaitCi = (
       const runs = yield* checkRuns(cwd, sha, done);
       const state = ciState(runs, before);
       const waited = (yield* Clock.currentTimeMillis) - started;
+      if (state.kind === "done") yield* onDone(state.runs);
       if (state.kind === "done")
         return state.failed.length === 0
           ? `${done}\nCI passed on ${sha.slice(0, 12)}:\n${state.lines}`
@@ -605,9 +663,17 @@ export const trackPr = (
       const done = unchanged
         ? `${existing.url}: the body and title are as they were, so nothing was posted`
         : `updated ${yield* publish(top, branch, existing, options.title, plan.body)}: the body only, with no push and no gate; the Gate section is still the run on ${tip.slice(0, 12)}`;
-      return options.wait === undefined
-        ? done
-        : yield* awaitCi(top, tip, before, done, options.wait, say, bodyBehind.conflicts);
+      if (options.wait === undefined) return done;
+      return yield* awaitCi(
+        top,
+        tip,
+        before,
+        done,
+        options.wait,
+        say,
+        bodyBehind.conflicts,
+        recordCiResult(top, branch, plan.body, kept),
+      );
     }
 
     const unfetched = yield* fetchUpstream(repo, options.fetchEnv);
@@ -640,10 +706,8 @@ export const trackPr = (
       "nothing was pushed or posted",
     );
     if (notConfigured !== undefined) yield* say(notConfigured);
-    yield* say(
-      `running the gate, \`${GATE_COMMAND}\`, on a clean checkout of ${tip.slice(0, 12)}: it can take minutes`,
-    );
     const gate = yield* gateOnTip(common, repo, track, tip, say);
+    const ranCommand = gatePlanCommand(gate.plan);
     if (gate.code !== 0) {
       const failed = failingTests(gate.stdout);
       return yield* refuse(
@@ -662,10 +726,13 @@ export const trackPr = (
       );
     }
 
-    const plan = planPrBody(
-      options.body ?? existing?.body ?? "",
-      gateSection(GATE_COMMAND, tip, gate.stdout),
+    const gateText = gateSection(
+      ranCommand,
+      tip,
+      gate.stdout,
+      gate.plan.kind === "fast" ? ciLine(tip) : undefined,
     );
+    const plan = planPrBody(options.body ?? existing?.body ?? "", gateText);
     if ("problems" in plan)
       return yield* refuse(
         ["the body isn't ready, so nothing was pushed or posted:", ...plan.problems].join("\n  "),
@@ -705,7 +772,16 @@ export const trackPr = (
     const done = existing
       ? `updated ${url}: the Gate section is from this run; every other section is ${options.body === undefined ? "as it was" : "from --body-file"}`
       : `opened ${url}`;
-    return options.wait === undefined
-      ? done
-      : yield* awaitCi(top, tip, before, done, options.wait, say, behindMain.conflicts);
+    if (options.wait === undefined) return done;
+    const recordCi = recordCiResult(top, branch, plan.body, gateText);
+    return yield* awaitCi(
+      top,
+      tip,
+      before,
+      done,
+      options.wait,
+      say,
+      behindMain.conflicts,
+      recordCi,
+    );
   });

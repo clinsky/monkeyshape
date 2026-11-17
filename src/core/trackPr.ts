@@ -4,6 +4,7 @@
  * section is the agent's, kept as written. The sections are `PR_SECTIONS`, in conventions.ts.
  */
 import {
+  GATE_COMMAND,
   missingPrSections,
   type PrSectionName,
   parsePrBody,
@@ -24,12 +25,71 @@ export const changedLines = (shortstat: string): number => {
  * The Gate section: the command, the commit it ran on, and the tail of its output, colour codes
  * removed, in a fence longer than any backtick run inside, so the output can't close it.
  */
-export const gateSection = (command: string, commit: string, output: string): string => {
+export const gateSection = (
+  command: string,
+  commit: string,
+  output: string,
+  /** CI's line (`ciLine`), when CI runs the tests this run left out. */
+  ci?: string,
+): string => {
   const tail = gateTail(output);
   const longest = Math.max(2, ...[...tail.matchAll(/`+/g)].map((run) => run[0].length));
   const fence = "`".repeat(longest + 1);
-  return `${fence}\n$ ${command}   # at ${commit.slice(0, 12)}, run by mshape track pr\n${tail}\n${fence}`;
+  const block = `${fence}\n$ ${command}   # at ${commit.slice(0, 12)}, run by mshape track pr\n${tail}\n${fence}`;
+  return ci === undefined ? block : `${block}\n\n${ci}`;
 };
+
+/**
+ * What `track pr` runs before it pushes. `fast`: the gate script's steps without its tests,
+ * when a workflow runs the gate on pull requests, so CI runs them on the pushed commit and a
+ * push blocks for seconds, not minutes. `full`: the whole gate, in a repo with no such
+ * workflow, or a gate script that isn't plain `bun run <script>` steps joined by `&&`
+ * around its `bun test`. Never by file type: prose is test input too.
+ */
+export type GatePlan =
+  | { readonly kind: "full" }
+  | { readonly kind: "fast"; readonly scripts: ReadonlyArray<string> };
+
+export const gatePlan = (
+  /** package.json's `scripts[GATE_SCRIPT]`, if any. */
+  gate: string | undefined,
+  /** The text of each workflow under `.github/workflows`. */
+  workflows: ReadonlyArray<string>,
+): GatePlan => {
+  const ci = workflows.some((text) => /\bpull_request\b/.test(text) && text.includes(GATE_COMMAND));
+  if (!ci || gate === undefined || /[;|]/.test(gate.replaceAll("&&", ""))) return { kind: "full" };
+  const steps = gate.split("&&").map((step) => step.trim());
+  const tests = steps.filter((step) => /^bun test(\s|$)/.test(step));
+  const rest = steps.filter((step) => !/^bun test(\s|$)/.test(step));
+  const scripts = rest.map((step) => /^bun run ([\w:.-]+)$/.exec(step)?.[1]);
+  if (tests.length === 0 || scripts.length === 0 || scripts.some((name) => name === undefined))
+    return { kind: "full" };
+  return { kind: "fast", scripts: scripts.filter((name) => name !== undefined) };
+};
+
+/** How a gate plan reads as a command, for the Gate section and what track pr says. */
+export const gatePlanCommand = (plan: GatePlan): string =>
+  plan.kind === "full" ? GATE_COMMAND : plan.scripts.map((name) => `bun run ${name}`).join(" && ");
+
+/**
+ * The Gate section's CI line, when CI runs the tests: pending at the push, then CI's verdict
+ * on the pushed commit once `--wait` has it, each check with its run's link.
+ */
+export const ciLine = (commit: string, runs?: ReadonlyArray<CheckRun>): string =>
+  runs === undefined
+    ? `CI: runs the tests on ${commit.slice(0, 12)}, not track pr; \`mshape track pr --wait\` records its result here.`
+    : `CI on ${commit.slice(0, 12)}: ${runs
+        .map(
+          (run) =>
+            `${run.name}: ${run.conclusion ?? run.status}${run.html_url === undefined ? "" : ` ([run](${run.html_url}))`}`,
+        )
+        .join(", ")}.`;
+
+/** `gate` with its CI line replaced by `line`; undefined when it has none to replace. */
+export const withCiLine = (gate: string, line: string): string | undefined =>
+  /^CI(?: on [0-9a-f]+)?: .*$/m.test(gate)
+    ? gate.replace(/^CI(?: on [0-9a-f]+)?: .*$/m, line)
+    : undefined;
 
 /** The gate output's last `GATE_TAIL_LINES` lines, without terminal colour codes. */
 export const gateTail = (output: string): string =>
@@ -234,6 +294,8 @@ export interface CheckRun {
   readonly name: string;
   readonly status: string;
   readonly conclusion: string | null;
+  /** The run's page, when GitHub gives one. */
+  readonly html_url?: string;
 }
 
 /**
@@ -247,7 +309,13 @@ export const ciState = (
 ):
   | { readonly kind: "none" }
   | { readonly kind: "running"; readonly pending: ReadonlyArray<string> }
-  | { readonly kind: "done"; readonly failed: ReadonlyArray<string>; readonly lines: string } => {
+  | {
+      readonly kind: "done";
+      readonly failed: ReadonlyArray<string>;
+      readonly lines: string;
+      /** The latest run of each check. */
+      readonly runs: ReadonlyArray<CheckRun>;
+    } => {
   if (!runs.some((run) => !before.has(run.id))) return { kind: "none" };
   const latest = new Map<string, CheckRun>();
   for (const run of runs) if ((latest.get(run.name)?.id ?? -1) < run.id) latest.set(run.name, run);
@@ -259,5 +327,5 @@ export const ciState = (
     .filter((run) => !ok.has(run.conclusion ?? ""))
     .map((run) => `${run.name} (${run.conclusion ?? "no conclusion"})`);
   const lines = current.map((run) => `  ${run.name}: ${run.conclusion}`).join("\n");
-  return { kind: "done", failed, lines };
+  return { kind: "done", failed, lines, runs: current };
 };

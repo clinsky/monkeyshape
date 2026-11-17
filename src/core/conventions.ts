@@ -40,7 +40,7 @@ export const PR_SECTIONS = [
   },
   {
     name: "Gate",
-    purpose: `The tail of a fresh \`${GATE_COMMAND}\`.`,
+    purpose: `Filled by track pr: the gate's fast stages on the pushed commit and CI's result for the tests, or the whole \`${GATE_COMMAND}\` where no CI runs it.`,
     required: true,
   },
   {

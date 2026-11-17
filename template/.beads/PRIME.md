@@ -46,7 +46,8 @@ never by hand.
 - The body has the sections of `.github/pull_request_template.md`, each bead a list item
   starting with its id. Write it to a file. In a track, open and refresh the PR with
   `bun run --silent mshape track pr --title "<title>" --body-file <file>` (after the first
-  time, `track pr` alone): it runs the gate fresh, pushes, and fills the Gate section.
+  time, `track pr` alone): it runs the gate's fast stages, pushes, and fills the Gate
+  section; CI runs the tests, and `track pr --wait` records its result there.
   Outside a track, `gh pr create --body-file <file>`, which skips GitHub's template.
 - Review runs in its own chat with `/review-pr <n>`. Answer every finding on the PR; before
   replying "fixed", rerun the reviewer's probes and try to break the fix with valid input.

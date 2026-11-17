@@ -101,8 +101,8 @@ From cheapest to most expensive:
    and is a blocker.
 3. **Run the real workflow** when the claim is about what it produces end to end.
 
-Don't rerun the gate on the first pass if the PR body shows it green; do on a re-review whose
-fix touched code.
+Don't rerun the gate on the first pass if CI is green on the head (the Gate section names
+its run once the author waited for it); do on a re-review whose fix touched code.
 
 ## 5. Post on the PR
 

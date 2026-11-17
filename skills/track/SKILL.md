@@ -87,8 +87,9 @@ outcome, not a spec. Show the human the charter and the beads; start once they a
   deleted): many small PRs cost more review than a few large ones. A smaller PR is right
   only when it unblocks another track or ends this one; a larger one, only when it can't be
   split by theme. It is a default, not a gate. Open and refresh the PR with
-  `mshape track pr`: it prints the size against that range, runs the gate fresh and fills
-  the Gate section.
+  `mshape track pr`: it prints the size against that range, runs the gate's fast stages
+  on a clean checkout of the tip, pushes, and fills the Gate section. CI runs the tests (the
+  whole gate runs here when no CI does); `--wait` records CI's result in the Gate section.
   Write the rest of the body in a file with the sections of .github/pull_request_template.md,
   each bead as a list item starting with its id. The first time, pass both
   `--title "<title>"` and `--body-file <path>`; after that `mshape track pr` alone keeps the

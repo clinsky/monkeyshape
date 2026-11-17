@@ -4,14 +4,18 @@ import {
   behindWarning,
   bodyOnlyProblem,
   changedLines,
+  ciLine,
   ciState,
   GATE_TAIL_LINES,
   gatedCommit,
+  gatePlan,
+  gatePlanCommand,
   gateSection,
   listedBeads,
   planPrBody,
   REVIEW_MARKER,
   reviewedHead,
+  withCiLine,
 } from "../../src/core/trackPr.ts";
 
 const filled = prSkeleton({
@@ -159,5 +163,43 @@ describe("--body-only, behind, CI", () => {
     const rerun = { id: 5, name: "body", status: "completed", conclusion: "failure" };
     const state = ciState([old, rerun], new Set([1]));
     expect(state.kind === "done" && state.failed).toEqual(["body (failure)"]);
+  });
+});
+
+describe("gatePlan and the CI line", () => {
+  const ci = "on:\n  pull_request:\njobs:\n  check:\n    steps:\n      - run: bun run check\n";
+  const gate = "bun run typecheck && bun run lint && bun run shape && bun test";
+  test("a pull_request workflow running the gate: the steps before bun test", () => {
+    expect(gatePlan(gate, [ci])).toEqual({ kind: "fast", scripts: ["typecheck", "lint", "shape"] });
+    // The scaffold's gate, as `mshape init` writes it.
+    expect(gatePlan(`${gate} --pass-with-no-tests`, [ci])).toEqual({
+      kind: "fast",
+      scripts: ["typecheck", "lint", "shape"],
+    });
+  });
+  test("anything else: the whole gate here", () => {
+    expect(gatePlan(gate, [])).toEqual({ kind: "full" });
+    expect(gatePlan(gate, ["on:\n  push:\n      - run: bun run check\n"])).toEqual({
+      kind: "full",
+    });
+    expect(gatePlan("bun run typecheck && bun run lint", [ci])).toEqual({ kind: "full" });
+    expect(gatePlan("tsc -p . && bun test", [ci])).toEqual({ kind: "full" });
+    expect(gatePlan("bun run a; bun test", [ci])).toEqual({ kind: "full" });
+    expect(gatePlan(undefined, [ci])).toEqual({ kind: "full" });
+  });
+  test("gatePlanCommand and the CI line", () => {
+    expect(gatePlanCommand({ kind: "fast", scripts: ["a", "b"] })).toBe("bun run a && bun run b");
+    expect(gatePlanCommand({ kind: "full" })).toBe("bun run check");
+    const pending = gateSection("bun run a", "c".repeat(40), "ok", ciLine("c".repeat(40)));
+    expect(pending).toContain("CI: runs the tests on cccccccccccc, not track pr");
+    const done = withCiLine(
+      pending,
+      ciLine("c".repeat(40), [
+        { id: 1, name: "check", status: "completed", conclusion: "success", html_url: "u" },
+      ]),
+    );
+    expect(done).toContain("CI on cccccccccccc: check: success ([run](u)).");
+    expect(done).not.toContain("runs the tests");
+    expect(withCiLine(gateSection("bun run check", "c".repeat(40), "ok"), "x")).toBeUndefined();
   });
 });
