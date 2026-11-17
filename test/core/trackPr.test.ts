@@ -16,6 +16,7 @@ import {
   REVIEW_MARKER,
   reviewedHead,
   withCiLine,
+  workflowRunsGate,
 } from "../../src/core/trackPr.ts";
 
 const filled = prSkeleton({
@@ -216,6 +217,27 @@ describe("gatePlan and the CI line", () => {
       pr("  push: # not on pull_request: too slow\n", "bun run check"),
     ])
       expect(gatePlan(gate, [workflow])).toEqual({ kind: "full" });
+    // From the re-review: a pushed fix gets no CI, and an inline map's filter.
+    for (const workflow of [
+      pr("  pull_request:\n    types: [opened, reopened]\n", "bun run check"),
+      pr("  pull_request:\n    types:\n      - opened\n", "bun run check"),
+      pr('  pull_request: { paths: ["docs/**"] }\n', "bun run check"),
+      pr("  pull_request: { types: [opened] }\n", "bun run check"),
+    ])
+      expect(workflowRunsGate(workflow)).toBe(false);
+    // The usual base filter, and types that include synchronize: every PR into main.
+    for (const workflow of [
+      pr("  pull_request:\n    branches: [main]\n", "bun run check"),
+      pr("  pull_request:\n    branches:\n      - main\n", "bun run check"),
+      pr("  pull_request:\n    types: [opened, synchronize, reopened]\n", "bun run check"),
+      pr("  pull_request: { branches: [main] }\n", "bun run check"),
+      pr("  pull_request:\n", '"bun run check"'),
+      pr("  pull_request:\n", "|\n          bun install\n          bun run check"),
+    ])
+      expect(workflowRunsGate(workflow)).toBe(true);
+    expect(
+      workflowRunsGate(pr("  pull_request:\n    branches: [release]\n", "bun run check")),
+    ).toBe(false);
     // A step after the tests would be skipped with them.
     expect(gatePlan("bun run typecheck && bun test && bun run e2e", [ci])).toEqual({
       kind: "full",

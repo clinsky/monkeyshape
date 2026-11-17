@@ -10,7 +10,7 @@ import {
   parsePrBody,
   setPrSections,
 } from "./conventions.ts";
-import { worktreesDir } from "./layout.ts";
+import { MAIN_BRANCH, worktreesDir } from "./layout.ts";
 
 /** Lines of the gate's output that go in the body: its summary is at the end. */
 export const GATE_TAIL_LINES = 15;
@@ -62,10 +62,46 @@ const uncommented = (text: string): string =>
     .map((line) => line.replace(/(^|\s)#.*$/, ""))
     .join("\n");
 
+/** The items `key` lists in `block`: inline (`key: [a, b]`) or as `- item` lines under it. */
+const listed = (block: string, key: string): ReadonlyArray<string> | undefined => {
+  const clean = (item: string) => item.trim().replace(/^["']|["']$/g, "");
+  const inline = new RegExp(`(?:^|[\\s{,])${key}\\s*:\\s*\\[([^\\]]*)\\]`).exec(block)?.[1];
+  if (inline !== undefined)
+    return inline
+      .split(",")
+      .map(clean)
+      .filter((item) => item !== "");
+  const lines = block.split("\n");
+  const at = lines.findIndex((line) => new RegExp(`^\\s*${key}\\s*:`).test(line));
+  if (at === -1) return undefined;
+  const scalar = (lines[at] ?? "").replace(new RegExp(`^\\s*${key}\\s*:`), "").trim();
+  if (scalar !== "") return [clean(scalar)];
+  const items: Array<string> = [];
+  for (const line of lines.slice(at + 1)) {
+    const item = /^\s*-\s*(.+)$/.exec(line)?.[1];
+    if (item === undefined) break;
+    items.push(clean(item));
+  }
+  return items;
+};
+
 /**
- * Whether a workflow runs the gate on every pull request: `pull_request` among its triggers
- * with no `paths`, `paths-ignore`, `branches` or `branches-ignore` filter (a filtered PR may
- * get no CI at all), and the gate as a whole command, not a longer script's name.
+ * Whether a `pull_request` trigger's filters let it run on every PR into `main` on every push:
+ * no `paths` or `paths-ignore`, no `branches-ignore`, `branches` (if any) listing `main`, and
+ * `types` (if any) including `synchronize`, which a pushed fix sends.
+ */
+const everyPr = (block: string): boolean => {
+  if (/(?:^|[\s{,])(paths|paths-ignore|branches-ignore)\s*:/m.test(block)) return false;
+  const branches = listed(block, "branches");
+  if (branches !== undefined && !branches.includes(MAIN_BRANCH)) return false;
+  const types = listed(block, "types");
+  return types === undefined || types.includes("synchronize");
+};
+
+/**
+ * Whether a workflow runs the gate on every pull request: a `pull_request` trigger whose
+ * filters let every PR and every push through (`everyPr`), and the gate as a whole command,
+ * not a longer script's name. Comments are ignored.
  */
 export const workflowRunsGate = (workflow: string): boolean => {
   const text = uncommented(workflow);
@@ -73,16 +109,21 @@ export const workflowRunsGate = (workflow: string): boolean => {
   const lines = text.split("\n");
   const at = lines.findIndex((line) => /(^|[\s[,])pull_request\b/.test(line));
   if (at === -1) return false;
+  const line = lines[at] ?? "";
+  // An inline map: `pull_request: { ... }`.
+  const inline = /pull_request\s*:\s*(\{.*\})/.exec(line)?.[1];
+  if (inline !== undefined) return everyPr(inline);
   // `pull_request:` opens a block: what is indented under it filters it.
-  const key = /^(\s*)pull_request\s*:\s*$/.exec(lines[at] ?? "");
-  if (key === undefined || key === null) return true;
+  const key = /^(\s*)pull_request\s*:\s*$/.exec(line);
+  if (key === null) return true;
   const indent = key[1]?.length ?? 0;
-  for (const line of lines.slice(at + 1)) {
-    if (line.trim() === "") continue;
-    if ((/^\s*/.exec(line)?.[0].length ?? 0) <= indent) break;
-    if (/^\s*(paths|paths-ignore|branches|branches-ignore)\s*:/.test(line)) return false;
+  const block: Array<string> = [];
+  for (const next of lines.slice(at + 1)) {
+    if (next.trim() === "") continue;
+    if ((/^\s*/.exec(next)?.[0].length ?? 0) <= indent) break;
+    block.push(next);
   }
-  return true;
+  return everyPr(block.join("\n"));
 };
 
 const TEST_STEP = /^bun test(\s|$)/;
