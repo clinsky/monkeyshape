@@ -852,7 +852,7 @@ export const COMMANDS: ReadonlyArray<Command> = [
       pushes that tip and opens its PR (--title and --body-file needed) or updates it. Writes
       only the Gate section, from that run; the rest of the body is --body-file's, or the
       PR's as it stands. Refuses, posting nothing: while a review of the PR is in progress (a
-      live session at review-<n> with no review on the PR's head yet), on uncommitted changes
+      live reviewer at review-<track> or review-<n> with no review on the PR's head yet), on uncommitted changes
       to track/<name>, a denylisted term in what it would send (see scan: the commits the
       remote lacks, their messages, added lines and paths, the title and body), a failing gate
       (naming its failing tests; the whole output is kept under .git/monkeyshape/gate/), a
@@ -892,11 +892,14 @@ export const COMMANDS: ReadonlyArray<Command> = [
       tracks.sharedPaths and the shared handoffs (.handoffs) linked in. Again later: put it
       exactly at the new head, printing the old one; edits to tracked files there are listed,
       then discarded.
-      A session at main (or at another review) moves to the address review-<n>, so its mail
-      is the review's; a session at a track stays there.
+      A session at main (or at another review) moves to the reviewer's address, so its mail
+      is the review's; a session at a track stays there. The address is review-<track> when
+      the PR's head is a track's branch on origin (track/<track>), held across that track's
+      PRs; otherwise review-<n>.
   mshape review rm <n>
-      Remove that worktree, listing what it discards and review-<n>'s unread mail, its fetched
-      ref and the sessions registered at review-<n>. Never the shared data or the handoffs.
+      Remove that worktree and its fetched ref. Unless another PR of the same track is still
+      under review, also the sessions registered at the reviewer's address, after listing its
+      unread mail. Never the shared data or the handoffs.
   mshape review post <n> <file>
       Post <file>, a review as GitHub's reviews API takes it ({commit_id, event, body,
       comments}), on pull request <n>, after scanning every string in it for denylisted terms
@@ -916,7 +919,7 @@ export const COMMANDS: ReadonlyArray<Command> = [
   {
     name: "msg",
     usage: `  mshape msg send <track> --subject <subject> [body | --body-file <path>]
-      Leave a message in the mailbox of <track>, main or review-<n>, from this session's
+      Leave a message in the mailbox of <track>, main or a review (review-<track>, review-<n>), from this session's
       address, then push its subject to the sessions registered there. The subject is one
       line; it is all a notice shows. --body-file reads the body from a file, with no shell
       quoting to get wrong; else quote the body, and put -- before one that starts with --.
@@ -931,7 +934,7 @@ export const COMMANDS: ReadonlyArray<Command> = [
   mshape msg read <id>
       Print a message and mark it read at this address. Nothing else marks one read.
   mshape msg register
-      Record this Claude Code session at its checkout's address (a track, main or review-<n>),
+      Record this Claude Code session at its checkout's address (a track, main, review-<track> or review-<n>),
       or where it already is, so send notifies it at once: the SessionStart hook runs it.
       Silent outside every address; never fails.`,
     run: msg,

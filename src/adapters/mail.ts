@@ -31,7 +31,7 @@ import {
 } from "../core/mail.ts";
 import { WorkspaceError } from "../schemas/errors.ts";
 import { type Caller, sessionAddress } from "./notices.ts";
-import { fs, locate, refuse, worktrees } from "./tracks.ts";
+import { fs, locate, refuse, reviewTracks, worktrees } from "./tracks.ts";
 
 /** A caller Claude Code said nothing about: a terminal, or `track migrate`. */
 const nobody = (now: Date): Caller => ({ identity: {}, claudeDir: "", now });
@@ -76,6 +76,7 @@ export const mailSend = (
       repo,
       yield* worktrees(repo),
       yield* entries(handoffsStore(common)),
+      yield* reviewTracks(common),
     );
     const unknown = recipientProblem(to, known);
     if (unknown !== undefined) return yield* refuse(`${unknown}`);
@@ -157,6 +158,7 @@ export const mailInboxAll = (cwd: string) =>
       repo,
       yield* worktrees(repo),
       yield* entries(handoffsStore(common)),
+      yield* reviewTracks(common),
     );
     const boxes = (yield* entries(mailDir(common))).filter((name) => TRACK_NAME.test(name));
     const mailboxes: Array<Mailbox> = [];

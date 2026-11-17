@@ -588,3 +588,142 @@ describe("track enter: the plan's case table", () => {
     expect(await registered("docs")).toContain(`${uuid(6)}.json`);
   });
 });
+
+/**
+ * The author pushes `track/<track>` and publishes it as pull request `pr`, as `track pr` does:
+ * the PR's head is the track branch's tip on origin.
+ */
+const publishFromTrack = (pr: number, track: string) => {
+  const author = join(base, "author");
+  sh(author, "fetch", "-q", "origin", "main");
+  sh(author, "switch", "-q", "--detach", "origin/main");
+  sh(author, "commit", "-q", "--allow-empty", "-m", `${track}: pr ${pr}, push ${++pushes}`);
+  sh(author, "push", "-q", "-f", "origin", `HEAD:refs/heads/track/${track}`);
+  sh(author, "push", "-q", "-f", "origin", `HEAD:refs/pull/${pr}/head`);
+};
+
+// The case table for review-<track>: a reviewer's address is one per track, held across the
+// track's PRs; a PR from no track keeps review-<n>.
+describe("the reviewer's address per track: the case table", () => {
+  test("a PR from track/<t>: the reviewer moves to review-<t>", async () => {
+    await claudeSession(1);
+    await start(repo, 1);
+    publishFromTrack(20, "docs");
+    const reviewed = await mshape(repo, ["review", "20"], 1);
+    expect(reviewed.code).toBe(0);
+    expect(`${reviewed.stdout}\n${reviewed.stderr}`).toContain(
+      `session ${uuid(1)}: main -> review-docs`,
+    );
+    expect(await registered("review-docs")).toEqual(at(1));
+    expect(await registered("review-20")).toEqual([]);
+    // Mail to review-docs reaches it while the review runs.
+    const sent = await send(wt("tracks"), "review-docs", "for the reviewer of docs");
+    expect(sent.stdout).toContain("Notified 1 live session of review-docs.");
+  });
+
+  test("the track's next PR: the reviewer stays at review-<t>, and never at main", async () => {
+    await claudeSession(1);
+    await start(repo, 1);
+    publishFromTrack(20, "docs");
+    await mshape(repo, ["review", "20"], 1);
+    // The next PR is reviewed before the last one's `review rm`, which then keeps the address.
+    publishFromTrack(21, "docs");
+    const next = await mshape(repo, ["review", "21"], 1);
+    expect(next.code).toBe(0);
+    expect(`${next.stdout}\n${next.stderr}`).not.toContain(`session ${uuid(1)}:`);
+    expect((await mshape(repo, ["review", "rm", "20"], 1)).code).toBe(0);
+    expect(await registered("review-docs")).toEqual(at(1));
+    expect(await registered("main")).toEqual([]);
+  });
+
+  test("a PR from another track <u>: moves to review-<u>; review-<t>'s unread mail stays", async () => {
+    await claudeSession(1);
+    await start(repo, 1);
+    publishFromTrack(20, "docs");
+    await mshape(repo, ["review", "20"], 1);
+    await send(wt("docs"), "review-docs", "unread for docs' reviewer");
+    publishFromTrack(22, "tracks");
+    const moved = await mshape(repo, ["review", "22"], 1);
+    expect(`${moved.stdout}\n${moved.stderr}`).toContain(
+      `session ${uuid(1)}: review-docs -> review-tracks`,
+    );
+    expect(await registered("review-tracks")).toEqual(at(1));
+    const all = await mshape(repo, ["msg", "inbox", "--all"], undefined);
+    expect(all.stdout).toContain("review-docs: 1 unread");
+  });
+
+  test("a PR not from a track: review-<n>", async () => {
+    await claudeSession(1);
+    await start(repo, 1);
+    const reviewed = await mshape(repo, ["review", "12"], 1);
+    expect(`${reviewed.stdout}\n${reviewed.stderr}`).toContain(
+      `session ${uuid(1)}: main -> review-12`,
+    );
+    expect(await registered("review-12")).toEqual(at(1));
+  });
+
+  test("a restart or /clear: back by directory, review-<t> in the review worktree, until `mshape review` reruns", async () => {
+    publishFromTrack(20, "docs");
+    await claudeSession(1, reviewWt(20));
+    await start(repo, 1);
+    await mshape(repo, ["review", "20"], 1);
+    // A new session id in the same process, its chat in the review worktree.
+    await claudeSession(2, reviewWt(20));
+    expect((await start(reviewWt(20), 2)).code).toBe(0);
+    expect(await registered("review-docs")).toContain(`${uuid(2)}.json`);
+    // From the main checkout instead: main, until `mshape review` reruns.
+    await claudeSession(3);
+    await start(repo, 3);
+    expect(await registered("main")).toEqual(at(3));
+    await mshape(repo, ["review", "20"], 3);
+    expect(await registered("review-docs")).toContain(`${uuid(3)}.json`);
+  });
+
+  test("`review rm <n>`: the registration is removed only when no other PR of the track is under review; unread mail listed first", async () => {
+    await claudeSession(1);
+    await start(repo, 1);
+    publishFromTrack(20, "docs");
+    await mshape(repo, ["review", "20"], 1);
+    publishFromTrack(21, "docs");
+    await mshape(repo, ["review", "21"], 1);
+    await send(wt("docs"), "review-docs", "left unread");
+    const kept = await mshape(repo, ["review", "rm", "20"], 1);
+    expect(kept.code).toBe(0);
+    expect(kept.stdout).toContain("kept review-docs: track docs's #21 is still under review");
+    expect(`${kept.stdout}\n${kept.stderr}`).not.toContain("left unread");
+    expect(await registered("review-docs")).toEqual(at(1));
+
+    const removed = await mshape(repo, ["review", "rm", "21"], 1);
+    const said = `${removed.stderr}\n${removed.stdout}`;
+    expect(said).toContain("left unread");
+    expect(said.indexOf("left unread")).toBeLessThan(said.indexOf(`removed ${reviewWt(21)}`));
+    expect(said).toContain("removed 1 registration of review-docs");
+    expect(await registered("review-docs")).toEqual([]);
+  });
+
+  test("a second live reviewer of the same track: both registered; `register` warns", async () => {
+    publishFromTrack(20, "docs");
+    for (const n of [1, 2]) {
+      await claudeSession(n, reviewWt(20));
+      await start(repo, n);
+    }
+    await mshape(repo, ["review", "20"], 1);
+    const second = await mshape(repo, ["review", "20"], 2);
+    expect(second.code).toBe(0);
+    expect(await registered("review-docs")).toEqual(at(1, 2));
+    const warned = await start(reviewWt(20), 2);
+    expect(`${warned.stdout}\n${warned.stderr}`).toContain(`is also registered at review-docs`);
+  });
+
+  test("a track can't be named review-<anything>, which is a reviewer's address", async () => {
+    const made = await mshape(repo, ["track", "new", "review-docs"], undefined);
+    expect(made.code).not.toBe(0);
+    expect(`${made.stdout}\n${made.stderr}`).toContain("review-<track>");
+  });
+
+  test("`msg send review-<t>` needs a review of one of the track's PRs", async () => {
+    const sent = await send(wt("docs"), "review-docs", "s");
+    expect(sent.code).not.toBe(0);
+    expect(`${sent.stdout}\n${sent.stderr}`).toContain("no review of track docs's PRs");
+  });
+});

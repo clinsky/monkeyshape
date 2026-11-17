@@ -3,11 +3,13 @@
  * beside the tracks, with `tracks.sharedPaths` and the handoffs linked in, for the `review-pr`
  * skill, which reads the charter of the track a PR comes from. A review is not a track: no
  * branch, no handoff of its own, no label. Its state lives on the pull request, and the
- * worktree is scratch, removed when the review ends. It is an address, `review-<n>`: a session
- * at `main` (or at another review) that runs `mshape review <n>` moves there, so the
+ * worktree is scratch, removed when the review ends. It is an address: `review-<track>` for a
+ * PR whose head is a track's branch, held across that track's PRs, else `review-<n>`. A
+ * session at `main` (or at another review) that runs `mshape review <n>` moves there, so the
  * reviewer's mail is the review's, never the main checkout's or the track's. Paths come from
  * `src/core/layout.ts`.
  */
+import { mkdir, rm, writeFile } from "node:fs/promises";
 import { posix } from "node:path";
 import { Effect } from "effect";
 import {
@@ -15,15 +17,30 @@ import {
   handoffsStore,
   PR_NUMBER,
   reviewAddress,
+  reviewerAddress,
   reviewPath,
   reviewRef,
+  reviewsDir,
+  reviewTrackPath,
+  TRACK_NAME,
+  trackBranch,
 } from "../core/layout.ts";
 import { formatInbox } from "../core/mail.ts";
 import { sharedPathProblems } from "../core/tracks.ts";
 import { loadConfig } from "./config.ts";
 import { addressInbox } from "./mail.ts";
 import { type Caller, planReviewMove, removeSessions } from "./notices.ts";
-import { git, gitOk, ignored, lexists, linkTo, locate, refuse, worktrees } from "./tracks.ts";
+import {
+  git,
+  gitOk,
+  ignored,
+  lexists,
+  linkTo,
+  locate,
+  refuse,
+  reviewTracks,
+  worktrees,
+} from "./tracks.ts";
 
 /** Pull requests are fetched from here, as GitHub publishes them: `refs/pull/<n>/head`. */
 const REMOTE = "origin";
@@ -49,6 +66,35 @@ const fetchHead = (repo: string, pr: string) =>
         `could not fetch pull request #${pr} from \`${REMOTE}\` (as \`refs/pull/${pr}/head\`, which GitHub publishes): ${fetched.stderr || `exit ${fetched.code}`}`,
       );
     return yield* gitOk(repo, ["rev-parse", `${ref}^{commit}`]);
+  });
+
+/**
+ * The track whose branch on the remote is at `head`: `track/<name>`, the PR's head branch
+ * when the track pushed it with `track pr`. Undefined when none is, or more than one.
+ */
+const trackOfHead = (repo: string, head: string) =>
+  Effect.gen(function* () {
+    const listed = yield* git(repo, ["ls-remote", REMOTE, `${trackBranch("*")}`]);
+    if (listed.code !== 0) return undefined;
+    const tracks = listed.stdout.split("\n").flatMap((line) => {
+      const [sha, ref] = line.split("\t");
+      const name = ref?.startsWith("refs/heads/track/")
+        ? ref.slice("refs/heads/track/".length)
+        : "";
+      return sha === head && TRACK_NAME.test(name) ? [name] : [];
+    });
+    return tracks.length === 1 ? tracks[0] : undefined;
+  });
+
+/** Records the track a review's PR comes from, for its address after a restart; none clears it. */
+const recordTrack = (common: string, pr: string, track: string | undefined) =>
+  Effect.promise(async () => {
+    const path = reviewTrackPath(common, pr);
+    if (track === undefined) await rm(path, { force: true });
+    else {
+      await mkdir(reviewsDir(common), { recursive: true });
+      await writeFile(path, `${track}\n`);
+    }
   });
 
 /**
@@ -114,7 +160,8 @@ const resetTo = (path: string, head: string, say: (line: string) => Effect.Effec
 /**
  * Creates the review's worktree at the pull request's head, or puts an existing one there,
  * printing the previous head: a re-review checks a regression test against both. Then moves
- * the calling session to `review-<n>` when it was at `main` or another review.
+ * the calling session to the reviewer's address (`review-<track>`, else `review-<n>`) when it
+ * was at `main` or another review.
  */
 export const reviewNew = (
   cwd: string,
@@ -125,7 +172,15 @@ export const reviewNew = (
   Effect.gen(function* () {
     yield* numberProblem(pr);
     const { common, repo } = yield* locate(cwd);
-    const move = yield* planReviewMove(cwd, caller, pr);
+    // The head first: the address depends on the track it is the tip of. Fetching only
+    // writes the review's own ref, so a refusal below still leaves nothing changed.
+    const head = yield* fetchHead(repo, pr);
+    const track = yield* trackOfHead(repo, head);
+    const move = yield* planReviewMove(
+      cwd,
+      caller,
+      track === undefined ? reviewAddress(pr) : reviewerAddress(track),
+    );
     const shared = (yield* loadConfig(repo)).tracks.sharedPaths;
     const problems = sharedPathProblems(shared);
     if (problems.length > 0) return yield* refuse(problems.join("\n"));
@@ -141,7 +196,7 @@ export const reviewNew = (
         `${path} exists but git has no worktree there: remove it, then this again`,
       );
 
-    const head = yield* fetchHead(repo, pr);
+    yield* recordTrack(common, pr, track);
     if (registered) {
       const before = yield* gitOk(path, ["rev-parse", "HEAD"]);
       yield* resetTo(path, head, say);
@@ -187,7 +242,8 @@ export const reviewNew = (
   });
 
 /**
- * Removes the review's worktree, its fetched ref and the registrations at `review-<n>`.
+ * Removes the review's worktree, its fetched ref and, unless another PR of the same track is
+ * still under review, the registrations at the reviewer's address.
  * Everything in a review worktree is scratch, so changes in it are discarded, after `say` lists
  * them, and so is the review's unread mail, which stays in its mailbox. Shared data is only
  * ever linked, and removing the worktree removes the links, never their targets.
@@ -195,19 +251,31 @@ export const reviewNew = (
 export const reviewRm = (cwd: string, pr: string, say: (line: string) => Effect.Effect<void>) =>
   Effect.gen(function* () {
     yield* numberProblem(pr);
-    const { repo } = yield* locate(cwd);
+    const { common, repo } = yield* locate(cwd);
     const path = reviewPath(repo, pr);
-    const registered = (yield* worktrees(repo)).some((worktree) => worktree.path === path);
+    const all = yield* worktrees(repo);
+    const registered = all.some((worktree) => worktree.path === path);
     const present = yield* lexists(path);
     if (!registered && present)
       return yield* refuse(
         `${path} exists but git has no worktree there, so it isn't a review's: left alone`,
       );
-    const address = reviewAddress(pr);
-    const inbox = yield* addressInbox(cwd, address);
-    const unread = formatInbox(address, inbox.messages, inbox.unreadable, true);
-    if (unread !== "") yield* say(`${unread}\n(left in ${address}'s mailbox)`);
+    const tracks = yield* reviewTracks(common);
+    const track = tracks.get(pr);
+    const address = track === undefined ? reviewAddress(pr) : reviewerAddress(track);
+    // review-<track> is held across the track's PRs: kept while another of them is reviewed.
+    const others = all.flatMap((worktree) => {
+      const other = worktree.path.startsWith(reviewPath(repo, ""))
+        ? worktree.path.slice(reviewPath(repo, "").length)
+        : "";
+      return other !== pr && track !== undefined && tracks.get(other) === track ? [other] : [];
+    });
     const removed: Array<string> = [];
+    if (others.length === 0) {
+      const inbox = yield* addressInbox(cwd, address);
+      const unread = formatInbox(address, inbox.messages, inbox.unreadable, true);
+      if (unread !== "") yield* say(`${unread}\n(left in ${address}'s mailbox)`);
+    }
     if (registered && present) {
       const status = yield* gitOk(path, ["status", "--porcelain", "--untracked-files=all"]);
       const changes = status.split("\n").filter((line) => line.trim() !== "");
@@ -220,9 +288,16 @@ export const reviewRm = (cwd: string, pr: string, say: (line: string) => Effect.
       yield* gitOk(repo, ["update-ref", "-d", ref]);
       removed.push(`removed ${ref}`);
     }
-    const sessions = yield* removeSessions(cwd, address);
-    if (sessions > 0)
-      removed.push(`removed ${sessions} registration${sessions === 1 ? "" : "s"} of ${address}`);
+    yield* recordTrack(common, pr, undefined);
+    if (others.length > 0)
+      removed.push(
+        `kept ${address}: track ${track}'s ${others.map((other) => `#${other}`).join(", ")} ${others.length === 1 ? "is" : "are"} still under review`,
+      );
+    else {
+      const sessions = yield* removeSessions(cwd, address);
+      if (sessions > 0)
+        removed.push(`removed ${sessions} registration${sessions === 1 ? "" : "s"} of ${address}`);
+    }
     yield* gitOk(repo, ["worktree", "prune"]);
     return removed.length > 0 ? removed.join("\n") : `no review of #${pr} here; nothing removed`;
   });

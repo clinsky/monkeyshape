@@ -330,10 +330,10 @@ const remoteTip = () => sh(join(base, "remote.git"), "rev-parse", "refs/heads/tr
  * A reviewer's session registered at `review-7`: live when Claude Code's record of it exists,
  * ended (registered long ago, no record) otherwise.
  */
-const reviewer = async (live: boolean) => {
+const reviewer = async (live: boolean, address = "review-7") => {
   const session = "11111111-2222-3333-4444-555555555555";
   const pid = 424242;
-  const dir = join(repo, ".git", "monkeyshape", "sessions", "review-7");
+  const dir = join(repo, ".git", "monkeyshape", "sessions", address);
   await mkdir(dir, { recursive: true });
   await writeFile(
     join(dir, `${session}.json`),
@@ -433,6 +433,30 @@ describe("track pr: the branch tip, and a review in progress", () => {
     await openThenCommit();
     await reviewer(true);
     await reviews([{ commit_id: remoteTip(), body: "## Fit\n\nfindings" }]);
+    const pushed = mshape(wt(), "pr");
+    expect(pushed.code).toBe(0);
+    expect(remoteTip()).toBe(sh(wt(), "rev-parse", "HEAD"));
+  });
+
+  test("a live reviewer at review-<track> while `mshape review` has this PR: refused (review-<track>)", async () => {
+    await openThenCommit();
+    const before = remoteTip();
+    const session = await reviewer(true, "review-docs");
+    // What `mshape review 7` leaves: the PR's worktree, recorded as track docs'.
+    sh(repo, "worktree", "add", "-q", "--detach", join(repo, ".agents", "worktrees", "repo.pr-7"));
+    await mkdir(join(repo, ".git", "monkeyshape", "reviews"), { recursive: true });
+    await writeFile(join(repo, ".git", "monkeyshape", "reviews", "pr-7.track"), "docs\n");
+    const refused = mshape(wt(), "pr");
+    expect(refused.code).toBe(1);
+    expect(refused.stderr).toContain(
+      `a review of #7 is in progress (session ${session} at \`review-docs\`)`,
+    );
+    expect(remoteTip()).toBe(before);
+  });
+
+  test("a live reviewer at review-<track> between the track's PRs (no worktree for this one): pushes", async () => {
+    await openThenCommit();
+    await reviewer(true, "review-docs");
     const pushed = mshape(wt(), "pr");
     expect(pushed.code).toBe(0);
     expect(remoteTip()).toBe(sh(wt(), "rev-parse", "HEAD"));

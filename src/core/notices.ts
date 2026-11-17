@@ -1,9 +1,9 @@
 /**
  * Session addresses and live notices. A session registers itself at start (`mshape msg
  * register`, from its SessionStart hook) at the address of the checkout it runs in: a track,
- * `main` or `review-<n>`. From then on its address is its registration, never its directory:
- * a session at `main` that runs `mshape review <n>` moves to `review-<n>`, and its mail and
- * notices follow. A session outside every address never registers, so other work on the
+ * `main`, `review-<track>` or `review-<n>`. From then on its address is its registration, never
+ * its directory: a session at `main` that runs `mshape review <n>` moves to the reviewer's
+ * address, and its mail and notices follow. A session outside every address never registers, so other work on the
  * machine never gets a notice. At send time each registration is matched against Claude Code's own record of the
  * session (`~/.claude/sessions/<pid>.json`, undocumented, so read strictly and by protocol
  * version), and the socket and token come from there, never from the mailbox.
@@ -11,7 +11,7 @@
  * live when its record matches and its socket accepts the connection; nothing more is known.
  */
 import { mshapeCommand } from "./hooks.ts";
-import { MAIN_ADDRESS, reviewAddress, reviewOf } from "./layout.ts";
+import { isReviewAddress, MAIN_ADDRESS } from "./layout.ts";
 import { addressLabel, type Message } from "./mail.ts";
 
 /**
@@ -246,14 +246,13 @@ export const findSelf = (
 };
 
 /**
- * Where `mshape review <pr>` puts a session at `from`: a session at `main` or at another
- * review moves to `review-<pr>`; one at a track stays, since its track's mail is its work.
- * Undefined is no move.
+ * Where `mshape review` puts a session at `from`, `to` being the review's address
+ * (`review-<track>`, else `review-<n>`): a session at `main` or at another review moves
+ * there; one at a track stays, since its track's mail is its work. Undefined is no move, so a
+ * reviewer already at `review-<track>` stays for that track's next PR.
  */
-export const reviewMove = (from: string, pr: string): string | undefined =>
-  (from === MAIN_ADDRESS || reviewOf(from) !== undefined) && from !== reviewAddress(pr)
-    ? reviewAddress(pr)
-    : undefined;
+export const reviewMove = (from: string, to: string): string | undefined =>
+  (from === MAIN_ADDRESS || isReviewAddress(from)) && from !== to ? to : undefined;
 
 export const NO_IDENTITY =
   "no session identity: Claude Code gave no session id (hook input or CLAUDE_CODE_SESSION_ID) and no CLAUDE_PID, so this has no address of its own and none is guessed";

@@ -6,9 +6,12 @@
  */
 import { mshapeCommand } from "./hooks.ts";
 import {
+  isReviewAddress,
   MAIN_ADDRESS,
   PR_NUMBER,
   reviewAddress,
+  reviewerAddress,
+  reviewerTrackOf,
   reviewOf,
   reviewPath,
   TRACK_NAME,
@@ -18,7 +21,7 @@ import type { Worktree } from "./tracks.ts";
 
 export interface Message {
   readonly id: string;
-  /** The sender's address: a track, `main` or `review-<n>`. */
+  /** The sender's address: a track, `main`, `review-<track>` or `review-<n>`. */
   readonly from: string;
   /** The recipient's address. */
   readonly to: string;
@@ -52,24 +55,43 @@ export const messageId = (created: Date, random: string): string => {
 };
 
 /**
- * The address of the checkout this runs in: the track, `main` in the main checkout,
- * `review-<n>` in a review worktree. A session's registration overrides it (a session at
- * `main` that runs `mshape review <n>` moves); this is the fallback for a session that has
- * none, and for a terminal. Anywhere else (a worktree on the wrong branch, say) has no
- * address, since nobody could reply to it.
+ * The track each pull request under review comes from (`mshape review` records it), by PR
+ * number. A PR missing from it comes from no track.
+ */
+export type ReviewTracks = ReadonlyMap<string, string>;
+
+/** The address of a review worktree at `path`: `review-<track>`, else `review-<n>`. */
+export const reviewWorktreeAddress = (
+  repo: string,
+  path: string,
+  reviewTracks: ReviewTracks,
+): string | undefined => {
+  const prefix = reviewPath(repo, "");
+  const pr = path.startsWith(prefix) ? path.slice(prefix.length) : "";
+  if (!PR_NUMBER.test(pr)) return undefined;
+  const track = reviewTracks.get(pr);
+  return track === undefined ? reviewAddress(pr) : reviewerAddress(track);
+};
+
+/**
+ * The address of the checkout this runs in: the track, `main` in the main checkout, and in a
+ * review worktree `review-<track>` for a PR from a track, else `review-<n>`. A session's
+ * registration overrides it (a session at `main` that runs `mshape review <n>` moves); this
+ * is the fallback for a session that has none, for a restart, and for a terminal. Anywhere
+ * else (a worktree on the wrong branch, say) has no address, since nobody could reply to it.
  */
 export const directoryAddress = (
   repo: string,
   toplevel: string,
   worktrees: ReadonlyArray<Worktree>,
   track: { readonly track: string } | { readonly reason: string },
+  reviewTracks: ReviewTracks = new Map(),
 ): { readonly address: string } | { readonly reason: string } => {
   if ("track" in track) return { address: track.track };
   if (toplevel === repo) return { address: MAIN_ADDRESS };
-  const review = reviewPath(repo, "");
-  const pr = toplevel.startsWith(review) ? toplevel.slice(review.length) : "";
-  if (PR_NUMBER.test(pr) && worktrees.some((worktree) => worktree.path === toplevel))
-    return { address: reviewAddress(pr) };
+  const review = reviewWorktreeAddress(repo, toplevel, reviewTracks);
+  if (review !== undefined && worktrees.some((worktree) => worktree.path === toplevel))
+    return { address: review };
   return {
     reason: `${track.reason}. Only a track's worktree, the main checkout and a review worktree have an address`,
   };
@@ -93,13 +115,12 @@ export const knownAddresses = (
   repo: string,
   worktrees: ReadonlyArray<Worktree>,
   handoffs: ReadonlyArray<string>,
+  reviewTracks: ReviewTracks = new Map(),
 ): ReadonlyArray<string> => {
-  const reviews = worktrees.flatMap((worktree) => {
-    const prefix = reviewPath(repo, "");
-    const pr = worktree.path.startsWith(prefix) ? worktree.path.slice(prefix.length) : "";
-    return PR_NUMBER.test(pr) ? [reviewAddress(pr)] : [];
-  });
-  return [...knownTracks(repo, worktrees, handoffs), MAIN_ADDRESS, ...reviews.sort()];
+  const reviews = worktrees.flatMap(
+    (worktree) => reviewWorktreeAddress(repo, worktree.path, reviewTracks) ?? [],
+  );
+  return [...knownTracks(repo, worktrees, handoffs), MAIN_ADDRESS, ...new Set(reviews.sort())];
 };
 
 export const recipientProblem = (to: string, known: ReadonlyArray<string>): string | undefined => {
@@ -107,12 +128,15 @@ export const recipientProblem = (to: string, known: ReadonlyArray<string>): stri
   const pr = reviewOf(to);
   if (pr !== undefined)
     return `no review of #${pr} to send to: \`${to}\` exists while \`mshape review ${pr}\`'s worktree does (addresses: ${known.join(", ")})`;
+  const reviewed = reviewerTrackOf(to);
+  if (reviewed !== undefined)
+    return `no review of track ${reviewed}'s PRs to send to: \`${to}\` exists while \`mshape review <n>\` has a worktree for one of them (addresses: ${known.join(", ")})`;
   return `no track \`${to}\` to send to (addresses: ${known.join(", ")}); \`mshape track list\` shows the tracks`;
 };
 
 /** How an address reads in a sentence: `track docs`, `main`, `review-12`. */
 export const addressLabel = (address: string): string =>
-  address === MAIN_ADDRESS || reviewOf(address) !== undefined ? address : `track ${address}`;
+  address === MAIN_ADDRESS || isReviewAddress(address) ? address : `track ${address}`;
 
 /** A message file's contents, or why it can't be one. Strict: an unknown key is refused. */
 export const decodeMessage = (text: string): Message | string => {
@@ -200,6 +224,9 @@ export const formatAllInboxes = (mailboxes: ReadonlyArray<Mailbox>): string => {
   const junk = listed.reduce((sum, box) => sum + box.unreadable.length, 0);
   const gone = (box: Mailbox): string => {
     const pr = reviewOf(box.address);
+    const reviewed = reviewerTrackOf(box.address);
+    if (pr === undefined && reviewed !== undefined)
+      return ` (no review of track ${reviewed}'s PRs is running; \`${mshapeCommand(["review", "<n>"])}\` for one of its PRs moves a session there to read it, or delete ${box.dir} if it is no longer wanted)`;
     return pr === undefined
       ? ` (no such track: its worktree and handoff are gone; recreate it with \`${mshapeCommand(["track", "new", box.address])}\` to read this, or delete ${box.dir} if it is no longer wanted)`
       : ` (no review of #${pr} is running; \`${mshapeCommand(["review", pr])}\` from the main checkout moves a session there to read it, or delete ${box.dir} if it is no longer wanted)`;
