@@ -63,6 +63,14 @@ describe("mail", () => {
     });
     const stray = at(`${REPO}/.agents/worktrees/app.pr-13`, notTrack);
     expect("reason" in stray && stray.reason).toContain("have an address");
+    // Another worktree git knows, neither a track's nor a review's: no address either.
+    const side = directoryAddress(
+      REPO,
+      "/elsewhere/side",
+      [...worktrees, worktree("/elsewhere/side", "side")],
+      notTrack,
+    );
+    expect("reason" in side && side.reason).toContain("have an address");
   });
 
   test("a recipient is a track with a worktree or a handoff; a typo names the real ones", () => {
