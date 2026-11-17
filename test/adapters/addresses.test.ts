@@ -731,6 +731,18 @@ describe("the reviewer's address per track: the case table", () => {
     expect(`${warned.stdout}\n${warned.stderr}`).toContain(`is also registered at review-docs`);
   });
 
+  test("`msg send review-<n>` for a track's PR names the reviewer's address instead", async () => {
+    await claudeSession(1);
+    await start(repo, 1);
+    publishFromTrack(20, "docs");
+    await mshape(repo, ["review", "20"], 1);
+    const sent = await send(wt("tracks"), "review-20", "s");
+    expect(sent.code).not.toBe(0);
+    expect(`${sent.stdout}\n${sent.stderr}`).toContain(
+      "#20 comes from track docs, so its reviewer is at `review-docs`: send there",
+    );
+  });
+
   test("a track can't be named review-<anything>, which is a reviewer's address", async () => {
     const made = await mshape(repo, ["track", "new", "review-docs"], undefined);
     expect(made.code).not.toBe(0);

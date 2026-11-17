@@ -131,9 +131,16 @@ export const knownAddresses = (
   return [...tracks, MAIN_ADDRESS, ...new Set([...reviews, ...held].sort())];
 };
 
-export const recipientProblem = (to: string, known: ReadonlyArray<string>): string | undefined => {
+export const recipientProblem = (
+  to: string,
+  known: ReadonlyArray<string>,
+  reviewTracks: ReviewTracks = new Map(),
+): string | undefined => {
   if (known.includes(to)) return undefined;
   const pr = reviewOf(to);
+  const track = pr === undefined ? undefined : reviewTracks.get(pr);
+  if (pr !== undefined && track !== undefined)
+    return `#${pr} comes from track ${track}, so its reviewer is at \`${reviewerAddress(track)}\`: send there (addresses: ${known.join(", ")})`;
   if (pr !== undefined)
     return `no review of #${pr} to send to: \`${to}\` exists while \`mshape review ${pr}\`'s worktree does (addresses: ${known.join(", ")})`;
   const reviewed = reviewerTrackOf(to);

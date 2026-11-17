@@ -72,14 +72,15 @@ export const mailSend = (
     const problem = subjectProblem(subject);
     if (problem !== undefined) return yield* refuse(`${problem}`);
     const { common, repo } = yield* locate(cwd);
+    const tracks = yield* reviewTracks(common);
     const known = knownAddresses(
       repo,
       yield* worktrees(repo),
       yield* entries(handoffsStore(common)),
-      yield* reviewTracks(common),
+      tracks,
       yield* registeredAddresses(common),
     );
-    const unknown = recipientProblem(to, known);
+    const unknown = recipientProblem(to, known, tracks);
     if (unknown !== undefined) return yield* refuse(`${unknown}`);
     // From the sender's address, so a reply reaches it: a review's, once a session moved there.
     const sender = yield* sessionAddress(cwd, caller).pipe(

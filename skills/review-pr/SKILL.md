@@ -40,12 +40,14 @@ Never review in your own checkout. If the review's head and the API's differ, th
 pushed meanwhile: run `mshape review $N` again.
 
 Start the review in a chat of its own in the main checkout. `mshape review $N` then moves
-this session's address from `main` to `review-$N` (it prints the move), so the mail and
-notices for the main checkout stay with the other sessions there, and the author can reach
-you with `mshape msg send review-$N`. Run from a track's chat, it moves nothing: that session
-keeps its track's mail. A `/clear` registers the new session by the directory the chat is
-in: still `review-$N` in the review worktree, `main` again in the main checkout (then rerun
-`mshape review $N`).
+this session from `main` to the reviewer's address (it prints the move): `review-<track>`
+when the PR's head is a track's branch, held across that track's PRs, else `review-$N`. The
+mail and notices for the main checkout stay with the other sessions there, and the author
+reaches you with `mshape msg send review-<track>` (or `review-$N`). Review the track's next
+PR from the same chat: it keeps the address. Run from a track's chat, it moves nothing: that
+session keeps its track's mail. A `/clear` registers the new session by the directory the
+chat is in: the reviewer's address in the review worktree, `main` again in the main checkout
+(then rerun `mshape review $N`).
 
 **A follow-up PR** that answers an earlier review: read that PR's thread first
 (`gh pr view <earlier> --comments`, and its inline comments as in step 6). Each finding it
@@ -181,7 +183,9 @@ worktree to the new head; it prints the previous one too.
 **When nothing is open, say "LGTM"** explicitly, on the PR and to the human: every blocker
 resolved and verified, every nit settled. Never while a finding is open or unverified.
 Merging is the human's call. When the review is over, `mshape review rm $N`: it lists what
-it discards, which in a review worktree is only scratch, and the review's unread mail, then
-removes the worktree and the `review-$N` address. Then close the chat.
+it discards, which in a review worktree is only scratch, then removes the worktree. For a
+track's PR the session keeps `review-<track>` and its mail for the track's next PR, so keep
+the chat when you will review that one. A PR from no track also loses `review-$N`, after its
+unread mail is listed; then close the chat.
 
 Review this skill when a blocker it should have caught reaches `main`.
