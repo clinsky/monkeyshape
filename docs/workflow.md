@@ -121,7 +121,8 @@ was already sent with `mshape msg`.
 - The PR body says what changed and why, the evidence on real data, the gate output, the bug
   class a new check closes, what is not done, and the beads it works on: the sections of the
   repo's `.github/pull_request_template.md`, which `mshape init` writes from `PR_SECTIONS`.
-- `bun run check` is the gate, the same locally and in CI. It is green before every PR.
+- `bun run check` is the gate, the same locally and in CI. It is green in CI before review;
+  `track pr` runs its fast stages before each push and leaves the tests to CI.
 - `/review-pr` runs in its own chat, in a detached worktree at the PR's head that
   `mshape review <n>` makes and `mshape review rm <n>` removes. One reviewer chat can take a
   track's PRs in turn: it holds the address `review-<track>` across them, so the author

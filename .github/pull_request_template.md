@@ -8,7 +8,7 @@
 
 ## Gate
 
-<!-- The tail of a fresh `bun run check`. -->
+<!-- Filled by track pr: the gate's fast stages on the pushed commit and CI's result for the tests, or the whole `bun run check` where no CI runs it. -->
 
 ## Bug class closed
 

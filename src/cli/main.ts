@@ -848,10 +848,11 @@ export const COMMANDS: ReadonlyArray<Command> = [
       registers by its directory again.
   mshape track pr [--title <title>] [--body-file <path>] [--body-only] [--wait]
       From a track's worktree, whatever branch it has checked out: prints the PR's size
-      against the batching default, runs the gate on a clean checkout of track/<name>'s tip,
-      pushes that tip and opens its PR (--title and --body-file needed) or updates it. Writes
-      only the Gate section, from that run; the rest of the body is --body-file's, or the
-      PR's as it stands. Refuses, posting nothing: while a review of the PR is in progress (a
+      against the batching default, runs the gate's fast stages (its steps before bun test)
+      on a clean checkout of track/<name>'s tip, pushes that tip and opens its PR (--title
+      and --body-file needed) or updates it. CI runs the tests; where no pull_request
+      workflow runs the gate, the whole gate runs here. Writes only the Gate section, from
+      that run and CI; the rest of the body is --body-file's, or the PR's as it stands. Refuses, posting nothing: while a review of the PR is in progress (a
       live reviewer at review-<track> with this PR's review worktree, or at review-<n>, and no
       review on the PR's head yet), on uncommitted changes to track/<name>, a denylisted term
       in what it would send (see scan: the commits the remote lacks, their messages, added
@@ -860,8 +861,8 @@ export const COMMANDS: ReadonlyArray<Command> = [
       bead bd doesn't know. Warns when the tip is behind main,
       naming the files a merge would conflict in. --body-only edits the body (and title)
       with no push and no gate, keeping the Gate section; refused unless that section ran on
-      the tip and the tip is the PR's head. --wait then waits for CI on the commit and exits
-      1 when a check fails.
+      the tip and the tip is the PR's head. --wait then waits for CI on the commit, writes
+      its result in the Gate section, and exits 1 when a check fails.
   mshape track pr --check-body
       Read a PR body on stdin; exit 1 naming the required sections it lacks (CI's pr.yml).
       track pr also needs each bead as a list item starting with its id, to check it with bd.

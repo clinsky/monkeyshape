@@ -90,7 +90,7 @@ if (args[1] === "list") {
 }
 else if (args[0] === "api" && (args[1] ?? "").endsWith("/check-runs")) {
   // CI's check runs: checks.json, or the next of checks-<n>.json on each call.
-  if (flag("-q") !== ".check_runs[] | {id, name, status, conclusion} | @json") { console.error("fake gh: unmodelled query"); process.exit(1); }
+  if (flag("-q") !== ".check_runs[] | {id, name, status, conclusion, html_url} | @json") { console.error("fake gh: unmodelled query"); process.exit(1); }
   const count = Bun.file(dir + "/polls");
   const n = (await count.exists()) ? Number(await count.text()) : 0;
   await Bun.write(count, String(n + 1));
@@ -745,6 +745,121 @@ console.log(out);
     expect(conflicting.stderr).toContain(
       "the branch conflicts with main, and GitHub runs no pull_request workflow on a PR that can't merge. Merge main in",
     );
+  });
+});
+
+// monkeyshape's own loop: a repo whose CI runs the gate on pull requests.
+describe("track pr: the fast stages here, the tests in CI", () => {
+  /** The track's gate: a fast stage, then tests that fail here, so running them fails track pr. */
+  const withCi = async () => {
+    await writeFile(
+      `${wt()}/package.json`,
+      JSON.stringify({
+        scripts: { quick: "echo fast stage ran", check: "bun run quick && bun test" },
+      }),
+    );
+    await writeFile(
+      `${wt()}/always.test.ts`,
+      'import { test, expect } from "bun:test";\ntest("red", () => expect(1).toBe(2));\n',
+    );
+    await mkdir(`${wt()}/.github/workflows`, { recursive: true });
+    await writeFile(
+      `${wt()}/.github/workflows/ci.yml`,
+      "on:\n  pull_request:\njobs:\n  check:\n    steps:\n      - run: bun run check\n",
+    );
+    sh(wt(), "add", ".");
+    sh(wt(), "commit", "-qm", "a gate CI runs");
+  };
+
+  test("with a pull_request workflow running the gate: only the fast stages run; the Gate section says CI runs the tests", async () => {
+    await withCi();
+    await writeFile(`${wt()}/body.md`, body("x"));
+    const opened = mshape(wt(), "pr", "--title", "t", "--body-file", "body.md");
+    expect(opened.code).toBe(0);
+    expect(opened.stderr).toContain(
+      "running the gate's fast stages, `bun run quick`, on a clean checkout of",
+    );
+    const gate = (await pr()).body.split("## Gate")[1];
+    const tip = remoteTip().slice(0, 12);
+    expect(gate).toContain(`$ bun run quick   # at ${tip}, run by mshape track pr`);
+    expect(gate).toContain("fast stage ran");
+    expect(gate).toContain(`CI: runs the tests on ${tip}, not track pr`);
+    expect(gate).not.toContain("red");
+  });
+
+  test("--wait writes CI's verdict, with each run's link, into the Gate section", async () => {
+    await withCi();
+    await checks("checks-0.json", []);
+    await checks("checks.json", [
+      {
+        id: 1,
+        name: "check",
+        status: "completed",
+        conclusion: "success",
+        html_url: "https://example.test/run/1",
+      },
+    ]);
+    await writeFile(`${wt()}/body.md`, body("x"));
+    const waited = mshape(wt(), "pr", "--title", "t", "--body-file", "body.md", "--wait");
+    expect(waited.code).toBe(0);
+    const gate = (await pr()).body.split("## Gate")[1];
+    expect(gate).toContain(
+      `CI on ${remoteTip().slice(0, 12)}: check: success ([run](https://example.test/run/1)).`,
+    );
+    expect(gate).not.toContain("records its result here");
+  });
+
+  test("a failing CI is recorded too, and --wait exits 1", async () => {
+    await withCi();
+    await checks("checks-0.json", []);
+    await checks("checks.json", [
+      {
+        id: 1,
+        name: "check",
+        status: "completed",
+        conclusion: "failure",
+        html_url: "https://example.test/run/2",
+      },
+    ]);
+    await writeFile(`${wt()}/body.md`, body("x"));
+    const waited = mshape(wt(), "pr", "--title", "t", "--body-file", "body.md", "--wait");
+    expect(waited.code).toBe(1);
+    expect((await pr()).body).toContain("check: failure ([run](https://example.test/run/2))");
+  });
+
+  test("an adopter's `mshape check` step runs through its bin in the clean checkout (#89's review)", async () => {
+    await withCi();
+    await writeFile(
+      `${wt()}/package.json`,
+      JSON.stringify({
+        scripts: {
+          quick: "echo fast stage ran",
+          check: "bun run quick && mshape check && bun test",
+        },
+      }),
+    );
+    // A stand-in for the installed CLI's bin, as node_modules/.bin holds it.
+    await mkdir(`${wt()}/node_modules/.bin`, { recursive: true });
+    await writeFile(
+      `${wt()}/node_modules/.bin/mshape`,
+      'console.log("mshape ran: " + process.argv.slice(2).join(" "));\n',
+    );
+    sh(wt(), "add", "-f", ".");
+    sh(wt(), "commit", "-qm", "an adopter's gate");
+    await writeFile(`${wt()}/body.md`, body("x"));
+    const opened = mshape(wt(), "pr", "--title", "t", "--body-file", "body.md");
+    expect(opened.code).toBe(0);
+    expect(opened.stderr).toContain("`bun run quick && mshape check`");
+    const gate = (await pr()).body.split("## Gate")[1];
+    expect(gate).toContain("mshape ran: check");
+    expect(gate).not.toContain("red");
+  });
+
+  test("a gate with no CI workflow stays whole here", async () => {
+    await writeFile(`${wt()}/body.md`, body("x"));
+    const opened = mshape(wt(), "pr", "--title", "t", "--body-file", "body.md");
+    expect(opened.stderr).toContain("running the gate, `bun run check`");
+    expect((await pr()).body).not.toContain("CI: runs the tests");
   });
 });
 

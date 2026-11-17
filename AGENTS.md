@@ -14,7 +14,7 @@ where the two differ.
 | Command | What |
 |---|---|
 | `bun install --frozen-lockfile` | Install (pinned toolchain) |
-| `bun run check` | The gate: typecheck, biome, `mshape check` on this repo, tests. Green before every PR. |
+| `bun run check` | The gate: typecheck, biome, `mshape check` on this repo, tests. Green in CI before review; `track pr` runs its fast stages before each push. |
 | `bun run fix` | Apply biome formatting and safe fixes |
 | `bun src/cli/main.ts garden` | Budgets and escape hatches |
 | `bun src/cli/main.ts rules` | Custom rules and the bug class each removes |

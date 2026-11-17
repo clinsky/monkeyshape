@@ -14,7 +14,7 @@ import { fencedLines } from "./markdown.ts";
 
 /** The package script that is the gate, the same locally and in CI. */
 export const GATE_SCRIPT = "check";
-/** The gate as a command: green before every PR. */
+/** The gate as a command: green in CI before review. */
 export const GATE_COMMAND = `bun run ${GATE_SCRIPT}`;
 
 export interface PrSection {
@@ -40,7 +40,7 @@ export const PR_SECTIONS = [
   },
   {
     name: "Gate",
-    purpose: `The tail of a fresh \`${GATE_COMMAND}\`.`,
+    purpose: `Filled by track pr: the gate's fast stages on the pushed commit and CI's result for the tests, or the whole \`${GATE_COMMAND}\` where no CI runs it.`,
     required: true,
   },
   {
