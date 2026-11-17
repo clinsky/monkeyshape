@@ -381,3 +381,15 @@ None: no model calls in this milestone's code.
 - **2026-11-12, 0.4.1 tagged, not published (#76), the maintainer's call.** `v0.4.1` is tagged
   and pushed, but never published; adopters get this milestone's changes in 0.5.0 at the end.
   Acceptance's "0.4.1 as soon as goal 2's first PR merges" is replaced by 0.5.0.
+- **2026-11-17, reviewer addresses are `review-<track>` (`4sa.24`, #85), the maintainer's
+  decision.** A reviewer reviews one track's PRs in turn, and `review-<n>` changed with every
+  PR, so between reviews reviewers fell back to `main` (four sat there). `mshape review <n>`
+  registers the session at `review-<track>`, derived from the PR's `track/<name>` branch, and
+  holds it across that track's PRs; only a PR from no track uses `review-<n>`. The review-in-
+  progress table reads `review-<track>` wherever it says `review-<n>`.
+- **2026-11-17, `track pr` runs the gate's fast stages; the tests run in CI (`cnw`, #89), the
+  maintainer's decision.** Every push ran the gate twice (about 2 minutes blocking locally,
+  then CI). `track pr` now runs typecheck, biome and `mshape check` on a clean checkout of the
+  branch tip, pushes, and the Gate section reports CI's result for that commit; a repo whose
+  CI doesn't run the gate on every PR keeps the full local gate. Goal 1's "the gate runs on a
+  clean checkout of the tip" holds for those stages.

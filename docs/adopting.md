@@ -221,6 +221,20 @@ things, `mshape baseline --tighten` lowers the counts, and a count is never rais
 commit, and the gate is green. A file over its count later reports the occurrences on lines
 your branch changed since `main`, or every one when none is, as after moving code.
 
+## Upgrading
+
+Take a new release with `bun add -d --exact monkeyshape@<version>`, then
+`bun run --silent mshape sync`, then the gate. What a release asks of a repo that already
+adopted:
+
+- **0.5.0.** The `budgets` check gains `decision-unlinked`: each file a decision's
+  `Enforced by` names must cite the decision's slug (`D-<slug>`) in a comment, so whoever edits
+  it is told why it must stay. Add the citations (each message names the slug and the file), or
+  grandfather them with `mshape baseline --init` and burn them down. `track pr` now runs the
+  gate's fast stages and leaves the tests to CI when the repo's CI runs the gate on every PR;
+  otherwise it runs the whole gate locally, as before. A reviewer's address is
+  `review-<track>`.
+
 ## Afterwards: your knowledge, in four kinds
 
 An AGENTS.md over its budget is grandfathered, not cut. Sort it over time:
