@@ -158,7 +158,9 @@ export const reviewedHead = (reviews: ReadonlyArray<PostedReview>, head: string)
 /** What `track pr` knows about a review of its PR on this machine. */
 export interface ReviewFacts {
   readonly pr: number;
-  /** Live sessions registered at `review-<n>`. */
+  /** Where its reviewer is: `review-<track>` while this PR is the track's under review, else `review-<n>`. */
+  readonly address: string;
+  /** Live sessions registered at `address`. */
   readonly live: ReadonlyArray<string>;
   /** Whether any session was ever registered there and is still recorded, live or not. */
   readonly registered: boolean;
@@ -168,13 +170,13 @@ export interface ReviewFacts {
 
 /**
  * Whether `track pr` may push. A review is in progress while a live session is registered
- * at `review-<n>` and no review has the PR's head as its commit: no clock, since commit dates
- * are the author's. Once a review is on the head, its findings are there to answer.
+ * at the reviewer's address and no review has the PR's head as its commit: no clock, since
+ * commit dates are the author's. Once a review is on the head, its findings are there to answer.
  */
 export const reviewDecision = (
   facts: ReviewFacts,
 ): { readonly refuse: string } | { readonly note: string | undefined } => {
-  const address = `review-${facts.pr}`;
+  const { address } = facts;
   if (facts.live.length > 0 && !facts.reviewedHead)
     return {
       refuse: `a review of #${facts.pr} is in progress (session ${facts.live.join(", ")} at \`${address}\`) and hasn't posted on the PR's head yet, so nothing was pushed or posted: a push now would change the PR under its reviewer. Wait for the review, then answer it; keep new work on a local branch meanwhile`,

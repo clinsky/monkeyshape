@@ -30,13 +30,17 @@ import {
   mailboxDir,
   mailboxReadDir,
   mainCheckout,
+  PR_NUMBER,
+  reviewsDir,
+  reviewTrackPath,
+  sessionsDir,
   TRACK_NAME,
   trackBranch,
   trackOf,
   worktreePath,
   worktreesDir,
 } from "../core/layout.ts";
-import { decodeMessage } from "../core/mail.ts";
+import { decodeMessage, type ReviewTracks } from "../core/mail.ts";
 import {
   type BeadsById,
   type BeadsCheck,
@@ -97,6 +101,36 @@ export const git = (
         path: `git ${args.join(" ")}`,
         reason: String(cause),
       }),
+  });
+
+/**
+ * The track each pull request under review comes from, as `mshape review` recorded it: by PR
+ * number, read fresh each time, since reviews start and end at any moment.
+ */
+export const reviewTracks = (common: string) =>
+  Effect.promise(async (): Promise<ReviewTracks> => {
+    const found = new Map<string, string>();
+    const files = await readdir(reviewsDir(common)).catch(() => [] as Array<string>);
+    for (const file of files) {
+      const pr = /^pr-(\d+)\.track$/.exec(file)?.[1];
+      if (pr === undefined || !PR_NUMBER.test(pr)) continue;
+      const track = (await readFile(reviewTrackPath(common, pr), "utf8").catch(() => "")).trim();
+      if (TRACK_NAME.test(track)) found.set(pr, track);
+    }
+    return found;
+  });
+
+/** The addresses with at least one session registered, from the session registry. */
+export const registeredAddresses = (common: string) =>
+  Effect.promise(async () => {
+    const found: Array<string> = [];
+    for (const address of await readdir(sessionsDir(common)).catch(() => [] as Array<string>)) {
+      if (!TRACK_NAME.test(address)) continue;
+      const files = await readdir(`${sessionsDir(common)}/${address}`).catch(() => []);
+      if (files.some((file) => file.endsWith(".json") && !file.startsWith(".")))
+        found.push(address);
+    }
+    return found;
   });
 
 /** Git's stdout, trimmed; a non-zero exit is a TrackError carrying git's own message. */

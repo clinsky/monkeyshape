@@ -18,7 +18,8 @@
  *   <common>/monkeyshape/sessions/<address>/<session>.json   a live session at the address
  *
  * An address is what a session serves, and so where its mail goes: a track, `main` (the main
- * checkout) or `review-<n>` (a pull request under review). No track may take the other two.
+ * checkout), `review-<track>` (a reviewer of that track's PRs) or `review-<n>` (a pull request
+ * from no track, under review). No track may take the others' names.
  *
  * The stores live under `.git` because they are live state: `git clean -fdx` deletes
  * ignored files, which would include a handoffs directory in the working tree, but it never
@@ -108,6 +109,32 @@ export const MAIN_ADDRESS = "main";
 
 /** A review's address: the session reviewing pull request `pr`, wherever it runs. */
 export const reviewAddress = (pr: string): string => `review-${pr}`;
+
+/**
+ * A reviewer's address when the pull request comes from a track: one per track, held across
+ * that track's PRs, so a reviewer reviewing them in turn keeps its mail and never falls back
+ * to `main`. A PR from no track keeps `reviewAddress`. A track can't be named `review-...`.
+ */
+export const reviewerAddress = (track: string): string => `review-${track}`;
+
+/** The track a reviewer's address is for, or undefined for any other address. */
+export const reviewerTrackOf = (address: string): string | undefined => {
+  const track = address.startsWith("review-") ? address.slice("review-".length) : "";
+  return TRACK_NAME.test(track) ? track : undefined;
+};
+
+/** Whether `address` is a reviewer's: `review-<n>` or `review-<track>`. */
+export const isReviewAddress = (address: string): boolean =>
+  reviewOf(address) !== undefined || reviewerTrackOf(address) !== undefined;
+
+/**
+ * The track a review's pull request comes from, recorded by `mshape review <n>` beside the
+ * sessions, so a review worktree's address survives a restart. Absent for a PR from no track.
+ */
+export const reviewsDir = (common: string): string => `${trim(common)}/monkeyshape/reviews`;
+
+export const reviewTrackPath = (common: string, pr: string): string =>
+  `${reviewsDir(common)}/pr-${pr}.track`;
 
 /** The pull request a review address is for, or undefined for any other address. */
 export const reviewOf = (address: string): string | undefined => {

@@ -16,6 +16,8 @@ import { GATE_COMMAND, GATE_SCRIPT, parsePrBody, prSizeNote } from "../core/conv
 import {
   MAIN_BRANCH,
   reviewAddress,
+  reviewerAddress,
+  reviewPath,
   trackBranch,
   trackOf,
   trackSessionsDir,
@@ -44,7 +46,16 @@ import { loadConfig } from "./config.ts";
 import { guard, outgoingCommits } from "./denylist.ts";
 import { liveSessions } from "./notices.ts";
 import { linkHandoffs, linkShared } from "./reviews.ts";
-import { fetchUpstream, git, gitOk, locate, mergeTargets, refuse, worktrees } from "./tracks.ts";
+import {
+  fetchUpstream,
+  git,
+  gitOk,
+  locate,
+  mergeTargets,
+  refuse,
+  reviewTracks,
+  worktrees,
+} from "./tracks.ts";
 import { installDependencies } from "./workspace.ts";
 
 /** A command's exit and output; `missing` when it isn't on PATH. */
@@ -137,16 +148,44 @@ const trackOfWorktree = (cwd: string) =>
 const real = (path: string) => Effect.promise(() => realpath(path).catch(() => path));
 
 /** Whether a review of `pr` is in progress on this machine, by `reviewDecision`. */
-const reviewFacts = (cwd: string, common: string, pr: OpenPr, claudeDir: string, now: Date) =>
+const reviewFacts = (
+  cwd: string,
+  common: string,
+  repo: string,
+  track: string,
+  pr: OpenPr,
+  claudeDir: string,
+  now: Date,
+) =>
   Effect.gen(function* () {
-    const address = reviewAddress(String(pr.number));
-    const live = yield* liveSessions(cwd, address, claudeDir, now);
-    const recorded = yield* Effect.promise(() =>
-      readdir(trackSessionsDir(common, address)).catch(() => [] as Array<string>),
-    );
-    const registered = recorded.some((file) => file.endsWith(".json") && !file.startsWith("."));
+    const number = String(pr.number);
+    // review-<track> is held across the track's PRs, so a reviewer there is on this PR only
+    // while `mshape review <n>` has this PR's worktree, recorded as the track's. review-<n>,
+    // for a reviewer that moved before addresses were per track, always counts.
+    const reviewing =
+      (yield* reviewTracks(common)).get(number) === track &&
+      (yield* worktrees(repo)).some((worktree) => worktree.path === reviewPath(repo, number));
+    const addresses = [...(reviewing ? [reviewerAddress(track)] : []), reviewAddress(number)];
+    const live: Array<string> = [];
+    let registered = false;
+    let address = addresses[0] ?? reviewAddress(number);
+    for (const at of addresses) {
+      const here = yield* liveSessions(cwd, at, claudeDir, now);
+      if (here.length > 0 && live.length === 0) address = at;
+      live.push(...here);
+      const recorded = yield* Effect.promise(() =>
+        readdir(trackSessionsDir(common, at)).catch(() => [] as Array<string>),
+      );
+      registered ||= recorded.some((file) => file.endsWith(".json") && !file.startsWith("."));
+    }
     if (live.length === 0 && !registered)
-      return { pr: pr.number, live, registered, reviewedHead: false } satisfies ReviewFacts;
+      return {
+        pr: pr.number,
+        address,
+        live,
+        registered,
+        reviewedHead: false,
+      } satisfies ReviewFacts;
     // REST, not `pr list --json headRefOid`, which gh 2.4 doesn't know.
     const head = yield* spawn(cwd, [
       "gh",
@@ -180,13 +219,15 @@ const reviewFacts = (cwd: string, common: string, pr: OpenPr, claudeDir: string,
         `a session is registered at \`${address}\`, and the PR's head and reviews couldn't be read to tell whether its review is posted (${unreadable?.stderr || "no head, or reviews that aren't JSON"}), so nothing was pushed or posted`,
       );
     const reviewedHead = isReviewed(posted, head.stdout.trim());
-    return { pr: pr.number, live, registered, reviewedHead } satisfies ReviewFacts;
+    return { pr: pr.number, address, live, registered, reviewedHead } satisfies ReviewFacts;
   });
 
 /** Refuses while a review of `pr` is in progress; otherwise its note, if any. */
 const waitOutReview = (
   cwd: string,
   common: string,
+  repo: string,
+  track: string,
   pr: OpenPr | undefined,
   claudeDir: string,
   say: (line: string) => Effect.Effect<void>,
@@ -194,7 +235,9 @@ const waitOutReview = (
   Effect.gen(function* () {
     if (pr === undefined) return;
     const now = new Date(yield* Clock.currentTimeMillis);
-    const decision = reviewDecision(yield* reviewFacts(cwd, common, pr, claudeDir, now));
+    const decision = reviewDecision(
+      yield* reviewFacts(cwd, common, repo, track, pr, claudeDir, now),
+    );
     if ("refuse" in decision) return yield* refuse(decision.refuse);
     if (decision.note !== undefined) yield* say(decision.note);
   });
@@ -500,7 +543,7 @@ export const trackPr = (
       return yield* refuse(
         `no PR is open from \`${branch}\`: opening one needs --title "<title>" and --body-file <path>, a body with every section of .github/pull_request_template.md; track pr fills the Gate section itself`,
       );
-    yield* waitOutReview(top, common, existing, options.claudeDir, say);
+    yield* waitOutReview(top, common, repo, track, existing, options.claudeDir, say);
     if (options.bodyOnly) {
       if (existing === undefined)
         return yield* refuse(
@@ -637,7 +680,7 @@ export const trackPr = (
     yield* checkBeads(repo, plan.beads, say);
 
     // Again: a review can start while the gate runs.
-    yield* waitOutReview(top, common, existing, options.claudeDir, () => Effect.void);
+    yield* waitOutReview(top, common, repo, track, existing, options.claudeDir, () => Effect.void);
     // The commit the gate ran on, not the branch: one made while the gate ran is ungated.
     const pushed = yield* git(repo, ["push", "--quiet", remote, `${tip}:refs/heads/${branch}`], {
       env: { ...options.fetchEnv },

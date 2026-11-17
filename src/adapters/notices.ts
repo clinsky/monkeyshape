@@ -23,15 +23,16 @@ import { connect } from "node:net";
 import { Effect } from "effect";
 import { mshapeCommand } from "../core/hooks.ts";
 import {
-  reviewOf,
-  reviewPath,
+  isReviewAddress,
+  reviewerAddress,
   sessionPath,
   sessionsDir,
   TRACK_NAME,
+  trackOf,
   trackSessionsDir,
   worktreePath,
 } from "../core/layout.ts";
-import { directoryAddress, type Message } from "../core/mail.ts";
+import { directoryAddress, type Message, reviewWorktreeAddress } from "../core/mail.ts";
 import {
   alsoRegistered,
   ambiguousSelf,
@@ -57,7 +58,16 @@ import {
   socketPayload,
   type Target,
 } from "../core/notices.ts";
-import { fs, gitOk, locate, refuse, trackCurrent, trackNames, worktrees } from "./tracks.ts";
+import {
+  fs,
+  gitOk,
+  locate,
+  refuse,
+  reviewTracks,
+  trackCurrent,
+  trackNames,
+  worktrees,
+} from "./tracks.ts";
 
 /** Symlinks resolved; a path that doesn't exist stays as it is. */
 const real = (path: string) => Effect.promise(() => realpath(path).catch(() => path));
@@ -103,6 +113,21 @@ export interface Caller {
   readonly now: Date;
 }
 
+/** The reviewer addresses that still mean something: a review worktree's, or a live track's. */
+const liveReviewAddresses = (repo: string, common: string) =>
+  Effect.gen(function* () {
+    const tracks = yield* reviewTracks(common);
+    const all = yield* worktrees(repo);
+    return [
+      ...all.flatMap((worktree) => reviewWorktreeAddress(repo, worktree.path, tracks) ?? []),
+      // review-<track> is held between the track's PRs, for as long as the track has a worktree.
+      ...all.flatMap((worktree) => {
+        const track = trackOf(repo, worktree.path);
+        return track === undefined ? [] : [reviewerAddress(track)];
+      }),
+    ];
+  });
+
 /** The address of the checkout `cwd` is in, or why it has none. */
 export const directoryAddressOf = (cwd: string) =>
   Effect.gen(function* () {
@@ -117,7 +142,8 @@ export const directoryAddressOf = (cwd: string) =>
       Effect.map((name) => ({ track: name })),
       Effect.catchTag("TrackError", (error) => Effect.succeed({ reason: error.reason })),
     );
-    return directoryAddress(repo, toplevel, registered, track);
+    const { common } = yield* locate(cwd);
+    return directoryAddress(repo, toplevel, registered, track, yield* reviewTracks(common));
   });
 
 /** Every registration at every address, decoded; files that aren't one are left alone. */
@@ -218,10 +244,11 @@ export const register = (cwd: string, caller: Caller) =>
     const self = yield* selfIn(placed, caller);
     // A review whose worktree went without `review rm` is no address any more: start over here.
     const { repo } = yield* locate(cwd);
-    const pr = self.kind === "registered" ? reviewOf(self.placed.address) : undefined;
+    const at = self.kind === "registered" ? self.placed.address : undefined;
     const reviewGone =
-      pr !== undefined &&
-      !(yield* worktrees(repo)).some((worktree) => worktree.path === reviewPath(repo, pr));
+      at !== undefined &&
+      isReviewAddress(at) &&
+      !(yield* liveReviewAddresses(repo, common)).includes(at);
     const address =
       self.kind === "registered" && !reviewGone ? self.placed.address : directory.address;
     yield* writeRegistration(common, address, {
@@ -283,7 +310,7 @@ const moveSession = (common: string, caller: Caller, self: Self, from: string, t
  * so an ambiguous caller is refused before anything happens. `apply` moves the session (a
  * write at the new address, then the delete) and says what it did.
  */
-export const planReviewMove = (cwd: string, caller: Caller, pr: string) =>
+export const planReviewMove = (cwd: string, caller: Caller, to: string) =>
   Effect.gen(function* () {
     const { common } = yield* locate(cwd);
     const directory = yield* directoryAddressOf(cwd);
@@ -295,12 +322,12 @@ export const planReviewMove = (cwd: string, caller: Caller, pr: string) =>
         : "address" in directory
           ? directory.address
           : undefined;
-    const to = from === undefined ? undefined : reviewMove(from, pr);
+    const move = from === undefined ? undefined : reviewMove(from, to);
     const none = Effect.succeed([] as ReadonlyArray<string>);
-    if (to === undefined || from === undefined) return { apply: none };
+    if (move === undefined || from === undefined) return { apply: none };
     if (self.kind === "anonymous")
-      return { apply: Effect.succeed([`note: no session moved to ${to}: ${NO_IDENTITY}`]) };
-    return { apply: moveSession(common, caller, self, from, to) };
+      return { apply: Effect.succeed([`note: no session moved to ${move}: ${NO_IDENTITY}`]) };
+    return { apply: moveSession(common, caller, self, from, move) };
   });
 
 /**

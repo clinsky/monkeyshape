@@ -103,7 +103,7 @@ outcome, not a spec. Show the human the charter and the beads; start once they a
   local branch, `git switch -c <name>-next`, and commit there as you go; never push it.
   Switch back to `track/<name>` to commit an answer to the review. `track pr` gates and
   pushes that branch's tip whatever is checked out, so the next work never joins the PR. It
-  refuses while a review is in progress (a live session at `review-<n>`, nothing posted on
+  refuses while a review is in progress (a live reviewer at `review-<track>`, nothing posted on
   the head yet): wait for the review, then answer it.
   When the PR merges, however it was merged, replay only the next work onto `main`:
   `git fetch`, `git rebase --onto origin/main track/<name> <name>-next`, then

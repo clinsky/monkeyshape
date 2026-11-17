@@ -31,7 +31,7 @@ import {
 } from "../core/mail.ts";
 import { WorkspaceError } from "../schemas/errors.ts";
 import { type Caller, sessionAddress } from "./notices.ts";
-import { fs, locate, refuse, worktrees } from "./tracks.ts";
+import { fs, locate, refuse, registeredAddresses, reviewTracks, worktrees } from "./tracks.ts";
 
 /** A caller Claude Code said nothing about: a terminal, or `track migrate`. */
 const nobody = (now: Date): Caller => ({ identity: {}, claudeDir: "", now });
@@ -72,12 +72,15 @@ export const mailSend = (
     const problem = subjectProblem(subject);
     if (problem !== undefined) return yield* refuse(`${problem}`);
     const { common, repo } = yield* locate(cwd);
+    const tracks = yield* reviewTracks(common);
     const known = knownAddresses(
       repo,
       yield* worktrees(repo),
       yield* entries(handoffsStore(common)),
+      tracks,
+      yield* registeredAddresses(common),
     );
-    const unknown = recipientProblem(to, known);
+    const unknown = recipientProblem(to, known, tracks);
     if (unknown !== undefined) return yield* refuse(`${unknown}`);
     // From the sender's address, so a reply reaches it: a review's, once a session moved there.
     const sender = yield* sessionAddress(cwd, caller).pipe(
@@ -157,6 +160,8 @@ export const mailInboxAll = (cwd: string) =>
       repo,
       yield* worktrees(repo),
       yield* entries(handoffsStore(common)),
+      yield* reviewTracks(common),
+      yield* registeredAddresses(common),
     );
     const boxes = (yield* entries(mailDir(common))).filter((name) => TRACK_NAME.test(name));
     const mailboxes: Array<Mailbox> = [];
