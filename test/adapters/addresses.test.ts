@@ -2,7 +2,8 @@
  * Session addresses: the plan's case table, one test per row, through the CLI against real
  * git (a bare `origin` publishing pull requests as GitHub does), a fake Claude Code config
  * directory and real Unix sockets standing in for sessions. A session's address is the
- * checkout it serves: a track, `main`, or `review-<n>`. Mail and notices follow the address;
+ * checkout it serves: a track, `main`, or a review's (`review-<track>` across that track's PRs,
+ * `review-<n>` for a PR from no track). Mail and notices follow the address;
  * `track rm` still counts every session in the worktree, registered or not.
  */
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
