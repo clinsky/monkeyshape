@@ -48,7 +48,7 @@ import { loadSnapshot } from "../adapters/workspace.ts";
 import { assess, CHECKS, evaluate, prerequisites } from "../core/check.ts";
 import { OWNABLE_FILES } from "../core/conventions.ts";
 import { garden } from "../core/garden.ts";
-import { CLAUDE_SKILLS_LINK, SKILLS_DIR } from "../core/layout.ts";
+import { CLAUDE_SKILLS_LINK, isReviewAddress, SKILLS_DIR } from "../core/layout.ts";
 import { formatAllInboxes, formatInbox, formatMessage, formatSent } from "../core/mail.ts";
 import type { CheckName } from "../core/model.ts";
 import { formatDelivery, unregisteredNote } from "../core/notices.ts";
@@ -446,7 +446,7 @@ const msgSend = (root: string, args: ReadonlyArray<string>) =>
 /** Whether `word` names an address a message can go to: a track, `main` or a review. */
 const isAddress = (root: string, word: string) =>
   Effect.gen(function* () {
-    if (word === "main" || /^review-\d+$/.test(word)) return true;
+    if (word === "main" || isReviewAddress(word)) return true;
     const { repo } = yield* locate(root);
     return (yield* trackNames(repo)).includes(word);
   });
