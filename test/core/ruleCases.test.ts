@@ -26,6 +26,7 @@ import type {
 import { RULES } from "../../src/core/rules/registry.ts";
 import { PACKS } from "../../src/packs/index.ts";
 import type { Pack } from "../../src/packs/pack.ts";
+import { python } from "../../src/packs/python/index.ts";
 import { typescript } from "../../src/packs/typescript/index.ts";
 import type { ShapeConfig } from "../../src/schemas/config.ts";
 import { config, fakePack, listed, repo } from "../support.ts";
@@ -375,6 +376,12 @@ const reporting = (declared: ReadonlyArray<string>, kind: string): Pack => ({
       .filter((file) => file.endsWith(".py"))
       .map((file) => ({ kind, file, message: "a finding" })),
 });
+
+/** The Python pack, listed alone, its sources in `app/`. */
+const PYTHON: ShapeConfig = { packs: ["python"], sources: { include: ["app/**/*.py"] } };
+
+/** A pyproject whose ruff config extends the curated copy. */
+const PYPROJECT = '[project]\nname = "x"\n\n[tool.ruff]\nextend = ".mshape/ruff.toml"\n';
 
 /** A Rust-like pack whose compiler reached only `crates/a/lib.rs`. */
 const RUST: ShapeConfig = { packs: ["rust"], sources: { include: ["crates/**/*.rs"] } };
@@ -1001,6 +1008,33 @@ const sourcesCases: Record<string, Cases> = {
     pass: {
       files: { "app/b.txt": "" },
       options: { packs: [listed(reporting(["declared"], "undeclared"))] },
+    },
+  },
+  "packs/python/ruff-extend": {
+    fail: {
+      config: PYTHON,
+      files: { "pyproject.toml": '[project]\nname = "x"\n', "app/a.py": "" },
+      options: { packs: [listed(python)] },
+    },
+    pass: {
+      config: PYTHON,
+      files: {
+        "pyproject.toml": '[project]\nname = "x"\n\n[tool.ruff]\nextend = ".mshape/ruff.toml"\n',
+        "app/a.py": "",
+      },
+      options: { packs: [listed(python)] },
+    },
+  },
+  "packs/python/ty-config": {
+    fail: {
+      config: PYTHON,
+      files: { "pyproject.toml": PYPROJECT, "ty.toml": "[rules]\n", "app/a.py": "" },
+      options: { packs: [listed(python)] },
+    },
+    pass: {
+      config: PYTHON,
+      files: { "pyproject.toml": `${PYPROJECT}\n[tool.ty.rules]\n`, "app/a.py": "" },
+      options: { packs: [listed(python)] },
     },
   },
   "sources/unclaimed": {
