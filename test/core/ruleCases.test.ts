@@ -28,6 +28,7 @@ import { PACKS } from "../../src/packs/index.ts";
 import type { Pack } from "../../src/packs/pack.ts";
 import { typescript } from "../../src/packs/typescript/index.ts";
 import type { ShapeConfig } from "../../src/schemas/config.ts";
+import { pythonCases } from "../packs/python/ruleCases.ts";
 import { rustCases } from "../packs/rust/ruleCases.ts";
 import { config, fakePack, listed, repo } from "../support.ts";
 import type { Case, Cases } from "./ruleCase.ts";
@@ -1121,6 +1122,7 @@ const CASES: Record<string, Cases> = {
   ...arch,
   ...sourcesCases,
   ...rustCases,
+  ...pythonCases,
   ...refs,
   ...budgets,
   ...coverage,

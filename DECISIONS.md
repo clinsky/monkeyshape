@@ -46,3 +46,10 @@ Tempting wrong fix: Bare `mshape`, which a hook's PATH lacks; `bunx mshape`, whi
 Evidence: verified 2026-11-02 on bun 1.4.2: a born repo's root, a subdirectory and a track worktree without node_modules, with only bun and git on PATH.
 Enforced by: test/integration/invoke.test.ts, test/core/hooks.test.ts
 Revisit when: bun stops walking ancestors for node_modules/.bin, or a hook runs where bun isn't on PATH.
+
+## D-ty: The Python pack type-checks with ty, pinned
+Decision: Python's type checker is ty, at the version the template pins, with curated rules in a `[tool.ty.rules]` table `mshape sync` owns (ty has no `extends`); ruff lints, uv runs both.
+Tempting wrong fix: Swap in pyright or basedpyright for maturity. It bundles Node, so a Python repo would need JavaScript to pass its gate; the maintainer chose ty on the condition that its gaps are measured, not guessed.
+Evidence: policy: the maintainer's choice over basedpyright and mypy; the ty corpus (bead 8il.18) measures its gaps.
+Enforced by: src/packs/python/index.ts (the stages and prerequisites), test/packs/python/loader.test.ts
+Revisit when: the corpus shows a class of defect neither ruff nor ty catches and no rule can.

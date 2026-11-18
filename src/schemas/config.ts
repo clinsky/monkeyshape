@@ -242,11 +242,23 @@ const RustTable = Schema.Struct({
   ),
 });
 
+/** What only the Python pack reads. */
+const PythonTable = Schema.Struct({
+  /**
+   * Laid over the curated ty rules, rule by rule, in the `[tool.ty.rules]` table `mshape sync`
+   * writes into the root `pyproject.toml`. Keys are ty's rule names.
+   */
+  tyRules: Schema.optionalKey(
+    Schema.Record(Schema.String, Schema.Literals(["ignore", "warn", "error"])),
+  ),
+}).pipe(Schema.encodeKeys({ tyRules: "ty-rules" }));
+
 const configFields = {
   /** The packs, in the order their gate stages run. */
   packs: Schema.optionalKey(Schema.Array(Pack).check(Schema.isMinLength(1))),
   mshape: Schema.optionalKey(MshapePin),
   rust: Schema.optionalKey(RustTable),
+  python: Schema.optionalKey(PythonTable),
   /** The repo's own gate stages, after its packs' defaults. */
   gate: Schema.optionalKey(Schema.Struct({ stages: Schema.optionalKey(Schema.Array(GateStage)) })),
   layers: Schema.optionalKey(Schema.Array(Schema.Literals(["core", "agentic"]))),
@@ -447,6 +459,8 @@ export interface ResolvedConfig {
     | undefined;
   /** The `[rust]` table, as written; only the Rust pack reads it. */
   readonly rust: typeof RustTable.Type | undefined;
+  /** The `[python]` table, as written; only the Python pack reads it. */
+  readonly python: typeof PythonTable.Type | undefined;
   readonly gate: { readonly stages: ReadonlyArray<GateStage> };
   /**
    * The repo's files the config imports, directly or not: its local rules and their helpers.
@@ -477,7 +491,8 @@ export interface ResolvedConfig {
         readonly root: string;
         readonly modules: Readonly<Record<string, ModuleRule>>;
         readonly allowedPackages: ReadonlyArray<string>;
-        readonly hostSpecifiers: ReadonlyArray<string>;
+        /** As the config sets them; unset, each pack's own `hostSpecifiers` apply to its files. */
+        readonly hostSpecifiers: ReadonlyArray<string> | undefined;
       }
     | undefined;
   readonly rules: Readonly<
@@ -552,6 +567,7 @@ export const resolveConfig = (
   packs: config.packs ?? ["typescript"],
   mshape: config.mshape,
   rust: config.rust,
+  python: config.python,
   gate: { stages: config.gate?.stages ?? [] },
   configModules: modules,
   layers: config.layers ?? ["core"],
@@ -593,12 +609,7 @@ export const resolveConfig = (
           root: normalRoot(config.arch.root ?? "src"),
           modules: config.arch.modules,
           allowedPackages: [...new Set(["effect", ...(config.arch.allowedPackages ?? [])])],
-          hostSpecifiers: config.arch.hostSpecifiers ?? [
-            "bun",
-            "bun:*",
-            "node:*",
-            "@effect/platform-*",
-          ],
+          hostSpecifiers: config.arch.hostSpecifiers,
         },
   rules: config.rules ?? {},
   localRules: config.localRules ?? [],

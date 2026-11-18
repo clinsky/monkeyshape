@@ -165,9 +165,12 @@ export const checkArch = (config: ResolvedConfig, snapshot: Snapshot): ReadonlyA
   }
 
   const known = new Set(snapshot.files);
-  const isHost = (specifier: string) =>
-    arch.hostSpecifiers.some((pattern) => matchesSpecifier(specifier, pattern));
-  for (const loaded of snapshot.packs)
+  for (const loaded of snapshot.packs) {
+    // The config's host specifiers when it sets them, else the pack's own: `node:*` is
+    // TypeScript's host, `subprocess` Python's.
+    const patterns = arch.hostSpecifiers ?? loaded.pack.hostSpecifiers;
+    const isHost = (specifier: string) =>
+      patterns.some((pattern) => matchesSpecifier(specifier, pattern));
     violations.push(
       ...judge(config, arch, loaded, archFiles(config, snapshot, loaded), {
         known,
@@ -176,6 +179,7 @@ export const checkArch = (config: ResolvedConfig, snapshot: Snapshot): ReadonlyA
         claimed: (file) => claimOf(snapshot, file)?.loaded,
       }),
     );
+  }
   return violations;
 };
 

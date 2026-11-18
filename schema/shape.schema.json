@@ -128,6 +128,23 @@
       },
       "additionalProperties": false
     },
+    "python": {
+      "type": "object",
+      "properties": {
+        "ty-rules": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string",
+            "enum": [
+              "ignore",
+              "warn",
+              "error"
+            ]
+          }
+        }
+      },
+      "additionalProperties": false
+    },
     "gate": {
       "type": "object",
       "properties": {
