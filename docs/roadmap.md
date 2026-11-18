@@ -127,13 +127,14 @@ takes the next goal in order.
 **Intent.** Separate what every repo shares from what its language decides, so a repo with no
 JavaScript can run the loop and the gate.
 
-- **Config as data:** `shape.toml`, validated by a schema, replaces `shape.config.ts`. The two
+- **Config as data:** `shape.toml`, validated by a schema, replaces `shape.config.ts`. The
   adopters and this repo migrate once, by a command; no second config format is kept.
 - **The gate is configured,** not hard-coded as `bun run check`: PRIME.md, the skills, the PR
   template, `track pr` and CI read it from config.
 - **`mshape` ships as a compiled binary** (Bun compiles it; Bun is a build detail), as GitHub
   release assets with hashes for Linux x64 and arm64 and macOS arm64. `shape.toml` pins the
-  version and hash; a small committed bootstrap fetches and verifies it. A non-TypeScript
+  version and hash. A machine installs `mshape` once (`curl -fsSL <release>/install.sh | sh`),
+  and inside a repo it runs that repo's pinned version, fetched and verified. A non-TypeScript
   repo has no `package.json` and no `node_modules`. npm keeps shipping what TypeScript code
   imports or extends (`decodeStrict`, the base `tsconfig` and biome configs).
 - **A language-pack interface,** with TypeScript refactored into the first pack.

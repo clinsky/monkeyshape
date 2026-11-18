@@ -37,12 +37,13 @@ Milestone 4 closed with 0.5.0 (#90); its plan is `notes/2026-11-18-milestone-4.m
    `shape.config.ts`. `mshape config migrate` converts a repo once; no second format is kept.
 2. **The gate is configured.** `mshape gate` runs the repo's gate: each pack's default
    stages, then the repo's own, read from `shape.toml`; `--fast` runs the stages marked fast.
-   PRIME.md, the skills, the PR template, `track pr` and CI name `./mshape gate`, never a
+   PRIME.md, the skills, the PR template, `track pr` and CI name `mshape gate`, never a
    language's tool.
 3. **`mshape` is a pinned binary.** Bun compiles it into GitHub release assets for Linux x64
    and arm64 and macOS arm64, listed with their hashes in a `SHA256SUMS` asset. `shape.toml`
-   pins the version and the hash of that list; a committed POSIX `./mshape` bootstrap fetches,
-   verifies and runs it. Every hook, skill and doc calls `./mshape`. A non-TypeScript repo has
+   pins the version and the hash of that list. A machine installs `mshape` once with
+   `curl -fsSL <release>/install.sh | sh`; inside a repo it runs the pinned version, fetched
+   and verified. Every hook, skill and doc calls `mshape`. A non-TypeScript repo has
    no `package.json` and no `node_modules`. `mshape sync` replaces hooks monkeyshape changed
    (`iwf`). npm keeps shipping what TypeScript code imports or extends.
 4. **A language-pack interface, with TypeScript refactored into the first pack.** A pack
@@ -63,10 +64,10 @@ Milestone 4 closed with 0.5.0 (#90); its plan is `notes/2026-11-18-milestone-4.m
 
 - **The Rust repo** (a Cargo workspace of several crates) and **the Python repo** (a uv
   project), both private, are born with `mshape init` from the release that ships this
-  milestone: green on their first `./mshape gate`, with no `package.json`, `node_modules` or
+  milestone: green on their first `mshape gate`, with no `package.json`, `node_modules` or
   Bun anywhere in them or needed on the machine. Each runs its first track through the loop
   to a merged PR: session start loads the loop, mail arrives, `track pr` pushes, CI runs
-  `./mshape gate`. Recorded as counts and outcomes in the closing PR, never their content.
+  `mshape gate`. Recorded as counts and outcomes in the closing PR, never their content.
 - **The three adopters** (two existing applications and the repo born on 0.4.0) are
   migrated by `mshape config migrate` and stay green on that release: the same check outcomes
   as on 0.5.0 except what this milestone changes, each line of difference explained; their
@@ -76,7 +77,7 @@ Milestone 4 closed with 0.5.0 (#90); its plan is `notes/2026-11-18-milestone-4.m
   the closing PR lists what ruff and ty catch, what they miss, and which miss became a rule.
 - **The interface held:** the Python pack's PRs change nothing in `src/packs/pack.ts`, or each
   change is an amendment recorded below with the reason TypeScript and Rust missed it.
-- **This repo** runs `./mshape gate` in CI and through `track pr`, from source.
+- **This repo** runs `mshape gate` in CI and through `track pr`, from source.
 
 **Release:** 0.6.0 at the end: the npm package and the binaries, published by the maintainer.
 The two new repos are born from it, so it ships before the acceptance runs; a P1 defect the
@@ -96,8 +97,8 @@ deferred with a reason and the maintainer's yes.
 - **Windows, and languages other than TypeScript, Rust and Python.**
 - **Keeping `shape.config.ts` working beside `shape.toml`:** one format; the migration is
   a command and every known repo runs it this milestone.
-- **A package manager for the binary** (Homebrew, cargo install, pip): the bootstrap is the
-  one way; others wait for a consumer outside the maintainer.
+- **A package manager for the binary** (Homebrew, cargo install, pip): the install script is
+  the one way; others wait for a consumer outside the maintainer.
 - **CI under a minute (`3q2`):** deferred by the maintainer.
 - **`validate` (`97o`), the agentic layer (`v56`), Effect (`rrn`), starter rules (`hh2`):**
   later goals, each now cheaper on the neutral core; no consumer this milestone.
@@ -108,8 +109,8 @@ deferred with a reason and the maintainer's yes.
 |---|---|---|
 | Config | `shape.config.ts`, a TS module; 3 adopters + this repo | `shape.toml` + shipped schema |
 | Adopter rules | 3 `localRules` functions in 2 adopters | ast-grep rule files |
-| The gate | `bun run check` in 8 loop files and CIs | `./mshape gate` from config |
-| Running `mshape` | `bun run --silent mshape` (`D-run-mshape`), `bun` in 16 lines of loop text | `./mshape`, a verified binary |
+| The gate | `bun run check` in 8 loop files and CIs | `mshape gate` from config |
+| Running `mshape` | `bun run --silent mshape` (`D-run-mshape`), `bun` in 16 lines of loop text | `mshape`, installed once, running each repo's pinned and verified version |
 | Checks that read code | 4 of 10 TypeScript-only, `refs` comments TS-only | each through the repo's packs |
 | Packs | none; TypeScript fused into the core | typescript, rust, python |
 | Release | npm tarball | npm + 3 binaries + `SHA256SUMS` |
@@ -125,6 +126,10 @@ deferred with a reason and the maintainer's yes.
   toolchain, standardising on uv, ruff and ty; pinned, with its coverage measured against
   real agent-written code (acceptance), because it is young. A repo of several languages
   will be needed eventually: designed for here, built when a consumer comes.
+- `mshape` installs the way uv, rustup and bun do, `curl -fsSL <release>/install.sh | sh`,
+  the maintainer's call, 2026-11-18: one install per machine, then plain `mshape` everywhere,
+  still running each repo's pinned and verified version. It replaces a script committed to
+  every repo.
 - ast-grep, a new runtime dependency approved in principle in milestone 4's roadmap, is
   delivered by `mshape` itself (goal 3's interfaces).
 
@@ -139,8 +144,8 @@ change needs another's file edits it, says so in its PR body and sends the owner
   `schema/shape.schema.json`, `mshape config migrate`, `mshape gate`, `src/core/conventions.ts`,
   `src/{core,adapters}/trackPr.ts`, `.github/workflows/` and the template's CI, and this
   repo's `shape.toml`.
-- **`binary`:** `src/{core,adapters,cli}/release.ts`, the bootstrap (`template/mshape` and
-  this repo's `./mshape`), `src/core/hooks.ts`, `src/{core,adapters}/sync.ts`, a new
+- **`binary`:** `src/{core,adapters,cli}/release.ts`, `install.sh` and the launcher (a new
+  `src/{core,adapters}/launch.ts`), `src/core/hooks.ts`, `src/{core,adapters}/sync.ts`, a new
   `src/adapters/tools.ts` (fetching ast-grep), `test/integration/invoke.test.ts`,
   `D-run-mshape`; and the loop's text: `template/.beads/PRIME.md` and this repo's copy,
   `skills/`, `template/AGENTS.md`, AGENTS.md, README, `docs/adopting.md`.
@@ -185,7 +190,7 @@ are kebab-case; `config` publishes the schema with the release so editors valida
 | Case | Result |
 |---|---|
 | `shape.toml` only | read; a value the schema rejects fails with its key path and the schema's reason |
-| `shape.config.ts` only | fails: "run `./mshape config migrate`" (0.6.0 reads no TS config) |
+| `shape.config.ts` only | fails: "run `mshape config migrate`" (0.6.0 reads no TS config) |
 | both | fails, naming both: one config |
 | neither | as today's missing config: `init` makes one |
 | an unknown key | fails, naming it (a typo must not pass silently) |
@@ -201,7 +206,7 @@ deletes `shape.config.ts`. It changes nothing else.
 
 | Case | Result |
 |---|---|
-| a config of plain values | `shape.toml` written; `./mshape check` gives the same outcomes |
+| a config of plain values | `shape.toml` written; `mshape check` gives the same outcomes |
 | `localRules` set, rules not yet ported | refuses, naming each rule and `docs/local-rules.md` |
 | `localRules` set, each id present under `shape-rules/` | writes the config without them |
 | values computed in code (a spread, an imported constant) | written as their resolved values, with a note per key |
@@ -232,27 +237,43 @@ stage's outcome is one line, as `mshape check`'s are; the first failure doesn't 
 | two packs | each pack's stages in `packs` order, then `mshape check` once |
 | a repo whose CI doesn't run the gate | `track pr` runs it whole, as today |
 
-### The binary and the bootstrap (owner `binary`; consumers every track, every repo)
+### Installing and running `mshape` (owner `binary`; consumers every track, every repo)
 
-`./mshape` is a committed POSIX sh script, the same in every repo and kept equal by the
-`sync` check. It reads `[mshape]` from `shape.toml`, finds or fetches
-`${XDG_CACHE_HOME:-$HOME/.cache}/monkeyshape/<version>/mshape-<os>-<arch>` from the release,
-verifies `SHA256SUMS` against `sums` and the binary against `SHA256SUMS` (curl or wget;
-sha256sum or shasum), and execs it with its arguments. ast-grep is pinned inside `mshape`
-(version and per-platform hashes compiled in) and fetched into the same cache on first use,
-verified; `shape.toml` pins only `mshape`. Cases, `binary`'s test:
+One install per machine, as uv, rustup and bun do:
+
+```sh
+curl -fsSL https://github.com/clinsky/monkeyshape/releases/latest/download/install.sh | sh
+```
+
+`install.sh`, a POSIX sh release asset, downloads the binary for the machine and the release's
+`SHA256SUMS`, verifies one against the other (curl or wget; sha256sum or shasum), and puts
+`mshape` in `${MSHAPE_INSTALL_DIR:-$HOME/.local/bin}`, saying how to add that to the PATH when
+it isn't there. `MSHAPE_VERSION` installs a given version (CI uses it). Then `mshape` is just
+`mshape`, in every repo, hook, skill and doc.
+
+The installed `mshape` honours the repo's pin, as rustup honours `rust-toolchain.toml`: inside
+a repo whose `shape.toml` pins another version, it finds or fetches
+`${XDG_CACHE_HOME:-$HOME/.cache}/monkeyshape/<version>/mshape`, verifies `SHA256SUMS` against
+the pin's `sums` and the binary against `SHA256SUMS`, and execs it with its arguments. A repo
+is held to its pin; the installed copy is only the launcher. ast-grep is pinned inside
+`mshape` (version and per-platform hashes compiled in) and fetched into the same cache on
+first use, verified; `shape.toml` pins only `mshape`. Cases, `binary`'s test:
 
 | Case | Result |
 |---|---|
-| cached and verified | runs it, no network |
-| not cached, online | fetches, verifies, caches, runs |
+| `curl ... \| sh` on a supported machine | installs, verified; prints the version and the PATH line if needed |
+| the installer's download doesn't match `SHA256SUMS` | refuses, deletes it, installs nothing |
+| the pin equals the installed version | runs itself, no network |
+| another pinned version, cached and verified | execs it, no network |
+| another pinned version, not cached, online | fetches, verifies, caches, execs |
 | not cached, offline | exit 1 with a note naming the URL; a hook prints it and exits 0 |
-| a hash mismatch | refuses, deletes the download, names the file and both hashes; never runs it |
+| a hash mismatch against the pin | refuses, deletes the download, names the file and both hashes; never runs it |
 | `dev` set (this repo) | runs `dev`'s argv, no fetch |
-| an unsupported platform | refuses, naming it and the three supported |
+| outside any repo (`mshape init`) | runs itself; `init` pins the running version |
+| an unsupported platform | the installer and the launcher refuse, naming it and the three supported |
 | neither curl nor wget, or no sha tool | refuses, naming what's missing |
-| `shape.toml` missing or without `[mshape]` | refuses: "run from a repo with `shape.toml`" |
-| a track worktree | the committed `./mshape` there; the cache is per machine |
+| `mshape` not on a hook's PATH | the hook tries `$HOME/.local/bin/mshape`, then prints a note with the install line and exits 0 |
+| a track worktree | the same installed `mshape`; the cache is per machine |
 | a TS repo whose npm `monkeyshape` differs from the pin | the `sync` check fails, naming both versions |
 | ast-grep not cached, offline | rules that need it are `unavailable`, required (they are adopter rules) |
 
@@ -320,22 +341,22 @@ A `copy` base config lives at `.mshape/<file>` (for example `.mshape/ruff.toml`)
 |---|---|
 | the copy equals what the release ships | passes |
 | edited by hand | `sync` fails, naming the file; the repo overrides in its own config instead |
-| missing | `sync` fails: run `./mshape sync` |
+| missing | `sync` fails: run `mshape sync` |
 | the repo's config doesn't point at it | the pack's check fails, naming the key to add |
 
 ## Tracks
 
 | Track | Serves | Charter | Acceptance |
 |---|---|---|---|
-| `config` | goals 1, 2 | The `shape.toml` loader and shipped schema (first: others build on it); `config migrate` and its table; `mshape gate` and its table; `track pr` and CI on `--fast` and the full gate; the PR template's Gate wording; this repo migrated | The three adopters migrated by the command with the same outcomes; this repo's CI on `./mshape gate` |
-| `binary` | goal 3 | The compiled binaries and `SHA256SUMS` in `bun run release`; the bootstrap and its table; ast-grep pinned and fetched; hooks and every loop text on `./mshape` (`D-run-mshape` rewritten); `sync` replacing changed hooks (`iwf`) | A machine with no Bun runs a born repo's hooks and gate through `./mshape`; a tampered download is refused |
+| `config` | goals 1, 2 | The `shape.toml` loader and shipped schema (first: others build on it); `config migrate` and its table; `mshape gate` and its table; `track pr` and CI on `--fast` and the full gate; the PR template's Gate wording; this repo migrated | The three adopters migrated by the command with the same outcomes; this repo's CI on `mshape gate` |
+| `binary` | goal 3 | The compiled binaries and `SHA256SUMS` in `bun run release`; `install.sh`, the launcher and their table; ast-grep pinned and fetched; hooks and every loop text on `mshape` (`D-run-mshape` rewritten); `sync` replacing changed hooks (`iwf`) | A machine with no Bun installs by `curl \| sh` and runs a born repo's hooks and gate; a tampered download is refused |
 | `packs` | goals 4, 5 | The interface, drafted with `rust` and frozen; TypeScript refactored into the first pack with no change in outcomes on this repo and the adopters; `arch` over a neutral graph; `refs` over every pack's comments (`sgy`); the ast-grep adopter rules and the three adopters' ports; `init --pack`; the two-pack test | This repo and the adopters: same outcomes as 0.5.0; each ported rule reports what its function did |
 | `rust` | goal 6 | The Rust pack: cargo metadata for sources and the crate graph, clippy and rustfmt, curated workspace lints and their delivery, the template (a Cargo workspace), its gate stages. Starts at once on a draft interface, and reviews it | The Rust repo born green and through its first track |
 | `python` | goal 6 | The Python pack: uv, ruff, ty (pinned), pytest, the import graph, curated ruff and ty rules, the template (a uv project), its stages; the ty corpus. Starts at the freeze | The Python repo born green and through its first track; ty's coverage reported; the interface unchanged |
 
 **Beads** (epic `monkeyshape-8il`; the roadmap's `070` and `gbx` close with it):
 `config`: `8il.1` shape.toml, `8il.2` migrate, `8il.3` gate. `binary`: `8il.4` binaries,
-`8il.5` bootstrap, `8il.6` ast-grep, `8il.7` hooks and text, `iwf`. `packs`: `8il.8` the
+`8il.5` install and launcher, `8il.6` ast-grep, `8il.7` hooks and text, `iwf`. `packs`: `8il.8` the
 interface, `8il.9` the TypeScript pack, `8il.10` ast-grep rules, `8il.11` the ports,
 `8il.12` `init --pack`, `8il.13` two packs, `sgy`. `rust`: `8il.14`, `8il.15`. `python`:
 `8il.16`, `8il.17`, `8il.18`. The acceptance and 0.6.0: `8il.19`.
