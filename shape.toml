@@ -66,3 +66,8 @@ docs = [
 [[gate.stages]]
 name = "bun-test"
 run = ["bun", "test", "--parallel", "--timeout=30000"]
+
+[coverage]
+exempt-files = [
+  { path = "template/packs/python/**", reason = "the Python template: test/integration/binary.test.ts runs the gate of the repo it births, ruff, ty and pytest" },
+]

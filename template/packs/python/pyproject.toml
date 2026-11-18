@@ -1,0 +1,19 @@
+[project]
+name = "{{name}}"
+version = "0.1.0"
+description = "What it is, in a line."
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = []
+
+[dependency-groups]
+# The gate's toolchain, pinned: `uv run` runs these versions, and uv.lock holds their hashes.
+dev = ["pytest==9.2.0", "ruff==0.17.5", "ty==0.0.106"]
+
+[build-system]
+requires = ["uv_build>=0.8.22,<0.9.0"]
+build-backend = "uv_build"
+
+[tool.ruff]
+# monkeyshape's curated rules, which `mshape sync` keeps in .mshape/: override them here.
+extend = ".mshape/ruff.toml"

@@ -3,11 +3,14 @@ import { copyFile, mkdir, readdir, realpath, symlink } from "node:fs/promises";
 import { basename, dirname, relative } from "node:path";
 import * as Effect from "effect/Effect";
 import { OWNABLE_FILES } from "../core/conventions.ts";
+import { deliver, deliveries, shippedFiles } from "../core/delivery.ts";
 import { VENDOR_DIR, vendoredSpecOf } from "../core/dep.ts";
 import { HANDOFFS_LINK, handoffsLink, handoffsStore } from "../core/layout.ts";
 import { PACKS_DIR, scaffold, type Toolchain, templateFor } from "../core/scaffold.ts";
-import { resolveConfig } from "../schemas/config.ts";
+import { PACKS } from "../packs/index.ts";
+import { PACK_IDS, type PackId, resolveConfig } from "../schemas/config.ts";
 import { WorkspaceError } from "../schemas/errors.ts";
+import { readPresent } from "./disk.ts";
 import { BUN_MISSING, bunPath, runTool } from "./process.ts";
 import { fileDigest } from "./release.ts";
 import { installSkills, readTree } from "./skills.ts";
@@ -179,6 +182,10 @@ export const initRepo = (
     });
     const done = [`wrote ${files.size} files`];
     const notes: Array<string> = [];
+    // The pack's copied and table-owned base configs, as `mshape sync` delivers them: a repo
+    // whose pack needs no Bun runs no sync at init, and its first gate holds it to them.
+    const delivered = yield* deliverBaseConfigs(target, packageRoot, pack, files);
+    if (delivered.length > 0) done.push(`base configs: ${delivered.join(", ")}`);
     if (tarball !== undefined) {
       const copy = `${target}/${vendoredPath(tarball)}`;
       yield* Effect.tryPromise({
@@ -238,6 +245,42 @@ export const initRepo = (
       );
 
     return yield* commit(target, name, done, notes);
+  });
+
+/** Writes `pack`'s `copy` and `table` base configs over what scaffold wrote; their paths. */
+const deliverBaseConfigs = (
+  target: string,
+  packageRoot: string,
+  pack: string,
+  files: ReadonlyMap<string, string>,
+) =>
+  Effect.gen(function* () {
+    const id = PACK_IDS.find((known) => known === pack) as PackId | undefined;
+    const loaded = id === undefined ? undefined : PACKS[id];
+    if (id === undefined || loaded === undefined) return [];
+    const shipped = yield* readPresent(packageRoot, shippedFiles([loaded]));
+    const written: Array<string> = [];
+    for (const delivery of deliveries(
+      resolveConfig({ packs: [id] }, "shape.toml"),
+      [loaded],
+      shipped,
+    )) {
+      const text = deliver(delivery, files.get(delivery.file));
+      if (text === undefined) continue;
+      yield* Effect.tryPromise({
+        try: async () => {
+          await mkdir(dirname(`${target}/${delivery.file}`), { recursive: true });
+          await Bun.write(`${target}/${delivery.file}`, text);
+        },
+        catch: (cause) =>
+          fail(
+            target,
+            `cannot write ${delivery.file}: ${String(cause)}. Delete ${target} and run mshape init again`,
+          ),
+      });
+      written.push(delivery.file);
+    }
+    return written;
   });
 
 /** The packs `template/packs/` has a directory for. */

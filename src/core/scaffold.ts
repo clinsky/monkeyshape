@@ -37,7 +37,15 @@ const RENAMED: Readonly<Record<string, string>> = {
 
 export const targetPath = (templatePath: string): string => RENAMED[templatePath] ?? templatePath;
 
-const render = (text: string, name: string): string => text.replaceAll("{{name}}", name);
+/**
+ * The repo's name as a module name: hyphens to underscores, as Python's packages and Rust's
+ * crates spell an identifier (`my-repo` → `my_repo`). `REPO_NAME` leaves nothing else to fix.
+ */
+export const moduleName = (name: string): string => name.replaceAll("-", "_");
+
+/** `{{name}}` and `{{module}}` filled in: in a file's text, and in its path. */
+const render = (text: string, name: string): string =>
+  text.replaceAll("{{name}}", name).replaceAll("{{module}}", moduleName(name));
 
 const json = (value: unknown): string => `${JSON.stringify(value, null, 2)}\n`;
 
@@ -118,7 +126,7 @@ export const scaffold = (
   new Map([
     ...[...template].map(([path, text]) => {
       const rendered = render(text, name);
-      const target = targetPath(path);
+      const target = render(targetPath(path), name);
       return [
         target,
         target === CONFIG && vendored !== undefined ? recordVendored(rendered, vendored) : rendered,

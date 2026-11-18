@@ -36,6 +36,18 @@ describe("scaffold", () => {
     expect(targetPath(".claude/settings.json")).toBe(".claude/settings.json");
   });
 
+  test("renders {{module}}, the name as an identifier, in text and in paths", () => {
+    const files = scaffold(
+      "my-app",
+      new Map([["src/{{module}}/__init__.py", '"""{{name}}, imported as {{module}}."""\n']]),
+      toolchain,
+      undefined,
+      "python",
+    );
+    expect(files.get("src/my_app/__init__.py")).toBe('"""my-app, imported as my_app."""\n');
+    expect([...files.keys()].some((path) => path.includes("{{"))).toBe(false);
+  });
+
   test("package.json pins the toolchain exactly, and its gate passes with no tests yet", () => {
     const manifest = JSON.parse(scaffold("my-app", new Map(), toolchain).get("package.json") ?? "");
     expect(manifest.name).toBe("my-app");
