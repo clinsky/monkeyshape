@@ -1,8 +1,9 @@
 import { describe, expect, test } from "bun:test";
 import { checkRules, type Rule } from "../../src/core/rules/engine.ts";
 import { RULES } from "../../src/core/rules/registry.ts";
+import type { Pack } from "../../src/packs/pack.ts";
 import type { ShapeConfig } from "../../src/schemas/config.ts";
-import { config, repo } from "../support.ts";
+import { config, fakePack, listed, repo } from "../support.ts";
 
 const run = (files: Record<string, string>, input: ShapeConfig = {}) =>
   checkRules(config(input), repo(files), RULES).map(
@@ -121,5 +122,38 @@ describe("a rule's context", () => {
       "src/core/a.ts ./missing.ts -> undefined",
       "src/core/a.ts ../../../outside.ts -> undefined",
     ]);
+  });
+});
+
+describe("each file through the pack that claims it", () => {
+  /** A Rust-like pack: `//` comments by line, and every file parses. */
+  const rust: Pack = {
+    ...fakePack("rust", "Rust", "rs"),
+    comments: ({ text }) =>
+      [...text.matchAll(/\/\/(.*)/g)].map((match) => ({
+        kind: "line" as const,
+        text: match[1] ?? "",
+        start: match.index ?? 0,
+        end: (match.index ?? 0) + match[0].length,
+      })),
+  };
+  const rustRepo = config({ packs: ["rust"], sources: { include: ["crates/**/*.rs"] } });
+
+  test("another language's source isn't parsed as TypeScript, nor held to its rules", () => {
+    const files = { "crates/a/src/lib.rs": "pub fn add(a: u64, b: u64) -> u64 { a + b }\n" };
+    expect(checkRules(rustRepo, repo(files, { packs: [listed(rust)] }), RULES)).toEqual([]);
+  });
+
+  test("shape-ignore is read in the pack's comment syntax", () => {
+    const files = { "crates/a/src/lib.rs": "// shape-ignore no-throw\nfn a() {}\n" };
+    expect(
+      checkRules(rustRepo, repo(files, { packs: [listed(rust)] }), RULES).map((v) => v.rule),
+    ).toEqual(["rules/ignore-without-reason"]);
+  });
+
+  test("a file in sources no listed pack claims is not parsed", () => {
+    expect(run({ "src/notes.md": "# not code {" }, { sources: { include: ["src/**"] } })).toEqual(
+      [],
+    );
   });
 });
