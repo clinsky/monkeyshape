@@ -57,7 +57,7 @@ jobs:
     needs: binary
     strategy:
       matrix:
-        runner: [ubuntu-latest, ubuntu-24.04-arm, macos-14]
+        runner: [ubuntu-latest, ubuntu-24.04-arm, macos-latest]
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 5
     steps:
