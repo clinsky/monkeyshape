@@ -16,6 +16,7 @@ import { withBeadsExport } from "../adapters/beads.ts";
 import { findConfig, loadConfig } from "../adapters/config.ts";
 import { reviewPost, scanFile } from "../adapters/denylist.ts";
 import { depBump } from "../adapters/dep.ts";
+import { runGate } from "../adapters/gate.ts";
 import { initRepo, vendoredSpec } from "../adapters/init.ts";
 import { mailInbox, mailInboxAll, mailRead, mailSend } from "../adapters/mail.ts";
 import {
@@ -712,6 +713,20 @@ const check = (root: string, args: ReadonlyArray<string>) =>
     return { output: formatCheck(result), code: result.green ? 0 : 1 };
   });
 
+/** `mshape gate [--fast]`: the repo's gate from its config, `mshape check` among its stages. */
+const gate = (root: string, args: ReadonlyArray<string>) =>
+  Effect.gen(function* () {
+    const fast = args.includes("--fast");
+    const rest = args.filter((arg) => arg !== "--fast");
+    const flagged = configFlag(root, rest);
+    if (rest.length !== (flagged === undefined ? 0 : 2)) return usage();
+    const config = yield* loadConfig(root, flagged);
+    return yield* runGate(root, config, {
+      fast,
+      check: check(root, flagged === undefined ? [] : ["--config", flagged]),
+    });
+  });
+
 const baseline = (root: string, args: ReadonlyArray<string>) =>
   Effect.gen(function* () {
     // A baseline counts every check, so everything runs.
@@ -812,6 +827,14 @@ export const COMMANDS: ReadonlyArray<Command> = [
     run: check,
   },
   {
+    name: "gate",
+    usage: `  mshape gate [--fast]
+      Run the repo's gate: each pack's default stages, mshape check, then shape.toml's
+      [gate].stages. Fast stages first; --fast runs only those (track pr does). A failing
+      stage doesn't stop the rest; its output's tail is shown and the whole kept in a log.`,
+    run: gate,
+  },
+  {
     name: "baseline",
     usage: `  mshape baseline --tighten
       Lower baseline counts to what is found now. Never raises one.
@@ -867,13 +890,13 @@ export const COMMANDS: ReadonlyArray<Command> = [
       registers by its directory again.
   mshape track pr [--title <title>] [--body-file <path>] [--body-only] [--wait]
       From a track's worktree, whatever branch it has checked out: prints the PR's size
-      against the batching default, runs the gate's fast stages (its steps before bun test)
-      on a clean checkout of track/<name>'s tip, pushes that tip and opens its PR (--title
-      and --body-file needed) or updates it. CI runs the tests; where no pull_request
-      workflow runs the gate, the whole gate runs here. Writes only the Gate section, from
+      against the batching default, runs \`mshape gate --fast\` on a clean checkout of
+      track/<name>'s tip, pushes that tip and opens its PR (--title and --body-file needed)
+      or updates it. CI runs the whole gate; where no pull_request workflow runs it, the
+      whole gate runs here. Writes only the Gate section, from
       that run and CI; the rest of the body is --body-file's, or the PR's as it stands. Refuses, posting nothing: while a review of the PR is in progress (a
       live reviewer at review-<track> with this PR's review worktree, or at review-<n>, and no
-      review on the PR's head yet), on uncommitted changes to track/<name>, a denylisted term
+      review on the PR's head yet) and the push would move its head, on uncommitted changes to track/<name>, a denylisted term
       in what it would send (see scan: the commits the remote lacks, their messages, added
       lines and paths, the title and body), a failing gate (naming its failing tests; the
       whole output is kept under .git/monkeyshape/gate/), a missing required section or a

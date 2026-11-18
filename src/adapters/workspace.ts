@@ -270,7 +270,7 @@ const mainOf = (root: string) =>
  * through the current bun: the bin shims start with `#!/usr/bin/env node`, and a Bun-only
  * machine has no node.
  */
-const localBin = (root: string, name: string) =>
+export const localBin = (root: string, name: string) =>
   Effect.gen(function* () {
     const main = yield* mainOf(root);
     for (const dir of main === undefined || main === root ? [root] : [root, main])

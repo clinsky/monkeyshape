@@ -55,8 +55,8 @@ const configs = (name: string, toolchain: Toolchain): Record<string, string> => 
       // How hooks and skills run mshape: D-run-mshape.
       mshape: "mshape",
       shape: "mshape check",
-      [GATE_SCRIPT]:
-        "bun run typecheck && bun run lint && bun run shape && bun test --pass-with-no-tests",
+      // The gate's stages are the typescript pack's, run by `mshape gate`.
+      [GATE_SCRIPT]: "mshape gate",
     },
     dependencies: { effect: toolchain.effect },
     devDependencies: {

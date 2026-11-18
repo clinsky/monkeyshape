@@ -13,13 +13,7 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import * as Clock from "effect/Clock";
 import * as Effect from "effect/Effect";
-import {
-  GATE_COMMAND,
-  GATE_SCRIPT,
-  parsePrBody,
-  prSizeNote,
-  setPrSections,
-} from "../core/conventions.ts";
+import { GATE_COMMAND, parsePrBody, prSizeNote, setPrSections } from "../core/conventions.ts";
 import {
   MAIN_BRANCH,
   reviewAddress,
@@ -165,6 +159,7 @@ const reviewFacts = (
   repo: string,
   track: string,
   pr: OpenPr,
+  tip: string,
   claudeDir: string,
   now: Date,
 ) =>
@@ -196,6 +191,7 @@ const reviewFacts = (
         live,
         registered,
         reviewedHead: false,
+        moves: true,
       } satisfies ReviewFacts;
     // REST, not `pr list --json headRefOid`, which gh 2.4 doesn't know.
     const head = yield* spawn(cwd, [
@@ -230,7 +226,8 @@ const reviewFacts = (
         `a session is registered at \`${address}\`, and the PR's head and reviews couldn't be read to tell whether its review is posted (${unreadable?.stderr || "no head, or reviews that aren't JSON"}), so nothing was pushed or posted`,
       );
     const reviewedHead = isReviewed(posted, head.stdout.trim());
-    return { pr: pr.number, address, live, registered, reviewedHead } satisfies ReviewFacts;
+    const moves = head.stdout.trim() !== tip;
+    return { pr: pr.number, address, live, registered, reviewedHead, moves } satisfies ReviewFacts;
   });
 
 /** Refuses while a review of `pr` is in progress; otherwise its note, if any. */
@@ -240,6 +237,7 @@ const waitOutReview = (
   repo: string,
   track: string,
   pr: OpenPr | undefined,
+  tip: string,
   claudeDir: string,
   say: (line: string) => Effect.Effect<void>,
 ) =>
@@ -247,7 +245,7 @@ const waitOutReview = (
     if (pr === undefined) return;
     const now = new Date(yield* Clock.currentTimeMillis);
     const decision = reviewDecision(
-      yield* reviewFacts(cwd, common, repo, track, pr, claudeDir, now),
+      yield* reviewFacts(cwd, common, repo, track, pr, tip, claudeDir, now),
     );
     if ("refuse" in decision) return yield* refuse(decision.refuse);
     if (decision.note !== undefined) yield* say(decision.note);
@@ -278,24 +276,16 @@ const gateOnTip = (
         if (line.startsWith("note:")) yield* say(line);
       const installed = yield* installDependencies(path);
       if (installed?.startsWith("note:")) yield* say(installed);
-      const plan = yield* planFor(path);
-      // Each step through this bun, which a hook's PATH may lack; mshape through its bin,
-      // whose shim starts with `#!/usr/bin/env node`.
-      const steps =
-        plan.kind === "full"
-          ? [`"$0" run ${GATE_SCRIPT}`]
-          : plan.steps.map((step) =>
-              step.kind === "script"
-                ? `"$0" run ${step.name}`
-                : `"$0" ./node_modules/.bin/mshape ${step.args.join(" ")}`,
-            );
+      const { plan, mshape } = yield* planFor(path);
       yield* say(
         plan.kind === "full"
           ? `running the gate, \`${GATE_COMMAND}\`, on a clean checkout of ${tip.slice(0, 12)}: it can take minutes`
-          : `running the gate's fast stages, \`${gatePlanCommand(plan)}\`, on a clean checkout of ${tip.slice(0, 12)}; CI runs the tests`,
+          : `running the gate's fast phase, \`${gatePlanCommand(plan)}\`, on a clean checkout of ${tip.slice(0, 12)}; CI runs the whole gate`,
       );
-      // One stream, as a terminal shows it: the summary lines come from both.
-      const gate = yield* spawn(path, ["sh", "-c", `${steps.join(" && ")} 2>&1`, process.execPath]);
+      // One stream, as a terminal shows it: the summary lines come from both. `$0` is this
+      // bun, which a hook's PATH may lack.
+      const args = plan.kind === "fast" ? "gate --fast" : "gate";
+      const gate = yield* spawn(path, ["sh", "-c", `${mshape} ${args} 2>&1`, process.execPath]);
       const log = gateLogPath(common, track);
       yield* Effect.promise(async () => {
         await mkdir(dirname(log), { recursive: true });
@@ -307,13 +297,22 @@ const gateOnTip = (
     );
   });
 
-/** The gate plan for a checkout: its gate script, and the workflows that might run it. */
+/**
+ * The gate plan for a checkout, from the workflows that might run the gate, and how to run
+ * mshape there: the `mshape` package script (`D-run-mshape`), else its bin, else the PATH's.
+ */
 const planFor = (path: string) =>
   Effect.promise(async () => {
     const manifest = await Bun.file(`${path}/package.json`)
       .json()
       .catch(() => ({}));
-    const gate = (manifest as { scripts?: Record<string, unknown> }).scripts?.[GATE_SCRIPT];
+    const script = (manifest as { scripts?: Record<string, unknown> }).scripts?.["mshape"];
+    const mshape =
+      typeof script === "string"
+        ? `"$0" run --silent mshape`
+        : (await Bun.file(`${path}/node_modules/.bin/mshape`).exists())
+          ? `"$0" ./node_modules/.bin/mshape`
+          : "mshape";
     const dir = `${path}/.github/workflows`;
     const files = await readdir(dir).catch(() => [] as Array<string>);
     const workflows: Array<string> = [];
@@ -323,7 +322,7 @@ const planFor = (path: string) =>
           .text()
           .catch(() => ""),
       );
-    return gatePlan(typeof gate === "string" ? gate : undefined, workflows);
+    return { plan: gatePlan(workflows), mshape };
   });
 
 /** Removes a scratch checkout, registered or left behind by a crash. */
@@ -605,7 +604,9 @@ export const trackPr = (
       return yield* refuse(
         `no PR is open from \`${branch}\`: opening one needs --title "<title>" and --body-file <path>, a body with every section of .github/pull_request_template.md; track pr fills the Gate section itself`,
       );
-    yield* waitOutReview(top, common, repo, track, existing, options.claudeDir, say);
+    // --body-only pushes nothing, so a review in progress can't be changed under it.
+    if (!options.bodyOnly)
+      yield* waitOutReview(top, common, repo, track, existing, tip, options.claudeDir, say);
     if (options.bodyOnly) {
       if (existing === undefined)
         return yield* refuse(
@@ -751,7 +752,16 @@ export const trackPr = (
     yield* checkBeads(repo, plan.beads, say);
 
     // Again: a review can start while the gate runs.
-    yield* waitOutReview(top, common, repo, track, existing, options.claudeDir, () => Effect.void);
+    yield* waitOutReview(
+      top,
+      common,
+      repo,
+      track,
+      existing,
+      tip,
+      options.claudeDir,
+      () => Effect.void,
+    );
     // The commit the gate ran on, not the branch: one made while the gate ran is ungated.
     const pushed = yield* git(repo, ["push", "--quiet", remote, `${tip}:refs/heads/${branch}`], {
       env: { ...options.fetchEnv },

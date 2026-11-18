@@ -232,7 +232,7 @@ describe("mshape init, a repo per case", () => {
     const spec = (await Bun.file(join(repo, "package.json")).json()).devDependencies.monkeyshape;
     expect(spec).toMatch(/^file:\.\/vendor\/monkeyshape-\d+\.\d+\.\d+-dev\.[0-9a-f]{7}/);
     const check = await run(repo, [process.execPath, "run", "check"]);
-    expect(check.output).toContain("mshape check passed");
+    expect(check.output).toContain("mshape gate passed");
     expect(check.code).toBe(0);
   }, 120_000);
 });

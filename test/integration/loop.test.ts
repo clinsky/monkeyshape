@@ -24,6 +24,12 @@ const mshape = (cwd: string, args: ReadonlyArray<string>) =>
 
 const gate = (cwd: string) => run(cwd, [process.execPath, "run", "check"]);
 
+/** The test stage's whole output from the gate's last run in `cwd`, kept in its git dir's log. */
+const testLog = async (cwd: string) => {
+  const dir = (await run(cwd, ["git", "rev-parse", "--absolute-git-dir"])).output.trim();
+  return Bun.file(join(dir, "monkeyshape", "gate", "bun-test.log")).text();
+};
+
 const exists = (path: string) => Bun.file(path).exists();
 
 const put = async (path: string, text: string) => {
@@ -46,7 +52,7 @@ describe("init, then tracks", () => {
     expect(born.code).toBe(0);
     expect(unexpectedNotes(born.output)).toEqual([]);
     const check = await gate(repo);
-    expect(check.output).toContain("mshape check passed");
+    expect(check.output).toContain("mshape gate passed");
     expect(check.code).toBe(0);
   }, 60_000);
 
@@ -93,8 +99,8 @@ describe("init, then tracks", () => {
       'import { expect, test } from "bun:test";\nimport { greet } from "../../src/core/greet.ts";\n\ntest("greets", () => {\n  expect(greet("a")).toBe("A");\n});\n',
     );
     const check = await gate(a);
-    expect(check.output).toContain("mshape check passed");
-    expect(check.output).toContain(" 2 pass");
+    expect(check.output).toContain("mshape gate passed");
+    expect(await testLog(a)).toContain(" 2 pass");
     expect(check.code).toBe(0);
     expect((await run(a, ["git", "add", "--all"])).code).toBe(0);
     expect((await run(a, ["git", "commit", "--quiet", "-m", "Greet"])).code).toBe(0);
@@ -114,8 +120,8 @@ describe("init, then tracks", () => {
     // root, a second copy of the test) breaks the main checkout's gate while any track exists.
     // Two tests, each once: the template's and track a's.
     const check = await gate(repo);
-    expect(check.output).toContain("mshape check passed");
-    expect(check.output).toContain(" 2 pass");
+    expect(check.output).toContain("mshape gate passed");
+    expect(await testLog(repo)).toContain(" 2 pass");
     expect(check.code).toBe(0);
   }, 60_000);
 
@@ -138,8 +144,8 @@ describe("init, then tracks", () => {
       1,
     );
     const check = await gate(repo);
-    expect(check.output).toContain("mshape check passed");
-    expect(check.output).toContain(" 2 pass");
+    expect(check.output).toContain("mshape gate passed");
+    expect(await testLog(repo)).toContain(" 2 pass");
     expect(check.code).toBe(0);
   }, 60_000);
 });

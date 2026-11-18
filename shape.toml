@@ -51,3 +51,9 @@ docs = [
   "docs/adopting.md",
   "docs/local-rules.md",
 ]
+
+# Replaces the typescript pack's test stage: in parallel, with a hang guard sized for CI's
+# slower runner (AGENTS.md's gotcha on test timeouts).
+[[gate.stages]]
+name = "bun-test"
+run = ["bun", "test", "--parallel", "--timeout=30000"]
