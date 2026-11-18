@@ -12,10 +12,12 @@
 
 import { fencedLines } from "./markdown.ts";
 
-/** The package script that is the gate, the same locally and in CI. */
+/** The gate as a command: green in CI before review, the same locally and in CI. */
+export const GATE_COMMAND = "mshape gate";
+/** Its fast phase: what `track pr` runs before each push when CI runs the rest. */
+export const GATE_FAST_COMMAND = `${GATE_COMMAND} --fast`;
+/** A TypeScript repo's package script for the gate, kept as a familiar alias of it. */
 export const GATE_SCRIPT = "check";
-/** The gate as a command: green in CI before review. */
-export const GATE_COMMAND = `bun run ${GATE_SCRIPT}`;
 
 export interface PrSection {
   /** The `## ` heading, verbatim. */
@@ -40,7 +42,7 @@ export const PR_SECTIONS = [
   },
   {
     name: "Gate",
-    purpose: `Filled by track pr: the gate's fast stages on the pushed commit and CI's result for the tests, or the whole \`${GATE_COMMAND}\` where no CI runs it.`,
+    purpose: `Filled by track pr: \`${GATE_FAST_COMMAND}\` on the pushed commit and CI's \`${GATE_COMMAND}\`, or the whole \`${GATE_COMMAND}\` where no CI runs it.`,
     required: true,
   },
   {

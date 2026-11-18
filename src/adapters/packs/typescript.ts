@@ -31,7 +31,7 @@ const mainOf = (root: string) =>
  * through Bun (`bunPath`): the bin shims start with `#!/usr/bin/env node`, and a Bun-only
  * machine has no node. Else why it can't run: `pkg` isn't installed, or there is no Bun.
  */
-const localBin = (root: string, name: string, pkg: string) =>
+export const localBin = (root: string, name: string, pkg: string) =>
   Effect.gen(function* () {
     const main = yield* mainOf(root);
     for (const dir of main === undefined || main === root ? [root] : [root, main])

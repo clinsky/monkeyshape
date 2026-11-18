@@ -56,7 +56,7 @@
     "shape": "bun src/cli/main.ts check",
     "release": "bun src/cli/release.ts",
     "schema": "bun src/cli/main.ts config schema > schema/shape.schema.json",
-    "check": "bun run typecheck && bun run lint && bun run shape && bun test --parallel --timeout=30000"
+    "check": "bun src/cli/main.ts gate"
   },
   "dependencies": {
     "oxc-parser": "0.156.0"
