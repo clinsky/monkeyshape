@@ -24,7 +24,7 @@ Goals not yet shipped are listed in the order they would be taken.
 | The agentic layer: spend ledger (core), model-output decoding (per pack) | Later | `monkeyshape-v56` |
 | Effect: guarantees, not style (TypeScript pack) | Later | `monkeyshape-rrn` |
 | Gate hardening | Later: when a failure shows the need | `monkeyshape-nm9` |
-| Dependencies between repos: releases that smoke-test their consumers | Idea: when one repo depends on another | `monkeyshape-a09` |
+| Dependencies between repos: releases that smoke-test their consumers | Idea: when the adopter probe by hand stops being enough | `monkeyshape-a09` |
 | Selectable policy bundles | Idea: when an outside adopter needs it | `monkeyshape-8h4` |
 
 "Shipped" means on `main`; the plans of milestones 1 to 3 are in `notes/`, milestone 4's in
@@ -283,8 +283,9 @@ first part for TypeScript, a release tarball with its hash and `mshape dep bump`
 come, when a consumer needs it: upstream releases that smoke-test their consumers' real
 workflows, and the same for the other packs.
 
-**Why later:** no repo yet depends on another repo that uses monkeyshape; it is built when
-the first such pair does.
+**Why later:** the only such pair today is monkeyshape and its adopters, where review's
+adopter probe does the smoke test by hand; it is built when that stops being enough, or when
+a second upstream appears.
 
 ### Policy bundles (`monkeyshape-8h4`)
 
