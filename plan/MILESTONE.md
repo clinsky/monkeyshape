@@ -416,4 +416,9 @@ already written by agents, not generated for it.
 
 ## Amendments
 
-None yet.
+- **2026-11-18, `shape.config.ts` keeps loading until `8il.2` (`config`), approved by the
+  planning session.** `8il.1` lands `shape.toml` with every row of its case table but one: a
+  repo with only `shape.config.ts` still loads as today (`packs` defaulting to `typescript`),
+  because `localRules`, their tests and `init` still use the TypeScript config until `packs`'
+  `8il.10` and `8il.11` land. `8il.2` flips that row to "fails: run `mshape config migrate`",
+  with its test, and moves check messages to kebab-case keys then. The end state is the plan's.
