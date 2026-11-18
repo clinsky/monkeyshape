@@ -1,6 +1,6 @@
 /** File modes and declared commands: what `coverage` judges of source it doesn't analyze. */
 import { lstat } from "node:fs/promises";
-import { Effect } from "effect";
+import * as Effect from "effect/Effect";
 import { commandArgv, commandFiles } from "../core/coverage.ts";
 import type { CommandRun, FileMode } from "../core/model.ts";
 import type { DeclaredCommand, ResolvedConfig } from "../schemas/config.ts";

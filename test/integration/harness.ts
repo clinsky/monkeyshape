@@ -1,6 +1,6 @@
 /** What the integration tests that create repos with `mshape init` share. */
 import { join } from "node:path";
-import { Effect } from "effect";
+import * as Effect from "effect/Effect";
 import { packWorkingTree } from "../../src/adapters/release.ts";
 
 export const ROOT = join(import.meta.dir, "..", "..");

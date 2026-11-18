@@ -3,7 +3,7 @@
  * Everything optional has a default in `resolveConfig`; the defaults are the template's
  * opinion, so overriding one should be rare and visible.
  */
-import { Schema } from "effect";
+import * as Schema from "effect/Schema";
 
 /** Every escape hatch carries a reason a later agent can weigh. */
 const Reason = Schema.String.check(Schema.isMinLength(8));

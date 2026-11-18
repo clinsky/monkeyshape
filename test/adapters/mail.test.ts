@@ -2,12 +2,12 @@
  * `mshape msg` against real git: a temp repo with real track worktrees, driven through the
  * CLI, so the mailbox is the one every checkout shares under git's common directory.
  */
-import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { mkdir, mkdtemp, readdir, realpath, rm, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { describe, expect, test } from "bun:test";
+import { mkdir, readdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { Effect } from "effect";
+import * as Effect from "effect/Effect";
 import { mailSend } from "../../src/adapters/mail.ts";
+import { useSavedDir } from "./savedDir.ts";
 
 const CLI = join(import.meta.dir, "..", "..", "src", "cli", "main.ts");
 let base = "";
@@ -38,24 +38,26 @@ const wt = (track: string) => `${repo}/.agents/worktrees/repo@${track}`;
 const mailbox = (track: string) => `${repo}/.git/monkeyshape/mail/${track}`;
 const files = (dir: string) => readdir(dir).catch(() => [] as Array<string>);
 
-beforeEach(async () => {
-  base = await realpath(await mkdtemp(join(tmpdir(), "mshape-mail-")));
-  repo = join(base, "repo");
-  await mkdir(repo);
-  sh(repo, "init", "-q", "-b", "main");
-  sh(repo, "config", "user.name", "Test");
-  sh(repo, "config", "user.email", "test@example.com");
-  sh(repo, "config", "commit.gpgsign", "false");
-  await writeFile(join(repo, "shape.config.ts"), "export default {};\n");
-  await writeFile(join(repo, ".gitignore"), ".agents/worktrees/\n.agents/handoffs\n.handoffs\n");
-  sh(repo, "add", ".");
-  sh(repo, "commit", "-qm", "init");
-  for (const track of ["docs", "tracks"]) expect(mshape(repo, "track", "new", track).code).toBe(0);
-});
-
-afterEach(async () => {
-  await rm(base, { recursive: true, force: true });
-});
+useSavedDir(
+  "mshape-mail-",
+  (dir) => {
+    base = dir;
+    repo = join(base, "repo");
+  },
+  async () => {
+    await mkdir(repo);
+    sh(repo, "init", "-q", "-b", "main");
+    sh(repo, "config", "user.name", "Test");
+    sh(repo, "config", "user.email", "test@example.com");
+    sh(repo, "config", "commit.gpgsign", "false");
+    await writeFile(join(repo, "shape.config.ts"), "export default {};\n");
+    await writeFile(join(repo, ".gitignore"), ".agents/worktrees/\n.agents/handoffs\n.handoffs\n");
+    sh(repo, "add", ".");
+    sh(repo, "commit", "-qm", "init");
+    for (const track of ["docs", "tracks"])
+      expect(mshape(repo, "track", "new", track).code).toBe(0);
+  },
+);
 
 describe("msg", () => {
   test("a message waits unread until the recipient reads it, then is read for the track", async () => {

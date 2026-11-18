@@ -9,7 +9,7 @@ import { mkdir, mkdtemp, readdir, realpath, rm, writeFile } from "node:fs/promis
 import { createServer, type Server } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { Effect } from "effect";
+import * as Effect from "effect/Effect";
 import { liveSessions, removeSessions } from "../../src/adapters/notices.ts";
 
 const CLI = join(import.meta.dir, "..", "..", "src", "cli", "main.ts");

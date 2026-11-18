@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
-import { Effect, Exit } from "effect";
+import * as Effect from "effect/Effect";
+import * as Exit from "effect/Exit";
 import { decodeStrict } from "../../src/helpers/decodeStrict.ts";
 import { resolveConfig, ShapeConfig } from "../../src/schemas/config.ts";
 

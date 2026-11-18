@@ -11,7 +11,7 @@
  */
 import { mkdir, rm, writeFile } from "node:fs/promises";
 import { posix } from "node:path";
-import { Effect } from "effect";
+import * as Effect from "effect/Effect";
 import {
   HANDOFFS_LINK,
   handoffsStore,

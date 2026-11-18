@@ -20,7 +20,7 @@ import {
   writeFile,
 } from "node:fs/promises";
 import { connect } from "node:net";
-import { Effect } from "effect";
+import * as Effect from "effect/Effect";
 import { mshapeCommand } from "../core/hooks.ts";
 import {
   isReviewAddress,

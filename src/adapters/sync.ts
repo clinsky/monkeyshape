@@ -1,7 +1,7 @@
 /** `mshape sync`'s writes: PRIME.md, the PR template and the hooks, as `planSync` decides. */
 import { mkdir, readdir, stat } from "node:fs/promises";
 import { dirname } from "node:path";
-import { Effect } from "effect";
+import * as Effect from "effect/Effect";
 import { PR_TEMPLATE_FILE, PRIME_FILE } from "../core/conventions.ts";
 import { SETTINGS_FILE } from "../core/hooks.ts";
 import { SKILLS_DIR, SKILLS_MANIFEST } from "../core/layout.ts";

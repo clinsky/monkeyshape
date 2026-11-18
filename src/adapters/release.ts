@@ -6,7 +6,7 @@
 import { cp, mkdir, mkdtemp, readdir, rm, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { Effect } from "effect";
+import * as Effect from "effect/Effect";
 import { type PackSource, packVersion, releaseTag, type Tarball } from "../core/release.ts";
 import { WorkspaceError } from "../schemas/errors.ts";
 import { run } from "./process.ts";

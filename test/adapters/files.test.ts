@@ -6,7 +6,7 @@ import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { mkdir, mkdtemp, rm, symlink, truncate, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { Effect } from "effect";
+import * as Effect from "effect/Effect";
 import { loadSizes, loadVendored } from "../../src/adapters/files.ts";
 import { checkFiles } from "../../src/core/files.ts";
 import { config, repo as inMemory } from "../support.ts";

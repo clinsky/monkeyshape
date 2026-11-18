@@ -7,7 +7,7 @@
  * `src/core/mail.ts`.
  */
 import { link, mkdir, readdir, readFile, rename, unlink, writeFile } from "node:fs/promises";
-import { Effect } from "effect";
+import * as Effect from "effect/Effect";
 import {
   handoffsStore,
   mailboxDir,

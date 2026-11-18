@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import { Effect } from "effect";
+import * as Effect from "effect/Effect";
 import { syncAll } from "../../src/adapters/sync.ts";
 import { PR_TEMPLATE_FILE, PRIME_FILE, prTemplate } from "../../src/core/conventions.ts";
 

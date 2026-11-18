@@ -1,9 +1,9 @@
-import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { chmod, mkdir, mkdtemp, realpath, rm, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { describe, expect, test } from "bun:test";
+import { chmod, mkdir, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { prSkeleton } from "../../src/core/conventions.ts";
 import { REVIEW_MARKER } from "../../src/core/trackPr.ts";
+import { useSavedDir } from "./savedDir.ts";
 
 const CLI = join(import.meta.dir, "..", "..", "src", "cli", "main.ts");
 let base = "";
@@ -129,47 +129,51 @@ const body = (narrative: string) =>
 
 const pr = async () => JSON.parse(await Bun.file(`${gh}/pr.json`).text());
 
-beforeEach(async () => {
-  base = await realpath(await mkdtemp(join(tmpdir(), "mshape-trackpr-")));
-  repo = join(base, "repo");
-  bin = join(base, "bin");
-  gh = join(base, "gh");
-  await mkdir(repo);
-  await mkdir(bin);
-  await mkdir(gh);
-  await writeFile(join(base, "gh.js"), FAKE_GH);
-  await writeFile(join(bin, "gh"), `#!/bin/sh\nexec "${process.execPath}" "${base}/gh.js" "$@"\n`);
-  await chmod(join(bin, "gh"), 0o755);
-  sh(base, "init", "-q", "--bare", "-b", "main", "remote.git");
-  sh(repo, "init", "-q", "-b", "main");
-  sh(repo, "config", "user.name", "Test");
-  sh(repo, "config", "user.email", "test@example.com");
-  sh(repo, "config", "commit.gpgsign", "false");
-  // The gate: passes unless the file `red` exists, and prints a summary to stderr.
-  await writeFile(
-    join(repo, "package.json"),
-    JSON.stringify({
-      scripts: {
-        check:
-          'echo gate ran && echo \' 3 pass\' >&2 && { test ! -e red || { echo \'(fail) suite > the red test [0.50ms]\'; exit 1; }; } && { test -z "$NEED" || test -e "$NEED"; } && { test -z "$LATE" || git -C "$LATE" commit -q --allow-empty -m late-unreviewed; }',
-      },
-    }),
-  );
-  await writeFile(join(repo, "shape.config.ts"), "export default {};\n");
-  await writeFile(join(repo, ".gitignore"), ".agents/worktrees/\n.handoffs\nbody.md\nlate\n");
-  sh(repo, "add", ".");
-  sh(repo, "commit", "-qm", "init");
-  sh(repo, "remote", "add", "origin", join(base, "remote.git"));
-  sh(repo, "push", "-q", "-u", "origin", "main");
-  mshape(repo, "new", "docs");
-  await writeFile(`${wt()}/page.md`, "page\n");
-  sh(wt(), "add", ".");
-  sh(wt(), "commit", "-qm", "page");
-});
-
-afterEach(async () => {
-  await rm(base, { recursive: true, force: true });
-});
+useSavedDir(
+  "mshape-trackpr-",
+  (dir) => {
+    base = dir;
+    repo = join(base, "repo");
+    bin = join(base, "bin");
+    gh = join(base, "gh");
+  },
+  async () => {
+    await mkdir(repo);
+    await mkdir(bin);
+    await mkdir(gh);
+    await writeFile(join(base, "gh.js"), FAKE_GH);
+    await writeFile(
+      join(bin, "gh"),
+      `#!/bin/sh\nexec "${process.execPath}" "${base}/gh.js" "$@"\n`,
+    );
+    await chmod(join(bin, "gh"), 0o755);
+    sh(base, "init", "-q", "--bare", "-b", "main", "remote.git");
+    sh(repo, "init", "-q", "-b", "main");
+    sh(repo, "config", "user.name", "Test");
+    sh(repo, "config", "user.email", "test@example.com");
+    sh(repo, "config", "commit.gpgsign", "false");
+    // The gate: passes unless the file `red` exists, and prints a summary to stderr.
+    await writeFile(
+      join(repo, "package.json"),
+      JSON.stringify({
+        scripts: {
+          check:
+            'echo gate ran && echo \' 3 pass\' >&2 && { test ! -e red || { echo \'(fail) suite > the red test [0.50ms]\'; exit 1; }; } && { test -z "$NEED" || test -e "$NEED"; } && { test -z "$LATE" || git -C "$LATE" commit -q --allow-empty -m late-unreviewed; }',
+        },
+      }),
+    );
+    await writeFile(join(repo, "shape.config.ts"), "export default {};\n");
+    await writeFile(join(repo, ".gitignore"), ".agents/worktrees/\n.handoffs\nbody.md\nlate\n");
+    sh(repo, "add", ".");
+    sh(repo, "commit", "-qm", "init");
+    sh(repo, "remote", "add", "origin", join(base, "remote.git"));
+    sh(repo, "push", "-q", "-u", "origin", "main");
+    mshape(repo, "new", "docs");
+    await writeFile(`${wt()}/page.md`, "page\n");
+    sh(wt(), "add", ".");
+    sh(wt(), "commit", "-qm", "page");
+  },
+);
 
 const remoteHas = () =>
   Bun.spawnSync(["git", "rev-parse", "--verify", "--quiet", "refs/heads/track/docs"], {

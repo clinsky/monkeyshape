@@ -6,7 +6,7 @@ import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { chmod, mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import { Effect } from "effect";
+import * as Effect from "effect/Effect";
 import { loadModes, runCommands } from "../../src/adapters/commands.ts";
 import type { DeclaredCommand } from "../../src/schemas/config.ts";
 import { config } from "../support.ts";

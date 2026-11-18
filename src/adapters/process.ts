@@ -1,5 +1,5 @@
 /** Running a command: the one spawn helper every adapter uses. */
-import { Effect } from "effect";
+import * as Effect from "effect/Effect";
 import { WorkspaceError } from "../schemas/errors.ts";
 
 export interface Ran {

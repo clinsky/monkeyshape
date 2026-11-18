@@ -4,7 +4,7 @@ import { mkdtemp, readFile, realpath, rm } from "node:fs/promises";
 import { homedir, tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { Effect } from "effect";
+import * as Effect from "effect/Effect";
 import pkg from "../../package.json" with { type: "json" };
 import {
   BASELINE_FILE,
