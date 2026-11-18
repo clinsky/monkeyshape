@@ -180,7 +180,7 @@ describe("runGate", () => {
     expect(rust.output).toContain("rustup");
     expect(rust.output).not.toContain("bun install");
     const python = await gate(config(["python"], []), { fast: true, path: empty });
-    expect(python.output).toContain("uv sync");
+    expect(python.output).toContain("astral.sh/uv/install.sh");
   });
 
   test("a tool in node_modules/.bin runs through Bun, though its shim would want node", async () => {

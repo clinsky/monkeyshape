@@ -19,28 +19,39 @@ export { CHECK_STAGE };
 export type GatePacks = Readonly<Partial<Record<PackId, Pick<Pack, "stages" | "prerequisites">>>>;
 
 /**
- * Whether a stage's missing program fails it: as the repo's `prerequisites` sets that tool,
- * else as its pack declares it; a program the pack doesn't declare is required.
+ * The prerequisite a stage's program stands for: the one of its name, else the pack's first,
+ * its toolchain (a Rust stage runs `cargo`, which `rustc`'s rustup install brings). `bun` has
+ * none: Bun's own message (`BUN_MISSING`) says how to get it.
+ */
+const prerequisiteOf = (pack: Pick<Pack, "prerequisites">, program: string | undefined) =>
+  program === "bun"
+    ? undefined
+    : (pack.prerequisites.find((one) => one.name === program) ?? pack.prerequisites[0]);
+
+/**
+ * Whether a stage's missing program fails it: as the repo's `prerequisites` sets the tool it
+ * stands for, else as its pack declares that tool; a program with none is required.
  */
 const requiredHere = (
   config: Pick<ResolvedConfig, "prerequisites">,
   program: string | undefined,
   pack: Pick<Pack, "prerequisites">,
 ): boolean => {
-  const prerequisite = pack.prerequisites.find((one) => one.name === program);
+  const prerequisite = prerequisiteOf(pack, program);
   if (prerequisite === undefined) return true;
   const setting = config.prerequisites[prerequisite.name];
   return setting === undefined ? prerequisite.required : setting === "required";
 };
 
-/** How to install a stage's missing program, from its pack's prerequisites. */
+/** How to install a stage's missing program, from the prerequisite it stands for. */
 export const installHint = (
   packs: GatePacks,
   stage: Pick<PlannedStage, "origin" | "run">,
-): string | undefined =>
-  stage.origin === "mshape" || stage.origin === "repo"
-    ? undefined
-    : packs[stage.origin]?.prerequisites.find((one) => one.name === stage.run[0])?.install;
+): string | undefined => {
+  if (stage.origin === "mshape" || stage.origin === "repo") return undefined;
+  const pack = packs[stage.origin];
+  return pack === undefined ? undefined : prerequisiteOf(pack, stage.run[0])?.install;
+};
 
 /** One stage as the gate runs it. */
 export interface PlannedStage {

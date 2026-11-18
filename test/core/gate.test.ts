@@ -41,7 +41,7 @@ describe("gateStages", () => {
       "fast:tsc",
       "fast:biome",
       "fast:ruff-format",
-      "fast:ruff-check",
+      "fast:ruff",
       "fast:ty",
       `fast:${CHECK_STAGE}`,
       "full:bun-test",
@@ -95,11 +95,12 @@ describe("gateStages", () => {
   });
 
   test("any pack's tool can be made optional, not only tsc and biome", () => {
-    const stages = gateStages(config(["rust"], [], { cargo: "optional" }), GATE_PACKS);
+    // Rust's stages run cargo, which stands for the pack's toolchain prerequisite, rustc.
+    const stages = gateStages(config(["rust"], [], { rustc: "optional" }), GATE_PACKS);
     expect(
       stages.filter((stage) => stage.origin === "rust").every((stage) => !stage.required),
     ).toBe(true);
-    // Unset, it is as the pack declares it: cargo is required.
+    // Unset, it is as the pack declares it: rustc is required.
     expect(gateStages(config(["rust"]), GATE_PACKS)[0]?.required).toBe(true);
   });
 

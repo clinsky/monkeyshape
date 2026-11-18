@@ -28,18 +28,10 @@ import { PACKS } from "../../src/packs/index.ts";
 import type { Pack } from "../../src/packs/pack.ts";
 import { typescript } from "../../src/packs/typescript/index.ts";
 import type { ShapeConfig } from "../../src/schemas/config.ts";
+import { pythonCases } from "../packs/python/ruleCases.ts";
+import { rustCases } from "../packs/rust/ruleCases.ts";
 import { config, fakePack, listed, repo } from "../support.ts";
-
-interface Case {
-  readonly files?: Readonly<Record<string, string>>;
-  readonly config?: ShapeConfig;
-  readonly options?: Parameters<typeof repo>[1];
-}
-
-interface Cases {
-  readonly fail: Case;
-  readonly pass: Case;
-}
+import type { Case, Cases } from "./ruleCase.ts";
 
 const lines = (n: number): string =>
   `${Array.from({ length: n }, (_, i) => `line ${i}`).join("\n")}\n`;
@@ -854,6 +846,41 @@ ownHook.hooks.SessionStart.push({
   hooks: [{ type: "command", command: "echo mine" }],
 });
 
+/** A pack delivering one config by `copy` and one by `table`, as python's and rust's will. */
+const DELIVERING: Pack = {
+  ...fakePack("rust", "Rust", "rs"),
+  baseConfigs: [
+    {
+      delivery: "copy",
+      shipped: "config/rust/rustfmt.toml",
+      target: ".mshape/rustfmt.toml",
+      pointer: { file: "rustfmt.toml", key: "extend" },
+    },
+    {
+      delivery: "table",
+      file: "Cargo.toml",
+      tables: ["workspace.lints.rust"],
+      content: () => '[workspace.lints.rust]\nunsafe_code = "forbid"\n',
+    },
+  ],
+};
+const RUSTFMT = "max_width = 100\n";
+const CARGO =
+  '[workspace]\nmembers = ["crates/*"]\n\n[workspace.lints.rust]\nunsafe_code = "forbid"\n';
+
+/** A synced repo listing DELIVERING, its configs as sync writes them unless `files` says. */
+const deliveryCase = (files: Record<string, string | undefined> = {}): Case => {
+  const base = syncCase({ ".mshape/rustfmt.toml": RUSTFMT, "Cargo.toml": CARGO, ...files });
+  return {
+    ...base,
+    options: {
+      ...base.options,
+      packs: [listed(DELIVERING)],
+      shippedConfigs: { "config/rust/rustfmt.toml": RUSTFMT },
+    },
+  };
+};
+
 const syncCases: Record<string, Cases> = {
   "sync/prime-missing": {
     fail: syncCase({ [PRIME_FILE]: undefined }),
@@ -895,6 +922,18 @@ const syncCases: Record<string, Cases> = {
     // On disk but not listed by git: the snapshot has no text for it.
     fail: syncCase({ [SETTINGS_FILE]: undefined }, [SETTINGS_FILE]),
     pass: syncCase(),
+  },
+  "sync/base-missing": {
+    fail: deliveryCase({ ".mshape/rustfmt.toml": undefined }),
+    pass: deliveryCase(),
+  },
+  "sync/base-diverged": {
+    fail: deliveryCase({ "Cargo.toml": CARGO.replace('"forbid"', '"allow"') }),
+    // The same tables, reformatted: compared by value.
+    pass: deliveryCase({
+      "Cargo.toml":
+        '[workspace]\nmembers = [ "crates/*" ]\n[workspace.lints.rust]\nunsafe_code="forbid" # ours\n',
+    }),
   },
   "sync/settings-invalid": {
     fail: syncCase({ [SETTINGS_FILE]: "{ hooks: " }),
@@ -1082,6 +1121,8 @@ const prerequisitesCases: Record<string, Cases> = {
 const CASES: Record<string, Cases> = {
   ...arch,
   ...sourcesCases,
+  ...rustCases,
+  ...pythonCases,
   ...refs,
   ...budgets,
   ...coverage,
