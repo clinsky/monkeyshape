@@ -14,6 +14,7 @@ import {
   toolDir,
   unsupportedPlatform,
 } from "../core/tools.ts";
+import { WorkspaceError } from "../schemas/errors.ts";
 import { runTool } from "./process.ts";
 
 /** A tool ready to run, or why it can't: for the caller's integration outcome. */
@@ -23,6 +24,17 @@ export type ToolOutcome =
 
 const ok = (path: string): ToolOutcome => ({ state: "ok", path });
 const unavailable = (reason: string): ToolOutcome => ({ state: "unavailable", reason });
+
+/** The way out of a cache that can't be written. */
+const WRITABLE =
+  "set XDG_CACHE_HOME to a writable directory, where mshape caches the tools it fetches";
+
+/** A write into the cache: a failure is typed, so `fetchTool` can say what to do about it. */
+const write = <A>(dir: string, run: () => Promise<A>) =>
+  Effect.tryPromise({
+    try: run,
+    catch: (cause) => new WorkspaceError({ operation: "write", path: dir, reason: String(cause) }),
+  });
 
 const exists = (path: string) =>
   stat(path).then(
@@ -47,7 +59,8 @@ const download = async (url: string): Promise<Download> => {
 /**
  * `pin`'s executable for `platform`, from `cache`: the cached copy, else downloaded, checked
  * against the pin's sha256 and unpacked. Never fails: a tool that can't be had is
- * `unavailable` with the reason (offline, a hash mismatch, an unsupported platform), and a
+ * `unavailable` with the reason (offline, a hash mismatch, an unsupported platform, a cache
+ * it can't write), and a
  * download that doesn't match is deleted, never unpacked or run.
  */
 export const fetchTool = (cache: string, pin: ToolPin, platform: Platform) =>
@@ -63,14 +76,14 @@ export const fetchTool = (cache: string, pin: ToolPin, platform: Platform) =>
       );
     const digest = new Bun.CryptoHasher("sha256").update(got.bytes).digest("hex");
     if (digest !== sha256) return unavailable(hashMismatch(pin, url, sha256, digest));
-    const partial = yield* Effect.promise(async () => {
+    const partial = yield* write(dir, async () => {
       await mkdir(dirname(dir), { recursive: true });
       return mkdtemp(`${dir}.partial-`);
     });
     return yield* Effect.gen(function* () {
       const tarball = join(partial, "download.tgz");
       const unpacked = join(partial, "tool");
-      yield* Effect.promise(async () => {
+      yield* write(dir, async () => {
         await Bun.write(tarball, got.bytes);
         await mkdir(unpacked);
       });
@@ -80,16 +93,29 @@ export const fetchTool = (cache: string, pin: ToolPin, platform: Platform) =>
         return unavailable(
           `${pin.name} ${pin.version}'s download matched its pin but didn't unpack to ${pin.executable}: ${untar.stderr.trim() || "no such file"}`,
         );
-      yield* Effect.promise(async () => {
+      yield* write(dir, async () => {
         await chmod(executable, 0o755);
         // Another mshape may have finished first: its copy is the same verified files.
         await rename(unpacked, dir).catch(() => undefined);
       });
       return (yield* Effect.promise(() => exists(path)))
         ? ok(path)
-        : unavailable(`${pin.name} could not be written to ${dir}`);
-    }).pipe(Effect.ensuring(Effect.promise(() => rm(partial, { recursive: true, force: true }))));
-  });
+        : unavailable(`${pin.name} ${pin.version} could not be written to ${dir}: ${WRITABLE}`);
+    }).pipe(
+      Effect.ensuring(
+        Effect.promise(() => rm(partial, { recursive: true, force: true }).catch(() => undefined)),
+      ),
+    );
+  }).pipe(
+    // A cache it can't write is a tool it can't have, never a crash.
+    Effect.catchTag("WorkspaceError", (error) =>
+      Effect.succeed(
+        unavailable(
+          `${pin.name} ${pin.version} could not be written to ${error.path} (${error.reason}): ${WRITABLE}`,
+        ),
+      ),
+    ),
+  );
 
 /** `fetchTool` for the machine `os`-`arch` (`process.platform`, `process.arch`). */
 export const toolFor = (cache: string, pin: ToolPin, os: string, arch: string) => {

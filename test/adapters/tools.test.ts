@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { mkdtemp, readdir, rm } from "node:fs/promises";
+import { chmod, mkdtemp, readdir, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import * as Effect from "effect/Effect";
@@ -121,5 +121,33 @@ describe("fetchTool", () => {
       reason:
         "win32-x64 is not a platform mshape supports: it runs on linux-x64, linux-arm64, darwin-arm64",
     });
+  });
+
+  // Root writes anywhere: the read-only directory below wouldn't stop it.
+  test.skipIf(process.getuid?.() === 0)(
+    "a cache it can't write is unavailable, saying to set XDG_CACHE_HOME, not a crash",
+    async () => {
+      const cache = await cacheDir();
+      await chmod(cache, 0o555);
+      try {
+        const got = await Effect.runPromise(
+          fetchTool(cache, pin("/tool.tgz", sha256(tarball)), "linux-x64"),
+        );
+        expect(got.state).toBe("unavailable");
+        expect(got.state === "unavailable" ? got.reason : "").toContain(
+          "set XDG_CACHE_HOME to a writable directory",
+        );
+      } finally {
+        await chmod(cache, 0o755);
+      }
+    },
+  );
+
+  test("a cache under a path that can't exist is unavailable too", async () => {
+    const got = await Effect.runPromise(
+      fetchTool("/proc/nope", pin("/tool.tgz", sha256(tarball)), "linux-x64"),
+    );
+    expect(got.state).toBe("unavailable");
+    expect(got.state === "unavailable" ? got.reason : "").toContain("set XDG_CACHE_HOME");
   });
 });
