@@ -4,6 +4,7 @@ import {
   applyBaseline,
   count,
   diffPath,
+  initBaseline,
   parseChangedLines,
   tighten,
 } from "../../src/core/ratchet.ts";
@@ -48,6 +49,22 @@ describe("ratchet", () => {
     const skipped = new Set(["refs/bead-in-code"]);
     expect(applyBaseline([], baseline, skipped).loose).toEqual([]);
     expect(tighten(baseline, [], skipped)).toEqual(baseline);
+  });
+
+  test("init rewrites what it counted, and keeps the rules it couldn't evaluate", () => {
+    // A checkout without bd skips refs/bead-in-code: its entries survive, unchanged (#90).
+    const previous = {
+      "refs/bead-in-code": { "a.ts": 2 },
+      "rules/no-throw": { "a.ts": 5, "gone.ts": 1 },
+    };
+    const now = [v("a.ts"), v("b.ts", "budgets/decision-unlinked")];
+    expect(initBaseline(previous, now, new Set(["refs/bead-in-code"]))).toEqual({
+      "refs/bead-in-code": { "a.ts": 2 },
+      "rules/no-throw": { "a.ts": 1 },
+      "budgets/decision-unlinked": { "b.ts": 1 },
+    });
+    // Everything evaluated: init is exactly what it found, as before.
+    expect(initBaseline(previous, now)).toEqual(count(now));
   });
 
   test("tighten only lowers, and never adds new entries", () => {

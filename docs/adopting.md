@@ -230,7 +230,9 @@ adopted:
 - **0.5.0.** The `budgets` check gains `decision-unlinked`: each file a decision's
   `Enforced by` names must cite the decision's slug (`D-<slug>`) in a comment, so whoever edits
   it is told why it must stay. Add the citations (each message names the slug and the file), or
-  grandfather them with `mshape baseline --init` and burn them down. `track pr` now runs the
+  grandfather them with `mshape baseline --init` and burn them down. `--init` recounts every
+  rule from what it finds now, so run it when these are the only failures; it keeps, unchanged,
+  the entries of any rule this checkout can't evaluate (the bead rules, without `bd`). `track pr` now runs the
   gate's fast stages and leaves the tests to CI when the repo's CI runs the gate on every PR;
   otherwise it runs the whole gate locally, as before. A reviewer's address is
   `review-<track>`.

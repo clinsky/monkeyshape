@@ -157,6 +157,25 @@ export const applyBaseline = (
   return { failing, loose, grandfathered };
 };
 
+/**
+ * A fresh baseline: every violation found now, plus the previous entries of each rule this run
+ * couldn't evaluate (its integration was unavailable), kept as they were. Without them, an
+ * `--init` on a checkout missing a tool would silently drop those entries, and they would fail
+ * again wherever the tool runs.
+ */
+export const initBaseline = (
+  previous: Counts,
+  violations: ReadonlyArray<Violation>,
+  unevaluated: ReadonlySet<string> = new Set(),
+): Counts => {
+  const next: Record<string, Record<string, number>> = { ...count(violations) };
+  for (const rule of unevaluated) {
+    const files = previous[rule];
+    if (files !== undefined) next[rule] = { ...files };
+  }
+  return next;
+};
+
 /** Lowers counts to what is found now; never raises one or adds a new entry. */
 export const tighten = (
   baseline: Counts,
