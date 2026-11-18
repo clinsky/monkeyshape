@@ -24,6 +24,7 @@ Goals not yet shipped are listed in the order they would be taken.
 | The agentic layer: spend ledger (core), model-output decoding (per pack) | Later | `monkeyshape-v56` |
 | Effect: guarantees, not style (TypeScript pack) | Later | `monkeyshape-rrn` |
 | Gate hardening | Later: when a failure shows the need | `monkeyshape-nm9` |
+| Dependencies between repos: releases that smoke-test their consumers | Idea: when one repo depends on another | `monkeyshape-a09` |
 | Selectable policy bundles | Idea: when an outside adopter needs it | `monkeyshape-8h4` |
 
 "Shipped" means on `main`; the plans of milestones 1 to 3 are in `notes/`, milestone 4's in
@@ -275,14 +276,17 @@ meta-check that rejects lint excludes other than generated or vendor paths, and 
 any code in the repo outside its pack's language. Each closes a way for red code to reach
 `main`; each is built when a failure shows the need.
 
-### Policy bundles (`monkeyshape-8h4`)
-
-Correctness checks always on; workflow opinions opt-out as a bundle. Built only when an
-outside adopter needs it.
-
-### Dependencies between repos
+### Dependencies between repos (`monkeyshape-a09`)
 
 Repos stay separate: a foundation library serves many applications. Milestone 3 shipped the
 first part for TypeScript, a release tarball with its hash and `mshape dep bump`. Still to
 come, when a consumer needs it: upstream releases that smoke-test their consumers' real
 workflows, and the same for the other packs.
+
+**Why later:** no repo yet depends on another repo that uses monkeyshape; it is built when
+the first such pair does.
+
+### Policy bundles (`monkeyshape-8h4`)
+
+Correctness checks always on; workflow opinions opt-out as a bundle. Built only when an
+outside adopter needs it.
