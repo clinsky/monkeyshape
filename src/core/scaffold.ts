@@ -122,40 +122,65 @@ export const scaffold = (
   toolchain: Toolchain,
   vendored?: VendoredEntry,
   pack = "typescript",
+  pin?: BornPin,
 ): ReadonlyMap<string, string> =>
   new Map([
     ...[...template].map(([path, text]) => {
       const rendered = render(text, name);
       const target = render(targetPath(path), name);
-      return [
-        target,
-        target === CONFIG && vendored !== undefined ? recordVendored(rendered, vendored) : rendered,
-      ] as const;
+      if (target !== CONFIG) return [target, rendered] as const;
+      const pinned = pin === undefined ? rendered : recordPin(rendered, pin);
+      return [target, vendored === undefined ? pinned : recordVendored(pinned, vendored)] as const;
     }),
     ...(pack === "typescript" ? Object.entries(configs(name, toolchain)) : []),
     ...Object.entries(common()),
   ]);
 
-const CONFIG = "shape.config.ts";
+/** The born repo's config, which every pack's template has. */
+export const CONFIG = "shape.toml";
+
+/** The `mshape` a born repo pins: the version it runs, and its release's sums when known. */
+export interface BornPin {
+  readonly version: string;
+  /** The sha256 of the release's `SHA256SUMS`; absent for a build no release verified. */
+  readonly sums?: string | undefined;
+}
+
+/** The `[mshape]` table for `pin`, as init writes it. */
+export const pinTable = (pin: BornPin): string =>
+  [
+    "# The mshape this repo runs: an installed mshape elsewhere fetches and verifies this one.",
+    "[mshape]",
+    `version = ${JSON.stringify(pin.version)}`,
+    ...(pin.sums === undefined ? [] : [`sums = ${JSON.stringify(pin.sums)}`]),
+    "",
+  ].join("\n");
 
 /**
- * A config with `entry` recorded as its one vendored artifact, before the closing `});` of
- * `defineConfig`: how a repo born from a tarball passes the files check on its first gate.
+ * A config with `pin` as its `[mshape]` table, before its first table so it reads near the
+ * top, or at the end of a config with no table.
  */
-export const recordVendored = (config: string, entry: VendoredEntry): string => {
-  const end = config.lastIndexOf("});");
-  // A template without it gets no record; test/integration/init.test.ts asserts it lands.
-  if (end === -1) return config;
-  const block = `  files: {
-    // Release tarballs under vendor/, each with its package name and the sha256 its release
-    // states: the files check verifies them. Move one with \`mshape dep bump\`.
-    vendored: [
-      { path: ${JSON.stringify(entry.path)}, package: ${JSON.stringify(entry.package)}, sha256: ${JSON.stringify(entry.sha256)} },
-    ],
-  },
-`;
-  return `${config.slice(0, end)}${block}${config.slice(end)}`;
+export const recordPin = (config: string, pin: BornPin): string => {
+  // The first table header, with the comment lines directly above it.
+  const at = config.search(/^(?:#[^\n]*\n)*\[/mu);
+  return at === -1
+    ? `${config}${config.endsWith("\n\n") ? "" : "\n"}${pinTable(pin)}`
+    : `${config.slice(0, at)}${pinTable(pin)}\n${config.slice(at)}`;
 };
+
+/**
+ * A config with `entry` recorded as its one vendored artifact, as a `[files]` table at the
+ * end: how a repo born from a tarball passes the files check on its first gate.
+ */
+export const recordVendored = (config: string, entry: VendoredEntry): string =>
+  `${config}${config.endsWith("\n") ? "" : "\n"}
+# Release tarballs under vendor/, each with its package name and the sha256 its release
+# states: the files check verifies them. Move one with \`mshape dep bump\`.
+[files]
+vendored = [
+  { path = ${JSON.stringify(entry.path)}, package = ${JSON.stringify(entry.package)}, sha256 = ${JSON.stringify(entry.sha256)} },
+]
+`;
 
 /**
  * Shares a repo's beads through git origin, run once after the first push: the beads go to

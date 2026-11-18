@@ -49,7 +49,8 @@ export const initFromSource = (
 
 /**
  * Notes init printed that this machine doesn't explain. Without bd (as in CI) bd's is
- * expected; so is the one for a vendored `--from` tarball, and bd's metrics notice, which
+ * expected; so are the ones for a vendored `--from` tarball and for its pin without sums (a
+ * build from source has none), and bd's metrics notice, which
  * depends on the user's own bd config. Anything else, a failed install or format, fails.
  */
 export const unexpectedNotes = (output: string): ReadonlyArray<string> =>
@@ -58,6 +59,7 @@ export const unexpectedNotes = (output: string): ReadonlyArray<string> =>
     .filter((line) => line.startsWith("note:"))
     .filter((line) => HAS_BD || !line.startsWith("note: bd is not on PATH"))
     .filter((line) => !line.startsWith("note: monkeyshape is installed from vendor/"))
+    .filter((line) => !/^note: shape\.toml pins mshape \S+ with no sums/u.test(line))
     .filter((line) => !line.startsWith("note: bd sends anonymous usage metrics"));
 
 /** The fenced code blocks of a doc in this repo, in order. */
