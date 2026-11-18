@@ -5,6 +5,7 @@ import {
   pinTable,
   REPO_NAME,
   recordPin,
+  render,
   SHARE_BEADS,
   scaffold,
   targetPath,
@@ -101,11 +102,13 @@ describe("scaffold", () => {
     expect(pinTable({ version: "1.2.3" })).not.toContain("sums");
   });
 
-  test("every shipped template's shape.toml takes a pin and stays valid TOML", async () => {
+  test("every shipped template's shape.toml, rendered, takes a pin and stays valid TOML", async () => {
     const glob = new Bun.Glob("template/packs/*/shape.toml");
     const found = [];
     for await (const path of glob.scan(".")) {
-      const text = recordPin(await Bun.file(path).text(), { version: "1.2.3" });
+      // As init writes it: {{name}} and {{module}} filled in (a module key may hold one).
+      const rendered = render(await Bun.file(path).text(), "my-app");
+      const text = recordPin(rendered, { version: "1.2.3" });
       expect(Bun.TOML.parse(text)).toMatchObject({ mshape: { version: "1.2.3" } });
       found.push(path);
     }
