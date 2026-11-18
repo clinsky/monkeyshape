@@ -216,26 +216,41 @@ deletes `shape.config.ts`. It changes nothing else.
 
 ### `mshape gate` (owner `config`; consumers `binary`'s text, `track pr`, CI, every pack)
 
-A stage is `{ name, run: argv, fast }`. The gate is: the stages of each pack in `packs`
-order, `mshape check` (always, fast, between the packs' fast and full stages), then
-`[gate].stages`. `--fast` runs the fast ones; `track pr` runs `--fast`, CI runs all. Each
-stage's outcome is one line, as `mshape check`'s are; the first failure doesn't stop the rest.
+A stage is `{ name, run: argv, fast, ok-exit }` (`ok-exit` defaults to `[0]`). The gate runs
+in two phases, so `--fast` has one cut point:
+
+1. **fast:** every pack's fast stages, in `packs` order; then `mshape check`; then the repo's
+   `[gate].stages` marked fast;
+2. **full:** every pack's full stages, in `packs` order; then the repo's other stages.
+
+`--fast` runs phase 1; `track pr` runs `--fast`, CI runs both. Each stage's outcome is one
+line, as `mshape check`'s are; a failure doesn't stop the stages after it.
+
+A pack's defaults are what a born repo's gate runs today, so migrating changes no outcome:
 
 | Pack | Fast | Full |
 |---|---|---|
-| typescript | `tsc --noEmit`, `biome check` | `bun test` |
-| rust | `cargo fmt --check`, `cargo clippy --workspace --all-targets -- -D warnings` | `cargo test --workspace` |
-| python | `uv run ruff format --check`, `uv run ruff check`, `uv run ty check` | `uv run pytest` |
+| typescript | `tsc -p .`, `biome ci --error-on-warnings .` | `bun test --pass-with-no-tests` |
+| rust | `cargo fmt --all --check`, `cargo clippy --workspace --all-targets -- -D warnings` | `cargo test --workspace` (passes with no tests) |
+| python | `uv run ruff format --check`, `uv run ruff check`, `uv run ty check` | `uv run pytest`, `ok-exit = [0, 5]` (5: no tests collected) |
+
+A repo changes a pack stage by naming it in `[gate].stages`: that stage replaces the pack's,
+in the pack's place and phase unless it says `fast`. This repo replaces `typescript`'s test
+stage with `bun test --parallel --timeout=30000` (#93).
 
 | Case | Result |
 |---|---|
 | every stage passes | exit 0 |
 | a fast stage fails | the rest still run; exit 1; the failing stage's output kept in full in a log |
-| `--fast` | full stages are listed as skipped, not run |
-| a stage's program not on PATH | that stage fails, naming the program and its pack |
-| a repo stage named like a pack stage | fails at config load: names are unique |
-| two packs | each pack's stages in `packs` order, then `mshape check` once |
-| a repo whose CI doesn't run the gate | `track pr` runs it whole, as today |
+| `--fast` | phase 2's stages are listed as skipped, not run |
+| a pack stage's program missing | fails if it is a required prerequisite of its pack; a `note:` if optional (the outcome contract) |
+| a repo stage's program missing | fails, naming it: a repo stage is always required |
+| a repo stage with a pack stage's name | replaces it, in the pack stage's place and phase unless it sets `fast` |
+| two repo stages with one name | fails at config load, naming it |
+| a stage exits with a code in its `ok-exit` | passes |
+| a fresh born repo with no tests yet | green in every pack (`--pass-with-no-tests`; cargo passes; pytest's 5 is ok) |
+| `packs = ["typescript", "python"]` | `tsc`, `biome`, `ruff format`, `ruff check`, `ty`, `mshape check`, repo fast stages, then `bun test`, `pytest`, repo full stages |
+| a repo whose CI doesn't run the gate | `track pr` runs both phases, as today |
 
 ### Installing and running `mshape` (owner `binary`; consumers every track, every repo)
 
@@ -263,7 +278,7 @@ first use, verified; `shape.toml` pins only `mshape`. Cases, `binary`'s test:
 |---|---|
 | `curl ... \| sh` on a supported machine | installs, verified; prints the version and the PATH line if needed |
 | the installer's download doesn't match `SHA256SUMS` | refuses, deletes it, installs nothing |
-| the pin equals the installed version | runs itself, no network |
+| the pin equals the installed version | runs itself, no network, once the pin's `sums` equals the hash of the `SHA256SUMS` `install.sh` verified (recorded beside the binary); a different `sums` refuses, naming both |
 | another pinned version, cached and verified | execs it, no network |
 | another pinned version, not cached, online | fetches, verifies, caches, execs |
 | not cached, offline | exit 1 with a note naming the URL; a hook prints it and exits 0 |
@@ -276,8 +291,17 @@ first use, verified; `shape.toml` pins only `mshape`. Cases, `binary`'s test:
 | a track worktree | the same installed `mshape`; the cache is per machine |
 | a TS repo whose npm `monkeyshape` differs from the pin | the `sync` check fails, naming both versions |
 | ast-grep not cached, offline | rules that need it are `unavailable`, required (they are adopter rules) |
+| `mshape` spawns Bun (tsc, biome, `bun install`, a declared `bun` command, `bun pm pack`) | through one helper in `src/adapters/process.ts`: `process.execPath` only when `mshape` itself runs under Bun (`dev`, npm); under the compiled binary, `bun` from the PATH, then `~/.bun/bin/bun` |
+| the compiled binary, no `bun` found, in a TypeScript repo | the TypeScript pack's required prerequisite: its stages and checks fail, naming both places looked |
+| the compiled binary in a Rust or Python repo | never looks for Bun |
+| a bare `process.execPath` spawn anywhere else in `src/adapters/` | this repo's own adopter rule (`shape-rules/`) fails it, so the binary never forks itself |
 
-`D-run-mshape` is rewritten by the PR that switches the hooks, not before.
+A compiled `mshape` is its own `process.execPath`: spawning it to mean Bun (11 call sites
+today, in `workspace`, `commands`, `init`, `dep`, `release` and `trackPr`) runs `mshape`
+again. `binary` owns the helper and moves every call site to it, editing `packs`' files as
+ownership allows; the AGENTS.md gotcha about `[process.execPath, bin]` and
+`test/integration/consumer.test.ts` are rewritten with it. `D-run-mshape` is rewritten by
+the PR that switches the hooks, not before.
 
 ### The pack interface (owner `packs`; consumers `rust`, `python`)
 
@@ -349,17 +373,17 @@ A `copy` base config lives at `.mshape/<file>` (for example `.mshape/ruff.toml`)
 | Track | Serves | Charter | Acceptance |
 |---|---|---|---|
 | `config` | goals 1, 2 | The `shape.toml` loader and shipped schema (first: others build on it); `config migrate` and its table; `mshape gate` and its table; `track pr` and CI on `--fast` and the full gate; the PR template's Gate wording; this repo migrated | The three adopters migrated by the command with the same outcomes; this repo's CI on `mshape gate` |
-| `binary` | goal 3 | The compiled binaries and `SHA256SUMS` in `bun run release`; `install.sh`, the launcher and their table; ast-grep pinned and fetched; hooks and every loop text on `mshape` (`D-run-mshape` rewritten); `sync` replacing changed hooks (`iwf`) | A machine with no Bun installs by `curl \| sh` and runs a born repo's hooks and gate; a tampered download is refused |
+| `binary` | goal 3 | The compiled binaries and `SHA256SUMS` in `bun run release`; `install.sh`, the launcher and their table; ast-grep pinned and fetched; Bun spawned through one helper, never the binary itself; hooks and every loop text on `mshape` (`D-run-mshape` rewritten); `sync` replacing changed hooks (`iwf`) | A machine with no Bun installs by `curl \| sh` and runs a born repo's hooks and gate; a tampered download is refused |
 | `packs` | goals 4, 5 | The interface, drafted with `rust` and frozen; TypeScript refactored into the first pack with no change in outcomes on this repo and the adopters; `arch` over a neutral graph; `refs` over every pack's comments (`sgy`); the ast-grep adopter rules and the three adopters' ports; `init --pack`; the two-pack test | This repo and the adopters: same outcomes as 0.5.0; each ported rule reports what its function did |
 | `rust` | goal 6 | The Rust pack: cargo metadata for sources and the crate graph, clippy and rustfmt, curated workspace lints and their delivery, the template (a Cargo workspace), its gate stages. Starts at once on a draft interface, and reviews it | The Rust repo born green and through its first track |
 | `python` | goal 6 | The Python pack: uv, ruff, ty (pinned), pytest, the import graph, curated ruff and ty rules, the template (a uv project), its stages; the ty corpus. Starts at the freeze | The Python repo born green and through its first track; ty's coverage reported; the interface unchanged |
 
-**Beads** (epic `monkeyshape-8il`; the roadmap's `070` and `gbx` close with it):
-`config`: `8il.1` shape.toml, `8il.2` migrate, `8il.3` gate. `binary`: `8il.4` binaries,
-`8il.5` install and launcher, `8il.6` ast-grep, `8il.7` hooks and text, `iwf`. `packs`: `8il.8` the
-interface, `8il.9` the TypeScript pack, `8il.10` ast-grep rules, `8il.11` the ports,
-`8il.12` `init --pack`, `8il.13` two packs, `sgy`. `rust`: `8il.14`, `8il.15`. `python`:
-`8il.16`, `8il.17`, `8il.18`. The acceptance and 0.6.0: `8il.19`.
+**Beads** (epic `monkeyshape-8il`; the roadmap's `070` and `gbx` close with it): `config`:
+`8il.1` shape.toml, `8il.2` migrate, `8il.3` gate. `binary`: `8il.4` binaries, `8il.5`
+install and launcher, `8il.6` ast-grep, `8il.7` hooks and text, `8il.20` spawning Bun,
+`iwf`. `packs`: `8il.8` the interface, `8il.9` the TypeScript pack, `8il.10` ast-grep rules,
+`8il.11` the ports, `8il.12` `init --pack`, `8il.13` two packs, `sgy`. `rust`: `8il.14`,
+`8il.15`. `python`: `8il.16`, `8il.17`, `8il.18`. The acceptance and 0.6.0: `8il.19`.
 
 **Order:** `config`'s loader first; `packs` and `rust` draft the interface together (by
 message), `packs` freezes it, then `python` starts. `binary` needs nothing until its hooks

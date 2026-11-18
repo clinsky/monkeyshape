@@ -173,8 +173,8 @@ and the gate.
 - **Rust:** `cargo metadata` for sources and the crate graph as module boundaries; clippy and
   rustfmt; curated workspace lints. Cargo has no cross-repo `extends`, so `mshape sync`
   copies the base config in and the `sync` check keeps it equal.
-- **Python:** uv, ruff, ty, pytest; the import graph as module boundaries; curated ruff rules, delivered by `extend` where it reaches or
-  copied by sync where it doesn't.
+- **Python:** uv, ruff, ty, pytest; the import graph as module boundaries; curated ruff and
+  ty rules, delivered by `extend` where it reaches or copied by sync where it doesn't.
 
 **Consumer.** The maintainer's next Rust repo and next Python repo, both born with
 `mshape init` once this ships. Neither starts before.
