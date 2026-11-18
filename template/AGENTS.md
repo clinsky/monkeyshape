@@ -10,6 +10,7 @@ where the two differ.
 
 | Command | What |
 |---|---|
+| Install the toolchain | Once per clone, before the first gate, what your pack's tools need: `bun install --frozen-lockfile` (TypeScript), `uv sync` (Python); Rust's cargo fetches its own |
 | `mshape gate` | The gate: each pack's stages, then this repo's own (`shape.toml`). Green in CI before review; `track pr` runs `mshape gate --fast` before each push. |
 | `mshape check` | monkeyshape's checks alone, which the gate runs too |
 | `bd ready` | Work that is ready to pick up |
