@@ -222,6 +222,30 @@ describe("gateChecks: the checks CI's gate makes on a PR", () => {
   });
 });
 
+describe("the template's CI", () => {
+  const TEMPLATE = join(import.meta.dir, "..", "..", "template");
+  const read = (path: string) => Bun.file(join(TEMPLATE, path)).text();
+
+  test("runs the whole gate with an installed mshape, so track pr runs only the fast phase there", async () => {
+    for (const path of [".github/workflows/ci.yml", "packs/typescript/.github/workflows/ci.yml"]) {
+      const workflow = await read(path);
+      expect(workflowRunsGate(workflow)).toBe(true);
+      expect(gateChecks([workflow])).toEqual(["check"]);
+      expect(workflow).toContain("install.sh | MSHAPE_VERSION=");
+    }
+  });
+
+  test("the common layer needs no Bun; only the TypeScript layer sets it up, for its tools", async () => {
+    for (const path of [".github/workflows/ci.yml", ".github/workflows/pr.yml"]) {
+      const workflow = await read(path);
+      expect(workflow).not.toMatch(/\bbun\b|setup-bun/);
+      expect(workflow).toContain("$HOME/.local/bin");
+    }
+    expect(await read("packs/typescript/.github/workflows/ci.yml")).toContain("oven-sh/setup-bun");
+    expect(await read(".github/workflows/pr.yml")).toContain("| mshape track pr --check-body");
+  });
+});
+
 describe("gatePlan and the CI line", () => {
   const ci =
     "on:\n  push:\n    branches: [main]\n  pull_request:\njobs:\n  check:\n    steps:\n      - run: bun run --silent mshape gate\n";

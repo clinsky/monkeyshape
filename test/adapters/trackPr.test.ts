@@ -1162,12 +1162,19 @@ describe("track pr: the denylist", () => {
 });
 
 describe("pr.yml", () => {
-  test("a born repo's copy is this repo's, except that it reads bun's version from package.json", async () => {
+  test("a born repo's copy checks the same PRs the same way; only how it reaches mshape differs", async () => {
     const root = join(import.meta.dir, "..", "..");
     const here = await Bun.file(join(root, ".github/workflows/pr.yml")).text();
     const born = await Bun.file(join(root, "template/.github/workflows/pr.yml")).text();
-    expect(born).toBe(here.replace(/bun-version: .+/, "bun-version-file: package.json"));
-    expect(here).toContain("bun run --silent mshape track pr --check-body");
+    // Up to the job's steps: the trigger, its event types, and the track-only condition.
+    const head = (text: string) => text.slice(0, text.indexOf("    steps:"));
+    expect(head(born)).toBe(head(here));
     expect(here).toContain("if: startsWith(github.head_ref, 'track/')");
+    // The body goes through the environment, never interpolated into the script.
+    for (const text of [here, born])
+      expect(text).toContain(`BODY: $${"{{"} github.event.pull_request.body }}`);
+    // This repo runs mshape from source; a born repo, installed at its pin.
+    expect(here).toContain("bun run --silent mshape track pr --check-body");
+    expect(born).toContain("| mshape track pr --check-body");
   });
 });
