@@ -6,7 +6,7 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { mkdtemp, readdir, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import * as Effect from "effect/Effect";
 import { compileBinaries, packSource } from "../../src/adapters/release.ts";
 import { BINARY_TARGETS, packVersion } from "../../src/core/release.ts";
@@ -21,12 +21,12 @@ let binary = "";
 let sums = "";
 let version = "";
 
-/** The binary with a PATH holding neither Bun nor this checkout's tools. */
-const run = (cwd: string, args: ReadonlyArray<string>) => {
+/** The binary with a PATH holding neither Bun nor this checkout's tools, unless `path` adds one. */
+const run = (cwd: string, args: ReadonlyArray<string>, path: ReadonlyArray<string> = []) => {
   const ran = Bun.spawnSync([binary, ...args], {
     cwd,
     env: {
-      PATH: "/usr/bin:/bin",
+      PATH: [...path, "/usr/bin", "/bin"].join(":"),
       HOME: join(work, "home"),
       CLAUDE_CODE_SESSION_ID: "",
       CLAUDE_PID: "",
@@ -92,5 +92,17 @@ describe.skipIf(host === undefined)("the compiled mshape, with no Bun", () => {
     const checked = run(ROOT, ["check", "--only", "arch"]);
     expect(checked.out).toMatch(/\barch +passed\b/);
     expect(checked.code).toBe(0);
+  });
+
+  test("runs a TypeScript repo's tsc and biome with the Bun on the PATH, not itself", () => {
+    const checked = run(ROOT, ["check", "--only", "coverage"], [dirname(process.execPath)]);
+    expect(checked.out).toMatch(/\bcoverage +passed\b/);
+    expect(checked.code).toBe(0);
+  });
+
+  test("with no Bun on the PATH or in ~/.bun, a TypeScript repo's tools fail, naming both", () => {
+    const checked = run(ROOT, ["check", "--only", "coverage"]);
+    expect(checked.out).toContain("bun is not on PATH or at ~/.bun/bin/bun");
+    expect(checked.code).not.toBe(0);
   });
 });

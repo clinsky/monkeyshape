@@ -44,7 +44,9 @@ where the two differ.
 - Biome base config lives in `config/` and is consumed through `extends`; a rule turned on
   there lands in every adopter on their next bump, so it must already pass here.
 - `node_modules/.bin/*` shims start with `#!/usr/bin/env node`, and adopters may have only
-  Bun: run tools as `[process.execPath, bin]`. Guarded by `test/integration/consumer.test.ts`.
+  Bun: run tools as `[bunPath(), bin]` (`src/adapters/process.ts`), never `process.execPath`,
+  which in the compiled `mshape` is `mshape` itself. Guarded by `consumer.test.ts` and
+  `binary.test.ts` in `test/integration/`.
 - Every check reports through the outcome contract (`src/core/model.ts`): passed, failed,
   not-applicable, unavailable, exempt. A tool that can't run is a `note:` only when its
   prerequisite is optional; `tsc` and `biome` are required, so their absence fails.

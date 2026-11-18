@@ -4,7 +4,7 @@ import * as Effect from "effect/Effect";
 import { commandArgv, commandFiles } from "../core/coverage.ts";
 import type { CommandRun, FileMode } from "../core/model.ts";
 import type { DeclaredCommand, ResolvedConfig } from "../schemas/config.ts";
-import { run, runTool } from "./process.ts";
+import { BUN_MISSING, bunPath, run, runTool } from "./process.ts";
 
 const GIT_MODES: Readonly<Record<string, FileMode>> = {
   "100755": "executable",
@@ -101,12 +101,16 @@ const missingInterpreter = (path: string, shown: string) =>
 
 /**
  * The argv to spawn, or why the program isn't here. A path is the repo's own; a package bin
- * runs through the current bun, since its shim may start with `#!/usr/bin/env node`.
+ * runs through Bun (`bunPath`), since its shim may start with `#!/usr/bin/env node`.
  */
 const resolveProgram = (root: string, argv: ReadonlyArray<string>) =>
   Effect.gen(function* () {
     const [program = "", ...rest] = argv;
-    if (program === "bun") return { argv: [process.execPath, ...rest] } as const;
+    const bun = bunPath();
+    if (program === "bun")
+      return bun === undefined
+        ? ({ missing: BUN_MISSING } as const)
+        : ({ argv: [bun, ...rest] } as const);
     if (program.includes("/")) {
       const path = program.startsWith("/") ? program : `${root}/${program}`;
       if (!(yield* exists(path))) return { missing: `\`${program}\` does not exist` } as const;
@@ -121,7 +125,10 @@ const resolveProgram = (root: string, argv: ReadonlyArray<string>) =>
         return { missing: `\`${target}\` is not on PATH` } as const;
     }
     const bin = `${root}/node_modules/.bin/${program}`;
-    if (yield* exists(bin)) return { argv: [process.execPath, bin, ...rest] } as const;
+    if (yield* exists(bin))
+      return bun === undefined
+        ? ({ missing: BUN_MISSING } as const)
+        : ({ argv: [bun, bin, ...rest] } as const);
     return Bun.which(program) === null
       ? ({ missing: `\`${program}\` is not on PATH` } as const)
       : ({ argv: [program, ...rest] } as const);

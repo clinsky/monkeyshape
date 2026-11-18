@@ -5,7 +5,7 @@
  */
 import { cp, mkdir, mkdtemp, readdir, rm, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import * as Effect from "effect/Effect";
 import {
   BINARY_TARGETS,
@@ -24,7 +24,7 @@ import {
   type Tarball,
 } from "../core/release.ts";
 import { WorkspaceError } from "../schemas/errors.ts";
-import { run } from "./process.ts";
+import { bunPath, run } from "./process.ts";
 
 const fail = (operation: string, path: string, reason: string) =>
   new WorkspaceError({ operation, path, reason });
@@ -56,9 +56,12 @@ const readPackage = (dir: string) =>
     catch: (cause) => fail("read", join(dir, "package.json"), String(cause)),
   });
 
+/** The Bun running the release (`bunPath`): `bun run release` always runs under one. */
+const bun = () => bunPath() ?? "bun";
+
 /** `bun pm pack` in `dir`; the tarball's path. */
 const bunPack = (dir: string, destination: string) =>
-  must(dir, [process.execPath, "pm", "pack", "--destination", destination, "--quiet"]).pipe(
+  must(dir, [bun(), "pm", "pack", "--destination", destination, "--quiet"]).pipe(
     Effect.map((out) => join(destination, out.split("\n").at(-1)?.split("/").at(-1) ?? "")),
   );
 
@@ -161,7 +164,7 @@ export const releaseCommit = (repo: string, commit: string, version: string, des
   inCommitTree(repo, commit, (tree) =>
     Effect.gen(function* () {
       const tarball = yield* bunPack(tree, destination);
-      yield* must(tree, [process.execPath, "install", "--frozen-lockfile", "--silent"]);
+      yield* must(tree, [bun(), "install", "--frozen-lockfile", "--silent"]);
       return [tarball, ...(yield* compileBinaries(tree, destination, version))];
     }),
   );
@@ -313,7 +316,13 @@ const compile = (
           `${unloadable} no longer has the loader the binary replaces: ${OXC_LOADER}`,
         );
     },
-    catch: (cause) => fail(`compile for ${target.platform}`, entry, String(cause)),
+    catch: (cause) =>
+      fail(
+        `compile for ${target.platform}`,
+        entry,
+        // A failed bundle throws every message it has, together.
+        cause instanceof AggregateError ? cause.errors.map(String).join("\n") : String(cause),
+      ),
   });
 
 /**
@@ -322,12 +331,13 @@ const compile = (
  * Returns the paths written, `SHA256SUMS` last.
  */
 export const compileBinaries = (
-  repo: string,
+  repoPath: string,
   destination: string,
   version: string,
   targets: ReadonlyArray<BinaryTarget> = BINARY_TARGETS,
 ) =>
   Effect.gen(function* () {
+    const repo = resolve(repoPath);
     // Inside the repo, at a fixed path: the bundle names its modules by their path from the
     // directory holding them all, so a build of one commit doesn't depend on where it ran.
     const stage = join(repo, ".release", "binary");

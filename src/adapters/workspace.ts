@@ -19,7 +19,7 @@ import { CHECK_NAMES, type CheckName, type ResolvedConfig } from "../schemas/con
 import { WorkspaceError } from "../schemas/errors.ts";
 import { loadModes, runCommands } from "./commands.ts";
 import { loadSizes, loadVendored } from "./files.ts";
-import { run, runTool } from "./process.ts";
+import { BUN_MISSING, bunPath, run, runTool } from "./process.ts";
 import { loadSkills } from "./skills.ts";
 
 export const readText = (root: string, path: string) =>
@@ -243,7 +243,10 @@ export const installDependencies = (dir: string) =>
     const locked = (yield* exists(dir, "bun.lock")) || (yield* exists(dir, "bun.lockb"));
     const args = ["install", ...(locked ? ["--frozen-lockfile"] : [])];
     const shown = `\`bun ${args.join(" ")}\``;
-    const result = yield* runTool(dir, [process.execPath, ...args]);
+    const bun = bunPath();
+    if (bun === undefined)
+      return `note: ${shown} not run in ${dir}: ${BUN_MISSING}. Until then \`mshape check\` uses the main checkout's tsc and biome`;
+    const result = yield* runTool(dir, [bun, ...args]);
     if (result.code === 0) return `ran ${shown} in ${dir}`;
     // bun prints its version first: the error line says why, else the last line does.
     const lines = `${result.stdout}\n${result.stderr}`
@@ -267,16 +270,18 @@ const mainOf = (root: string) =>
 /**
  * A tool installed in the repo, as a command: the worktree's own install, else the main
  * checkout's, so a track worktree nobody ran `bun install` in still has tsc and biome. Run
- * through the current bun: the bin shims start with `#!/usr/bin/env node`, and a Bun-only
- * machine has no node.
+ * through Bun (`bunPath`): the bin shims start with `#!/usr/bin/env node`, and a Bun-only
+ * machine has no node. A string says why it can't run: `pkg` isn't installed, or no Bun.
  */
-const localBin = (root: string, name: string) =>
+const localBin = (root: string, name: string, pkg: string) =>
   Effect.gen(function* () {
     const main = yield* mainOf(root);
     for (const dir of main === undefined || main === root ? [root] : [root, main])
-      if (yield* exists(dir, `node_modules/.bin/${name}`))
-        return [process.execPath, `${dir}/node_modules/.bin/${name}`];
-    return undefined;
+      if (yield* exists(dir, `node_modules/.bin/${name}`)) {
+        const bun = bunPath();
+        return bun === undefined ? BUN_MISSING : [bun, `${dir}/node_modules/.bin/${name}`];
+      }
+    return `${pkg} is not installed`;
   });
 
 /**
@@ -316,10 +321,10 @@ const referencesOf = (root: string, tsconfig: string) =>
  */
 const typechecked = (root: string, realRoot: string, tsconfigs: ReadonlyArray<string>) =>
   Effect.gen(function* () {
-    const tsc = yield* localBin(root, "tsc");
-    if (tsc === undefined)
+    const tsc = yield* localBin(root, "tsc", "typescript");
+    if (typeof tsc === "string")
       return {
-        integration: { state: "unavailable", reason: "typescript is not installed" },
+        integration: { state: "unavailable", reason: tsc },
         value: undefined,
       } satisfies Loaded<ReadonlySet<string>>;
     const files = new Set<string>();
@@ -343,10 +348,10 @@ const typechecked = (root: string, realRoot: string, tsconfigs: ReadonlyArray<st
 /** The files biome processes, from its verbose report, with `extends` and ignores resolved. */
 const linted = (root: string) =>
   Effect.gen(function* () {
-    const biome = yield* localBin(root, "biome");
-    if (biome === undefined)
+    const biome = yield* localBin(root, "biome", "@biomejs/biome");
+    if (typeof biome === "string")
       return {
-        integration: { state: "unavailable", reason: "@biomejs/biome is not installed" },
+        integration: { state: "unavailable", reason: biome },
         value: undefined,
       } satisfies Loaded<ReadonlySet<string>>;
     const result = yield* runTool(root, [

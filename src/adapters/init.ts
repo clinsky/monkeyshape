@@ -8,7 +8,7 @@ import { HANDOFFS_LINK, handoffsLink, handoffsStore } from "../core/layout.ts";
 import { scaffold, type Toolchain } from "../core/scaffold.ts";
 import { resolveConfig } from "../schemas/config.ts";
 import { WorkspaceError } from "../schemas/errors.ts";
-import { runTool } from "./process.ts";
+import { BUN_MISSING, bunPath, runTool } from "./process.ts";
 import { fileDigest } from "./release.ts";
 import { installSkills, readTree } from "./skills.ts";
 
@@ -204,25 +204,21 @@ export const initRepo = (
     const metrics = yield* metricsNote(target);
     if (metrics !== undefined) notes.push(metrics);
 
-    // The current bun, not `bun` from PATH: it is the one running mshape, so it exists.
-    const install = yield* run(target, [process.execPath, "install"]);
-    if (install.code === 0) {
+    // The bun running mshape where there is one, so it exists (`bunPath`).
+    const bun = bunPath();
+    const install =
+      bun === undefined ? { code: 1, output: BUN_MISSING } : yield* run(target, [bun, "install"]);
+    if (bun !== undefined && install.code === 0) {
       done.push("bun install");
       // The installed package's own sync: skills, PRIME.md and hooks then match the version
       // the repo depends on, even when this mshape is another one.
-      const synced = yield* run(target, [process.execPath, "node_modules/.bin/mshape", "sync"]);
+      const synced = yield* run(target, [bun, "node_modules/.bin/mshape", "sync"]);
       if (synced.code !== 0)
         notes.push(
           `the installed monkeyshape's sync failed, so the first gate may fail; run \`bun run --silent mshape sync\`:\n  ${tail(synced.output)}`,
         );
       // The generated JSON is laid out by JSON.stringify; the repo's own biome has the last word.
-      const format = yield* run(target, [
-        process.execPath,
-        "node_modules/.bin/biome",
-        "format",
-        "--write",
-        ".",
-      ]);
+      const format = yield* run(target, [bun, "node_modules/.bin/biome", "format", "--write", "."]);
       if (format.code !== 0)
         notes.push(`biome format failed; run \`bun run fix\`:\n  ${tail(format.output)}`);
     } else
