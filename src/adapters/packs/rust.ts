@@ -51,7 +51,7 @@ export const loadRust = (input: {
     if (cargo === null)
       return unloaded({
         state: "unavailable",
-        reason: "cargo is not on the PATH: install Rust with rustup (https://rustup.rs)",
+        reason: "cargo is not on the PATH",
       });
     const ran = yield* runTool(input.root, [
       cargo,
