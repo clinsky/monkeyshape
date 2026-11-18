@@ -75,16 +75,45 @@ const configs = (name: string, toolchain: Toolchain): Record<string, string> => 
     extends: ["monkeyshape/biome"],
     files: { includes: ["src/**", "test/**", "*.json", "*.ts"] },
   }),
+});
+
+/** What every pack's repo gets generated: the hooks and the PR template. */
+const common = (): Record<string, string> => ({
   [SETTINGS_FILE]: renderSettings(HOOKS),
   [PR_TEMPLATE_FILE]: prTemplate(),
 });
 
-/** Every file of the new repo, by repo-relative path. Generated configs win over the template. */
+/** Where each pack's own template files live, laid over the rest of `template/`. */
+export const PACKS_DIR = "packs";
+
+/**
+ * The template for one pack: every file of `template/` outside `packs/`, then the pack's own
+ * under `packs/<pack>/`, which wins a path both have. Undefined when the package has no
+ * template for that pack.
+ */
+export const templateFor = (
+  tree: ReadonlyMap<string, string>,
+  pack: string,
+): ReadonlyMap<string, string> | undefined => {
+  const prefix = `${PACKS_DIR}/${pack}/`;
+  const own = [...tree].filter(([path]) => path.startsWith(prefix));
+  if (own.length === 0) return undefined;
+  return new Map([
+    ...[...tree].filter(([path]) => !path.startsWith(`${PACKS_DIR}/`)),
+    ...own.map(([path, text]) => [path.slice(prefix.length), text] as const),
+  ]);
+};
+
+/**
+ * Every file of the new repo, by repo-relative path, from `template` (already `templateFor`
+ * the pack). TypeScript's JSON configs are generated, and win over the template.
+ */
 export const scaffold = (
   name: string,
   template: ReadonlyMap<string, string>,
   toolchain: Toolchain,
   vendored?: VendoredEntry,
+  pack = "typescript",
 ): ReadonlyMap<string, string> =>
   new Map([
     ...[...template].map(([path, text]) => {
@@ -95,7 +124,8 @@ export const scaffold = (
         target === CONFIG && vendored !== undefined ? recordVendored(rendered, vendored) : rendered,
       ] as const;
     }),
-    ...Object.entries(configs(name, toolchain)),
+    ...(pack === "typescript" ? Object.entries(configs(name, toolchain)) : []),
+    ...Object.entries(common()),
   ]);
 
 const CONFIG = "shape.config.ts";

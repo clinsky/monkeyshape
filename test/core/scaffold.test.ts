@@ -1,5 +1,12 @@
 import { describe, expect, test } from "bun:test";
-import { nextStep, REPO_NAME, SHARE_BEADS, scaffold, targetPath } from "../../src/core/scaffold.ts";
+import {
+  nextStep,
+  REPO_NAME,
+  SHARE_BEADS,
+  scaffold,
+  targetPath,
+  templateFor,
+} from "../../src/core/scaffold.ts";
 
 const toolchain = {
   bun: "1.4.2",
@@ -71,5 +78,56 @@ describe("scaffold", () => {
     // Then the beads, so a second clone can bootstrap them; printed, since it publishes them.
     expect(text).toContain(SHARE_BEADS);
     expect(text.indexOf("gh repo create")).toBeLessThan(text.indexOf(SHARE_BEADS));
+  });
+});
+
+describe("a pack's template over the common one", () => {
+  const tree = new Map([
+    ["AGENTS.md", "# {{name}}\n"],
+    ["gitignore", "node_modules\n"],
+    ["packs/typescript/bunfig", "[test]\n"],
+    ["packs/typescript/AGENTS.md", "# {{name}}, in TypeScript\n"],
+    ["packs/rust/Cargo.toml", "[workspace]\n"],
+  ]);
+
+  test("the pack's files are laid over the rest, winning a path both have; other packs' are left out", () => {
+    expect(templateFor(tree, "rust")).toEqual(
+      new Map([
+        ["AGENTS.md", "# {{name}}\n"],
+        ["gitignore", "node_modules\n"],
+        ["Cargo.toml", "[workspace]\n"],
+      ]),
+    );
+    expect(templateFor(tree, "typescript")?.get("AGENTS.md")).toBe("# {{name}}, in TypeScript\n");
+    expect(templateFor(tree, "python")).toBeUndefined();
+  });
+
+  test("only a TypeScript repo gets package.json, tsconfig and biome; every repo gets the hooks and PR template", () => {
+    const toolchain = {
+      bun: "1",
+      monkeyshape: "1",
+      effect: "1",
+      biome: "1",
+      typescript: "1",
+      typesBun: "1",
+    };
+    const rust = scaffold(
+      "app",
+      templateFor(tree, "rust") ?? new Map(),
+      toolchain,
+      undefined,
+      "rust",
+    );
+    expect([...rust.keys()].sort()).toEqual([
+      ".claude/settings.json",
+      ".github/pull_request_template.md",
+      ".gitignore",
+      "AGENTS.md",
+      "Cargo.toml",
+    ]);
+    const ts = scaffold("app", templateFor(tree, "typescript") ?? new Map(), toolchain);
+    expect([...ts.keys()]).toContain("package.json");
+    expect([...ts.keys()]).toContain("bunfig.toml");
+    expect(ts.get("AGENTS.md")).toBe("# app, in TypeScript\n");
   });
 });
