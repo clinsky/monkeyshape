@@ -13,6 +13,12 @@ exempt = [
   { path = "template/**", reason = "scaffold data that `mshape init` copies; each born repo's own gate checks it" },
 ]
 
+# The same for a pack this repo doesn't list: sources.exempt covers only its own packs' files.
+[coverage]
+exempt-files = [
+  { path = "template/packs/rust/**", reason = "the Rust template `mshape init --pack rust` copies; each born repo's own gate checks it" },
+]
+
 [arch.modules.schemas]
 description = "Config schema and tagged errors: pure data contracts."
 
