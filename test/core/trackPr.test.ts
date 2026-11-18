@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { join } from "node:path";
 import { prSkeleton } from "../../src/core/conventions.ts";
 import {
   behindWarning,
@@ -7,6 +8,7 @@ import {
   ciLine,
   ciState,
   GATE_TAIL_LINES,
+  gateChecks,
   gatedCommit,
   gatePlan,
   gatePlanCommand,
@@ -164,6 +166,40 @@ describe("--body-only, behind, CI", () => {
     const rerun = { id: 5, name: "body", status: "completed", conclusion: "failure" };
     const state = ciState([old, rerun], new Set([1]));
     expect(state.kind === "done" && state.failed).toEqual(["body (failure)"]);
+  });
+});
+
+describe("gateChecks: the checks CI's gate makes on a PR", () => {
+  test("this repo's workflows: ci's check job, and not pr's body or the binary jobs", async () => {
+    const dir = join(import.meta.dir, "..", "..", ".github", "workflows");
+    const texts = await Promise.all(
+      ["ci.yml", "pr.yml"].map((file) => Bun.file(join(dir, file)).text()),
+    );
+    expect(gateChecks(texts)).toEqual(["check"]);
+  });
+
+  test("a job's name wins over its key; a workflow that doesn't run the gate on PRs adds none", () => {
+    const named =
+      'on: [pull_request]\njobs:\n  gate:\n    name: "The gate"\n    steps:\n      - run: mshape gate\n  other:\n    steps:\n      - run: echo\n';
+    expect(gateChecks([named])).toEqual(["The gate"]);
+    expect(gateChecks([named.replace("[pull_request]", "[push]")])).toEqual([]);
+  });
+
+  test("ciState waits for an expected check with no run yet, matching a matrix job's runs too (#105's real run)", () => {
+    const body = { id: 1, name: "body", status: "completed", conclusion: "success" };
+    expect(ciState([body], new Set(), ["check"])).toEqual({
+      kind: "running",
+      pending: ["check (not started)"],
+    });
+    const check = { id: 2, name: "check", status: "completed", conclusion: "success" };
+    expect(ciState([body, check], new Set(), ["check"]).kind).toBe("done");
+    const matrix = {
+      id: 3,
+      name: "e2e (ubuntu-latest)",
+      status: "completed",
+      conclusion: "success",
+    };
+    expect(ciState([body, matrix], new Set(), ["e2e"]).kind).toBe("done");
   });
 });
 

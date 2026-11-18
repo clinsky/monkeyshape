@@ -130,6 +130,34 @@ export const workflowRunsGate = (workflow: string): boolean => {
   return everyPr(block.join("\n"));
 };
 
+/**
+ * The checks CI's gate makes on a PR's head: in each workflow that runs the gate on every PR,
+ * the jobs whose steps run it, each by its `name:` if it has one, else its key. A matrix job's
+ * runs are named `<name> (<values>)`; `ciState` matches either.
+ */
+export const gateChecks = (workflows: ReadonlyArray<string>): ReadonlyArray<string> =>
+  workflows.filter(workflowRunsGate).flatMap((workflow) => {
+    const lines = uncommented(workflow).split("\n");
+    const at = lines.findIndex((line) => /^jobs\s*:\s*$/.test(line));
+    if (at === -1) return [];
+    const jobs: Array<{ key: string; lines: Array<string> }> = [];
+    for (const line of lines.slice(at + 1)) {
+      if (line.trim() === "") continue;
+      if (!/^\s/.test(line)) break;
+      const key = /^ {2}([\w-]+)\s*:\s*$/.exec(line)?.[1];
+      if (key !== undefined) jobs.push({ key, lines: [] });
+      else jobs.at(-1)?.lines.push(line);
+    }
+    return jobs
+      .filter((job) => runsGate.test(job.lines.join("\n")))
+      .map((job) => {
+        const named = job.lines
+          .map((line) => /^ {4}name\s*:\s*(.+?)\s*$/.exec(line)?.[1])
+          .find((name) => name !== undefined);
+        return named === undefined ? job.key : named.replace(/^["']|["']$/g, "");
+      });
+  });
+
 export const gatePlan = (
   /** The text of each workflow under `.github/workflows`. */
   workflows: ReadonlyArray<string>,
@@ -373,11 +401,15 @@ export interface CheckRun {
 /**
  * Where CI is on a commit, judged by the latest run of each check. `before` holds the runs
  * that existed before this post: until a run not among them appears, CI hasn't answered this
- * post yet (a body edit reruns a workflow on the same commit, and its old runs are done).
+ * post yet (a body edit reruns a workflow on the same commit, and its old runs are done). And
+ * until each `expected` check has a run, CI is still running: Actions can create one workflow's
+ * runs minutes after another's, and a green `body` alone isn't a green gate (#105's real run).
  */
 export const ciState = (
   runs: ReadonlyArray<CheckRun>,
   before: ReadonlySet<number> = new Set(),
+  /** Checks CI's gate makes (`gateChecks`): until each has a run, CI hasn't answered. */
+  expected: ReadonlyArray<string> = [],
 ):
   | { readonly kind: "none" }
   | { readonly kind: "running"; readonly pending: ReadonlyArray<string> }
@@ -389,6 +421,11 @@ export const ciState = (
       readonly runs: ReadonlyArray<CheckRun>;
     } => {
   if (!runs.some((run) => !before.has(run.id))) return { kind: "none" };
+  const of = (name: string) => (run: CheckRun) =>
+    run.name === name || run.name.startsWith(`${name} (`);
+  const unstarted = expected.filter((name) => !runs.some(of(name)));
+  if (unstarted.length > 0)
+    return { kind: "running", pending: unstarted.map((name) => `${name} (not started)`) };
   const latest = new Map<string, CheckRun>();
   for (const run of runs) if ((latest.get(run.name)?.id ?? -1) < run.id) latest.set(run.name, run);
   const current = [...latest.values()].sort((a, b) => a.name.localeCompare(b.name));
