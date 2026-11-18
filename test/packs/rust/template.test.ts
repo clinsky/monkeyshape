@@ -117,15 +117,12 @@ describe.skipIf(!toolchain)("mshape init --pack rust, then its gate without Bun"
     expect(tracked).toContain("Cargo.toml");
   });
 
-  test("cargo's stages pass, and the checks the template answers for", async () => {
+  // 8il.15's acceptance: the born repo is green on its first gate, with no Bun anywhere.
+  test("the whole gate passes on the first run: cargo's stages and mshape check", async () => {
     const gate = await mshape(["gate"]);
-    for (const stage of ["cargo-fmt", "clippy", "cargo-test"])
+    for (const stage of ["cargo-fmt", "clippy", "mshape-check", "cargo-test"])
       expect(gate.output).toMatch(new RegExp(`\\n\\s+${stage}\\s+passed`));
-    const check = await mshape([
-      "check",
-      "--only",
-      "arch,sources,coverage,rules,budgets,packs,sync,skills",
-    ]);
-    expect(check.output).toContain("mshape check passed");
+    expect(gate.output).toContain("mshape gate passed");
+    expect(gate.code).toBe(0);
   }, 300_000);
 });
