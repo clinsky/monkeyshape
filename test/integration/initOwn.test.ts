@@ -67,7 +67,7 @@ describe("mshape init, a repo per case", () => {
     const digest = new Bun.CryptoHasher("sha256")
       .update(await Bun.file(next).bytes())
       .digest("hex");
-    const before = await Bun.file(join(repo, "shape.config.ts")).text();
+    const before = await Bun.file(join(repo, "shape.toml")).text();
 
     const wrong = await run(repo, [
       process.execPath,
@@ -81,7 +81,7 @@ describe("mshape init, a repo per case", () => {
     ]);
     expect(wrong.output).toContain("not that release");
     expect(wrong.code).toBe(1);
-    expect(await Bun.file(join(repo, "shape.config.ts")).text()).toBe(before);
+    expect(await Bun.file(join(repo, "shape.toml")).text()).toBe(before);
     expect((await run(repo, ["git", "status", "--porcelain"])).output.trim()).toBe("");
 
     const right = await run(repo, [
@@ -98,7 +98,7 @@ describe("mshape init, a repo per case", () => {
     expect(right.code).toBe(0);
     const pkg = await Bun.file(join(repo, "package.json")).json();
     expect(pkg.devDependencies.monkeyshape).toBe("file:./vendor/monkeyshape-next.tgz");
-    expect(await Bun.file(join(repo, "shape.config.ts")).text()).toContain(
+    expect(await Bun.file(join(repo, "shape.toml")).text()).toContain(
       '"vendor/monkeyshape-next.tgz"',
     );
     expect(await Bun.file(join(repo, "bun.lock")).text()).toContain("monkeyshape-next.tgz");

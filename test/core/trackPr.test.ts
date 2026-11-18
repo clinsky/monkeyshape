@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { join } from "node:path";
 import { prSkeleton } from "../../src/core/conventions.ts";
+import { scaffold } from "../../src/core/scaffold.ts";
 import {
   behindWarning,
   bodyOnlyProblem,
@@ -219,6 +220,56 @@ describe("gateChecks: the checks CI's gate makes on a PR", () => {
       conclusion: "success",
     };
     expect(ciState([body, matrix], new Set(), ["e2e"]).kind).toBe("done");
+  });
+});
+
+const toolchain = {
+  bun: "1.4.2",
+  monkeyshape: "0.6.0",
+  effect: "4.0.0",
+  biome: "2.5.15",
+  typescript: "7.0.2",
+  typesBun: "1.4.2",
+};
+
+describe("the template's CI", () => {
+  const TEMPLATE = join(import.meta.dir, "..", "..", "template");
+  const read = (path: string) => Bun.file(join(TEMPLATE, path)).text();
+
+  test("runs the whole gate, so track pr runs only the fast phase there", async () => {
+    for (const path of [".github/workflows/ci.yml", "packs/typescript/.github/workflows/ci.yml"]) {
+      const workflow = await read(path);
+      expect(workflowRunsGate(workflow)).toBe(true);
+      expect(gateChecks([workflow])).toEqual(["check"]);
+    }
+  });
+
+  test("the common layer installs mshape at the pin and needs no Bun", async () => {
+    for (const path of [".github/workflows/ci.yml", ".github/workflows/pr.yml"]) {
+      const workflow = await read(path);
+      expect(workflow).toContain("install.sh | MSHAPE_VERSION=");
+      expect(workflow).toContain("$HOME/.local/bin");
+      expect(workflow).not.toMatch(/\bbun\b|setup-bun/);
+    }
+    expect(await read(".github/workflows/pr.yml")).toContain("| mshape track pr --check-body");
+  });
+
+  test("a TypeScript repo reaches mshape through node_modules in both workflows, downloading nothing (#123's review)", async () => {
+    // It has Bun and the npm package at its pin anyway; no release need exist for its CI.
+    const manifest = JSON.parse(
+      scaffold("demo", new Map(), toolchain).get("package.json") ?? "{}",
+    ) as { devDependencies?: Record<string, string>; scripts?: Record<string, string> };
+    expect(manifest.devDependencies?.["monkeyshape"]).toBeDefined();
+    expect(manifest.scripts?.["mshape"]).toBe("mshape");
+    for (const path of [
+      "packs/typescript/.github/workflows/ci.yml",
+      "packs/typescript/.github/workflows/pr.yml",
+    ]) {
+      const workflow = await read(path);
+      expect(workflow).toContain("bun install --frozen-lockfile");
+      expect(workflow).toContain("bun run --silent mshape ");
+      expect(workflow).not.toContain("install.sh");
+    }
   });
 });
 

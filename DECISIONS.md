@@ -40,12 +40,12 @@ Evidence: verified 2026-10-29: Claude Code listed a skill reached only through t
 Enforced by: src/core/skills.ts (the skills check), test/core/skills.test.ts, test/integration/init.test.ts, test/adapters/skills.test.ts
 Revisit when: Claude Code reads .agents/skills itself.
 
-## D-run-mshape: Hooks and skills run mshape as `bun run --silent mshape <args>`
-Decision: Every repo has the package script `mshape` (`mshape` in a born repo, `bun src/cli/main.ts` here), and every hook and skill invokes it through `mshapeCommand` in src/core/hooks.ts. bun puts each ancestor's node_modules/.bin on a script's PATH, so a track worktree under .agents/worktrees with no node_modules runs the main checkout's install, in the worktree.
-Tempting wrong fix: Bare `mshape`, which a hook's PATH lacks; `bunx mshape`, which fetches from the registry when nothing local resolves; or `$CLAUDE_PROJECT_DIR/node_modules/.bin/mshape`, which is missing in a worktree and in this repo.
-Evidence: verified 2026-11-02 on bun 1.4.2: a born repo's root, a subdirectory and a track worktree without node_modules, with only bun and git on PATH.
-Enforced by: test/integration/invoke.test.ts, test/core/hooks.test.ts
-Revisit when: bun stops walking ancestors for node_modules/.bin, or a hook runs where bun isn't on PATH.
+## D-run-mshape: Hooks and skills run the installed `mshape`, found on the PATH or in ~/.local/bin
+Decision: `install.sh` installs `mshape` once per machine into `~/.local/bin`; every hook and skill runs plain `mshape <args>` (`mshapeCommand`, src/core/hooks.ts). A hook adds `$HOME/.local/bin` to its PATH, and without `mshape` prints the install line and exits 0. In a repo, the installed copy launches the pinned version, verified, or `dev`'s argv.
+Tempting wrong fix: `bun run --silent mshape` (0.5's), which needs Bun and a package script, so a Rust or Python repo can't run its loop; or `node_modules/.bin/mshape`, absent outside TypeScript.
+Evidence: verified 2026-11-18: a born repo's root, a subdirectory and a track worktree without node_modules, with only system tools on the PATH and `mshape` in ~/.local/bin, register a session and deliver its mail.
+Enforced by: test/integration/invoke.test.ts, test/core/hooks.test.ts, test/integration/launch.test.ts
+Revisit when: a harness other than Claude Code runs the hooks (milestone 6), or `install.sh` installs somewhere else.
 
 ## D-ty: The Python pack type-checks with ty, pinned
 Decision: Python's type checker is ty, at the version the template pins, with curated rules in a `[tool.ty.rules]` table `mshape sync` owns (ty has no `extends`); ruff lints, uv runs both.

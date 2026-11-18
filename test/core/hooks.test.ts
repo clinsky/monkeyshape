@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { chmod, mkdir, mkdtemp, rm, symlink } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, rm } from "node:fs/promises";
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -9,8 +9,10 @@ import {
   mshapeCommand,
   renderSettings,
   SETTINGS_FILE,
+  SYNC_COMMAND,
   settingsHooks,
 } from "../../src/core/hooks.ts";
+import { INSTALL_URL } from "../../src/core/launch.ts";
 import { scaffold } from "../../src/core/scaffold.ts";
 
 const ROOT = join(import.meta.dir, "..", "..");
@@ -70,88 +72,80 @@ describe("hooks", () => {
     expect(files.get(SETTINGS_FILE)).toBe(renderSettings(HOOKS));
   });
 
-  test("mshape runs through the package script every repo has (D-run-mshape)", async () => {
-    expect(mshapeCommand(["msg", "inbox"])).toBe("bun run --silent mshape msg inbox");
+  test("hooks and skills run the installed mshape, arguments quoted (D-run-mshape)", () => {
+    expect(mshapeCommand(["msg", "inbox"])).toBe("mshape msg inbox");
     expect(mshapeCommand(["msg", "send", "docs", "--subject", "it's done"])).toBe(
-      `bun run --silent mshape msg send docs --subject 'it'\\''s done'`,
+      `mshape msg send docs --subject 'it'\\''s done'`,
     );
-    const born = JSON.parse(scaffold("my-app", new Map(), toolchain).get("package.json") ?? "");
-    expect(born.scripts.mshape).toBe("mshape");
-    const own = await Bun.file(join(ROOT, "package.json")).json();
-    expect(own.scripts.mshape).toBe("bun src/cli/main.ts");
+    expect(SYNC_COMMAND).toBe("mshape sync");
   });
 
   test("every hook degrades to a note and exits 0 where it can't run", async () => {
-    // A repo with the hooks and nothing installed: no package script, no mshape, no bd.
+    // A machine with the hooks and nothing installed: no mshape, no bd.
     const dir = await mkdtemp(join(tmpdir(), "mshape-hooks-"));
-    const bin = join(dir, "bin");
-    await mkdir(bin);
-    await symlink(process.execPath, join(bin, "bun"));
     try {
-      for (const pkg of [undefined, JSON.stringify({ scripts: { mshape: "mshape" } })]) {
-        if (pkg !== undefined) await Bun.write(join(dir, "package.json"), pkg);
-        for (const hook of HOOKS) {
-          const ran = Bun.spawnSync(["/bin/sh", "-c", hook.command], {
-            cwd: dir,
-            env: { PATH: bin },
-          });
-          expect({ command: hook.command, code: ran.exitCode }).toEqual({
-            command: hook.command,
-            code: 0,
-          });
-          expect(ran.stdout.toString()).toStartWith("note: ");
-        }
+      for (const hook of HOOKS) {
+        const ran = Bun.spawnSync(["/bin/sh", "-c", hook.command], {
+          cwd: dir,
+          env: { PATH: "/usr/bin:/bin", HOME: dir },
+        });
+        expect({ command: hook.command, code: ran.exitCode }).toEqual({
+          command: hook.command,
+          code: 0,
+        });
+        expect(ran.stdout.toString()).toStartWith("note: ");
       }
     } finally {
       await rm(dir, { recursive: true, force: true });
     }
   });
 
-  test("a hook finds bun when it runs: PATH, then ~/.bun/bin, else a note", async () => {
-    const dir = await mkdtemp(join(tmpdir(), "mshape-hooks-bun-"));
-    // A fake bun that says which one ran; `fails` exits 1, as bun does with no mshape script.
-    const fakeBun = async (at: string, fails = false) => {
+  test("a hook finds mshape when it runs: PATH, then ~/.local/bin, else the install line", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "mshape-hooks-mshape-"));
+    // A fake mshape that says which one ran; `fails` exits 1, as the launcher does offline.
+    const fakeMshape = async (at: string, fails = false) => {
       await mkdir(at, { recursive: true });
-      await Bun.write(join(at, "bun"), `#!/bin/sh\necho "ran ${at}"\n${fails ? "exit 1\n" : ""}`);
-      await chmod(join(at, "bun"), 0o755);
+      await Bun.write(
+        join(at, "mshape"),
+        `#!/bin/sh\necho "ran ${at}"\n${fails ? "exit 1\n" : ""}`,
+      );
+      await chmod(join(at, "mshape"), 0o755);
     };
-    const empty = join(dir, "empty");
-    await mkdir(empty);
     const onPath = join(dir, "path-bin");
     const home = join(dir, "home");
-    const elsewhere = join(dir, "opt", "bun", "bin");
     const broken = join(dir, "broken");
-    await fakeBun(onPath);
-    await fakeBun(join(home, ".bun", "bin"));
-    await fakeBun(elsewhere);
-    await fakeBun(broken, true);
+    await fakeMshape(onPath);
+    await fakeMshape(join(home, ".local", "bin"));
+    await fakeMshape(broken, true);
     const hook = HOOKS.find((candidate) => candidate.command.includes("msg register"));
     if (hook === undefined) throw new Error("no msg register hook");
     const runHook = (PATH: string, HOME: string) => {
       const ran = Bun.spawnSync(["/bin/sh", "-c", hook.command], { cwd: dir, env: { PATH, HOME } });
       return { code: ran.exitCode, out: ran.stdout.toString().trim() };
     };
+    const system = "/usr/bin:/bin";
     const noHome = join(dir, "no-home");
     try {
       // The plan's table, a row each.
-      expect(runHook(onPath, home)).toEqual({ code: 0, out: `ran ${onPath}` });
-      expect(runHook(empty, home)).toEqual({ code: 0, out: `ran ${home}/.bun/bin` });
-      const neither = runHook(empty, noHome);
+      expect(runHook(`${onPath}:${system}`, home)).toEqual({ code: 0, out: `ran ${onPath}` });
+      expect(runHook(system, home)).toEqual({ code: 0, out: `ran ${home}/.local/bin` });
+      const neither = runHook(system, noHome);
       expect(neither.code).toBe(0);
       expect(neither.out).toStartWith(
-        "note: bun is neither on this session's PATH nor in ~/.bun/bin",
+        "note: mshape is neither on this session's PATH nor in ~/.local/bin",
       );
-      expect(runHook(elsewhere, noHome)).toEqual({ code: 0, out: `ran ${elsewhere}` });
-      // bun found, mshape not installed: the install note, still exit 0.
-      const uninstalled = runHook(broken, noHome);
-      expect(uninstalled.code).toBe(0);
-      expect(uninstalled.out).toContain("note: mshape could not run here");
-      // The committed settings name no machine's paths: the fallback is `$HOME`, unexpanded.
+      expect(neither.out).toContain(`curl -fsSL ${INSTALL_URL} | sh`);
+      // mshape found but failing (offline, say): a note, still exit 0.
+      const failing = runHook(`${broken}:${system}`, noHome);
+      expect(failing.code).toBe(0);
+      expect(failing.out).toContain("note: mshape could not run here");
+      // The committed settings name no machine's paths, and no bun.
       for (const each of HOOKS) {
         expect(each.command).not.toContain(homedir());
         expect(each.command).not.toContain(process.execPath);
+        expect(each.command).not.toContain("bun run");
       }
-      expect(hook.command).toContain('"$PATH:$HOME/.bun/bin"');
+      expect(hook.command).toContain('"$PATH:$HOME/.local/bin"');
     } finally {
       await rm(dir, { recursive: true, force: true });
     }
@@ -196,4 +190,21 @@ describe("hooks", () => {
     const settings = JSON.parse(addHooks({ hooks: old }, HOOKS));
     expect(settings.hooks).toEqual(settingsHooks(HOOKS));
   });
+});
+
+test("the loop's shipped text names mshape, never bun run, outside the TypeScript pack", async () => {
+  // A Rust or Python repo has no package.json: `bun run` there fails refs/unknown-script.
+  const shipped = [
+    ...new Bun.Glob("skills/**/*.md").scanSync({ cwd: ROOT }),
+    ...new Bun.Glob("template/**/*.md").scanSync({ cwd: ROOT, dot: true }),
+  ].filter((file) => !file.startsWith("template/packs/typescript/"));
+  expect(shipped).toContain("template/.beads/PRIME.md");
+  const found: Array<string> = [];
+  for (const file of shipped) {
+    const text = await Bun.file(join(ROOT, file)).text();
+    text.split("\n").forEach((line, index) => {
+      if (/\bbun run\b/.test(line)) found.push(`${file}:${index + 1}: ${line.trim()}`);
+    });
+  }
+  expect(found).toEqual([]);
 });

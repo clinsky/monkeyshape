@@ -1,5 +1,5 @@
 /**
- * Installing and running `mshape`: the plan's table, one test per row. Two real compiled
+ * Installing and running `mshape` (D-run-mshape): the plan's table, one test per row. Two real compiled
  * versions of this checkout, 9.9.1 and 9.9.2, are served as a release would be. `install.sh`
  * installs 9.9.1, and repos pin one or the other, with the PATH a machine without Bun has.
  */

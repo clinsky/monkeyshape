@@ -189,7 +189,7 @@ describe("what track rm may do", () => {
           "2 message(s) to `docs` are unread, and removing the track would delete them:",
           "  20261103-134704-e7e3 from review: the format",
           "  20261103-134704-dfff unreadable: not JSON",
-          "read each from the track's worktree (`bun run --silent mshape msg read <id>`), or pass --force to delete them",
+          "read each from the track's worktree (`mshape msg read <id>`), or pass --force to delete them",
         ].join("\n    "),
       ]);
       const forced = withMail({ unread, read: 1 }, { force: true });

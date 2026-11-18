@@ -11,7 +11,7 @@ change did belongs in its PR body and commits, not here.
 
 ## 1. Which track
 
-Run `bun run --silent mshape track current` (every `mshape` below runs the same way). If it
+Run `mshape track current`. If it
 exits 1, tell the human its reason and stop: a handoff
 belongs to a track.
 

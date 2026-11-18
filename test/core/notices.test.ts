@@ -108,7 +108,7 @@ describe("notices", () => {
     };
     const line = noticeLine(message);
     expect(line).toBe(
-      "[mshape] Message from tracks: parser changed (bun run --silent mshape msg read 20261103-140000-0001)",
+      "[mshape] Message from tracks: parser changed (mshape msg read 20261103-140000-0001)",
     );
     const [auth, user, end] = socketPayload("tok", line).split("\n");
     expect(JSON.parse(auth ?? "")).toEqual({ type: "auth", token: "tok" });

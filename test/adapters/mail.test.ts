@@ -72,7 +72,7 @@ describe("msg", () => {
     );
     expect(sent.code).toBe(0);
     const id = /Sent (\S+) to tracks/.exec(sent.stdout)?.[1] ?? "";
-    expect(sent.stdout).toContain(`bun run --silent mshape msg read ${id}`);
+    expect(sent.stdout).toContain(`mshape msg read ${id}`);
 
     // The sender's own inbox is untouched; the recipient's lists it, from any of its sessions.
     expect(mshape(wt("docs"), "msg", "inbox").stdout).toBe("No unread messages for track docs.");
@@ -301,7 +301,7 @@ describe("msg", () => {
       expect(lines[0]).toBe("docs: 1 unread");
       expect(lines[1]).toContain("from tracks, ");
       expect(lines[2]).toBe(
-        `gone: 1 unread (no such track: its worktree and handoff are gone; recreate it with \`bun run --silent mshape track new gone\` to read this, or delete ${mailbox("gone")} if it is no longer wanted)`,
+        `gone: 1 unread (no such track: its worktree and handoff are gone; recreate it with \`mshape track new gone\` to read this, or delete ${mailbox("gone")} if it is no longer wanted)`,
       );
       expect(lines[4]).toBe("tracks: 1 unread");
       expect(lines.at(-1)).toStartWith("3 unread in 3 mailboxes.");

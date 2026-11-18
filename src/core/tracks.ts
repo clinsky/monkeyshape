@@ -415,7 +415,7 @@ export const planRm = (facts: RmFacts): RmPlan => {
           ...listed.map((line) => `  ${line}`),
           facts.worktree === undefined
             ? `the track has no worktree to read them from (\`msg read\` runs only in one): each is a JSON file in ${mailbox.path}, so look at them there, then pass --force to delete them`
-            : `read each from the track's worktree (\`bun run --silent mshape msg read <id>\`), or pass --force to delete them`,
+            : `read each from the track's worktree (\`mshape msg read <id>\`), or pass --force to delete them`,
         ].join("\n    "),
       );
   }
