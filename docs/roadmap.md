@@ -59,8 +59,9 @@ It is two things:
    adopter of that pack gets it on its next version bump.
 2. **A template per pack** that `mshape init` copies.
 
-Rules come in two **layers**: **core**, for any repo of a pack, and **agentic** (opt-in, not
-built yet), for repos whose code calls models.
+Rules come in two **layers** (the `layers` config value): `core`, for any repo of a pack, and
+`agentic` (opt-in, not built yet), for repos whose code calls models. The `core` layer is a
+pack's rule set; it is not the language-neutral core above.
 
 Each adopter keeps its local facts in one config file: the module map, budget overrides,
 allowlists that each carry a reason, and shared paths for tracks. Today that is
@@ -150,7 +151,8 @@ from it, since an interface is proven only by the packs that fill it.
 **Why now.** Both waiting repos need it, and every later goal is cheaper on a neutral core:
 validate and the agentic layer's ledger are core, the starter rules and Effect are the
 TypeScript pack's. It is planned with the language packs as one milestone, so the interface
-is shaped by the two packs that fill it rather than guessed.
+is shaped by TypeScript and Rust rather than guessed, and tested by Python, which must fit it
+unchanged: the interface is settled from the first two before the Python pack is built on it.
 
 **Learned so far.** The checks are already pure functions over a `Snapshot` with adapters
 loading it, so many of them (budgets, refs, files, skills, sync, beads, decisions) should
@@ -162,7 +164,7 @@ milestone 4 answered). A binary removes both.
 ### Language packs: Rust and Python (`monkeyshape-gbx`, milestone 5)
 
 **Intent.** Each pack fills the interface: source and toolchain authority, module
-boundaries, core rules, base-config delivery, adopter rules (ast-grep), the init template
+boundaries, its `core`-layer rules, base-config delivery, adopter rules (ast-grep), the init template
 and the gate.
 
 - **Rust:** `cargo metadata` for sources and the crate graph as module boundaries; clippy and
@@ -179,7 +181,7 @@ and the gate.
 anywhere in them (no `package.json`, no `node_modules`, no Bun), each running its first
 track through the loop; both existing adopters still green on the new release; and Python
 fitting the pack interface without changing it. A change to the interface for Python is
-the signal that the interface was shaped by TypeScript alone.
+the signal that the interface was shaped by TypeScript and Rust alone.
 
 **Why now.** Same milestone as the core, by the maintainer's choice: the repos wait for both,
 and a second and third pack are what test the interface.
@@ -234,17 +236,23 @@ equivalents when a consumer hits the class:
 
 Domain types such as a branded address stay in the adopter.
 
+**Why later:** each rule waits for a TypeScript adopter to hit its bug class, and lands in
+the TypeScript pack once milestone 5 has made one.
+
 ### The agentic layer (`monkeyshape-v56`)
 
 Opt-in rules and helpers for repos whose code calls models:
 
-| Piece | Layer | Bug class it removes |
+| Piece | Where | Bug class it removes |
 |---|---|---|
-| Model output decoded only through a lenient decoder backed by property tests (`decodeModelOutput` in TypeScript) | per pack | Shape breaks fixed one at a time: numbers sent as strings, a scalar where a list was expected, NaN |
-| No model or provider names outside config | per pack | Hard-coded models |
-| Paid runs go through a spend ledger with a daily cap; above it, a short run plan agreed with the human (question, expected cost, targets, what result would change the plan) | core | Unreviewed spend |
+| Model output decoded only through a lenient decoder backed by property tests (`decodeModelOutput` in TypeScript) | each pack | Shape breaks fixed one at a time: numbers sent as strings, a scalar where a list was expected, NaN |
+| No model or provider names outside config | each pack | Hard-coded models |
+| Paid runs go through a spend ledger with a daily cap; above it, a short run plan agreed with the human (question, expected cost, targets, what result would change the plan) | the neutral core | Unreviewed spend |
 
 Evidence for a prompt or agent change is a run graded against the adopter's evaluation set.
+
+**Why later:** it waits for an adopter whose code calls models to ask for it; its ledger
+needs the neutral core of milestone 5, so it works in every language.
 
 ### Effect: guarantees, not style (`monkeyshape-rrn`, TypeScript pack)
 
