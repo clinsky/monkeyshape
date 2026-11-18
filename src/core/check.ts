@@ -14,6 +14,7 @@ import {
   withoutTools,
 } from "./coverage.ts";
 import { checkFiles, FILES_RULES, formatBytes, heldFiles } from "./files.ts";
+import { settablePrerequisites } from "./gate.ts";
 import { matchesAny } from "./glob.ts";
 import { SKILLS_DIR, SKILLS_MANIFEST } from "./layout.ts";
 import {
@@ -99,8 +100,13 @@ interface Prerequisite {
  * How to make a tool optional, where the config can say so and coverage can then read the
  * tool's config in its place; nothing where either is false, so the fix is only to install it.
  */
-const optionalHint = (config: ResolvedConfig, name: string, approximates: boolean): string => {
-  if (!approximates || !Object.hasOwn(config.prerequisites, name)) return "";
+const optionalHint = (
+  config: ResolvedConfig,
+  settable: ReadonlySet<string>,
+  name: string,
+  approximates: boolean,
+): string => {
+  if (!approximates || !settable.has(name)) return "";
   const setting = config.configFile.endsWith(".toml")
     ? `\`${name} = "optional"\` under \`[prerequisites]\``
     : `\`prerequisites: { ${name}: "optional" }\``;
@@ -559,7 +565,7 @@ export const prerequisites = (
       snapshot,
     )) {
       if (name === "bd") continue;
-      const fix = `${install ?? `\`${name}\``}${optionalHint(config, name, approximates === true)}`;
+      const fix = `${install ?? `\`${name}\``}${optionalHint(config, settablePrerequisites(snapshot.packs.map((loaded) => loaded.pack)), name, approximates === true)}`;
       if (integration.state === "failed")
         out.push(
           prerequisite(

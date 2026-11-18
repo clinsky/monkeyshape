@@ -7,7 +7,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { basename, dirname, join, relative, resolve } from "node:path";
 import * as Effect from "effect/Effect";
-import { prerequisiteOf } from "../core/gate.ts";
+import { settablePrerequisites } from "../core/gate.ts";
 import { decodeStrict } from "../helpers/decodeStrict.ts";
 import { PACKS } from "../packs/index.ts";
 import {
@@ -46,12 +46,7 @@ const undeclared = (config: {
   const listed = config.packs ?? ["typescript"];
   const packs = listed.flatMap((id) => PACKS[id as keyof typeof PACKS] ?? []);
   const declared = packs.flatMap((pack) => pack.prerequisites.map((one) => one.name));
-  const read = new Set([
-    ...packs.flatMap((pack) => pack.tools.map((tool) => tool.name)),
-    ...packs.flatMap((pack) =>
-      pack.stages.flatMap((stage) => prerequisiteOf(pack, stage)?.name ?? []),
-    ),
-  ]);
+  const read = settablePrerequisites(packs);
   const settable = declared.filter((name) => read.has(name));
   return Object.keys(config.prerequisites ?? {})
     .filter((name) => !read.has(name))

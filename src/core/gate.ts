@@ -35,6 +35,21 @@ export const prerequisiteOf = (
       pack.prerequisites[0]);
 
 /**
+ * The `prerequisites` names a repo can set for these packs: the ones something reads, which
+ * are each pack's `tools` (read by `mshape check`) and the prerequisite each stage stands for
+ * (read by `mshape gate`). The loader refuses any other; the check offers only these.
+ */
+export const settablePrerequisites = (
+  packs: ReadonlyArray<Pick<Pack, "tools" | "stages" | "prerequisites">>,
+): ReadonlySet<string> =>
+  new Set([
+    ...packs.flatMap((pack) => pack.tools.map((tool) => tool.name)),
+    ...packs.flatMap((pack) =>
+      pack.stages.flatMap((stage) => prerequisiteOf(pack, stage)?.name ?? []),
+    ),
+  ]);
+
+/**
  * Whether a stage's missing program fails it: as the repo's `prerequisites` sets the tool it
  * stands for, else as its pack declares that tool; a program with none is required.
  */
