@@ -15,8 +15,11 @@ jobs:
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
-      - uses: oven-sh/setup-bun@v2
-        with:
-          bun-version-file: package.json
-      - run: bun install --frozen-lockfile
-      - run: bun run --silent mshape gate
+      # mshape at shape.toml's pin ([mshape] version; the latest release when unpinned), verified
+      # by install.sh against the release's SHA256SUMS. Inside the repo, it runs the pinned version.
+      - name: Install mshape
+        run: |
+          version=$(awk '/^\[/ { t = ($0 == "[mshape]") } t && /^version *=/ { gsub(/^version *= *"|".*$/, ""); print; exit }' shape.toml)
+          curl -fsSL https://github.com/clinsky/monkeyshape/releases/latest/download/install.sh | MSHAPE_VERSION="$version" sh
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+      - run: mshape gate

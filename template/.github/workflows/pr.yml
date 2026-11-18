@@ -13,12 +13,15 @@ jobs:
     timeout-minutes: 5
     steps:
       - uses: actions/checkout@v4
-      - uses: oven-sh/setup-bun@v2
-        with:
-          bun-version-file: package.json
-      - run: bun install --frozen-lockfile
+      # mshape at shape.toml's pin ([mshape] version; the latest release when unpinned), verified
+      # by install.sh against the release's SHA256SUMS. Inside the repo, it runs the pinned version.
+      - name: Install mshape
+        run: |
+          version=$(awk '/^\[/ { t = ($0 == "[mshape]") } t && /^version *=/ { gsub(/^version *= *"|".*$/, ""); print; exit }' shape.toml)
+          curl -fsSL https://github.com/clinsky/monkeyshape/releases/latest/download/install.sh | MSHAPE_VERSION="$version" sh
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
       - name: The PR body has every required section
         env:
           # Through the environment, never interpolated into the script: the body is untrusted.
           BODY: ${{ github.event.pull_request.body }}
-        run: printf '%s' "$BODY" | bun run --silent mshape track pr --check-body
+        run: printf '%s' "$BODY" | mshape track pr --check-body
