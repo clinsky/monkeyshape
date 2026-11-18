@@ -1,7 +1,9 @@
 /** Base configs sync delivers: the plan's copied-configs table, and its amendment for Cargo. */
 import { describe, expect, test } from "bun:test";
 import { type Delivery, deliver, standing, writeTables } from "../../src/core/delivery.ts";
-import { planSync, type SyncState } from "../../src/core/sync.ts";
+import { checkSync, planSync, type SyncState } from "../../src/core/sync.ts";
+import type { Pack } from "../../src/packs/pack.ts";
+import { config, fakePack, listed, repo } from "../support.ts";
 
 const copy: Delivery = {
   delivery: "copy",
@@ -66,10 +68,25 @@ describe("table", () => {
     expect(standing(table, added)).toBe("diverged");
   });
 
-  test("an owned table written as dotted keys under its parent can't be rewritten: unparsable after", () => {
-    const dotted = `${CARGO}\n[workspace.lints]\nrust.unsafe_code = "allow"\n`;
-    expect(standing(table, dotted)).toBe("diverged");
-    expect(standing(table, deliver(table, dotted))).toBe("unparsable");
+  // rust's probe on #105: each defines an owned table other than by its own header.
+  const WORKSPACE = '[workspace]\nresolver = "3"\nmembers = ["crates/*"]\n';
+  const FOREIGN: Record<string, string> = {
+    "dotted under [workspace]": `${WORKSPACE}lints.rust.unsafe_code = "deny"\n`,
+    "inline under [workspace]": `${WORKSPACE}lints = { rust = { unsafe_code = "deny" } }\n`,
+    "inline under [workspace.lints]": `${WORKSPACE}\n[workspace.lints]\nrust = { unsafe_code = "deny" }\n`,
+    "dotted under [workspace.lints]": `${WORKSPACE}\n[workspace.lints]\nrust.unsafe_code = "deny"\n`,
+    "dotted, clippy only": `${WORKSPACE}\n[workspace.lints]\nclippy.todo = "allow"\n`,
+  };
+  for (const [name, text] of Object.entries(FOREIGN))
+    test(`an owned table defined ${name}: sync writes nothing, so the file still loads`, () => {
+      expect(standing(table, text)).toBe("foreign");
+      expect(deliver(table, text)).toBeUndefined();
+    });
+
+  test("an owned table under its own header with another value is no foreign definition", () => {
+    const own = `${WORKSPACE}\n[workspace.lints.rust]\nunsafe_code = "deny"\n`;
+    expect(standing(table, own)).toBe("diverged");
+    expect(Bun.TOML.parse(deliver(table, own) ?? "")).toBeDefined();
   });
 
   test("a file that isn't TOML is left alone", () => {
@@ -109,6 +126,24 @@ describe("sync's plan", () => {
     expect(plan.created).not.toContain("Cargo.toml");
   });
 
+  test("an owned table defined by dotted keys blocks sync, naming it and where its values go", () => {
+    const withOverride: Delivery = { ...table, override: (t) => t.replace("workspace.", "rust.") };
+    const dotted = `${CARGO}\n[workspace.lints]\nclippy.todo = "allow"\n`;
+    const plan = planSync(
+      { ...state({}), deliveries: [{ delivery: withOverride, current: dotted }] },
+      "",
+    );
+    expect(plan.write.has("Cargo.toml")).toBe(false);
+    expect(plan.blocked).toEqual([
+      expect.stringContaining(
+        "Cargo.toml defines `[workspace.lints.clippy]` as dotted keys or an inline table under a parent table",
+      ),
+    ]);
+    expect(plan.blocked[0]).toContain(
+      "move any value you meant to keep to `[rust.lints.clippy]` in shape.toml",
+    );
+  });
+
   test("current configs write nothing; a file that isn't TOML blocks with the fix", () => {
     const current = state({
       ".mshape/ruff.toml": copy.text,
@@ -126,4 +161,38 @@ describe("sync's plan", () => {
       true,
     );
   });
+});
+
+test("the check names only the diverged table, and its key in shape.toml", () => {
+  const delivering: Pack = {
+    ...fakePack("rust", "Rust", "rs"),
+    baseConfigs: [
+      {
+        delivery: "table",
+        file: "Cargo.toml",
+        tables: table.delivery === "table" ? table.tables : [],
+        content: () => table.text,
+        override: (t) => t.replace("workspace.", "rust."),
+      },
+    ],
+  };
+  const edited = `${CARGO}\n${table.text.replace('"deny"', '"warn"')}`;
+  const snapshot = repo(
+    { "Cargo.toml": edited },
+    {
+      packs: [listed(delivering)],
+      skills: {
+        link: { kind: "missing" },
+        installed: new Map([["monkeyshape.json", new TextEncoder().encode('{"shared":[]}')]]),
+        claudeDirectory: new Map(),
+        shipped: new Map(),
+      },
+    },
+  );
+  const found = checkSync(config(), snapshot).filter((v) => v.rule === "sync/base-diverged");
+  expect(found.map((v) => v.message)).toEqual([
+    expect.stringMatching(
+      /^holds `\[workspace\.lints\.clippy\]`, which .* Make the change in `\[rust\.lints\.clippy\]` in shape\.toml instead/,
+    ),
+  ]);
 });

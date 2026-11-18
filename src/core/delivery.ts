@@ -29,6 +29,8 @@ export type Delivery =
       readonly tables: ReadonlyArray<string>;
       /** The tables' TOML text, headers included. */
       readonly text: string;
+      /** Where a change to an owned table goes instead, as the pack says. */
+      readonly override?: (table: string) => string | undefined;
     };
 
 /**
@@ -52,6 +54,7 @@ export const deliveries = (
             file: base.file,
             tables: base.tables,
             text: base.content(config),
+            ...(base.override === undefined ? {} : { override: base.override }),
           },
         ];
       const text = shipped.get(base.shipped);
@@ -144,13 +147,33 @@ const same = (a: unknown, b: unknown): boolean => {
 };
 
 /** How a delivered config stands against what sync would write. */
-export type Standing = "current" | "missing" | "diverged" | "unparsable";
+/**
+ * `foreign`: an owned table is defined other than by its own `[a.b]` header (dotted keys or an
+ * inline table under a parent), which sync can't rewrite without a second definition.
+ */
+export type Standing = "current" | "missing" | "diverged" | "unparsable" | "foreign";
+
+/** The owned tables `current` defines other than by their own headers. */
+export const foreignTables = (delivery: Delivery, current: string): ReadonlyArray<string> => {
+  if (delivery.delivery === "copy") return [];
+  const rest = parseToml(writeTables(current, delivery.tables, ""));
+  return rest === undefined ? [] : delivery.tables.filter((table) => at(rest, table) !== undefined);
+};
+
+/** The owned tables whose values differ from what sync writes. */
+export const divergedTables = (delivery: Delivery, current: string): ReadonlyArray<string> => {
+  if (delivery.delivery === "copy") return [];
+  const have = parseToml(current);
+  const want = parseToml(delivery.text);
+  return delivery.tables.filter((table) => !same(at(have, table), at(want, table)));
+};
 
 export const standing = (delivery: Delivery, current: string | undefined): Standing => {
   if (current === undefined) return "missing";
   if (delivery.delivery === "copy") return current === delivery.text ? "current" : "diverged";
   const have = parseToml(current);
   if (have === undefined) return "unparsable";
+  if (foreignTables(delivery, current).length > 0) return "foreign";
   const want = parseToml(delivery.text);
   if (delivery.tables.every((table) => at(have, table) === undefined)) return "missing";
   return delivery.tables.every((table) => same(at(have, table), at(want, table)))
@@ -167,7 +190,7 @@ export const shippedFiles = (packs: ReadonlyArray<Pack>): ReadonlyArray<string> 
 /** What sync writes for one delivery, or undefined when it is current or not sync's to fix. */
 export const deliver = (delivery: Delivery, current: string | undefined): string | undefined => {
   const now = standing(delivery, current);
-  if (now === "current" || now === "unparsable") return undefined;
+  if (now === "current" || now === "unparsable" || now === "foreign") return undefined;
   return delivery.delivery === "copy"
     ? delivery.text
     : writeTables(current ?? "", delivery.tables, delivery.text);

@@ -13,7 +13,14 @@
  */
 import type { ResolvedConfig } from "../schemas/config.ts";
 import { OWNABLE_FILES, PR_TEMPLATE_FILE, PRIME_FILE, prTemplate } from "./conventions.ts";
-import { type Delivery, deliver, deliveries, type Standing, standing } from "./delivery.ts";
+import {
+  type Delivery,
+  deliver,
+  deliveries,
+  divergedTables,
+  foreignTables,
+  standing,
+} from "./delivery.ts";
 import { addHooks, HOOKS, type Hook, missingHooks, SETTINGS_FILE, SYNC_COMMAND } from "./hooks.ts";
 import { SKILLS_MANIFEST } from "./layout.ts";
 import type { Snapshot, Violation } from "./model.ts";
@@ -167,7 +174,7 @@ export const planSync = (state: SyncState, shippedPrime: string): SyncPlan => {
     if (state.settings === undefined) created.push(SETTINGS_FILE);
   }
   for (const { delivery, current } of state.deliveries ?? []) {
-    const message = deliveryMessage(delivery, standing(delivery, current));
+    const message = deliveryMessage(delivery, current);
     if (message?.unfixable === true) {
       blocked.push(`${delivery.file} ${message.text}`);
       continue;
@@ -278,10 +285,7 @@ export const checkSync = (config: ResolvedConfig, snapshot: Snapshot): ReadonlyA
   }
   const packs = snapshot.packs.map(({ pack }) => pack);
   for (const delivery of deliveries(config, packs, snapshot.shippedConfigs)) {
-    const message = deliveryMessage(
-      delivery,
-      standing(delivery, snapshot.texts.get(delivery.file)),
-    );
+    const message = deliveryMessage(delivery, snapshot.texts.get(delivery.file));
     if (message !== undefined) out.push(violation(message.kind, delivery.file, message.text));
   }
   return out;
@@ -290,11 +294,18 @@ export const checkSync = (config: ResolvedConfig, snapshot: Snapshot): ReadonlyA
 /** Why a delivered base config fails, and the fix; undefined when it is current. */
 const deliveryMessage = (
   delivery: Delivery,
-  now: Standing,
+  current: string | undefined,
 ): { kind: "base-missing" | "base-diverged"; text: string; unfixable?: true } | undefined => {
-  const tables =
-    delivery.delivery === "table" ? delivery.tables.map((t) => `[${t}]`).join(", ") : "";
-  const override = `Change it through this repo's own config, or the \`[${delivery.pack}]\` table in shape.toml where the pack reads one, then run ${SYNC}`;
+  const now = standing(delivery, current);
+  const named = (tables: ReadonlyArray<string>) => tables.map((t) => `\`[${t}]\``).join(", ");
+  const owned = delivery.delivery === "table" ? named(delivery.tables) : "";
+  /** Where a change to one owned table goes instead of here. */
+  const instead = (table: string) => {
+    const key = delivery.delivery === "table" ? delivery.override?.(table) : undefined;
+    return key === undefined
+      ? `this repo's own config, or the \`[${delivery.pack}]\` table in shape.toml where the pack reads one`
+      : `\`[${key}]\` in shape.toml`;
+  };
   switch (now) {
     case "current":
       return undefined;
@@ -304,21 +315,33 @@ const deliveryMessage = (
         text:
           delivery.delivery === "copy"
             ? `is missing: it is the ${delivery.pack} pack's base config, which ${SYNC} writes and this repo's own config points at. Run ${SYNC} and commit it.`
-            : `has none of ${tables}, the ${delivery.pack} pack's tables that ${SYNC} owns here. Run ${SYNC} and commit it.`,
+            : `has none of ${owned}, the ${delivery.pack} pack's tables that ${SYNC} owns here. Run ${SYNC} and commit it.`,
       };
-    case "diverged":
+    case "diverged": {
+      if (delivery.delivery === "copy")
+        return {
+          kind: "base-diverged",
+          text: `differs from the ${delivery.pack} pack's base config the installed monkeyshape ships, so a hand edit here would be lost at the next sync. Change it through ${instead("")}, then run ${SYNC}.`,
+        };
+      const diverged = divergedTables(delivery, current ?? "");
       return {
         kind: "base-diverged",
-        text:
-          delivery.delivery === "copy"
-            ? `differs from the ${delivery.pack} pack's base config the installed monkeyshape ships, so a hand edit here would be lost at the next sync. ${override}.`
-            : `holds ${tables}, which ${SYNC} owns, with values other than it writes, so a hand edit here would be lost at the next sync. ${override}, which rewrites only those tables.`,
+        text: `holds ${named(diverged)}, which ${SYNC} owns, with values other than it writes, so a hand edit here would be lost at the next sync. Make the change in ${diverged.map(instead).join(" and ")} instead, then run ${SYNC}, which rewrites only the tables it owns.`,
       };
+    }
+    case "foreign": {
+      const foreign = foreignTables(delivery, current ?? "");
+      return {
+        kind: "base-diverged",
+        unfixable: true,
+        text: `defines ${named(foreign)} as dotted keys or an inline table under a parent table, not under ${foreign.length === 1 ? "its own header" : "their own headers"}. ${SYNC} owns ${foreign.length === 1 ? "that table" : "those tables"} and can't rewrite ${foreign.length === 1 ? "it" : "them"} without defining ${foreign.length === 1 ? "it" : "them"} twice, which the file's tools reject. Delete that definition, move any value you meant to keep to ${foreign.map(instead).join(" and ")}, then run ${SYNC}.`,
+      };
+    }
     case "unparsable":
       return {
         kind: "base-diverged",
         unfixable: true,
-        text: `isn't valid TOML, so ${tables}, which ${SYNC} owns, can't be compared. Fix the file, then run ${SYNC}. Write the owned tables as \`[a.b]\` headers, not as dotted keys under a parent table.`,
+        text: `isn't valid TOML, so ${owned}, which ${SYNC} owns, can't be compared. Fix the file, then run ${SYNC}.`,
       };
   }
 };
