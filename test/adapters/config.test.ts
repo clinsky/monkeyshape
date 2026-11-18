@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import * as Effect from "effect/Effect";
 import { loadConfig } from "../../src/adapters/config.ts";
+import { DEFAULT_DOCS } from "../../src/schemas/config.ts";
 
 let dir = "";
 
@@ -289,5 +290,20 @@ describe("[gate].stages names", () => {
     expect((await Effect.runPromise(Effect.flip(loadConfig(dir)))).message).toContain(
       "`mshape-check` is the gate's own `mshape check`, which always runs and can't be replaced",
     );
+  });
+});
+
+describe("a default list's { add } form", () => {
+  test("is the default with the added entries after it; a whole list replaces the default", async () => {
+    await Bun.write(
+      join(dir, "shape.toml"),
+      'packs = ["typescript"]\n[refs]\ndocs = { add = ["docs/guide.md", "AGENTS.md"] }\nform-only-docs = ["notes/**/*.md"]\n[coverage]\nexempt = { add = ["gen"] }\n',
+    );
+    const config = await Effect.runPromise(loadConfig(dir));
+    expect(config.refs.docs).toEqual([...DEFAULT_DOCS, "docs/guide.md"]);
+    expect(config.refs.formOnlyDocs).toEqual(["notes/**/*.md"]);
+    expect(config.refs.narrativeDocs).toEqual(["README.md"]);
+    expect(config.coverage.exempt.at(-1)).toBe("gen");
+    expect(config.coverage.exempt).toContain("node_modules");
   });
 });

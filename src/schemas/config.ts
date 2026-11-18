@@ -19,6 +19,28 @@ const Reason = Schema.String.check(
 
 const Globs = Schema.Array(Schema.String);
 
+/**
+ * A list with a default: written whole, it replaces the default; as `{ add = [...] }`, it is
+ * the default and these after it, so a repo that adds one entry keeps following the default
+ * as later releases change it.
+ */
+const Extendable = Schema.Union([
+  Globs,
+  Schema.Struct({ add: Schema.Array(Schema.String).check(Schema.isMinLength(1)) }),
+]);
+type Extendable = typeof Extendable.Type;
+
+/** An `Extendable` resolved against its default. */
+const extended = (
+  value: Extendable | undefined,
+  defaults: ReadonlyArray<string>,
+): ReadonlyArray<string> =>
+  value === undefined
+    ? defaults
+    : "add" in value
+      ? [...defaults, ...value.add.filter((item) => !defaults.includes(item))]
+      : value;
+
 /** Every check `mshape check` runs, in the order it reports them. */
 export const CHECK_NAMES = [
   "arch",
@@ -281,15 +303,15 @@ const configFields = {
   ),
   refs: Schema.optionalKey(
     Schema.Struct({
-      docs: Schema.optionalKey(Globs),
+      docs: Schema.optionalKey(Extendable),
       /** Docs that are not normative (may link into notes/, plan/, handoffs). */
-      narrativeDocs: Schema.optionalKey(Globs),
+      narrativeDocs: Schema.optionalKey(Extendable),
       /**
        * Docs held to form only (one-line code spans, no `§N` citations, no `forbidden` text), never to whether a
        * path, script or decision exists: plans describe what doesn't exist yet, notes are
        * history. Wins over `docs`.
        */
-      formOnlyDocs: Schema.optionalKey(Globs),
+      formOnlyDocs: Schema.optionalKey(Extendable),
       forbidden: Schema.optionalKey(Schema.Array(ForbiddenPattern)),
       /** Per kind, as `rules` per rule: `off` with a reason, or `allow` for paths with reasons. */
       rules: Schema.optionalKey(RefsRules),
@@ -332,7 +354,7 @@ const configFields = {
       tsconfigs: Schema.optionalKey(Schema.Array(Schema.String)),
       biome: Schema.optionalKey(Schema.String),
       /** Path segments whose files need not be typechecked or linted (generated, vendored). */
-      exempt: Schema.optionalKey(Schema.Array(Schema.String)),
+      exempt: Schema.optionalKey(Extendable),
       commands: Schema.optionalKey(Schema.Array(DeclaredCommand)),
       /** Executable source no command checks, each with the reason it needs none. */
       exemptFiles: Schema.optionalKey(Schema.Array(Allowance)),
@@ -574,9 +596,9 @@ export const resolveConfig = (
   rules: config.rules ?? {},
   localRules: config.localRules ?? [],
   refs: {
-    docs: config.refs?.docs ?? DEFAULT_DOCS,
-    narrativeDocs: config.refs?.narrativeDocs ?? ["README.md"],
-    formOnlyDocs: config.refs?.formOnlyDocs ?? ["plan/**/*.md", "notes/**/*.md"],
+    docs: extended(config.refs?.docs, DEFAULT_DOCS),
+    narrativeDocs: extended(config.refs?.narrativeDocs, ["README.md"]),
+    formOnlyDocs: extended(config.refs?.formOnlyDocs, ["plan/**/*.md", "notes/**/*.md"]),
     forbidden: config.refs?.forbidden ?? [],
     rules: config.refs?.rules ?? {},
   },
@@ -594,7 +616,7 @@ export const resolveConfig = (
   coverage: {
     tsconfigs: config.coverage?.tsconfigs ?? ["tsconfig.json"],
     biome: config.coverage?.biome ?? "biome.json",
-    exempt: config.coverage?.exempt ?? [
+    exempt: extended(config.coverage?.exempt, [
       "node_modules",
       "dist",
       "out",
@@ -602,7 +624,7 @@ export const resolveConfig = (
       "coverage",
       "vendor",
       "generated",
-    ],
+    ]),
     commands: config.coverage?.commands ?? [],
     exemptFiles: config.coverage?.exemptFiles ?? [],
   },

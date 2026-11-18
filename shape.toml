@@ -44,22 +44,10 @@ may-import = ["schemas", "core", "adapters"]
 host-access = true
 manifest = true
 
-# The adopters' guides live in this repo, not in theirs, so only this repo checks them:
-# the last three, after the default docs.
+# The adopters' guides live in this repo, not in theirs, so only this repo checks them, after
+# the default docs.
 [refs]
-docs = [
-  "AGENTS.md",
-  "CLAUDE.md",
-  "README.md",
-  "DECISIONS.md",
-  "skills/**/*.md",
-  ".agents/skills/**/*.md",
-  ".claude/skills/**/*.md",
-  ".github/pull_request_template.md",
-  "docs/workflow.md",
-  "docs/adopting.md",
-  "docs/local-rules.md",
-]
+docs = { add = ["docs/workflow.md", "docs/adopting.md", "docs/local-rules.md"] }
 
 # Replaces the typescript pack's test stage: in parallel, with a hang guard sized for CI's
 # slower runner (AGENTS.md's gotcha on test timeouts).
