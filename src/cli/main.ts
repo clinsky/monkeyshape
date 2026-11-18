@@ -3,7 +3,6 @@
 import { mkdtemp, readFile, realpath, rm } from "node:fs/promises";
 import { homedir, tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
 import * as Effect from "effect/Effect";
 import pkg from "../../package.json" with { type: "json" };
 import {
@@ -17,6 +16,7 @@ import { findConfig, loadConfig } from "../adapters/config.ts";
 import { reviewPost, scanFile } from "../adapters/denylist.ts";
 import { depBump } from "../adapters/dep.ts";
 import { initRepo, vendoredSpec } from "../adapters/init.ts";
+import { ownRoot } from "../adapters/launch.ts";
 import { mailInbox, mailInboxAll, mailRead, mailSend } from "../adapters/mail.ts";
 import {
   type Caller,
@@ -103,8 +103,11 @@ const parseOnly = (args: ReadonlyArray<string>): ReadonlyArray<CheckName> | stri
     : (names as ReadonlyArray<CheckName>);
 };
 
-/** The package's own directory: `template/` and `skills/` ship beside `src/`. */
-const PACKAGE_ROOT = fileURLToPath(new URL("../..", import.meta.url)).replace(/\/$/, "");
+/**
+ * The package's own directory, with `template/` and `skills/`: beside `src/` under Bun, or
+ * unpacked by the compiled binary's entry before it imports this module.
+ */
+const PACKAGE_ROOT = ownRoot();
 
 const WORKFLOW_URL = `${pkg.homepage.replace(/#.*$/, "")}/blob/main/docs/workflow.md`;
 
@@ -977,8 +980,8 @@ export const program = (root: string, args: ReadonlyArray<string>) =>
     return yield* command.run(root, rest);
   });
 
-// Only as the executable: tests import the table and the help without running a command.
-if (import.meta.main) {
+/** Runs the command `process.argv` names and sets the exit code. */
+export const runMain = async (): Promise<void> => {
   const outcome = await Effect.runPromise(
     program(process.cwd(), process.argv.slice(2)).pipe(
       Effect.catchTags({
@@ -993,4 +996,7 @@ if (import.meta.main) {
     if (outcome.output !== "") console.log(outcome.output);
   } else console.error(outcome.output);
   process.exitCode = outcome.code;
-}
+};
+
+// Only as the executable: tests import the table and the help without running a command.
+if (import.meta.main) await runMain();

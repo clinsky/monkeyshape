@@ -9,7 +9,7 @@ import * as Effect from "effect/Effect";
 import { GATE_SCRIPT } from "../core/conventions.ts";
 import { planBump, type VendoredEntry } from "../core/dep.ts";
 import { WorkspaceError } from "../schemas/errors.ts";
-import { run } from "./process.ts";
+import { BUN_MISSING, bunPath, run } from "./process.ts";
 import { fileDigest } from "./release.ts";
 
 /** The `name` in a tarball's `package/package.json`; undefined when it has none. */
@@ -87,7 +87,13 @@ export const depBump = (
       `${name}: ${plan.from.path} -> ${plan.to.path}, sha256 ${plan.to.sha256}`,
       `updated package.json and ${configFile}`,
     ];
-    const install = yield* run(repo, [process.execPath, "install"]);
+    const bun = bunPath();
+    if (bun === undefined)
+      return {
+        lines: [...lines, `bun install not run, so bun.lock is not updated: ${BUN_MISSING}`],
+        code: 1,
+      } satisfies BumpResult;
+    const install = yield* run(repo, [bun, "install"]);
     if (install.code !== 0)
       return {
         lines: [
@@ -98,7 +104,7 @@ export const depBump = (
         code: 1,
       } satisfies BumpResult;
     lines.push("bun install: bun.lock updated");
-    const gate = yield* run(repo, [process.execPath, "run", GATE_SCRIPT]);
+    const gate = yield* run(repo, [bun, "run", GATE_SCRIPT]);
     const tail = `${gate.stdout}${gate.stderr}`.trim().split("\n").slice(-15).join("\n");
     return gate.code === 0
       ? ({

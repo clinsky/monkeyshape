@@ -18,7 +18,7 @@ where the two differ.
 | `bun run fix` | Apply biome formatting and safe fixes |
 | `bun src/cli/main.ts garden` | Budgets and escape hatches |
 | `bun src/cli/main.ts rules` | Custom rules and the bug class each removes |
-| `bun run release pack\|tag\|verify` | Pack this checkout (a `-dev` version unless HEAD is a release tag); tag a merged commit `v<version>`, refused where npm already has that version with other content; check a tag reproduces npm. Pushing the tag and `bun publish` are the maintainer's. |
+| `bun run release pack\|tag\|verify` | Pack this checkout (a `-dev` version unless HEAD is a release tag): the npm tarball, an `mshape` binary per platform and `SHA256SUMS`; tag a merged commit `v<version>`, built from that commit, refused where npm already has that version with other content; check a tag reproduces npm. Pushing the tag, `bun publish` and `gh release create` are the maintainer's. |
 
 ## Where to start
 
@@ -44,7 +44,9 @@ where the two differ.
 - Biome base config lives in `config/` and is consumed through `extends`; a rule turned on
   there lands in every adopter on their next bump, so it must already pass here.
 - `node_modules/.bin/*` shims start with `#!/usr/bin/env node`, and adopters may have only
-  Bun: run tools as `[process.execPath, bin]`. Guarded by `test/integration/consumer.test.ts`.
+  Bun: run tools as `[bunPath(), bin]` (`src/adapters/process.ts`), never `process.execPath`,
+  which in the compiled `mshape` is `mshape` itself. Guarded by `consumer.test.ts` and
+  `binary.test.ts` in `test/integration/`.
 - Every check reports through the outcome contract (`src/core/model.ts`): passed, failed,
   not-applicable, unavailable, exempt. A tool that can't run is a `note:` only when its
   prerequisite is optional; `tsc` and `biome` are required, so their absence fails.

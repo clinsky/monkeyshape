@@ -14,7 +14,7 @@ import { loadModes, runCommands } from "./commands.ts";
 import { exists, readText } from "./disk.ts";
 import { loadSizes, loadVendored } from "./files.ts";
 import { LOADERS } from "./packs/index.ts";
-import { run, runTool } from "./process.ts";
+import { BUN_MISSING, bunPath, run, runTool } from "./process.ts";
 import { loadSkills } from "./skills.ts";
 
 const listFiles = (root: string) =>
@@ -223,7 +223,10 @@ export const installDependencies = (dir: string) =>
     const locked = (yield* exists(dir, "bun.lock")) || (yield* exists(dir, "bun.lockb"));
     const args = ["install", ...(locked ? ["--frozen-lockfile"] : [])];
     const shown = `\`bun ${args.join(" ")}\``;
-    const result = yield* runTool(dir, [process.execPath, ...args]);
+    const bun = bunPath();
+    if (bun === undefined)
+      return `note: ${shown} not run in ${dir}: ${BUN_MISSING}. Until then \`mshape check\` uses the main checkout's tsc and biome`;
+    const result = yield* runTool(dir, [bun, ...args]);
     if (result.code === 0) return `ran ${shown} in ${dir}`;
     // bun prints its version first: the error line says why, else the last line does.
     const lines = `${result.stdout}\n${result.stderr}`

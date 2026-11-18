@@ -6,7 +6,7 @@ import { parseJsonc } from "../../core/coverage.ts";
 import { mainCheckout } from "../../core/layout.ts";
 import type { Integration, PackLoader, ToolRun } from "../../packs/pack.ts";
 import { exists, readText } from "../disk.ts";
-import { runTool } from "../process.ts";
+import { BUN_MISSING, bunPath, runTool } from "../process.ts";
 
 type Loaded<A> = { readonly integration: Integration; readonly value: A | undefined };
 
@@ -25,16 +25,18 @@ const mainOf = (root: string) =>
 /**
  * A tool installed in the repo, as a command: the worktree's own install, else the main
  * checkout's, so a track worktree nobody ran `bun install` in still has tsc and biome. Run
- * through the current bun: the bin shims start with `#!/usr/bin/env node`, and a Bun-only
- * machine has no node.
+ * through Bun (`bunPath`): the bin shims start with `#!/usr/bin/env node`, and a Bun-only
+ * machine has no node. A string says why it can't run: `pkg` isn't installed, or no Bun.
  */
-const localBin = (root: string, name: string) =>
+const localBin = (root: string, name: string, pkg: string) =>
   Effect.gen(function* () {
     const main = yield* mainOf(root);
     for (const dir of main === undefined || main === root ? [root] : [root, main])
-      if (yield* exists(dir, `node_modules/.bin/${name}`))
-        return [process.execPath, `${dir}/node_modules/.bin/${name}`];
-    return undefined;
+      if (yield* exists(dir, `node_modules/.bin/${name}`)) {
+        const bun = bunPath();
+        return bun === undefined ? BUN_MISSING : [bun, `${dir}/node_modules/.bin/${name}`];
+      }
+    return `${pkg} is not installed`;
   });
 
 /**
@@ -74,10 +76,10 @@ const referencesOf = (root: string, tsconfig: string) =>
  */
 const typechecked = (root: string, realRoot: string, tsconfigs: ReadonlyArray<string>) =>
   Effect.gen(function* () {
-    const tsc = yield* localBin(root, "tsc");
-    if (tsc === undefined)
+    const tsc = yield* localBin(root, "tsc", "typescript");
+    if (typeof tsc === "string")
       return {
-        integration: { state: "unavailable", reason: "typescript is not installed" },
+        integration: { state: "unavailable", reason: tsc },
         value: undefined,
       } satisfies Loaded<ReadonlySet<string>>;
     const files = new Set<string>();
@@ -101,10 +103,10 @@ const typechecked = (root: string, realRoot: string, tsconfigs: ReadonlyArray<st
 /** The files biome processes, from its verbose report, with `extends` and ignores resolved. */
 const linted = (root: string) =>
   Effect.gen(function* () {
-    const biome = yield* localBin(root, "biome");
-    if (biome === undefined)
+    const biome = yield* localBin(root, "biome", "@biomejs/biome");
+    if (typeof biome === "string")
       return {
-        integration: { state: "unavailable", reason: "@biomejs/biome is not installed" },
+        integration: { state: "unavailable", reason: biome },
         value: undefined,
       } satisfies Loaded<ReadonlySet<string>>;
     const result = yield* runTool(root, [

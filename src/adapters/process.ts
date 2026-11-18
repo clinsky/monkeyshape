@@ -1,6 +1,29 @@
 /** Running a command: the one spawn helper every adapter uses. */
+import { existsSync } from "node:fs";
+import { homedir } from "node:os";
 import * as Effect from "effect/Effect";
 import { WorkspaceError } from "../schemas/errors.ts";
+import { runningCompiled } from "./launch.ts";
+
+/** Where a compiled `mshape` looks for Bun after the PATH: where Bun's installer puts it. */
+const BUN_HOME = "~/.bun/bin/bun";
+
+/** Why a command that needs Bun can't run: no Bun in either place `bunPath` looks. */
+export const BUN_MISSING = `bun is not on PATH or at ${BUN_HOME}: install Bun (https://bun.sh), which this TypeScript repo's tools run on`;
+
+/**
+ * The Bun to spawn for a package's tool, `bun install` or `bun run`. Under Bun (a checkout,
+ * an npm install) it is the one running `mshape`, so it exists. The compiled `mshape` is its
+ * own `process.execPath`, and spawning that would run `mshape` again: it uses `bun` from the
+ * PATH, then Bun's own install, and undefined when neither is there.
+ */
+export const bunPath = (): string | undefined => {
+  if (!runningCompiled()) return process.execPath;
+  const onPath = Bun.which("bun");
+  if (onPath !== null) return onPath;
+  const installed = BUN_HOME.replace("~", homedir());
+  return existsSync(installed) ? installed : undefined;
+};
 
 export interface Ran {
   readonly code: number;

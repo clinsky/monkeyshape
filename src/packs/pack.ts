@@ -19,7 +19,15 @@ import type { CheckName, GateStage, PackId, ResolvedConfig } from "../schemas/co
 export type Integration =
   | { readonly state: "ok" }
   | { readonly state: "absent" }
-  | { readonly state: "unavailable"; readonly reason: string }
+  | {
+      readonly state: "unavailable";
+      readonly reason: string;
+      /**
+       * The fix, when it isn't installing the tool itself: what the reason says is missing
+       * (Bun, for a TypeScript tool under the compiled mshape). Replaces the install line.
+       */
+      readonly fix?: string;
+    }
   | { readonly state: "failed"; readonly reason: string };
 
 /** What a pack's pure part may read of the repo: its files and the texts the loader read. */

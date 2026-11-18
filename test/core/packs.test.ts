@@ -1,8 +1,9 @@
 /** The plan's pack table, row by row: how the core treats files by the packs that claim them. */
 import { describe, expect, test } from "bun:test";
 import { checkArch } from "../../src/core/arch.ts";
-import { evaluate } from "../../src/core/check.ts";
+import { evaluate, prerequisites, ruleIds } from "../../src/core/check.ts";
 import { checkCoverage } from "../../src/core/coverage.ts";
+import { checkPacks } from "../../src/core/packs.ts";
 import { checkSources } from "../../src/core/sources.ts";
 import type { Pack } from "../../src/packs/pack.ts";
 import { typescript } from "../../src/packs/typescript/index.ts";
@@ -149,4 +150,70 @@ test("a file in sources no listed pack reads fails sources, and rules doesn't co
   ]);
   expect(reports[1]?.outcome).toEqual({ state: "passed", examined: "1 file in sources" });
   expect(reports[0]?.violations[0]?.message).toContain("'src/**/*.{ts,tsx}'");
+});
+
+describe("the packs check", () => {
+  test("a pack's own findings, as packs/<id>/<kind>; none where no pack has checks", () => {
+    const linting: Pack = {
+      ...python,
+      findingKinds: ["no-extend"],
+      findings: ({ repo: view }) =>
+        view.files.includes("ruff.toml")
+          ? [{ kind: "no-extend", file: "ruff.toml", line: 1, message: "add extend" }]
+          : [],
+    };
+    const snapshot = repo({ "ruff.toml": "", "app/b.py": "" }, { packs: [listed(linting)] });
+    expect(checkPacks(twoPacks, snapshot)).toEqual([
+      {
+        check: "packs",
+        rule: "packs/python/no-extend",
+        file: "ruff.toml",
+        line: 1,
+        message: "add extend",
+      },
+    ]);
+    expect(ruleIds([], [linting])).toEqual([...ruleIds([], []), "packs/python/no-extend"]);
+    const { reports } = evaluate(config(), repo({ "src/a.ts": "" }), ["packs"]);
+    expect(reports[0]?.outcome).toEqual({
+      state: "not-applicable",
+      reason: "typescript has no checks of its own",
+    });
+  });
+});
+
+test("a tool unavailable for want of something else says that fix, not the tool's install", () => {
+  const missing = (fix?: string) =>
+    prerequisites(
+      config(),
+      repo(
+        { "src/a.ts": "" },
+        {
+          tsc: {
+            state: "unavailable",
+            reason: "bun is not on PATH",
+            ...(fix === undefined ? {} : { fix }),
+          },
+          linted: [],
+        },
+      ),
+      ["coverage"],
+    ).map((v) => v.message);
+  expect(missing()).toEqual([expect.stringContaining("Install it (`bun add -d typescript`")]);
+  expect(missing("Install Bun: https://bun.sh.")).toEqual([
+    "coverage needs tsc, but bun is not on PATH. Install Bun: https://bun.sh.",
+  ]);
+});
+
+test("a kind a pack didn't declare fails as packs/undeclared-kind, naming the pack and kind", () => {
+  const sloppy: Pack = {
+    ...python,
+    findingKinds: ["declared"],
+    findings: () => [{ kind: "undeclared", file: "app/b.py", line: 2, message: "the finding" }],
+  };
+  const found = checkPacks(twoPacks, repo({ "app/b.py": "" }, { packs: [listed(sloppy)] }));
+  expect(found.map((v) => `${v.rule} ${v.file}:${v.line}`)).toEqual([
+    "packs/undeclared-kind app/b.py:2",
+  ]);
+  expect(found[0]?.message).toStartWith("the python pack reported `undeclared`, a kind missing");
+  expect(found[0]?.message).toEndWith("Its finding was: the finding");
 });
