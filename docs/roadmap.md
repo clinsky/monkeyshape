@@ -7,38 +7,41 @@ convention: rewritten in place at each milestone boundary, and never cited by co
 
 ## Status
 
-| Piece | Status |
-|---|---|
-| `mshape check`: arch, refs, budgets, coverage, skills, and five core rules (`mshape rules`) | **Shipped** (milestone 1) |
-| `mshape baseline --tighten / --init` (ratchets in `.shape/baseline.json`), `garden`, `rules`, `--config` | **Shipped** (milestone 1) |
-| Base `tsconfig` and `biome` configs in `config/`; the `decodeStrict` helper | **Shipped** (milestone 1) |
-| `mshape init`: a new repo whose gate passes, with the template, beads, skills and the handoffs store | **Shipped** (milestone 1, `monkeyshape-iqf`) |
-| `mshape track new / list / current / rm`: named tracks as worktrees, with handoffs | **Shipped** (milestone 1, `monkeyshape-iqf`) |
-| `mshape review <n>` and `review rm`: a scratch worktree at a PR's head | **Shipped** (milestone 1, `monkeyshape-iqf`) |
-| `mshape skills sync`, and the five skills: `roadmap`, `milestone`, `track`, `handoff`, `review-pr` | **Shipped** (milestone 1, `monkeyshape-iqf`) |
-| `docs/workflow.md` (the working loop) and `docs/adopting.md` | **Shipped** (milestone 1, `monkeyshape-iqf`) |
-| `mshape sync` (`skills sync` is its alias): shared skills, `.beads/PRIME.md` (what every session loads), the PR template and monkeyshape's hooks, with the `sync` check | **Shipped** (milestone 2, `monkeyshape-f4y`) |
-| `mshape track pr` (a fresh gate, then open or update the PR) and `pr.yml`; `track list`'s derived `done` column; the `beads` check (who owns each bead) | **Shipped** (milestone 2, `monkeyshape-f4y`) |
-| `mshape msg send / inbox / read / register`: the mailbox between tracks, with live notices into idle Claude Code sessions; `track rm --keep-beads` | **Shipped** (milestone 2, `monkeyshape-f4y`) |
-| Conventions as code: one owner per checkable convention, delivered when needed, messages between tracks, derived status, review that reads the milestone | **Shipped** (milestone 2, `monkeyshape-f4y`); plan in `notes/2026-11-04-milestone-2.md` |
-| Ready for a real application and a new repo: a gate whose pass means what it says, checks true on real layouts, adopter rules, no file silently overlooked, adoption as written | **Shipped** (milestone 3, `monkeyshape-xv2`, 0.4.0); plan in `notes/2026-11-07-milestone-3.md` |
-| The loop at scale: a PR as one reviewed unit, rules where agents act, decisions that earn their slot, nothing private leaving the machine, tracks that start working, any step from anywhere | **Shipped** (milestone 4, `monkeyshape-4sa`, 0.5.0); plan in `plan/MILESTONE.md` |
-| First real adoptions: an existing application, and a new repo born through the loop | **Done** on 0.4.0: each ran its first milestone (`monkeyshape-36f`, `monkeyshape-iqf.14`) |
-| The remaining starter rules | Later: `monkeyshape-hh2` |
-| The agentic layer | Later: `monkeyshape-v56` |
-| `mshape validate`: the real-data loop | Later: `monkeyshape-97o` |
-| Effect: correct use in monkeyshape, and enforcement for adopters | Later: an epic filed with milestone 3 |
-| Selectable policy bundles | Idea: when an outside adopter needs it (`monkeyshape-8h4`) |
+Goals not yet shipped are listed in the order they would be taken.
 
-"Shipped" means on `main`. npm has the release that shipped each milestone: 0.3.0 for
-milestone 2, 0.4.0 for milestone 3, and 0.5.0 for milestone 4 (0.4.1 was tagged, not published). A PR that ships a piece
-updates its row.
+| Goal | Status | Epic |
+|---|---|---|
+| A new repo can be born: `mshape check`, baselines, `init`, tracks, review worktrees, the five skills | **Shipped** (milestone 1) | `monkeyshape-iqf` |
+| Conventions as code: `mshape sync`, PRIME.md, `track pr`, the mailbox, derived status | **Shipped** (milestone 2, 0.3.0) | `monkeyshape-f4y` |
+| Ready for a real application and a new repo: a gate whose pass means what it says, adopter rules | **Shipped** (milestone 3, 0.4.0) | `monkeyshape-xv2` |
+| First real adoptions: an existing application, and a repo born through the loop | **Done** on 0.4.0 | `monkeyshape-36f` |
+| The loop at scale: a PR as one reviewed unit, rules where agents act, the denylist, tracks that start working | **Shipped** (milestone 4, 0.5.0) | `monkeyshape-4sa` |
+| A language-neutral core: config as data, a configurable gate, a pinned binary, the pack interface | Later: milestone 5 | `monkeyshape-070` |
+| Language packs: Rust and Python | Later: milestone 5 | `monkeyshape-gbx` |
+| Harness adapters: Codex and pi | Later: milestone 6 | `monkeyshape-dlz` |
+| `mshape validate`: the real-data loop (core) | Later | `monkeyshape-97o` |
+| The remaining starter rules (TypeScript pack) | Later | `monkeyshape-hh2` |
+| The agentic layer: spend ledger (core), model-output decoding (per pack) | Later | `monkeyshape-v56` |
+| Effect: guarantees, not style (TypeScript pack) | Later | `monkeyshape-rrn` |
+| Gate hardening | Later: when a failure shows the need | `monkeyshape-nm9` |
+| Selectable policy bundles | Idea: when an outside adopter needs it | `monkeyshape-8h4` |
+
+"Shipped" means on `main`; the plans of milestones 1 to 3 are in `notes/`, milestone 4's in
+`plan/MILESTONE.md` until milestone 5 replaces it. A PR that ships a goal updates its row.
 
 ## 0. Scope
 
-monkeyshape describes one way for **humans and coding agents to build software together**
-on **Bun, TypeScript, Effect and beads**. It is aimed mainly at repos that build agents or
-agentic harnesses, but most of it applies to any repo with that stack.
+monkeyshape describes one way for **humans and coding agents to build software together**:
+a **language-neutral core** of beads and the working loop (tracks, handoffs, the mailbox,
+PRs, review, budgets), plus a **language pack** per stack and a **harness adapter** per
+coding agent. It is aimed mainly at repos that build agents or agentic harnesses, but most
+of it applies to any repo.
+
+What stays fixed for every repo, whatever its language or harness: beads and the working
+loop. What varies: the toolchain, the module boundaries, the rules and the gate (the pack),
+and how a session loads the loop and receives mail (the adapter). Bun is a build detail of
+the `mshape` binary; Effect is the TypeScript pack's opinion. Today only the TypeScript pack
+and the Claude Code adapter exist, fused into the core; milestones 5 and 6 separate them.
 
 It encodes a few beliefs:
 
@@ -50,19 +53,21 @@ It encodes a few beliefs:
 
 It is two things:
 
-1. **A shared package** (`monkeyshape`, CLI `mshape`). It provides the checks, the custom lint
-   rules, the small runtime helpers those rules point to, the base configs and the shared
-   skills. A lesson learned in one adopting repo ships as a check, and every adopter gets it
-   on its next version bump.
-2. **A template** that `mshape init` copies.
+1. **A shared tool** (`mshape`) and, per pack, what an adopter's code imports or extends: the
+   checks, the custom rules, the small runtime helpers those rules point to, the base configs
+   and the shared skills. A lesson learned in one adopting repo ships as a check, and every
+   adopter of that pack gets it on its next version bump.
+2. **A template per pack** that `mshape init` copies.
 
-Rules come in two **layers**:
+Rules come in two **layers**: **core**, for any repo of a pack, and **agentic** (opt-in, not
+built yet), for repos whose code calls models.
 
-- **core**: any repo on the stack.
-- **agentic** (opt-in, not built yet): repos whose code calls models.
+Each adopter keeps its local facts in one config file: the module map, budget overrides,
+allowlists that each carry a reason, and shared paths for tracks. Today that is
+`shape.config.ts`; milestone 5 makes it data.
 
-Each adopter keeps its local facts in one file, `shape.config.ts`: the module map, budget
-overrides, allowlists that each carry a reason, and shared paths for tracks.
+**Not in scope** until a consumer asks: Windows, languages other than TypeScript, Rust and
+Python, and harnesses other than Claude Code, Codex and pi.
 
 ## 1. Principles
 
@@ -104,25 +109,119 @@ Every rule must trace back to one of these principles. A rule that can't is dele
    work lines up with current priorities, do it now. Agent time is cheap, and carrying a
    design you know is wrong is not.
 
+
 ## 2. Direction
 
-### Milestone 4: the loop at scale
+### What milestone 4 taught
 
-Two repos ran on 0.4.0: an existing application adopted monkeyshape and ran its first
-milestone with four parallel tracks, and a new repo was born and ran its first with three.
-Their tracks found what only scale shows: PRs changed under their reviewers, rules stated
-only in human docs, decisions with no test for what earns one, a private name in a public
-PR body, worktrees that couldn't run their gate, and a human who had to change directory for
-every step. Milestone 4 fixes those. The why and the plan are in `plan/MILESTONE.md`.
+Two repos ran on 0.4.0 at scale (four and three parallel tracks) and their reports drove
+milestone 4; its why and plan are in `plan/MILESTONE.md`. Real adopters stay the source of
+the next fixes, and their tracks report precisely when asked. What agents follow must be
+where they act (PRIME.md, the skills, file headers, check messages).
 
-What milestone 3 taught: real adopters are the source of the next milestone, and their tracks
-report precisely when asked. A plan's divergences need somewhere to go (they now go to `main`,
-where the planning session stays open). What agents follow must be where they act (PRIME.md,
-the skills, file headers, check messages); `docs/workflow.md` is for humans.
+### A language-neutral core (`monkeyshape-070`, milestone 5)
 
-### The remaining starter rules (`monkeyshape-hh2`)
+**Intent.** Separate what every repo shares from what its language decides, so a repo with no
+JavaScript can run the loop and the gate.
 
-Planned core rules, each removing one bug class:
+- **Config as data:** `shape.toml`, validated by a schema, replaces `shape.config.ts`. The two
+  adopters and this repo migrate once, by a command; no second config format is kept.
+- **The gate is configured,** not hard-coded as `bun run check`: PRIME.md, the skills, the PR
+  template, `track pr` and CI read it from config.
+- **`mshape` ships as a compiled binary** (Bun compiles it; Bun is a build detail), as GitHub
+  release assets with hashes for Linux x64 and arm64 and macOS arm64. `shape.toml` pins the
+  version and hash; a small committed bootstrap fetches and verifies it. A non-TypeScript
+  repo has no `package.json` and no `node_modules`. npm keeps shipping what TypeScript code
+  imports or extends (`decodeStrict`, the base `tsconfig` and biome configs).
+- **A language-pack interface,** with TypeScript refactored into the first pack.
+- **Adopter rules through ast-grep, for every language.** TypeScript `localRules` (functions
+  in `shape.config.ts`) are ported once, the adopters' included, and removed. monkeyshape's
+  own TypeScript core rules stay on oxc inside the TypeScript pack. ast-grep is a new runtime
+  dependency, approved in principle; how it is delivered (bundled with the release or pinned
+  beside it) is the milestone's call.
+
+**Consumer.** The Rust and Python repos the maintainer starts as soon as milestone 5 ships,
+with no workaround in between; and the two existing adopters, which must stay green across
+the migration.
+
+**Done looks like:** the language-packs goal's acceptance below; this goal has none apart
+from it, since an interface is proven only by the packs that fill it.
+
+**Why now.** Both waiting repos need it, and every later goal is cheaper on a neutral core:
+validate and the agentic layer's ledger are core, the starter rules and Effect are the
+TypeScript pack's. It is planned with the language packs as one milestone, so the interface
+is shaped by the two packs that fill it rather than guessed.
+
+**Learned so far.** The checks are already pure functions over a `Snapshot` with adapters
+loading it, so many of them (budgets, refs, files, skills, sync, beads, decisions) should
+be neutral once their inputs are; arch's import graph and the oxc rules are TypeScript's.
+The loop's own text names Bun: PRIME.md tells agents `bun run --silent mshape ...`, and the
+Claude Code hooks look for `bun` on the PATH (missing after a restart in three sessions that
+milestone 4 answered). A binary removes both.
+
+### Language packs: Rust and Python (`monkeyshape-gbx`, milestone 5)
+
+**Intent.** Each pack fills the interface: source and toolchain authority, module
+boundaries, core rules, base-config delivery, adopter rules (ast-grep), the init template
+and the gate.
+
+- **Rust:** `cargo metadata` for sources and the crate graph as module boundaries; clippy and
+  rustfmt; curated workspace lints. Cargo has no cross-repo `extends`, so `mshape sync`
+  copies the base config in and the `sync` check keeps it equal.
+- **Python:** uv, ruff, pyright or mypy (the milestone picks one), pytest; grimp's import
+  graph as module boundaries; curated ruff rules, delivered by `extend` where it reaches or
+  copied by sync where it doesn't.
+
+**Consumer.** The maintainer's next Rust repo and next Python repo, both born with
+`mshape init` once this ships. Neither starts before.
+
+**Done looks like:** a real Rust repo and a real Python repo born green with no JavaScript
+anywhere in them (no `package.json`, no `node_modules`, no Bun), each running its first
+track through the loop; both existing adopters still green on the new release; and Python
+fitting the pack interface without changing it. A change to the interface for Python is
+the signal that the interface was shaped by TypeScript alone.
+
+**Why now.** Same milestone as the core, by the maintainer's choice: the repos wait for both,
+and a second and third pack are what test the interface.
+
+**Out of scope:** languages other than these, Windows, and porting monkeyshape's own
+TypeScript rules to ast-grep.
+
+### Harness adapters: Codex and pi (`monkeyshape-dlz`, milestone 6)
+
+**Intent.** A neutral floor every harness gets, with no harness-specific mechanism: AGENTS.md,
+`mshape prime`, skills as markdown, mail pulled by command. Then Claude Code refactored into
+the first adapter on that floor, and adapters for Codex and pi: hooks, where skills live,
+session identity, and push notices through the existing `Notifier` where the harness supports
+one.
+
+**Consumer.** Agents running in Codex and pi on the maintainer's repos.
+
+**Done looks like:** a track worked end to end in Codex and in pi (session start loads the
+loop, mail arrives, a PR opens through `track pr`), with Claude Code behaving as on 0.5.0.
+
+**Why later.** No Codex or pi user yet, while two repos wait on the packs. If one arrives
+before the Python repo, it swaps with milestone 5; nothing in it depends on the packs.
+
+**Learned so far.** Claude Code is woven in today: the `.claude/skills` symlink, the
+`.claude/settings.json` hooks, `CLAUDE_CODE_SESSION_ID` for registration, and live notices
+over Claude Code's undocumented socket (`notes/2026-11-03-spike-native-delivery.md`).
+Skills already live in `.agents/skills`, which Codex reads.
+
+**Out of scope:** Cursor and any other harness.
+
+### `mshape validate` (`monkeyshape-97o`, core)
+
+The real-data loop as a command: checks run against named targets (a location and a content
+hash) and compared with committed baselines, one line per check (pass, regress, improve).
+Required on PRs that touch core logic, with its table in the PR body; baselines change only
+in the PR whose code moves them. This turns "real data is the judge" from a habit into a
+gate. Language-neutral: it belongs to the core, so it waits for milestone 5's split.
+
+### The remaining starter rules (`monkeyshape-hh2`, TypeScript pack)
+
+Planned TypeScript rules, each removing one bug class; the other packs get their own
+equivalents when a consumer hits the class:
 
 | Rule | Bug class it removes |
 |---|---|
@@ -139,35 +238,34 @@ Domain types such as a branded address stay in the adopter.
 
 Opt-in rules and helpers for repos whose code calls models:
 
-| Piece | Bug class it removes |
-|---|---|
-| Model output decoded only via `decodeModelOutput`, a lenient decoder backed by property tests | Shape breaks fixed one at a time: numbers sent as strings, a scalar where a list was expected, NaN |
-| No model or provider names outside config | Hard-coded models |
-| Paid runs go through a spend ledger with a daily cap; above it, a short run plan agreed with the human (question, expected cost, targets, what result would change the plan) | Unreviewed spend |
+| Piece | Layer | Bug class it removes |
+|---|---|---|
+| Model output decoded only through a lenient decoder backed by property tests (`decodeModelOutput` in TypeScript) | per pack | Shape breaks fixed one at a time: numbers sent as strings, a scalar where a list was expected, NaN |
+| No model or provider names outside config | per pack | Hard-coded models |
+| Paid runs go through a spend ledger with a daily cap; above it, a short run plan agreed with the human (question, expected cost, targets, what result would change the plan) | core | Unreviewed spend |
 
 Evidence for a prompt or agent change is a run graded against the adopter's evaluation set.
 
-### Effect: guarantees, not style (epic filed with milestone 3)
+### Effect: guarantees, not style (`monkeyshape-rrn`, TypeScript pack)
 
 Effect belongs where it buys an execution guarantee: typed operational failures,
 cancellation, resource lifetimes, concurrency supervision, dependency composition and
 testability. Pure transformations, parsers and deterministic analysis stay ordinary
-TypeScript. monkeyshape keeps its shape (a pure core, operational adapters, schemas for
-contracts, execution at composition roots) and works in two directions that inform each
-other: its own Effect use (subprocess cancellation, resource cleanup, typed failures,
-interruption and failure-injection tests), and enforcement for adopters (rule corrections,
-type-aware diagnostics tried through Effect's own tooling before any syntax heuristic,
-execution boundaries declared in the existing module map, checks for recurring resource and
-concurrency mistakes). A real bug fixed in one becomes a regression test or a rule in the
-other. It waits for a reproduced failure on an adopter's path.
+TypeScript. Two directions that inform each other: monkeyshape's own Effect use (subprocess
+cancellation, resource cleanup, typed failures, interruption and failure-injection tests),
+and enforcement for TypeScript adopters (rule corrections, type-aware diagnostics tried
+through Effect's own tooling before any syntax heuristic, execution boundaries declared in
+the module map, checks for recurring resource and concurrency mistakes). A real bug fixed in
+one becomes a regression test or a rule in the other. It waits for a reproduced failure on an
+adopter's path.
 
-### `mshape validate` (`monkeyshape-97o`)
+### Gate hardening (`monkeyshape-nm9`)
 
-The real-data loop as a command: checks run against named targets (a location and a content
-hash) and compared with committed baselines, one line per check (pass, regress, improve).
-Required on PRs that touch core logic, with its table in the PR body; baselines change only
-in the PR whose code moves them. This is what turns "real data is the judge" from a habit
-into a gate.
+Planned for the gate and not built: pre-push and pre-commit hooks running the gate (or a
+fast part of it), branch protection on `main` requiring a PR and a green `check`, a
+meta-check that rejects lint excludes other than generated or vendor paths, and compiling
+any code in the repo outside its pack's language. Each closes a way for red code to reach
+`main`; each is built when a failure shows the need.
 
 ### Policy bundles (`monkeyshape-8h4`)
 
@@ -176,13 +274,7 @@ outside adopter needs it.
 
 ### Dependencies between repos
 
-Repos stay separate: a foundation library serves many applications. Milestone 3 ships the
-first part, a release tarball with its hash and `mshape dep bump`. Still to come: upstream
-releases that smoke-test their consumers' real workflows.
-
-### Gate hardening (no epic yet)
-
-Planned for the gate and not built: pre-push and pre-commit hooks running the gate (or a
-fast part of it), branch protection on `main` requiring a PR and a green `check`, a
-meta-check that rejects biome excludes other than generated or vendor paths, and compiling
-any non-TypeScript code in the repo. Each closes a way for red code to reach `main`.
+Repos stay separate: a foundation library serves many applications. Milestone 3 shipped the
+first part for TypeScript, a release tarball with its hash and `mshape dep bump`. Still to
+come, when a consumer needs it: upstream releases that smoke-test their consumers' real
+workflows, and the same for the other packs.
