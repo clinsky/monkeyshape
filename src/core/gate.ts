@@ -49,14 +49,19 @@ const requiredHere = (
   return setting === undefined ? prerequisite.required : setting === "required";
 };
 
-/** How to install a stage's missing program, from the prerequisite it stands for. */
+/** How to install a stage's missing program: the prerequisite of its name, else the toolchain. */
 export const installHint = (
   packs: GatePacks,
   stage: Pick<PlannedStage, "origin" | "run" | "name">,
 ): string | undefined => {
   if (stage.origin === "mshape" || stage.origin === "repo") return undefined;
   const pack = packs[stage.origin];
-  return pack === undefined ? undefined : prerequisiteOf(pack, stage)?.install;
+  const program = stage.run[0];
+  if (pack === undefined || program === "bun") return undefined;
+  // The program is what is missing, so its fix is the program's own, else the toolchain's:
+  // a component's (`rustup component add clippy`) needs the toolchain it can't find. A missing
+  // component never reaches here: the program ran, and failed with its own message.
+  return (pack.prerequisites.find((one) => one.name === program) ?? pack.prerequisites[0])?.install;
 };
 
 /** One stage as the gate runs it. */
