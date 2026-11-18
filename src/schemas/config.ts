@@ -206,10 +206,36 @@ const MshapePin = Schema.Struct({
   dev: Schema.optionalKey(Argv),
 });
 
+const LintLevel = Schema.Literals(["allow", "warn", "deny", "forbid"]);
+
+/** One lint as Cargo's `[lints]` tables write it: a level, or a level with a priority. */
+const LintSetting = Schema.Union([
+  LintLevel,
+  Schema.Struct({ level: LintLevel, priority: Schema.Int }),
+]);
+
+/** Lints by name, as Cargo writes them (`dbg_macro`): Cargo's keys, not monkeyshape's. */
+const LintTable = Schema.Record(Schema.String, LintSetting);
+
+/** What only the Rust pack reads. */
+const RustTable = Schema.Struct({
+  /**
+   * Laid over the curated workspace lints, lint by lint, in the `[workspace.lints.*]` tables
+   * `mshape sync` writes into the root `Cargo.toml`.
+   */
+  lints: Schema.optionalKey(
+    Schema.Struct({
+      rust: Schema.optionalKey(LintTable),
+      clippy: Schema.optionalKey(LintTable),
+    }),
+  ),
+});
+
 const configFields = {
   /** The packs, in the order their gate stages run. */
   packs: Schema.optionalKey(Schema.Array(Pack).check(Schema.isMinLength(1))),
   mshape: Schema.optionalKey(MshapePin),
+  rust: Schema.optionalKey(RustTable),
   /** The repo's own gate stages, after its packs' defaults. */
   gate: Schema.optionalKey(Schema.Struct({ stages: Schema.optionalKey(Schema.Array(GateStage)) })),
   layers: Schema.optionalKey(Schema.Array(Schema.Literals(["core", "agentic"]))),
@@ -404,6 +430,8 @@ export interface ResolvedConfig {
   readonly mshape:
     | { readonly version: string; readonly sums?: string; readonly dev?: ReadonlyArray<string> }
     | undefined;
+  /** The `[rust]` table, as written; only the Rust pack reads it. */
+  readonly rust: typeof RustTable.Type | undefined;
   readonly gate: { readonly stages: ReadonlyArray<GateStage> };
   /**
    * The repo's files the config imports, directly or not: its local rules and their helpers.
@@ -508,6 +536,7 @@ export const resolveConfig = (
   configFile: file,
   packs: config.packs ?? ["typescript"],
   mshape: config.mshape,
+  rust: config.rust,
   gate: { stages: config.gate?.stages ?? [] },
   configModules: modules,
   layers: config.layers ?? ["core"],

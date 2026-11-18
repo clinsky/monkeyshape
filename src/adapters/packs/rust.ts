@@ -8,15 +8,10 @@ import { realpath } from "node:fs/promises";
 import * as Effect from "effect/Effect";
 import * as Result from "effect/Result";
 import type { Integration } from "../../core/model.ts";
+import { CARGO_METADATA, RUSTC } from "../../packs/rust/index.ts";
 import { workspaceOf } from "../../packs/rust/metadata.ts";
 import { reachedFiles } from "../../packs/rust/modTree.ts";
 import { runTool } from "../process.ts";
-
-/** The name the metadata JSON is recorded under in the load's `outputs`. */
-export const CARGO_METADATA = "cargo-metadata";
-
-/** The tool whose file list coverage holds every `.rs` source to. */
-export const RUSTC = "rustc";
 
 export interface RustLoad {
   readonly tools: ReadonlyArray<{
@@ -34,12 +29,15 @@ const unloaded = (integration: Integration): RustLoad => ({
 
 export const loadRust = (input: {
   readonly root: string;
-  readonly files: ReadonlyArray<string>;
-  readonly texts: ReadonlyMap<string, string>;
+  readonly repo: {
+    readonly files: ReadonlyArray<string>;
+    readonly texts: ReadonlyMap<string, string>;
+  };
 }): Effect.Effect<RustLoad> =>
   Effect.gen(function* () {
-    const sources = input.files.filter((file) => file.endsWith(".rs"));
-    if (!input.files.includes("Cargo.toml"))
+    const { files, texts } = input.repo;
+    const sources = files.filter((file) => file.endsWith(".rs"));
+    if (!files.includes("Cargo.toml"))
       return unloaded(
         sources.length === 0
           ? { state: "absent" }
@@ -83,7 +81,7 @@ export const loadRust = (input: {
     );
     const sourceTexts = new Map(
       sources.flatMap((file) => {
-        const text = input.texts.get(file);
+        const text = texts.get(file);
         return text === undefined ? [] : [[file, text] as const];
       }),
     );

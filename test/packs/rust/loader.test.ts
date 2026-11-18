@@ -3,7 +3,8 @@ import { mkdtemp, realpath, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import * as Effect from "effect/Effect";
-import { CARGO_METADATA, loadRust, RUSTC } from "../../../src/adapters/packs/rust.ts";
+import { loadRust } from "../../../src/adapters/packs/rust.ts";
+import { CARGO_METADATA, RUSTC } from "../../../src/packs/rust/index.ts";
 
 const scratch = () => mkdtemp(join(tmpdir(), "rust-loader-"));
 
@@ -11,7 +12,7 @@ const scratch = () => mkdtemp(join(tmpdir(), "rust-loader-"));
 const load = async (root: string, files: Record<string, string>) => {
   for (const [path, text] of Object.entries(files)) await Bun.write(join(root, path), text);
   return Effect.runPromise(
-    loadRust({ root, files: Object.keys(files), texts: new Map(Object.entries(files)) }),
+    loadRust({ root, repo: { files: Object.keys(files), texts: new Map(Object.entries(files)) } }),
   );
 };
 
