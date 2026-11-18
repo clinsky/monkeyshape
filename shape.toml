@@ -73,7 +73,7 @@ name = "bun-test"
 run = ["bun", "test", "--parallel", "--timeout=30000"]
 
 # install.sh is POSIX sh: `sh -n` parses it as dash does on Linux, stricter than bash;
-# test/integration/install.test.ts runs it.
+# test/integration/launch.test.ts runs it.
 [[coverage.commands]]
 files = ["install.sh"]
 run = ["sh", "-n", "{files}"]

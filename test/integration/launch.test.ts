@@ -33,7 +33,10 @@ const server = Bun.serve({
     if (match === null || dir === undefined) return new Response("not found", { status: 404 });
     const bytes = await Bun.file(join(dir, match[2] ?? "")).bytes();
     // A tampered binary: one byte appended, so SHA256SUMS no longer vouches for it.
-    return new Response(tamper && match[2] === asset ? new Uint8Array([...bytes, 0]) : bytes);
+    if (!(tamper && match[2] === asset)) return new Response(bytes);
+    const tampered = new Uint8Array(bytes.length + 1);
+    tampered.set(bytes);
+    return new Response(tampered);
   },
 });
 const RELEASES = server.url.href.replace(/\/$/, "");
@@ -264,6 +267,47 @@ describe.skipIf(host === undefined)("the installed mshape, as launcher", () => {
     const dir = await repo("dev-bun", `version = "0.0.0"\ndev = ["bun", "src/cli/main.ts"]`);
     const ran = await mshape(dir, ["--version"]);
     expect(ran.out).toContain("dev runs bun, but bun is not on PATH or at ~/.bun/bin/bun");
+    expect(ran.code).toBe(1);
+  });
+
+  test("a launched mshape spawns mshape: the nested one follows the pin, not the installed version", async () => {
+    // What a gate stage's or `track pr`'s `mshape` sees: the installed launcher, in the pinned
+    // repo, with MSHAPE_LAUNCHED inherited from the 9.9.2 its parent launched.
+    const dir = await repo("nested", `version = "9.9.2"\nsums = "${await sumsOf("9.9.2")}"`);
+    expect(await mshape(dir, ["--version"], { MSHAPE_LAUNCHED: "9.9.2" })).toEqual({
+      code: 0,
+      out: "9.9.2",
+    });
+    // The pinned copy itself, with its own name in the variable: runs itself, no network.
+    requests = [];
+    const cached = join(home(), ".cache/monkeyshape/9.9.2/mshape");
+    expect(
+      await run(
+        [cached, "--version"],
+        dir,
+        machine({ MSHAPE_LAUNCHED: "9.9.2", MSHAPE_RELEASES_URL: OFFLINE }),
+      ),
+    ).toEqual({ code: 0, out: "9.9.2" });
+    expect(requests).toEqual([]);
+  });
+
+  test("a dev argv spawns mshape: the nested one runs dev again", async () => {
+    const dir = await repo(
+      "nested-dev",
+      `version = "0.0.0"\ndev = ["sh", "-c", "echo dev: $*", "dev"]`,
+    );
+    expect(await mshape(dir, ["--version"], { MSHAPE_LAUNCHED: "dev" })).toEqual({
+      code: 0,
+      out: "dev: --version",
+    });
+  });
+
+  test("a pinned version with no release there: says so, not to reconnect", async () => {
+    const dir = await repo("unreleased", `version = "9.9.7"\nsums = "${"c".repeat(64)}"`);
+    const ran = await mshape(dir, ["--version"]);
+    expect(ran.out).toContain(`but ${RELEASES} has no release v9.9.7`);
+    expect(ran.out).toContain("check the pin's version, or MSHAPE_RELEASES_URL");
+    expect(ran.out).not.toContain("connect and rerun");
     expect(ran.code).toBe(1);
   });
 

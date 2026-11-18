@@ -31,8 +31,9 @@ const run = (cwd: string, args: ReadonlyArray<string>, path: ReadonlyArray<strin
       HOME: join(work, "home"),
       CLAUDE_CODE_SESSION_ID: "",
       CLAUDE_PID: "",
-      // This repo pins `dev`, its own source: what is tested here is the binary itself.
-      MSHAPE_LAUNCHED: "test",
+      // This repo pins `dev`, its own source: what is tested here is the binary itself, run as
+      // the launcher runs the version it launched.
+      MSHAPE_LAUNCHED: version,
     },
   });
   return { code: ran.exitCode, out: `${ran.stdout}${ran.stderr}` };

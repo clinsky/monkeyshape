@@ -174,7 +174,10 @@ export const pinnedBinary = (
     const listing = yield* fetchBytes(sumsUrl);
     const offline = (url: string, why: string) =>
       refused(
-        `shape.toml pins mshape ${version}, which isn't in the cache, and fetching ${url} failed (${why}): connect and rerun`,
+        why.startsWith("404")
+          ? // Reconnecting won't help: that version was never released there.
+            `shape.toml pins mshape ${version}, but ${releases} has no release v${version} (${url}: ${why}): check the pin's version, or MSHAPE_RELEASES_URL`
+          : `shape.toml pins mshape ${version}, which isn't in the cache, and fetching ${url} failed (${why}): connect and rerun`,
       );
     if (typeof listing === "string") return offline(sumsUrl, listing);
     const listed = sha256(listing);

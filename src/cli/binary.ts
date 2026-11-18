@@ -17,7 +17,7 @@ import {
   unpackOwnFiles,
 } from "../adapters/launch.ts";
 import { BUN_MISSING, bunPath } from "../adapters/process.ts";
-import { cacheRoot, LAUNCHED_ENV, launchPlan, RELEASES_URL } from "../core/launch.ts";
+import { cacheRoot, LAUNCHED_ENV, launchedHere, launchPlan, RELEASES_URL } from "../core/launch.ts";
 import { platformOf, unsupportedPlatform } from "../core/tools.ts";
 
 const fail = (message: string): void => {
@@ -46,7 +46,7 @@ export const start = async (
   const plan = launchPlan(
     found?.pin,
     { version, recordedSums: await Effect.runPromise(recordedSums(process.execPath)) },
-    (process.env[LAUNCHED_ENV] ?? "") !== "",
+    launchedHere(process.env[LAUNCHED_ENV], version),
   );
   if (plan.kind === "refuse") return fail(plan.message);
   if (plan.kind === "dev") {

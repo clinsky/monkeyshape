@@ -44,8 +44,20 @@ export type LaunchPlan =
   | { readonly kind: "pinned"; readonly version: string; readonly sums: string }
   | { readonly kind: "refuse"; readonly message: string };
 
-/** The environment variable a launched `mshape` gets, so it runs itself and never relaunches. */
+/**
+ * The environment variable a launched `mshape` gets: the version launched (`dev` for a `dev`
+ * argv), so that one runs itself and never relaunches. Every process it starts inherits it, so
+ * it is honoured only by the `mshape` it names (`launchedHere`): a nested `mshape`, a gate
+ * stage's or `track pr`'s, is the installed launcher again and follows the pin.
+ */
 export const LAUNCHED_ENV = "MSHAPE_LAUNCHED";
+
+/** What `install.sh` sets to run the copy it just installed, wherever its cwd is. */
+export const INSTALL_MARKER = "install";
+
+/** Whether `LAUNCHED_ENV`'s `value` names the running `mshape`, `version`. */
+export const launchedHere = (value: string | undefined, version: string): boolean =>
+  value === version || value === INSTALL_MARKER;
 
 /**
  * What the installed `mshape` does inside a repo, as rustup honours `rust-toolchain.toml`: the
