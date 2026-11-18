@@ -28,18 +28,10 @@ import { PACKS } from "../../src/packs/index.ts";
 import type { Pack } from "../../src/packs/pack.ts";
 import { typescript } from "../../src/packs/typescript/index.ts";
 import type { ShapeConfig } from "../../src/schemas/config.ts";
+import { pythonCases } from "../packs/python/ruleCases.ts";
+import { rustCases } from "../packs/rust/ruleCases.ts";
 import { config, fakePack, listed, repo } from "../support.ts";
-
-interface Case {
-  readonly files?: Readonly<Record<string, string>>;
-  readonly config?: ShapeConfig;
-  readonly options?: Parameters<typeof repo>[1];
-}
-
-interface Cases {
-  readonly fail: Case;
-  readonly pass: Case;
-}
+import type { Case, Cases } from "./ruleCase.ts";
 
 const lines = (n: number): string =>
   `${Array.from({ length: n }, (_, i) => `line ${i}`).join("\n")}\n`;
@@ -1129,6 +1121,8 @@ const prerequisitesCases: Record<string, Cases> = {
 const CASES: Record<string, Cases> = {
   ...arch,
   ...sourcesCases,
+  ...rustCases,
+  ...pythonCases,
   ...refs,
   ...budgets,
   ...coverage,
