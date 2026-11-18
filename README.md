@@ -30,7 +30,7 @@ src/core/client.ts:1  arch/host-access
   arch      failed          3 files in 2 modules
   sources   passed          4 TypeScript files: 3 in sources, 1 exempt
   refs      passed          1 doc, and comments in TypeScript
-  budgets   passed          the loaded docs, decisions, memories and 4 TypeScript files' lengths
+  budgets   passed          lengths of the loaded docs, decisions, memories, 4 TypeScript files
   coverage  passed          4 TypeScript files against tsc's and biome's own file lists; 3 data files parsed
   files     passed          9 files against the 1.0 MiB cap
   rules     failed          3 files in sources

@@ -123,18 +123,20 @@ export const vendoredSpec = (tarball: string): string => vendoredSpecOf(vendored
 
 /**
  * `packageRoot` is the installed monkeyshape: its `template/` and `skills/` are copied.
- * `tarball`, from `--from`, is copied into `vendor/` and `toolchain.monkeyshape` should be its
+ * `given`, from `--from`, is copied into `vendor/` and `toolchain.monkeyshape` should be its
  * `vendoredSpec`: a path relative to the repo, never one that resolves only on this machine.
+ * Only a TypeScript repo installs the package, so another pack's repo vendors nothing.
  */
 export const initRepo = (
   target: string,
   name: string,
   packageRoot: string,
   toolchain: Toolchain,
-  tarball?: string,
+  given?: string,
   pack = "typescript",
 ) =>
   Effect.gen(function* () {
+    const tarball = pack === "typescript" ? given : undefined;
     if (!(yield* isEmptyOrMissing(target)))
       return yield* Effect.fail(fail(target, "exists and is not empty; init only creates repos"));
     /** Past this point the directory exists, and init won't run over it again. */
