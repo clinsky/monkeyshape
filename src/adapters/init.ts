@@ -5,7 +5,7 @@ import * as Effect from "effect/Effect";
 import { OWNABLE_FILES } from "../core/conventions.ts";
 import { VENDOR_DIR, vendoredSpecOf } from "../core/dep.ts";
 import { HANDOFFS_LINK, handoffsLink, handoffsStore } from "../core/layout.ts";
-import { scaffold, type Toolchain } from "../core/scaffold.ts";
+import { PACKS_DIR, scaffold, type Toolchain, templateFor } from "../core/scaffold.ts";
 import { resolveConfig } from "../schemas/config.ts";
 import { WorkspaceError } from "../schemas/errors.ts";
 import { BUN_MISSING, bunPath, runTool } from "./process.ts";
@@ -132,6 +132,7 @@ export const initRepo = (
   packageRoot: string,
   toolchain: Toolchain,
   tarball?: string,
+  pack = "typescript",
 ) =>
   Effect.gen(function* () {
     if (!(yield* isEmptyOrMissing(target)))
@@ -140,13 +141,21 @@ export const initRepo = (
     const partial = (reason: string) =>
       fail(target, `${reason}. Delete ${target} and run mshape init again`);
     const decoder = new TextDecoder();
-    const template = new Map(
+    const tree = new Map(
       [...(yield* readTree(`${packageRoot}/template`))].map(
         ([path, bytes]) => [path, decoder.decode(bytes)] as const,
       ),
     );
-    if (template.size === 0)
+    if (tree.size === 0)
       return yield* Effect.fail(fail(packageRoot, "has no template/; reinstall monkeyshape"));
+    const template = templateFor(tree, pack);
+    if (template === undefined)
+      return yield* Effect.fail(
+        fail(
+          `--pack ${pack}`,
+          `this monkeyshape has no template for the ${pack} pack yet (it has ${shippedTemplates(tree).join(", ")}): run an mshape release that ships one, or init with --pack ${shippedTemplates(tree)[0] ?? "typescript"}`,
+        ),
+      );
     // A tarball is recorded with its digest, so the files check verifies it from the first gate.
     const vendored =
       tarball === undefined
@@ -158,7 +167,7 @@ export const initRepo = (
               Effect.mapError((error) => fail(tarball, error.reason)),
             ),
           };
-    const files = scaffold(name, template, toolchain, vendored);
+    const files = scaffold(name, template, toolchain, vendored, pack);
     yield* Effect.tryPromise({
       try: async () => {
         for (const [path, text] of files) {
@@ -204,6 +213,8 @@ export const initRepo = (
     const metrics = yield* metricsNote(target);
     if (metrics !== undefined) notes.push(metrics);
 
+    // Bun installs and formats a TypeScript repo; another pack's needs none of it.
+    if (pack !== "typescript") return yield* commit(target, name, done, notes);
     // The bun running mshape where there is one, so it exists (`bunPath`).
     const bun = bunPath();
     const install =
@@ -226,6 +237,22 @@ export const initRepo = (
         `bun install failed, so bun.lock is not committed. Run \`bun install\` in ${name}/ and commit bun.lock:\n  ${tail(install.output)}`,
       );
 
+    return yield* commit(target, name, done, notes);
+  });
+
+/** The packs `template/packs/` has a directory for. */
+const shippedTemplates = (tree: ReadonlyMap<string, string>): ReadonlyArray<string> =>
+  [
+    ...new Set(
+      [...tree.keys()].flatMap((path) =>
+        path.startsWith(`${PACKS_DIR}/`) ? [path.split("/")[1] ?? ""] : [],
+      ),
+    ),
+  ].sort();
+
+/** The one first commit, `bd init`'s folded in, and what init did. */
+const commit = (target: string, name: string, done: Array<string>, notes: Array<string>) =>
+  Effect.gen(function* () {
     // `bd init` commits its own files; fold that into the one first commit, message and all.
     const bdCommit = yield* run(target, ["git", "rev-parse", "--verify", "--quiet", "HEAD"]);
     if (bdCommit.code === 0) yield* run(target, ["git", "update-ref", "-d", "HEAD"]);

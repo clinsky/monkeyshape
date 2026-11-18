@@ -217,3 +217,39 @@ test("a kind a pack didn't declare fails as packs/undeclared-kind, naming the pa
   expect(found[0]?.message).toStartWith("the python pack reported `undeclared`, a kind missing");
   expect(found[0]?.message).toEndWith("Its finding was: the finding");
 });
+
+describe("the install hint for a missing tool", () => {
+  const missing = (
+    input: Parameters<typeof config>[0],
+    file: string,
+    packs?: Parameters<typeof repo>[1],
+  ) =>
+    prerequisites(
+      { ...config(input), configFile: file },
+      repo({ "src/a.ts": "", "crates/a.rs": "" }, packs ?? { linted: [] }),
+      ["coverage"],
+    ).map((v) => v.message);
+
+  test("a config that can make it optional says how, in its own syntax and file", () => {
+    expect(missing({}, "shape.config.ts")[0]).toContain(
+      'or set `prerequisites: { tsc: "optional" }` in shape.config.ts to read its config instead',
+    );
+    expect(missing({}, "shape.toml")[0]).toContain(
+      'or set `tsc = "optional"` under `[prerequisites]` in shape.toml to read its config instead',
+    );
+  });
+
+  test("a tool coverage can't read the config of, or the config can't name, says only to install it", () => {
+    const rust: Pack = {
+      ...fakePack("rust", "Rust", "rs"),
+      tools: [{ name: "rustc", rule: "compile", uncovered: () => "is in no mod tree" }],
+      prerequisites: [{ name: "rustc", required: true, install: "`rustup default stable`" }],
+    };
+    const found = missing({ sources: { include: ["crates/**"] } }, "shape.toml", {
+      packs: [{ pack: rust, load: { tools: [], outputs: new Map() } }],
+    });
+    expect(found).toEqual([
+      "coverage needs rustc, but its pack's loader didn't run it. Install it (`rustup default stable`).",
+    ]);
+  });
+});
