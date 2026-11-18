@@ -25,7 +25,7 @@ import {
   type Snapshot,
   type Violation,
 } from "./model.ts";
-import { checkPacks, packRuleIds } from "./packs.ts";
+import { checkPacks, PACKS_RULES, packRuleIds } from "./packs.ts";
 import { applyBaseline, type Counts, type RatchetResult } from "./ratchet.ts";
 import { checkRefs, REFS_RULES } from "./refs.ts";
 import { checkRules, ENGINE_RULES, type Rule } from "./rules/engine.ts";
@@ -465,8 +465,8 @@ const KINDS: { readonly [C in Violation["check"]]: ReadonlyArray<string> } = {
   coverage: COVERAGE_RULES,
   files: FILES_RULES,
   rules: ENGINE_RULES,
-  // Each pack's own, added by `ruleIds` from the packs it is given.
-  packs: [],
+  // Beside each pack's own, which `ruleIds` adds from the packs it is given.
+  packs: PACKS_RULES,
   skills: SKILLS_RULES,
   sync: SYNC_RULES,
   beads: BEADS_RULES,

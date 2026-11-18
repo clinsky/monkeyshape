@@ -203,3 +203,17 @@ test("a tool unavailable for want of something else says that fix, not the tool'
     "coverage needs tsc, but bun is not on PATH. Install Bun: https://bun.sh.",
   ]);
 });
+
+test("a kind a pack didn't declare fails as packs/undeclared-kind, naming the pack and kind", () => {
+  const sloppy: Pack = {
+    ...python,
+    findingKinds: ["declared"],
+    findings: () => [{ kind: "undeclared", file: "app/b.py", line: 2, message: "the finding" }],
+  };
+  const found = checkPacks(twoPacks, repo({ "app/b.py": "" }, { packs: [listed(sloppy)] }));
+  expect(found.map((v) => `${v.rule} ${v.file}:${v.line}`)).toEqual([
+    "packs/undeclared-kind app/b.py:2",
+  ]);
+  expect(found[0]?.message).toStartWith("the python pack reported `undeclared`, a kind missing");
+  expect(found[0]?.message).toEndWith("Its finding was: the finding");
+});

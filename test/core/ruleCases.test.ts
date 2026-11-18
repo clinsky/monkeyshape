@@ -366,6 +366,16 @@ const NO_TOOLS = { prerequisites: { tsc: "optional", biome: "optional" } } as co
 
 const TOOLS = { "tsconfig.json": '{ "include": ["src"] }', "biome.json": "{}" };
 
+/** A Python-like pack that reports `kind` at every `.py` file, having declared `declared`. */
+const reporting = (declared: ReadonlyArray<string>, kind: string): Pack => ({
+  ...fakePack("python", "Python", "py"),
+  findingKinds: declared,
+  findings: ({ repo: view }) =>
+    view.files
+      .filter((file) => file.endsWith(".py"))
+      .map((file) => ({ kind, file, message: "a finding" })),
+});
+
 /** A Rust-like pack whose compiler reached only `crates/a/lib.rs`. */
 const RUST: ShapeConfig = { packs: ["rust"], sources: { include: ["crates/**/*.rs"] } };
 const rustc = {
@@ -982,6 +992,17 @@ const sourcesCases: Record<string, Cases> = {
       files: { "src/cli.ts": "" },
     },
   },
+  "packs/undeclared-kind": {
+    fail: {
+      files: { "app/b.py": "" },
+      options: { packs: [listed(reporting(["declared"], "undeclared"))] },
+    },
+    // Nothing to report: a declared kind reports as itself (test/core/packs.test.ts).
+    pass: {
+      files: { "app/b.txt": "" },
+      options: { packs: [listed(reporting(["declared"], "undeclared"))] },
+    },
+  },
   "sources/unclaimed": {
     // A repo that checks its JavaScript its own way, with JavaScript in the rules' scope.
     fail: {
@@ -1105,12 +1126,8 @@ describe("rule cases", () => {
 
   test("every check lists the kinds it reports, so none escapes the cases above", () => {
     const ids = ruleIds(RULES, SHIPPED);
-    // `packs` reports only what packs bring: none yet, while TypeScript has no kinds of its own.
-    const ownless = SHIPPED.every((pack) => pack.findingKinds.length === 0) ? ["packs"] : [];
     expect(
-      [...CHECKS, "prerequisites"].filter(
-        (check) => !ownless.includes(check) && !ids.some((id) => id.startsWith(`${check}/`)),
-      ),
+      [...CHECKS, "prerequisites"].filter((check) => !ids.some((id) => id.startsWith(`${check}/`))),
     ).toEqual([]);
   });
 
