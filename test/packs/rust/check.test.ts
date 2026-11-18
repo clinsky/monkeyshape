@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { runChecks } from "../../../src/core/check.ts";
 import { CARGO_METADATA, RUSTC, rust } from "../../../src/packs/rust/index.ts";
+import { CURATED, renderLints } from "../../../src/packs/rust/lints.ts";
 import {
   type ResolvedConfig,
   resolveConfig,
@@ -171,6 +172,54 @@ describe("the Rust pack through mshape's checks", () => {
           },
         }),
       ).toEqual([]);
+    });
+  });
+
+  // The review of #102: following member-lints' advice before the root defines the tables
+  // breaks cargo ("`workspace.lints` was not defined").
+  describe("the workspace's lints", () => {
+    const packs = (files: Readonly<Record<string, string>>) =>
+      runChecks(shape, repo(files, { packs: snapshot.packs.map((loaded) => loaded) }), ["packs"]);
+
+    test("a root without [workspace.lints]: one finding there, with the tables, none on members", () => {
+      const found = packs(FILES);
+      expect(found.map((v) => [v.rule, v.file])).toEqual([
+        ["packs/rust/workspace-lints", "Cargo.toml"],
+      ]);
+      expect(found[0]?.message).toContain(renderLints(CURATED));
+    });
+
+    test("once the root has them, each member without the opt-in is reported", () => {
+      const found = packs({
+        ...FILES,
+        "Cargo.toml": `${FILES["Cargo.toml"]}\n${renderLints(CURATED)}\n`,
+      });
+      expect(found.map((v) => [v.rule, v.file])).toEqual([
+        ["packs/rust/member-lints", "crates/cli/Cargo.toml"],
+        ["packs/rust/member-lints", "crates/core/Cargo.toml"],
+        ["packs/rust/member-lints", "crates/io/Cargo.toml"],
+      ]);
+    });
+
+    test("a member that opted in too early breaks cargo: the root's finding still says what to add", () => {
+      const found = runChecks(
+        shape,
+        repo(FILES, { packs: [{ pack: rust, load: { tools: [], outputs: new Map() } }] }),
+        ["packs"],
+      );
+      expect(found.map((v) => v.rule)).toEqual(["packs/rust/workspace-lints"]);
+    });
+
+    test("a root with one owned table: the finding names the other, members are judged", () => {
+      const rustOnly = renderLints(CURATED).split("\n\n")[0] ?? "";
+      const found = packs({ ...FILES, "Cargo.toml": `${FILES["Cargo.toml"]}\n${rustOnly}\n` });
+      expect(found.map((v) => [v.rule, v.file])).toEqual([
+        ["packs/rust/workspace-lints", "Cargo.toml"],
+        ["packs/rust/member-lints", "crates/cli/Cargo.toml"],
+        ["packs/rust/member-lints", "crates/core/Cargo.toml"],
+        ["packs/rust/member-lints", "crates/io/Cargo.toml"],
+      ]);
+      expect(found[0]?.message).toStartWith("lacks [workspace.lints.clippy]");
     });
   });
 });

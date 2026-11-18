@@ -72,8 +72,8 @@ export const renderLints = (lints: Lints): string =>
     ].join("\n"),
   ).join("\n\n");
 
-export interface MemberFinding {
-  readonly kind: "member-lints";
+export interface LintsFinding {
+  readonly kind: "member-lints" | "workspace-lints";
   readonly file: string;
   readonly line: number;
   readonly message: string;
@@ -83,6 +83,56 @@ export interface MemberFinding {
 const lintsHeaderLine = (text: string): number | undefined => {
   const index = text.split("\n").findIndex((line) => /^\s*\[\s*lints\s*\]/.test(line));
   return index === -1 ? undefined : index + 1;
+};
+
+const field = (value: unknown, key: string): unknown =>
+  typeof value === "object" && value !== null && key in value
+    ? (value as Record<string, unknown>)[key]
+    : undefined;
+
+/** The owned tables a parsed root manifest lacks, as `[workspace.lints.<tool>]`. */
+const missingTables = (parsed: unknown): ReadonlyArray<string> =>
+  LINT_TOOLS.filter(
+    (tool) => field(field(field(parsed, "workspace"), "lints"), tool) === undefined,
+  ).map((tool) => `[workspace.lints.${tool}]`);
+
+/**
+ * Whether a member can opt in without breaking cargo: the root defines `[workspace.lints]`.
+ * Undefined when the root's text is missing or doesn't parse (cargo's to report).
+ */
+export const membersCanOptIn = (
+  root: string | undefined,
+  parse: (text: string) => unknown,
+): boolean | undefined => {
+  if (root === undefined) return undefined;
+  const parsed = parse(root);
+  return parsed === undefined
+    ? undefined
+    : field(field(parsed, "workspace"), "lints") !== undefined;
+};
+
+/**
+ * The root manifest's finding when it lacks an owned table: it carries the tables to add.
+ * With none at all, a member that opts in fails to load (cargo: "`workspace.lints` was not
+ * defined"), so members are judged only once `membersCanOptIn`.
+ */
+export const workspaceFinding = (
+  root: string | undefined,
+  parse: (text: string) => unknown,
+  tables: string,
+): LintsFinding | undefined => {
+  if (root === undefined) return undefined;
+  const parsed = parse(root);
+  if (parsed === undefined) return undefined;
+  const missing = missingTables(parsed);
+  if (missing.length === 0) return undefined;
+  const none = missing.length === LINT_TOOLS.length;
+  return {
+    kind: "workspace-lints",
+    file: "Cargo.toml",
+    line: 1,
+    message: `${none ? "defines no `[workspace.lints]`, so no crate is held to the curated lints, and a member can't opt in yet (cargo refuses `[lints] workspace = true` without them)" : `lacks ${missing.join(" and ")}, so no crate is held to those curated lints`}. Add these tables to this Cargo.toml, as they are (to change a lint, set it under \`[rust.lints.clippy]\` or \`[rust.lints.rust]\` in shape.toml and these change with it):\n\n${tables}\n\nThen give each member's Cargo.toml \`[lints]\` with \`workspace = true\`; \`cargo new\` does it for a crate added after.`,
+  };
 };
 
 const optsIn = (parsed: unknown): boolean => {
@@ -102,7 +152,7 @@ export const memberFindings = (
   manifests: ReadonlyArray<string>,
   texts: ReadonlyMap<string, string>,
   parse: (text: string) => unknown,
-): ReadonlyArray<MemberFinding> =>
+): ReadonlyArray<LintsFinding> =>
   manifests.flatMap((file) => {
     const text = texts.get(file);
     if (text === undefined) return [];

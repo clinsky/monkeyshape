@@ -1082,44 +1082,32 @@ const prerequisitesCases: Record<string, Cases> = {
 
 // the Rust pack's findings
 
-/** `cargo metadata` for a workspace of one member, `crates/a`, as the Rust loader records it. */
-const oneCrate = {
-  pack: rust,
-  load: {
-    tools: [],
-    outputs: new Map([
-      [
-        CARGO_METADATA,
-        JSON.stringify({
-          workspace_root: "/repo",
-          workspace_members: ["a"],
-          packages: [
-            {
-              id: "a",
-              name: "a",
-              manifest_path: "/repo/crates/a/Cargo.toml",
-              targets: [],
-              dependencies: [],
-            },
-          ],
-        }),
-      ],
-    ]),
+/** `cargo metadata` for one member, `crates/a`, as the Rust loader records it. */
+const METADATA = `{"workspace_root":"/repo","workspace_members":["a"],"packages":[{"id":"a","name":"a",
+"manifest_path":"/repo/crates/a/Cargo.toml","targets":[],"dependencies":[]}]}`;
+
+/** A one-crate Rust repo: `root` is its Cargo.toml, `member` crates/a's. */
+const rustRepo = (root: string, member: string): Case => ({
+  config: { packs: ["rust"] },
+  files: { "Cargo.toml": root, "crates/a/Cargo.toml": member },
+  options: {
+    packs: [{ pack: rust, load: { tools: [], outputs: new Map([[CARGO_METADATA, METADATA]]) } }],
   },
-};
+});
+
+const BARE_ROOT = '[workspace]\nmembers = ["crates/*"]\n';
+/** A root that defines both owned tables, so members are judged. */
+const LINTED_ROOT = `${BARE_ROOT}\n[workspace.lints.rust]\nunsafe_code = "deny"\n\n[workspace.lints.clippy]\ntodo = "warn"\n`;
+const OPTED_IN = '[package]\nname = "a"\n\n[lints]\nworkspace = true\n';
 
 const rustCases: Record<string, Cases> = {
+  "packs/rust/workspace-lints": {
+    fail: rustRepo(BARE_ROOT, ""),
+    pass: rustRepo(LINTED_ROOT, OPTED_IN),
+  },
   "packs/rust/member-lints": {
-    fail: {
-      config: { packs: ["rust"] },
-      files: { "crates/a/Cargo.toml": '[package]\nname = "a"\n' },
-      options: { packs: [oneCrate] },
-    },
-    pass: {
-      config: { packs: ["rust"] },
-      files: { "crates/a/Cargo.toml": '[package]\nname = "a"\n\n[lints]\nworkspace = true\n' },
-      options: { packs: [oneCrate] },
-    },
+    fail: rustRepo(LINTED_ROOT, '[package]\nname = "a"\n'),
+    pass: rustRepo(LINTED_ROOT, OPTED_IN),
   },
 };
 

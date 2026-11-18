@@ -7,7 +7,14 @@ import * as Result from "effect/Result";
 import type { Edge, Pack, PackFinding } from "../pack.ts";
 import { crateEdges } from "./crateGraph.ts";
 import { lex } from "./lexer.ts";
-import { effectiveLints, LINT_TABLES, memberFindings, renderLints } from "./lints.ts";
+import {
+  effectiveLints,
+  LINT_TABLES,
+  memberFindings,
+  membersCanOptIn,
+  renderLints,
+  workspaceFinding,
+} from "./lints.ts";
 import { workspaceOf } from "./metadata.ts";
 
 /** The name the loader records `cargo metadata`'s JSON under. */
@@ -73,16 +80,30 @@ export const rust: Pack = {
         `is compiled by no crate of this workspace: no \`mod\` declaration or \`include!\` reaches it from a target's root (lib.rs, main.rs, a test, bench, example or build script), so rustc, clippy and rustfmt never see it. Declare it with \`mod <name>;\` in its parent module, or delete it. If it belongs to a package this workspace doesn't build (one under \`exclude\`, such as cargo-fuzz's \`fuzz/\`), check it with a command in \`coverage.commands\` in ${config.configFile}, e.g. \`{ files = ["fuzz/**"], run = ["cargo", "clippy", "--manifest-path", "fuzz/Cargo.toml", "--", "-D", "warnings"] }\`. If only a macro reaches it, list it in \`coverage.exempt-files\` with that reason.`,
     },
   ],
-  findings: ({ repo, load }) => {
-    const workspace = workspaceIn(load.outputs);
-    if (workspace === undefined) return [];
-    return memberFindings(
-      workspace.members.map((crate) => crate.manifest),
-      repo.texts,
+  findings: ({ config, repo, load }) => {
+    // The root's tables are read from its text, not cargo's: a member that opted in too early
+    // makes cargo fail, and this finding is then the one that says what to add.
+    const rootText = repo.texts.get("Cargo.toml");
+    const root = workspaceFinding(
+      rootText,
       tomlOf,
-    ).map((finding): PackFinding => finding);
+      renderLints(effectiveLints(config.rust?.lints)),
+    );
+    const workspace = workspaceIn(load.outputs);
+    // Until the root defines `[workspace.lints]`, following member-lints' advice breaks cargo.
+    const members =
+      workspace === undefined || membersCanOptIn(rootText, tomlOf) !== true
+        ? []
+        : memberFindings(
+            workspace.members.map((crate) => crate.manifest),
+            repo.texts,
+            tomlOf,
+          );
+    return [...(root === undefined ? [] : [root]), ...members].map(
+      (finding): PackFinding => finding,
+    );
   },
-  findingKinds: ["member-lints"],
+  findingKinds: ["workspace-lints", "member-lints"],
   rules: [],
   baseConfigs: [
     {
