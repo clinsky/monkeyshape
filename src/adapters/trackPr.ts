@@ -524,14 +524,23 @@ export const awaitCi = (
   onDone: (
     runs: ReadonlyArray<CheckRun>,
   ) => Effect.Effect<void, TrackError | WorkspaceError> = () => Effect.void,
+  /**
+   * A workflow is known to run the gate on this PR: a check that hasn't started is queued, so
+   * the wait for it to start runs to the overall limit, not `startMs`.
+   */
+  expectCi = false,
 ) =>
   Effect.gen(function* () {
     yield* say(`waiting for CI on ${sha.slice(0, 12)}`);
     const started = yield* Clock.currentTimeMillis;
+    let queuedSaid = false;
     for (;;) {
       const runs = yield* checkRuns(cwd, sha, done);
-      const state = ciState(runs, before);
       const waited = (yield* Clock.currentTimeMillis) - started;
+      // A tip CI already ran on gets no new run for a push, and none for a body edit no
+      // workflow watches: once a new run is overdue, CI's answer is the runs already there.
+      const standing = before.size > 0 && waited >= timing.startMs;
+      const state = ciState(runs, standing ? new Set() : before);
       if (state.kind === "done") yield* onDone(state.runs);
       if (state.kind === "done")
         return state.failed.length === 0
@@ -539,7 +548,13 @@ export const awaitCi = (
           : yield* refuse(
               `${done}; but CI failed on ${sha.slice(0, 12)}: ${state.failed.join(", ")}\n${state.lines}`,
             );
-      if (state.kind === "none" && waited >= timing.startMs)
+      if (state.kind === "none" && waited >= timing.startMs && expectCi && !conflicts) {
+        if (!queuedSaid)
+          yield* say(
+            `note: no CI check has started on ${sha.slice(0, 12)} after ${Math.round(timing.startMs / 1000)}s; a workflow runs the gate on pull requests, so it is likely queued: still waiting, up to ${Math.round(timing.limitMs / 1000)}s in all`,
+          );
+        queuedSaid = true;
+      } else if (state.kind === "none" && waited >= timing.startMs)
         // A conflicting PR is untested and can't merge: not an outcome to exit 0 on.
         return conflicts
           ? yield* refuse(
@@ -799,5 +814,6 @@ export const trackPr = (
       say,
       behindMain.conflicts,
       recordCi,
+      gate.plan.kind === "fast",
     );
   });
