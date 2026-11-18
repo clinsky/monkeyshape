@@ -26,6 +26,7 @@ import type {
 import { RULES } from "../../src/core/rules/registry.ts";
 import { PACKS } from "../../src/packs/index.ts";
 import type { Pack } from "../../src/packs/pack.ts";
+import { CARGO_METADATA, rust } from "../../src/packs/rust/index.ts";
 import { typescript } from "../../src/packs/typescript/index.ts";
 import type { ShapeConfig } from "../../src/schemas/config.ts";
 import { config, fakePack, listed, repo } from "../support.ts";
@@ -1079,9 +1080,53 @@ const prerequisitesCases: Record<string, Cases> = {
   },
 };
 
+// the Rust pack's findings
+
+/** `cargo metadata` for a workspace of one member, `crates/a`, as the Rust loader records it. */
+const oneCrate = {
+  pack: rust,
+  load: {
+    tools: [],
+    outputs: new Map([
+      [
+        CARGO_METADATA,
+        JSON.stringify({
+          workspace_root: "/repo",
+          workspace_members: ["a"],
+          packages: [
+            {
+              id: "a",
+              name: "a",
+              manifest_path: "/repo/crates/a/Cargo.toml",
+              targets: [],
+              dependencies: [],
+            },
+          ],
+        }),
+      ],
+    ]),
+  },
+};
+
+const rustCases: Record<string, Cases> = {
+  "packs/rust/member-lints": {
+    fail: {
+      config: { packs: ["rust"] },
+      files: { "crates/a/Cargo.toml": '[package]\nname = "a"\n' },
+      options: { packs: [oneCrate] },
+    },
+    pass: {
+      config: { packs: ["rust"] },
+      files: { "crates/a/Cargo.toml": '[package]\nname = "a"\n\n[lints]\nworkspace = true\n' },
+      options: { packs: [oneCrate] },
+    },
+  },
+};
+
 const CASES: Record<string, Cases> = {
   ...arch,
   ...sourcesCases,
+  ...rustCases,
   ...refs,
   ...budgets,
   ...coverage,
