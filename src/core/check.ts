@@ -157,6 +157,9 @@ const prerequisitesOf = (
       : [{ name: "bd", integration: beads, required: false }];
   if (check === "beads")
     return [{ name: "bd", integration: beads, required: config.beads === "required" }];
+  // The repo's own rules run on ast-grep: without it they can't say anything, so it's required.
+  if (check === "rules" && snapshot.shapeRules !== undefined)
+    return [{ name: "ast-grep", integration: snapshot.shapeRules.integration, required: true }];
   return [];
 };
 

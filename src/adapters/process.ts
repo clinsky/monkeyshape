@@ -35,10 +35,19 @@ export interface Ran {
   readonly stderr: string;
 }
 
-/** Runs `command` in `cwd` to completion. A command that can't start fails with the reason. */
-export const run = (cwd: string, command: ReadonlyArray<string>) =>
+/**
+ * Runs `command` in `cwd` to completion, with `stdin` as its input when given. A command that
+ * can't start fails with the reason.
+ */
+export const run = (cwd: string, command: ReadonlyArray<string>, stdin?: string) =>
   Effect.try({
-    try: () => Bun.spawn([...command], { cwd, stdout: "pipe", stderr: "pipe" }),
+    try: () =>
+      Bun.spawn([...command], {
+        cwd,
+        stdout: "pipe",
+        stderr: "pipe",
+        ...(stdin === undefined ? {} : { stdin: new TextEncoder().encode(stdin) }),
+      }),
     catch: (cause) =>
       new WorkspaceError({ operation: "run", path: command.join(" "), reason: String(cause) }),
   }).pipe(
@@ -57,8 +66,8 @@ export const run = (cwd: string, command: ReadonlyArray<string>) =>
   );
 
 /** For optional tools: a spawn failure is exit code -1 with the reason on stderr, not an abort. */
-export const runTool = (cwd: string, command: ReadonlyArray<string>) =>
-  run(cwd, command).pipe(
+export const runTool = (cwd: string, command: ReadonlyArray<string>, stdin?: string) =>
+  run(cwd, command, stdin).pipe(
     Effect.catchTag("WorkspaceError", (error) =>
       Effect.succeed<Ran>({ code: -1, stdout: "", stderr: error.reason }),
     ),

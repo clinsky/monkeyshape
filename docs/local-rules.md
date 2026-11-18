@@ -1,8 +1,11 @@
 # Local rules
 
 A bug class that belongs to your domain, one monkeyshape can't know about, gets a rule in your
-own repo. It runs in the same engine as monkeyshape's rules, over the same `sources`, with the
-same allowances, `shape-ignore` comments and report format. It is reported as `local/<id>`.
+own repo, in any language your packs read. It is an [ast-grep](https://ast-grep.github.io)
+rule in `shape-rules/`, run over the same `sources` as monkeyshape's rules, with the same
+allowances, `shape-ignore` comments and report format. It is reported as `local/<id>`.
+`mshape` brings its own ast-grep: it is fetched and verified on the first check of a repo
+that has rules, and cached for the next.
 
 ## The pattern: one enforcement point, and a rule that bans going around it
 
@@ -25,75 +28,60 @@ export const saveIndex = (name: string, records: ReadonlyArray<IndexRecord>) =>
   writeDataset({ kind: "index", name, records: mergeIndex(readIndex(name), records) });
 ```
 
-The rule. `check` gets each file in `sources`, parsed, and returns the offset of each
-violation. `cases` are run at every `mshape check`, and every case must parse. A rule with no
-must-fail case, or no must-pass case, fails the gate, and so does one that misses a must-fail
-case or fires on a must-pass or allowed case. That way the rule can't quietly stop working.
+The rule is `shape-rules/<id>.yml`, named after its id: an ast-grep rule (`id`, `language`,
+`rule`, `message`) with the class of bug it removes as `metadata.bugClass`. This one reports
+every `writeDataset` call except one whose `kind` is written out as a string other than
+`"index"`, so a kind it can't read is reported too.
 
-```ts
-// rules/indexWrites.ts
-import { defineRule, walk } from "monkeyshape";
-
-/** The enforcement point: the one file that may write an index directly. */
-const ENFORCEMENT_POINT = "src/store/index.ts";
-
-export default defineRule({
-  id: "index-writes-merge",
-  bugClass: "An index written with only this run's records, dropping what earlier runs recorded.",
-  message:
-    "writes an index directly, which replaces what earlier runs recorded. Call saveIndex from src/store/index.ts, which merges them first.",
-  cases: {
-    fail: [
-      'writeDataset({ kind: "index", name: "modules", records });',
-      // A kind the rule can't read might be "index": it is reported too.
-      "writeDataset({ kind, name, records });",
-    ],
-    pass: ['saveIndex("modules", records);', 'writeDataset({ kind: "run", name: "log", records });'],
-    allowed: [
-      {
-        path: ENFORCEMENT_POINT,
-        source: 'writeDataset({ kind: "index", name, records: mergeIndex(prior, records) });',
-      },
-    ],
-  },
-  check: (file) => {
-    if (file.path === ENFORCEMENT_POINT) return [];
-    const found: Array<number> = [];
-    walk(file.program, {
-      CallExpression: (node) => {
-        if (node.callee.type !== "Identifier" || node.callee.name !== "writeDataset") return;
-        const options = node.arguments[0];
-        const kind =
-          options?.type === "ObjectExpression"
-            ? options.properties.find(
-                (p) => p.type === "Property" && p.key.type === "Identifier" && p.key.name === "kind",
-              )
-            : undefined;
-        // Only a kind written out as another literal is safe to pass.
-        const literal =
-          kind?.type === "Property" && kind.value.type === "Literal" ? kind.value.value : undefined;
-        if (typeof literal !== "string" || literal === "index") found.push(node.start);
-      },
-    });
-    return found;
-  },
-});
+```yaml
+# shape-rules/index-writes-merge.yml
+id: index-writes-merge
+language: typescript
+message: writes an index directly, which replaces what earlier runs recorded. Call saveIndex from src/store/index.ts, which merges them first.
+metadata:
+  bugClass: An index written with only this run's records, dropping what earlier runs recorded.
+rule:
+  pattern: writeDataset($$$ARGS)
+  not:
+    has:
+      field: arguments
+      has:
+        kind: object
+        has:
+          kind: pair
+          all:
+            - has: { field: key, regex: "^kind$" }
+            - has: { field: value, kind: string, not: { regex: "^.index.$" } }
 ```
 
-shape.config.ts imports the module and lists it. It also adds `rules/` to `sources`, so the
-rule modules are checked like the rest of the code; without that, `sources` fails on them as
-TypeScript that no rule analyzes. With a module map, they need no module: what the config
-imports, a rule and the files it imports, belongs to the config, as shape.config.ts does.
+Its cases sit beside it in `<id>.test.yml`, as ast-grep writes them: `invalid` snippets have
+the bug and must be reported, `valid` ones are code close to it on which nothing may be. They
+run at every `mshape check`. A rule with no cases file, no `invalid` case or no `valid` case
+fails the gate, and so does one that misses an `invalid` case or fires on a `valid` one. That
+way the rule can't quietly stop working.
 
-```ts
-// shape.config.ts
-import { defineConfig } from "monkeyshape";
-import indexWrites from "./rules/indexWrites.ts";
+```yaml
+# shape-rules/index-writes-merge.test.yml
+invalid:
+  - 'writeDataset({ kind: "index", name: "modules", records });'
+  # A kind the rule can't read might be "index": it is reported too.
+  - "writeDataset({ kind, name, records });"
+valid:
+  - 'saveIndex("modules", records);'
+  - 'writeDataset({ kind: "run", name: "log", records });'
+```
 
-export default defineConfig({
-  sources: { include: ["src/**/*.{ts,tsx}", "rules/**/*.ts"] },
-  localRules: [indexWrites],
-});
+The enforcement point itself writes the index, so shape.toml allows the rule there, with the
+reason; garden counts the allowance as an escape hatch.
+
+```toml
+# shape.toml
+packs = ["typescript"]
+
+[rules."local/index-writes-merge"]
+allow = [
+  { path = "src/store/index.ts", reason = "the enforcement point: it merges earlier runs' records before it writes" },
+]
 ```
 
 A job that writes the index itself fails the gate:
@@ -120,31 +108,18 @@ import { saveIndex } from "../store/index.ts";
 export const collect = (records: ReadonlyArray<IndexRecord>) => saveIndex("modules", records);
 ```
 
-## The interface
+## The rest
 
-Everything comes from `monkeyshape`:
-
-- `defineRule({ id, bugClass, message, check, cases })`. `id` is lowercase words joined by
-  hyphens. `check(file)` must be synchronous: it gets `{ path, text, program }` and returns
-  offsets, either as numbers or as `{ offset, message }`. Cases are source text, or
-  `{ path, source }` when the rule looks at the path; the default path is src/case.ts.
-- `walk(program, { NodeType: (node) => ... })` calls each handler on every node of that type,
-  parents before children, with the node typed.
-- The types `LocalRule`, `SourceFile`, `Finding`, `Visitors`, `Node`, `Program` and
-  `Expression`. The tree is ESTree, with TypeScript nodes, as oxc produces it. Offsets are
-  UTF-16 code units, the same as string indices. Read the tree, never change it: every rule
-  gets the same one.
-
-The example makes its exception in `check`. It could instead leave `check` to report
-everything and exempt the enforcement point in the config, with
-`rules["local/index-writes-merge"].allow`. An `allowed` case at an allowed path then reports
-nothing, as in a real run; must-fail and must-pass cases ignore allowances. In the code, the exception sits beside the rule and its cases;
-in the config, garden counts it as an escape hatch.
-
-In shape.config.ts, `rules["local/<id>"]` takes `off` and `allow` like any rule, and
-`// shape-ignore local/<id>: <reason>` covers its own line and the next. `mshape rules` lists
-local rules under the layer `local`.
-
-The gate fails, as `rules/local-rule`, when a module's export isn't a rule, two entries share
-an id, or `check` throws or returns something other than offsets in the file. A module that
-doesn't load fails the config load. A problem with a rule's cases fails as `rules/local-cases`.
+- A rule's `language` is any ast-grep reads: `typescript`, `tsx`, `rust`, `python` and more.
+  A match counts in a file a listed pack claims and `sources` includes; elsewhere it doesn't.
+- In shape.toml, `[rules."local/<id>"]` takes `off` and `allow` like any rule, and a
+  `shape-ignore local/<id>: <reason>` line comment, in the file's own comment syntax, covers
+  its own line and the next. ast-grep's own `severity` is ignored: a match fails the gate.
+- `mshape rules` lists local rules under the layer `local`, with their `bugClass`.
+- The gate fails as `rules/local-rule` when a rule file isn't YAML, ast-grep rejects it (its
+  reason is quoted), its id doesn't match its file name or is already a rule's, or it lacks a
+  `message` or `metadata.bugClass`. A problem with its cases fails as `rules/local-cases`.
+- Without ast-grep (offline, nothing cached), the rules check is unavailable, and the gate
+  fails until it can be fetched.
+- A repo whose shape.config.ts still lists TypeScript rule modules in `localRules` keeps
+  running them, as `local/<id>` too, until they are ported to `shape-rules/`.
