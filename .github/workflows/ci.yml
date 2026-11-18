@@ -33,7 +33,7 @@ jobs:
           echo "$HOME/.local/bin" >> "$GITHUB_PATH"
           "$HOME/.local/bin/bd" version
       - run: bun install --frozen-lockfile
-      - run: bun run check
+      - run: bun run --silent mshape gate
 
   # The compiled mshape: built once, then each run where there is no Bun, on its own machine.
   binary:

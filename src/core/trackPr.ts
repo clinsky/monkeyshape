@@ -5,6 +5,8 @@
  */
 import {
   GATE_COMMAND,
+  GATE_FAST_COMMAND,
+  GATE_SCRIPT,
   missingPrSections,
   type PrSectionName,
   parsePrBody,
@@ -40,20 +42,12 @@ export const gateSection = (
 };
 
 /**
- * What `track pr` runs before it pushes. `fast`: the gate script's steps without its tests,
- * when a workflow runs the gate on pull requests, so CI runs them on the pushed commit and a
- * push blocks for seconds, not minutes. `full`: the whole gate, in a repo with no such
- * workflow, or a gate script that isn't plain `bun run <script>` steps joined by `&&`
- * around its `bun test`. Never by file type: prose is test input too.
+ * What `track pr` runs before it pushes: `fast`, the gate's fast phase, when a workflow runs
+ * the whole gate on pull requests, so CI runs the rest on the pushed commit and a push blocks
+ * for seconds, not minutes; `full`, the whole gate, in a repo with no such workflow. Never by
+ * file type: prose is test input too.
  */
-export type GatePlan =
-  | { readonly kind: "full" }
-  | { readonly kind: "fast"; readonly steps: ReadonlyArray<GateStep> };
-
-/** A fast stage: a package script, or the mshape CLI itself (an adopter's `mshape check`). */
-export type GateStep =
-  | { readonly kind: "script"; readonly name: string }
-  | { readonly kind: "mshape"; readonly args: ReadonlyArray<string> };
+export type GatePlan = { readonly kind: "fast" } | { readonly kind: "full" };
 
 /** A workflow without its comments: `#` to the line's end, at its start or after a space. */
 const uncommented = (text: string): string =>
@@ -99,13 +93,23 @@ const everyPr = (block: string): boolean => {
 };
 
 /**
+ * The whole gate as a workflow step runs it: `mshape gate` (however mshape is reached, as
+ * `bun run --silent mshape gate` does) but not its `--fast` phase, or a TypeScript repo's
+ * `bun run check` alias of it.
+ */
+const runsGate = new RegExp(
+  `(?:^|[\\s"'])(?:${GATE_COMMAND}(?![ \\t]+--fast)|bun run ${GATE_SCRIPT})(?=$|[\\s"'&;|])`,
+  "m",
+);
+
+/**
  * Whether a workflow runs the gate on every pull request: a `pull_request` trigger whose
  * filters let every PR and every push through (`everyPr`), and the gate as a whole command,
  * not a longer script's name. Comments are ignored.
  */
 export const workflowRunsGate = (workflow: string): boolean => {
   const text = uncommented(workflow);
-  if (!new RegExp(`(^|[\\s"'])${GATE_COMMAND}(?=$|[\\s"'&;|])`, "m").test(text)) return false;
+  if (!runsGate.test(text)) return false;
   const lines = text.split("\n");
   const at = lines.findIndex((line) => /(^|[\s[,])pull_request\b/.test(line));
   if (at === -1) return false;
@@ -126,44 +130,14 @@ export const workflowRunsGate = (workflow: string): boolean => {
   return everyPr(block.join("\n"));
 };
 
-const TEST_STEP = /^bun test(\s|$)/;
-
-/** A gate step this can run without a shell: `bun run <script>` or `mshape <args>`. */
-const gateStep = (step: string): GateStep | undefined => {
-  const script = /^bun run ([\w:.-]+)$/.exec(step)?.[1];
-  if (script !== undefined) return { kind: "script", name: script };
-  const words = step.split(/\s+/);
-  return words[0] === "mshape" && words.slice(1).every((word) => /^[\w:./=-]+$/.test(word))
-    ? { kind: "mshape", args: words.slice(1) }
-    : undefined;
-};
-
 export const gatePlan = (
-  /** package.json's `scripts[GATE_SCRIPT]`, if any. */
-  gate: string | undefined,
   /** The text of each workflow under `.github/workflows`. */
   workflows: ReadonlyArray<string>,
-): GatePlan => {
-  if (!workflows.some(workflowRunsGate) || gate === undefined) return { kind: "full" };
-  if (/[;|]/.test(gate.replaceAll("&&", ""))) return { kind: "full" };
-  const steps = gate.split("&&").map((step) => step.trim());
-  // Only trailing tests are left to CI: a step after them would be skipped with them.
-  const first = steps.findIndex((step) => TEST_STEP.test(step));
-  if (first <= 0 || !steps.slice(first).every((step) => TEST_STEP.test(step)))
-    return { kind: "full" };
-  const fast = steps.slice(0, first).map(gateStep);
-  return fast.every((step) => step !== undefined)
-    ? { kind: "fast", steps: fast.filter((step) => step !== undefined) }
-    : { kind: "full" };
-};
-
-/** How a gate step reads, as package.json writes it. */
-const stepText = (step: GateStep): string =>
-  step.kind === "script" ? `bun run ${step.name}` : ["mshape", ...step.args].join(" ");
+): GatePlan => (workflows.some(workflowRunsGate) ? { kind: "fast" } : { kind: "full" });
 
 /** How a gate plan reads as a command, for the Gate section and what track pr says. */
 export const gatePlanCommand = (plan: GatePlan): string =>
-  plan.kind === "full" ? GATE_COMMAND : plan.steps.map(stepText).join(" && ");
+  plan.kind === "full" ? GATE_COMMAND : GATE_FAST_COMMAND;
 
 /**
  * The Gate section's CI line, when CI runs the tests: pending at the push, then CI's verdict
@@ -171,7 +145,7 @@ export const gatePlanCommand = (plan: GatePlan): string =>
  */
 export const ciLine = (commit: string, runs?: ReadonlyArray<CheckRun>): string =>
   runs === undefined
-    ? `CI: runs the tests on ${commit.slice(0, 12)}, not track pr; \`mshape track pr --wait\` records its result here.`
+    ? `CI: runs the whole gate on ${commit.slice(0, 12)}, not track pr; \`mshape track pr --wait\` records its result here.`
     : `CI on ${commit.slice(0, 12)}: ${runs
         .map(
           (run) =>
@@ -320,18 +294,22 @@ export interface ReviewFacts {
   readonly registered: boolean;
   /** Whether a review on the PR has the PR's head as its `commit_id`. */
   readonly reviewedHead: boolean;
+  /** Whether the push would change the PR's head: false when the tip already is it. */
+  readonly moves: boolean;
 }
 
 /**
  * Whether `track pr` may push. A review is in progress while a live session is registered
  * at the reviewer's address and no review has the PR's head as its commit: no clock, since
  * commit dates are the author's. Once a review is on the head, its findings are there to answer.
+ * A push that leaves the head where it is (`--wait` on a tip already pushed) changes nothing
+ * under the reviewer, so it is never refused.
  */
 export const reviewDecision = (
   facts: ReviewFacts,
 ): { readonly refuse: string } | { readonly note: string | undefined } => {
   const { address } = facts;
-  if (facts.live.length > 0 && !facts.reviewedHead)
+  if (facts.live.length > 0 && !facts.reviewedHead && facts.moves)
     return {
       refuse: `a review of #${facts.pr} is in progress (session ${facts.live.join(", ")} at \`${address}\`) and hasn't posted on the PR's head yet, so nothing was pushed or posted: a push now would change the PR under its reviewer. Wait for the review, then answer it; keep new work on a local branch meanwhile`,
     };

@@ -13,6 +13,7 @@ import {
   tarballDifferences,
   untaggedWarning,
 } from "../../src/core/release.ts";
+import { PLATFORMS } from "../../src/core/tools.ts";
 
 const source = { version: "0.3.0", tagged: true, atTag: true, commit: "abc1234", dirty: false };
 
@@ -152,4 +153,8 @@ test("the tag records the tarball's digest and SHA256SUMS', the pin's sums", () 
 test("pack writes into .release/, which git ignores, unless given a directory", () => {
   expect(packDestination("/r", undefined)).toBe("/r/.release");
   expect(packDestination("/r", "/out")).toBe("/out");
+});
+
+test("the release builds a binary for every platform mshape supports, and only those", () => {
+  expect(BINARY_TARGETS.map((target) => target.platform)).toEqual([...PLATFORMS]);
 });

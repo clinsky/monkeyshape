@@ -8,7 +8,7 @@
 
 ## Gate
 
-<!-- Filled by track pr: the gate's fast stages on the pushed commit and CI's result for the tests, or the whole `bun run check` where no CI runs it. -->
+<!-- Filled by track pr: `mshape gate --fast` on the pushed commit and CI's `mshape gate`, or the whole `mshape gate` where no CI runs it. -->
 
 ## Bug class closed
 

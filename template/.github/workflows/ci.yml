@@ -19,4 +19,4 @@ jobs:
         with:
           bun-version-file: package.json
       - run: bun install --frozen-lockfile
-      - run: bun run check
+      - run: bun run --silent mshape gate

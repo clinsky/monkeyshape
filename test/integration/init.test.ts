@@ -236,11 +236,15 @@ describe("mshape init", () => {
 
   test("its gate passes with its one starter test, and nothing skipped or in error", async () => {
     const check = await run(join(work, "demo"), [process.execPath, "run", "check"]);
-    expect(check.output).toContain("mshape check passed");
+    expect(check.output).toContain("mshape gate passed");
+    expect(check.output).toMatch(/^ {2}mshape-check +passed/m);
     expect(check.output).not.toContain("note:");
+    expect(check.output).not.toContain("skipped");
     // A first run that says "error:" teaches a new user to ignore the gate.
     expect(check.output).not.toContain("error:");
-    expect(check.output).toContain(" 1 pass");
+    // The starter test ran: its stage's whole output is kept in the gate's log.
+    const log = join(work, "demo", ".git", "monkeyshape", "gate", "demo", "bun-test.log");
+    expect(await Bun.file(log).text()).toContain(" 1 pass");
     expect(check.code).toBe(0);
   }, 60_000);
 

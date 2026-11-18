@@ -169,90 +169,59 @@ describe("--body-only, behind, CI", () => {
 
 describe("gatePlan and the CI line", () => {
   const ci =
-    "on:\n  push:\n    branches: [main]\n  pull_request:\njobs:\n  check:\n    steps:\n      - run: bun run check\n";
-  const gate = "bun run typecheck && bun run lint && bun run shape && bun test";
-  const scripts = (...names: ReadonlyArray<string>) =>
-    names.map((name) => ({ kind: "script" as const, name }));
-  test("a pull_request workflow running the gate: the steps before the trailing bun test", () => {
-    expect(gatePlan(gate, [ci])).toEqual({
-      kind: "fast",
-      steps: scripts("typecheck", "lint", "shape"),
-    });
-    // The scaffold's gate, as `mshape init` writes it.
-    expect(gatePlan(`${gate} --pass-with-no-tests`, [ci])).toEqual({
-      kind: "fast",
-      steps: scripts("typecheck", "lint", "shape"),
-    });
-    // An adopter's gate with the CLI as a step (#89's review).
-    expect(gatePlan("bun run typecheck && bun run lint && mshape check && bun test", [ci])).toEqual(
-      {
-        kind: "fast",
-        steps: [...scripts("typecheck", "lint"), { kind: "mshape", args: ["check"] }],
-      },
-    );
+    "on:\n  push:\n    branches: [main]\n  pull_request:\njobs:\n  check:\n    steps:\n      - run: bun run --silent mshape gate\n";
+  test("a pull_request workflow running the whole gate: its fast phase here", () => {
+    expect(gatePlan([ci])).toEqual({ kind: "fast" });
     expect(
-      gatePlan(gate, [
-        "on: [push, pull_request]\njobs:\n  c:\n    steps:\n      - run: bun run check\n",
-      ]).kind,
+      gatePlan(["on: [push, pull_request]\njobs:\n  c:\n    steps:\n      - run: mshape gate\n"])
+        .kind,
     ).toBe("fast");
+    // A TypeScript repo's alias of it, as repos born before `mshape gate` run it.
+    expect(gatePlan([ci.replace("bun run --silent mshape gate", "bun run check")]).kind).toBe(
+      "fast",
+    );
   });
   test("anything else: the whole gate here", () => {
-    expect(gatePlan(gate, [])).toEqual({ kind: "full" });
-    expect(gatePlan(gate, ["on:\n  push:\n      - run: bun run check\n"])).toEqual({
-      kind: "full",
-    });
-    expect(gatePlan("bun run typecheck && bun run lint", [ci])).toEqual({ kind: "full" });
-    expect(gatePlan("tsc -p . && bun test", [ci])).toEqual({ kind: "full" });
-    expect(gatePlan("bun run a; bun test", [ci])).toEqual({ kind: "full" });
-    expect(gatePlan(undefined, [ci])).toEqual({ kind: "full" });
+    expect(gatePlan([])).toEqual({ kind: "full" });
+    expect(gatePlan(["on:\n  push:\n      - run: mshape gate\n"])).toEqual({ kind: "full" });
+    // Only the fast phase in CI leaves the rest unrun.
+    expect(gatePlan([ci.replace("mshape gate", "mshape gate --fast")])).toEqual({ kind: "full" });
   });
-  test("a CI that doesn't run the tests on every PR: the whole gate here (#89's review)", () => {
+  test("a CI that doesn't run the gate on every PR: the whole gate here (#89's review)", () => {
     const pr = (on: string, run: string) =>
       `on:\n${on}jobs:\n  check:\n    steps:\n      - run: ${run}\n`;
     for (const workflow of [
       pr("  push:\n  pull_request:\n", "bun run check:fast"),
       pr("  push:\n  pull_request:\n", "bun run checkout-docs"),
-      pr('  pull_request:\n    paths: ["docs/**"]\n', "bun run check"),
-      pr("  pull_request:\n    branches-ignore: [wip]\n", "bun run check"),
-      pr("  push: # not on pull_request: too slow\n", "bun run check"),
-    ])
-      expect(gatePlan(gate, [workflow])).toEqual({ kind: "full" });
-    // From the re-review: a pushed fix gets no CI, and an inline map's filter.
-    for (const workflow of [
-      pr("  pull_request:\n    types: [opened, reopened]\n", "bun run check"),
-      pr("  pull_request:\n    types:\n      - opened\n", "bun run check"),
-      pr('  pull_request: { paths: ["docs/**"] }\n', "bun run check"),
-      pr("  pull_request: { types: [opened] }\n", "bun run check"),
+      pr("  push:\n  pull_request:\n", "mshape gateway"),
+      pr("  push:\n  pull_request:\n", "mshape gate --fast"),
+      pr('  pull_request:\n    paths: ["docs/**"]\n', "mshape gate"),
+      pr("  pull_request:\n    branches-ignore: [wip]\n", "mshape gate"),
+      pr("  push: # not on pull_request: too slow\n", "mshape gate"),
+      pr("  pull_request:\n    types: [opened, reopened]\n", "mshape gate"),
+      pr("  pull_request:\n    types:\n      - opened\n", "mshape gate"),
+      pr('  pull_request: { paths: ["docs/**"] }\n', "mshape gate"),
+      pr("  pull_request: { types: [opened] }\n", "mshape gate"),
+      pr("  pull_request:\n    branches: [release]\n", "mshape gate"),
     ])
       expect(workflowRunsGate(workflow)).toBe(false);
     // The usual base filter, and types that include synchronize: every PR into main.
     for (const workflow of [
-      pr("  pull_request:\n    branches: [main]\n", "bun run check"),
-      pr("  pull_request:\n    branches:\n      - main\n", "bun run check"),
-      pr("  pull_request:\n    types: [opened, synchronize, reopened]\n", "bun run check"),
+      pr("  pull_request:\n    branches: [main]\n", "mshape gate"),
+      pr("  pull_request:\n    branches:\n      - main\n", "bun run --silent mshape gate"),
+      pr("  pull_request:\n    types: [opened, synchronize, reopened]\n", "mshape gate"),
       pr("  pull_request: { branches: [main] }\n", "bun run check"),
-      pr("  pull_request:\n", '"bun run check"'),
-      pr("  pull_request:\n", "|\n          bun install\n          bun run check"),
+      pr("  pull_request:\n", '"mshape gate"'),
+      pr("  pull_request:\n", "|\n          bun install\n          mshape gate"),
+      pr("  pull_request:\n", "mshape gate --config ci.toml"),
     ])
       expect(workflowRunsGate(workflow)).toBe(true);
-    expect(
-      workflowRunsGate(pr("  pull_request:\n    branches: [release]\n", "bun run check")),
-    ).toBe(false);
-    // A step after the tests would be skipped with them.
-    expect(gatePlan("bun run typecheck && bun test && bun run e2e", [ci])).toEqual({
-      kind: "full",
-    });
   });
   test("gatePlanCommand and the CI line", () => {
-    expect(gatePlanCommand({ kind: "fast", steps: scripts("a", "b") })).toBe(
-      "bun run a && bun run b",
-    );
-    expect(gatePlanCommand({ kind: "fast", steps: [{ kind: "mshape", args: ["check"] }] })).toBe(
-      "mshape check",
-    );
-    expect(gatePlanCommand({ kind: "full" })).toBe("bun run check");
+    expect(gatePlanCommand({ kind: "fast" })).toBe("mshape gate --fast");
+    expect(gatePlanCommand({ kind: "full" })).toBe("mshape gate");
     const pending = gateSection("bun run a", "c".repeat(40), "ok", ciLine("c".repeat(40)));
-    expect(pending).toContain("CI: runs the tests on cccccccccccc, not track pr");
+    expect(pending).toContain("CI: runs the whole gate on cccccccccccc, not track pr");
     const done = withCiLine(
       pending,
       ciLine("c".repeat(40), [

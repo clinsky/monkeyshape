@@ -46,15 +46,18 @@ describe("PR template", () => {
 });
 
 describe("gate", () => {
-  test("a born repo's gate script is the one GATE_COMMAND runs", () => {
+  test("a born repo's gate script is GATE_COMMAND", () => {
     const pkg = JSON.parse(scaffold("demo", new Map(), toolchain).get("package.json") ?? "{}");
-    expect(pkg.scripts[GATE_SCRIPT]).toContain("bun test");
-    expect(GATE_COMMAND).toBe(`bun run ${GATE_SCRIPT}`);
+    expect(pkg.scripts[GATE_SCRIPT]).toBe(GATE_COMMAND);
+    expect(GATE_COMMAND).toBe("mshape gate");
   });
 
-  test("this repo's gate script is the same one", async () => {
+  test("this repo's gate script is the gate, and CI runs it", async () => {
     const pkg = await Bun.file(join(ROOT, "package.json")).json();
-    expect(pkg.scripts[GATE_SCRIPT]).toContain("bun test");
+    expect(pkg.scripts[GATE_SCRIPT]).toBe("bun src/cli/main.ts gate");
+    expect(await Bun.file(join(ROOT, ".github/workflows/ci.yml")).text()).toContain(
+      "bun run --silent mshape gate",
+    );
   });
 });
 
