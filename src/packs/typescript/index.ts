@@ -77,9 +77,11 @@ export const typescript: Pack = {
   ],
   template: "template/packs/typescript",
   stages: [
-    { name: "typecheck", run: ["tsc", "-p", "."], fast: true },
-    { name: "lint", run: ["biome", "ci", "--error-on-warnings", "."], fast: true },
-    { name: "test", run: ["bun", "test", "--pass-with-no-tests"] },
+    // Named for their tool: a repo stage replaces a pack's by name, so names are unique
+    // across packs (`mshape gate`'s table).
+    { name: "tsc", run: ["tsc", "-p", "."], fast: true },
+    { name: "biome", run: ["biome", "ci", "--error-on-warnings", "."], fast: true },
+    { name: "bun-test", run: ["bun", "test", "--pass-with-no-tests"] },
   ],
   prerequisites: [
     { name: "tsc", required: true, install: "`bun add -d typescript`" },

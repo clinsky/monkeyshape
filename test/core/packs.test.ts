@@ -1,8 +1,9 @@
 /** The plan's pack table, row by row: how the core treats files by the packs that claim them. */
 import { describe, expect, test } from "bun:test";
 import { checkArch } from "../../src/core/arch.ts";
-import { evaluate } from "../../src/core/check.ts";
+import { evaluate, ruleIds } from "../../src/core/check.ts";
 import { checkCoverage } from "../../src/core/coverage.ts";
+import { checkPacks } from "../../src/core/packs.ts";
 import { checkSources } from "../../src/core/sources.ts";
 import type { Pack } from "../../src/packs/pack.ts";
 import { typescript } from "../../src/packs/typescript/index.ts";
@@ -149,4 +150,33 @@ test("a file in sources no listed pack reads fails sources, and rules doesn't co
   ]);
   expect(reports[1]?.outcome).toEqual({ state: "passed", examined: "1 file in sources" });
   expect(reports[0]?.violations[0]?.message).toContain("'src/**/*.{ts,tsx}'");
+});
+
+describe("the packs check", () => {
+  test("a pack's own findings, as packs/<id>/<kind>; none where no pack has checks", () => {
+    const linting: Pack = {
+      ...python,
+      findingKinds: ["no-extend"],
+      findings: ({ repo: view }) =>
+        view.files.includes("ruff.toml")
+          ? [{ kind: "no-extend", file: "ruff.toml", line: 1, message: "add extend" }]
+          : [],
+    };
+    const snapshot = repo({ "ruff.toml": "", "app/b.py": "" }, { packs: [listed(linting)] });
+    expect(checkPacks(twoPacks, snapshot)).toEqual([
+      {
+        check: "packs",
+        rule: "packs/python/no-extend",
+        file: "ruff.toml",
+        line: 1,
+        message: "add extend",
+      },
+    ]);
+    expect(ruleIds([], [linting])).toEqual([...ruleIds([], []), "packs/python/no-extend"]);
+    const { reports } = evaluate(config(), repo({ "src/a.ts": "" }), ["packs"]);
+    expect(reports[0]?.outcome).toEqual({
+      state: "not-applicable",
+      reason: "typescript has no checks of its own",
+    });
+  });
 });

@@ -34,6 +34,7 @@ src/core/client.ts:1  arch/host-access
   coverage  passed          4 TypeScript files against tsc's and biome's own file lists; 3 data files parsed
   files     passed          9 files against the 1.0 MiB cap
   rules     failed          3 files in sources
+  packs     not-applicable  typescript has no checks of its own
   skills    not-applicable  no installed skills
   sync      not-applicable  sync has not run here: no .agents/skills/monkeyshape.json
   beads     not-applicable  no .beads/

@@ -23,6 +23,9 @@ import type {
   Snapshot,
   Violation,
 } from "../../src/core/model.ts";
+import { RULES } from "../../src/core/rules/registry.ts";
+import { PACKS } from "../../src/packs/index.ts";
+import type { Pack } from "../../src/packs/pack.ts";
 import { typescript } from "../../src/packs/typescript/index.ts";
 import type { ShapeConfig } from "../../src/schemas/config.ts";
 import { config, fakePack, listed, repo } from "../support.ts";
@@ -1086,9 +1089,12 @@ const evaluate = (id: string, input: Case): ReadonlyArray<Violation> => {
     : runChecks(resolved, snapshot, [check as CheckName]);
 };
 
+/** Every pack monkeyshape ships: their kinds need cases too. */
+const SHIPPED = Object.values(PACKS).filter((pack): pack is Pack => pack !== undefined);
+
 describe("rule cases", () => {
   test("every rule id has a must-fail and a must-pass case, and no case names a rule that's gone", () => {
-    const ids = ruleIds();
+    const ids = ruleIds(RULES, SHIPPED);
     expect(new Set(ids).size).toBe(ids.length);
     const missing = ids.filter(
       (id) => CASES[id]?.fail === undefined || CASES[id]?.pass === undefined,
@@ -1098,9 +1104,13 @@ describe("rule cases", () => {
   });
 
   test("every check lists the kinds it reports, so none escapes the cases above", () => {
-    const ids = ruleIds();
+    const ids = ruleIds(RULES, SHIPPED);
+    // `packs` reports only what packs bring: none yet, while TypeScript has no kinds of its own.
+    const ownless = SHIPPED.every((pack) => pack.findingKinds.length === 0) ? ["packs"] : [];
     expect(
-      [...CHECKS, "prerequisites"].filter((check) => !ids.some((id) => id.startsWith(`${check}/`))),
+      [...CHECKS, "prerequisites"].filter(
+        (check) => !ownless.includes(check) && !ids.some((id) => id.startsWith(`${check}/`)),
+      ),
     ).toEqual([]);
   });
 
