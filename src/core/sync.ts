@@ -13,6 +13,14 @@
  */
 import type { ResolvedConfig } from "../schemas/config.ts";
 import { OWNABLE_FILES, PR_TEMPLATE_FILE, PRIME_FILE, prTemplate } from "./conventions.ts";
+import {
+  type Delivery,
+  deliver,
+  deliveries,
+  divergedTables,
+  foreignTables,
+  standing,
+} from "./delivery.ts";
 import { addHooks, HOOKS, type Hook, missingHooks, SETTINGS_FILE, SYNC_COMMAND } from "./hooks.ts";
 import { SKILLS_MANIFEST } from "./layout.ts";
 import type { Snapshot, Violation } from "./model.ts";
@@ -30,6 +38,8 @@ export const SYNC_RULES = [
   "hook-missing",
   "settings-invalid",
   "ignored",
+  "base-missing",
+  "base-diverged",
   "pin-npm-differs",
 ] as const;
 
@@ -88,6 +98,11 @@ export interface SyncState {
   readonly replace: ReadonlyArray<string>;
   /** PR templates GitHub would read other than sync's (`isPrTemplate`). */
   readonly otherTemplates: ReadonlyArray<string>;
+  /** The listed packs' `copy` and `table` configs, each with its file's text now. */
+  readonly deliveries?: ReadonlyArray<{
+    readonly delivery: Delivery;
+    readonly current: string | undefined;
+  }>;
 }
 
 /** The parsed settings, `{}` for none, undefined when it isn't a JSON object. */
@@ -159,6 +174,17 @@ export const planSync = (state: SyncState, shippedPrime: string): SyncPlan => {
     write.set(SETTINGS_FILE, addHooks(settings, HOOKS));
     if (state.settings === undefined) created.push(SETTINGS_FILE);
   }
+  for (const { delivery, current } of state.deliveries ?? []) {
+    const message = deliveryMessage(delivery, current);
+    if (message?.unfixable === true) {
+      blocked.push(`${delivery.file} ${message.text}`);
+      continue;
+    }
+    const text = deliver(delivery, write.get(delivery.file) ?? current);
+    if (text === undefined) continue;
+    write.set(delivery.file, text);
+    if (current === undefined) created.push(delivery.file);
+  }
   return {
     write,
     notes,
@@ -204,10 +230,10 @@ const pinAgainstNpm = (config: ResolvedConfig, snapshot: Snapshot): ReadonlyArra
 
 export const checkSync = (config: ResolvedConfig, snapshot: Snapshot): ReadonlyArray<Violation> => [
   ...pinAgainstNpm(config, snapshot),
-  ...syncedFiles(snapshot),
+  ...syncedFiles(config, snapshot),
 ];
 
-const syncedFiles = (snapshot: Snapshot): ReadonlyArray<Violation> => {
+const syncedFiles = (config: ResolvedConfig, snapshot: Snapshot): ReadonlyArray<Violation> => {
   if (!snapshot.skills.installed.has(SKILLS_MANIFEST)) return [];
   const out: Array<Violation> = [...snapshot.unlisted]
     .filter((file) => SYNCED_FILES.includes(file))
@@ -282,5 +308,71 @@ const syncedFiles = (snapshot: Snapshot): ReadonlyArray<Violation> => {
         ),
       );
   }
+  const packs = snapshot.packs.map(({ pack }) => pack);
+  for (const delivery of deliveries(config, packs, snapshot.shippedConfigs)) {
+    const message = deliveryMessage(delivery, snapshot.texts.get(delivery.file));
+    if (message !== undefined) out.push(violation(message.kind, delivery.file, message.text));
+  }
   return out;
+};
+
+/** Why a delivered base config fails, and the fix; undefined when it is current. */
+const deliveryMessage = (
+  delivery: Delivery,
+  current: string | undefined,
+): { kind: "base-missing" | "base-diverged"; text: string; unfixable?: true } | undefined => {
+  const now = standing(delivery, current);
+  const named = (tables: ReadonlyArray<string>) => tables.map((t) => `\`[${t}]\``).join(", ");
+  const owned = delivery.delivery === "table" ? named(delivery.tables) : "";
+  /** Where a change to one owned table goes instead of here. */
+  const instead = (table: string) => {
+    const key = delivery.delivery === "table" ? delivery.override?.(table) : undefined;
+    return key === undefined
+      ? `this repo's own config, or the \`[${delivery.pack}]\` table in shape.toml where the pack reads one`
+      : `\`[${key}]\` in shape.toml`;
+  };
+  switch (now) {
+    case "current":
+      return undefined;
+    case "missing":
+      return {
+        kind: "base-missing",
+        text:
+          delivery.delivery === "copy"
+            ? `is missing: it is the ${delivery.pack} pack's base config, which ${SYNC} writes and this repo's own config points at. Run ${SYNC} and commit it.`
+            : `has none of ${owned}, the ${delivery.pack} pack's tables that ${SYNC} owns here. Run ${SYNC} and commit it.`,
+      };
+    case "diverged": {
+      if (delivery.delivery === "copy")
+        return {
+          kind: "base-diverged",
+          text: `differs from the ${delivery.pack} pack's base config the installed monkeyshape ships, so a hand edit here would be lost at the next sync. Change it through ${instead("")}, then run ${SYNC}.`,
+        };
+      const diverged = divergedTables(delivery, current ?? "");
+      return {
+        kind: "base-diverged",
+        text: `holds ${named(diverged)}, which ${SYNC} owns, with values other than it writes, so a hand edit here would be lost at the next sync. Make the change in ${diverged.map(instead).join(" and ")} instead, then run ${SYNC}, which rewrites only the tables it owns.`,
+      };
+    }
+    case "foreign": {
+      const foreign = foreignTables(delivery, current ?? "");
+      return {
+        kind: "base-diverged",
+        unfixable: true,
+        text: `defines ${named(foreign)} as dotted keys or an inline table under a parent table, not under ${foreign.length === 1 ? "its own header" : "their own headers"}. ${SYNC} owns ${foreign.length === 1 ? "that table" : "those tables"} and can't rewrite ${foreign.length === 1 ? "it" : "them"} without defining ${foreign.length === 1 ? "it" : "them"} twice, which the file's tools reject. Delete that definition, move any value you meant to keep to ${foreign.map(instead).join(" and ")}, then run ${SYNC}.`,
+      };
+    }
+    case "unwritable":
+      return {
+        kind: "base-diverged",
+        unfixable: true,
+        text: `holds ${owned}, which ${SYNC} owns, but rewriting them here would change the file outside those tables (a line that looks like a table header inside a multi-line string, say), so sync writes nothing. Write ${owned} as sync would yourself, each under its own header, with ${SYNC}'s values, or move the line sync misreads, then run ${SYNC}.`,
+      };
+    case "unparsable":
+      return {
+        kind: "base-diverged",
+        unfixable: true,
+        text: `isn't valid TOML, so ${owned}, which ${SYNC} owns, can't be compared. Fix the file, then run ${SYNC}.`,
+      };
+  }
 };

@@ -17,3 +17,14 @@ export const exists = (root: string, path: string) =>
       () => false,
     ),
   );
+
+/** The text of each file at `paths` under `dir` that exists, by path: a package's shipped files. */
+export const readPresent = (dir: string, paths: ReadonlyArray<string>) =>
+  Effect.promise(async () => {
+    const out = new Map<string, string>();
+    for (const path of paths) {
+      const file = Bun.file(`${dir}/${path}`);
+      if (await file.exists()) out.set(path, await file.text());
+    }
+    return out;
+  });

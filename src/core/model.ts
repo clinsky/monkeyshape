@@ -78,6 +78,8 @@ export interface Snapshot {
   readonly integrations: Integrations;
   /** Each listed pack, in `packs` order, and what its loader found. */
   readonly packs: ReadonlyArray<LoadedPack>;
+  /** The listed packs' shipped `copy` configs, by their path in the package. */
+  readonly shippedConfigs: ReadonlyMap<string, string>;
   /** The packs monkeyshape ships that the repo doesn't list: `sources` names one to list. */
   readonly otherPacks: ReadonlyArray<Pack>;
   readonly skills: SkillsSnapshot;
