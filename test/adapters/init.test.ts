@@ -24,7 +24,10 @@ let work = "";
 beforeAll(async () => {
   work = await mkdtemp(join(tmpdir(), "mshape-init-pack-"));
   await Bun.write(join(work, "package", "template", "AGENTS.md"), "# {{name}}\n");
-  await Bun.write(join(work, "package", "template", "packs", "other", "shape.toml"), "");
+  await Bun.write(
+    join(work, "package", "template", "packs", "other", "shape.toml"),
+    'packs = ["other"]\n',
+  );
   await Bun.write(join(work, "package", "skills", "a", "SKILL.md"), "---\nname: a\n---\n");
   await Bun.write(join(work, "monkeyshape-0.0.0.tgz"), "not npm's package");
 });
@@ -44,13 +47,24 @@ describe("init for another pack", () => {
         toolchain,
         join(work, "monkeyshape-0.0.0.tgz"),
         "other",
+        { version: "0.0.0-dev.abc1234" },
       ),
     );
     expect(result.done[0]).toBe("wrote 4 files");
     expect(result.done.join("\n")).not.toContain("vendor/");
     expect(result.notes.join("\n")).not.toContain("vendor/");
+    expect(result.notes.join("\n")).toContain("pins mshape 0.0.0-dev.abc1234 with no sums");
     expect(await Bun.file(join(target, "vendor", "monkeyshape-0.0.0.tgz")).exists()).toBe(false);
     expect(await Bun.file(join(target, "package.json")).exists()).toBe(false);
+  });
+
+  test("the repo pins the mshape that made it, with no sums for a build no release verified", async () => {
+    const target = join(work, "born");
+    expect(Bun.TOML.parse(await Bun.file(join(target, "shape.toml")).text())).toEqual({
+      packs: ["other"],
+      mshape: { version: "0.0.0-dev.abc1234" },
+    });
+    expect(await Bun.file(join(target, "vendor")).exists()).toBe(false);
   });
 
   test("--from is refused for a pack whose repo installs no npm package", async () => {

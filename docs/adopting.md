@@ -114,7 +114,7 @@ Each check reads its own part of the config.
 
 ## 4. tsc and biome
 
-Every TypeScript file must be in both tools' file lists, `shape.config.ts` included. A
+Every TypeScript file must be in both tools' file lists, shape.config.ts included. A
 file typechecked by another tsconfig, such as a sub-app's, counts once you list that tsconfig
 too: `coverage: { tsconfigs: ["tsconfig.json", "app/tsconfig.json"] }`. Keep your
 own configs and add what's missing. Extending monkeyshape's bases, as the blocks below do, is optional: they are its opinions on strictness and lint, which you can

@@ -17,7 +17,7 @@ where the two differ.
 
 ## Where to start
 
-- `shape.config.ts`: the module map. It is the layout; nothing else restates it.
+- `shape.toml`: the module map. It is the layout; nothing else restates it.
 - `DECISIONS.md`: live decisions, each with the check that enforces it.
 - `docs/roadmap.md`: direction, with a status table first. Direction, not rules: never cite
   its sections from code or here.
