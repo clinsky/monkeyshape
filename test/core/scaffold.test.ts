@@ -2,7 +2,9 @@ import { describe, expect, test } from "bun:test";
 import {
   nextStep,
   PACKS_DIR,
+  pinTable,
   REPO_NAME,
+  recordPin,
   SHARE_BEADS,
   scaffold,
   targetPath,
@@ -36,6 +38,18 @@ describe("scaffold", () => {
     expect(targetPath(".claude/settings.json")).toBe(".claude/settings.json");
   });
 
+  test("renders {{module}}, the name as an identifier, in text and in paths", () => {
+    const files = scaffold(
+      "my-app",
+      new Map([["src/{{module}}/__init__.py", '"""{{name}}, imported as {{module}}."""\n']]),
+      toolchain,
+      undefined,
+      "python",
+    );
+    expect(files.get("src/my_app/__init__.py")).toBe('"""my-app, imported as my_app."""\n');
+    expect([...files.keys()].some((path) => path.includes("{{"))).toBe(false);
+  });
+
   test("package.json pins the toolchain exactly, and its gate passes with no tests yet", () => {
     const manifest = JSON.parse(scaffold("my-app", new Map(), toolchain).get("package.json") ?? "");
     expect(manifest.name).toBe("my-app");
@@ -51,10 +65,51 @@ describe("scaffold", () => {
     expect(manifest.scripts.check).toBe("mshape gate");
   });
 
-  test("tsconfig and biome cover shape.config.ts, so coverage holds from the first commit", () => {
+  test("tsconfig and biome cover TypeScript at the root, so coverage holds from the first commit", () => {
     const files = scaffold("my-app", new Map(), toolchain);
     expect(JSON.parse(files.get("tsconfig.json") ?? "").include).toContain("*.ts");
     expect(JSON.parse(files.get("biome.json") ?? "").files.includes).toContain("*.ts");
+  });
+
+  test("shape.toml gets the pin before its first table, and the vendored record after all", () => {
+    const template = new Map([
+      [
+        "shape.toml",
+        'packs = ["typescript"]\n\n# Modules.\n[arch.modules.core]\noptional = true\n',
+      ],
+    ]);
+    const entry = { path: "vendor/m.tgz", package: "monkeyshape", sha256: "a".repeat(64) };
+    const pin = { version: "1.2.3", sums: "b".repeat(64) };
+    const text = scaffold("my-app", template, toolchain, entry, "typescript", pin).get(
+      "shape.toml",
+    );
+    expect(Bun.TOML.parse(text ?? "")).toEqual({
+      packs: ["typescript"],
+      mshape: pin,
+      arch: { modules: { core: { optional: true } } },
+      files: { vendored: [entry] },
+    });
+    expect(text?.indexOf("[mshape]")).toBeLessThan(text?.indexOf("# Modules.") ?? 0);
+  });
+
+  test("a pin without sums writes none, and a config with no table gets it at the end", () => {
+    const text = recordPin('packs = ["rust"]\n', { version: "1.2.3-dev.abc1234" });
+    expect(Bun.TOML.parse(text)).toEqual({
+      packs: ["rust"],
+      mshape: { version: "1.2.3-dev.abc1234" },
+    });
+    expect(pinTable({ version: "1.2.3" })).not.toContain("sums");
+  });
+
+  test("every shipped template's shape.toml takes a pin and stays valid TOML", async () => {
+    const glob = new Bun.Glob("template/packs/*/shape.toml");
+    const found = [];
+    for await (const path of glob.scan(".")) {
+      const text = recordPin(await Bun.file(path).text(), { version: "1.2.3" });
+      expect(Bun.TOML.parse(text)).toMatchObject({ mshape: { version: "1.2.3" } });
+      found.push(path);
+    }
+    expect(found).toContain("template/packs/typescript/shape.toml");
   });
 
   test("generated configs win over a template file of the same name", () => {

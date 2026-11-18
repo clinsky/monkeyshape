@@ -696,6 +696,7 @@ describe("track pr: --body-only, behind main, --wait", () => {
     conflicts = false,
     before: ReadonlyArray<number> = [],
     expectCi = false,
+    expected: ReadonlyArray<string> = [],
   ) => {
     const script = join(base, "await.ts");
     await writeFile(
@@ -704,7 +705,7 @@ describe("track pr: --body-only, behind main, --wait", () => {
       `import { Effect } from ${JSON.stringify(Bun.resolveSync("effect", import.meta.dir))};
 import { awaitCi } from ${JSON.stringify(join(import.meta.dir, "..", "..", "src", "adapters", "trackPr.ts"))};
 const out = await Effect.runPromise(
-  awaitCi(process.cwd(), ${JSON.stringify(sha)}, new Set(${JSON.stringify(before)}), "updated", ${JSON.stringify(timing)}, (line) => Effect.sync(() => console.error(line)), ${conflicts}, undefined, ${expectCi}),
+  awaitCi(process.cwd(), ${JSON.stringify(sha)}, new Set(${JSON.stringify(before)}), "updated", ${JSON.stringify(timing)}, (line) => Effect.sync(() => console.error(line)), ${conflicts}, undefined, ${expectCi}, ${JSON.stringify(expected)}),
 );
 console.log(out);
 `,
@@ -722,6 +723,9 @@ console.log(out);
       stderr: result.stderr.toString().trim(),
     };
   };
+
+  /** A GitHub Actions expression, written so it isn't read as a JS placeholder. */
+  const ACTIONS_EXPR = `$${"{{"} matrix.os }}`;
 
   test("awaitCi polls until every check has finished", async () => {
     await checks("checks-0.json", []);
@@ -795,6 +799,48 @@ console.log(out);
     expect(result.code).toBe(0);
     expect(result.stdout).toBe("updated\nCI passed on ffffffffffff:\n  check: success");
     expect(result.stderr).not.toContain("may have no CI");
+  });
+
+  test("awaitCi doesn't call CI green while the gate's check has no run yet (#105's real run)", async () => {
+    const body = { id: 201, name: "body", status: "completed", conclusion: "success" };
+    await checks("checks-0.json", [body]);
+    await checks("checks-1.json", [body]);
+    await checks("checks-2.json", [
+      body,
+      { id: 202, name: "check", status: "completed", conclusion: "failure" },
+    ]);
+    const ran = await awaitCiRun(
+      "9".repeat(40),
+      { pollMs: 5, startMs: 10_000, limitMs: 10_000 },
+      false,
+      [],
+      true,
+      ["check"],
+    );
+    expect(ran.code).toBe(1);
+    expect(ran.stderr).toContain("but CI failed on 999999999999: check (failure)");
+    expect(await Bun.file(`${gh}/polls`).text()).toBe("3");
+  });
+
+  test("awaitCi with a matrix gate whose name is an expression: green once its runs pass (#118's review)", async () => {
+    const { gateChecks } = await import("../../src/core/trackPr.ts");
+    const expected = gateChecks([
+      `on: [pull_request]\njobs:\n  gate:\n    name: gate ${ACTIONS_EXPR}\n    steps:\n      - run: mshape gate\n`,
+    ]);
+    await checks("checks.json", [
+      { id: 301, name: "gate a", status: "completed", conclusion: "success" },
+      { id: 302, name: "gate b", status: "completed", conclusion: "success" },
+    ]);
+    const ran = await awaitCiRun(
+      "8".repeat(40),
+      { pollMs: 5, startMs: 10_000, limitMs: 10_000 },
+      false,
+      [],
+      true,
+      expected,
+    );
+    expect(ran.code).toBe(0);
+    expect(ran.stdout).toContain("CI passed on 888888888888");
   });
 
   test("awaitCi with no check starting: says so, and stops waiting", async () => {

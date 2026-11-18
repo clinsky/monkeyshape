@@ -1,0 +1,29 @@
+# monkeyshape's config: the module map is the layout, and nothing else restates it.
+packs = ["python"]
+
+# Every module is a directory of the package under src/. Add modules as the code grows;
+# `mshape check` keeps imports to these edges. `optional = true` is for a module with no code
+# yet: drop it once the directory has some, so a module renamed or emptied later fails instead
+# of passing over nothing.
+[arch.modules.core]
+description = "Deterministic logic over plain data. No host I/O."
+paths = ["src/{{module}}/core"]
+optional = true
+
+[arch.modules.adapters]
+description = "Host I/O (disk, network, processes) behind services."
+paths = ["src/{{module}}/adapters"]
+may-import = ["core"]
+host-access = true
+optional = true
+
+[arch.modules.app]
+description = "The package itself, the entry point and composition root: what wires the rest."
+paths = ["src/{{module}}"]
+may-import = ["core", "adapters"]
+host-access = true
+
+[tracks]
+# Gitignored data every track worktree shares with the main checkout, such as a large
+# dataset: repo-relative paths like "data/large". `mshape track new` links each one.
+shared-paths = []

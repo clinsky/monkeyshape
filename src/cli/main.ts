@@ -17,7 +17,7 @@ import { reviewPost, scanFile } from "../adapters/denylist.ts";
 import { depBump } from "../adapters/dep.ts";
 import { runGate } from "../adapters/gate.ts";
 import { initRepo, vendoredSpec } from "../adapters/init.ts";
-import { ownRoot } from "../adapters/launch.ts";
+import { ownRoot, recordedSums, runningCompiled } from "../adapters/launch.ts";
 import { mailInbox, mailInboxAll, mailRead, mailSend } from "../adapters/mail.ts";
 import {
   type Caller,
@@ -113,11 +113,11 @@ const PACKAGE_ROOT = ownRoot();
 const WORKFLOW_URL = `${pkg.homepage.replace(/#.*$/, "")}/blob/main/docs/workflow.md`;
 
 /**
- * When this mshape runs from a git checkout whose code isn't the release its version names, a
- * pack of the checkout, with a development version (`packVersion`). Undefined for an installed
+ * When this mshape runs from a git checkout whose code isn't the release its version names,
+ * the development version a pack of it gets (`packVersion`). Undefined for an installed
  * package, or a checkout exactly at its release tag, which npm has.
  */
-const checkoutPack = () =>
+const checkoutVersion = () =>
   Effect.gen(function* () {
     const top = yield* runTool(PACKAGE_ROOT, ["git", "rev-parse", "--show-toplevel"]);
     if (top.code !== 0) return undefined;
@@ -125,7 +125,13 @@ const checkoutPack = () =>
       Promise.all([realpath(PACKAGE_ROOT), realpath(top.stdout.trim())]),
     );
     if (here !== root) return undefined;
-    if (packVersion(yield* packSource(PACKAGE_ROOT)) === pkg.version) return undefined;
+    const version = packVersion(yield* packSource(PACKAGE_ROOT));
+    return version === pkg.version ? undefined : version;
+  });
+
+/** A pack of this checkout, to vendor when it isn't the release (`checkoutVersion`). */
+const checkoutPack = () =>
+  Effect.gen(function* () {
     const dir = yield* Effect.promise(() => mkdtemp(join(tmpdir(), "mshape-init-")));
     const tarball = yield* packWorkingTree(PACKAGE_ROOT, dir);
     return {
@@ -180,12 +186,21 @@ const init = (root: string, args: ReadonlyArray<string>) =>
         : undefined;
     // From a checkout that isn't the release, npm's package of this version isn't this code:
     // vendor a pack of the checkout instead, as --from would. Only a TypeScript repo installs it.
+    const dev = yield* checkoutVersion();
     const checkout =
-      from === undefined && pack === "typescript" ? yield* checkoutPack() : undefined;
+      dev !== undefined && from === undefined && pack === "typescript"
+        ? yield* checkoutPack()
+        : undefined;
+    // The repo pins the mshape running init: a release's binary with the sums install.sh or the
+    // launcher verified it against; any other build by its version alone.
+    const pin = {
+      version: dev ?? pkg.version,
+      sums: runningCompiled() ? yield* recordedSums(process.execPath) : undefined,
+    };
     const tarball = given ?? checkout?.tarball;
     const spec =
       tarball !== undefined ? vendoredSpec(tarball) : local !== undefined ? `file:${local}` : from;
-    const dev = pkg.devDependencies;
+    const tools = pkg.devDependencies;
     const result = yield* initRepo(
       `${root}/${name}`,
       name,
@@ -193,13 +208,14 @@ const init = (root: string, args: ReadonlyArray<string>) =>
       {
         bun: Bun.version,
         monkeyshape: spec ?? pkg.version,
-        effect: dev.effect,
-        biome: dev["@biomejs/biome"],
-        typescript: dev.typescript,
-        typesBun: dev["@types/bun"],
+        effect: tools.effect,
+        biome: tools["@biomejs/biome"],
+        typescript: tools.typescript,
+        typesBun: tools["@types/bun"],
       },
       tarball,
       pack,
+      pin,
     ).pipe(Effect.ensuring(checkout?.cleanup ?? Effect.void));
     return {
       output: [

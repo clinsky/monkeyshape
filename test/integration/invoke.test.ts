@@ -6,9 +6,9 @@
  * `~/.local/bin`.
  */
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { copyFile, mkdir, mkdtemp, realpath, rm } from "node:fs/promises";
+import { copyFile, mkdir, mkdtemp, realpath, rm, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import * as Effect from "effect/Effect";
 import { compileBinaries, packSource } from "../../src/adapters/release.ts";
 import { HOOKS, mshapeCommand, withMshape } from "../../src/core/hooks.ts";
@@ -24,6 +24,11 @@ let work = "";
 let repo = "";
 let born = { code: 0, output: "" };
 const home = () => join(work, "home");
+const exists = (path: string) =>
+  stat(path).then(
+    () => true,
+    () => false,
+  );
 const worktree = () => join(repo, ".agents", "worktrees", "demo@a");
 
 /** A hook's environment: no Bun and no `mshape` on the PATH, this test's home. */
@@ -125,4 +130,24 @@ describe.skipIf(host === undefined)("running mshape from a hook, with no Bun", (
     expect(bare.output).toContain(`curl -fsSL ${INSTALL_URL} | sh`);
     expect(bare.code).toBe(0);
   });
+
+  test("the gate the born AGENTS.md names passes with the installed mshape, and its paths exist", async () => {
+    const agents = await Bun.file(join(repo, "AGENTS.md")).text();
+    const row = agents.split("\n").find((line) => /^\| `[^`]+` \| The gate/.test(line)) ?? "";
+    const command = /`([^`]+)`/.exec(row)?.[1] ?? "";
+    expect(command).toStartWith("mshape ");
+    // The TypeScript pack's tools run on Bun: it is on this PATH, mshape is not.
+    const gate = await mshape(repo, command.split(" ").slice(1), {
+      PATH: `${dirname(process.execPath)}:/usr/bin:/bin`,
+    });
+    expect(gate.output).toContain("mshape gate passed");
+    expect(gate.code).toBe(0);
+    const start = agents.slice(agents.indexOf("## Where to start"));
+    const paths = [...start.slice(0, start.indexOf("\n## ", 1)).matchAll(/^- `([^`]+)`/gm)].map(
+      (match) => match[1] ?? "",
+    );
+    expect(paths).toContain("shape.toml");
+    for (const path of paths)
+      expect({ path, exists: await exists(join(repo, path)) }).toEqual({ path, exists: true });
+  }, 120_000);
 });

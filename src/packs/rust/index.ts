@@ -120,13 +120,13 @@ export const rust: Pack = {
   ],
   template: "template/packs/rust",
   stages: [
-    { name: "fmt", run: ["cargo", "fmt", "--all", "--check"], fast: true },
+    { name: "cargo-fmt", run: ["cargo", "fmt", "--all", "--check"], fast: true },
     {
       name: "clippy",
       run: ["cargo", "clippy", "--workspace", "--all-targets", "--", "-D", "warnings"],
       fast: true,
     },
-    { name: "test", run: ["cargo", "test", "--workspace"] },
+    { name: "cargo-test", run: ["cargo", "test", "--workspace"] },
   ],
   // `rustc` is the tool coverage names, so the core finds its install hint by that name;
   // rustup brings cargo with it. clippy and rustfmt are rustup components the stages need:

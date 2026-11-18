@@ -125,6 +125,44 @@ describe.skipIf(host === undefined)("the compiled mshape, with no Bun", () => {
     expect(checked.exitCode).toBe(0);
   });
 
+  // The Python pack's template (8il.17): born by the compiled mshape and gated by it, with no
+  // Bun on the PATH. uv, git and Python come from the machine; uv's cache is the machine's, so
+  // the pinned toolchain isn't fetched again.
+  test.skipIf(Bun.which("uv") === null)(
+    "init --pack python, then its gate: every Python stage passes with no Bun on the PATH",
+    () => {
+      const uv = dirname(Bun.which("uv") ?? "");
+      const env = {
+        PATH: [uv, "/usr/bin", "/bin"].join(":"),
+        HOME: join(work, "home"),
+        UV_CACHE_DIR:
+          process.env["UV_CACHE_DIR"] ?? join(process.env["HOME"] ?? "", ".cache", "uv"),
+        CLAUDE_CODE_SESSION_ID: "",
+        CLAUDE_PID: "",
+      };
+      const spawn = (cwd: string, args: ReadonlyArray<string>) => {
+        const ran = Bun.spawnSync([binary, ...args], { cwd, env });
+        return { code: ran.exitCode, out: `${ran.stdout}${ran.stderr}` };
+      };
+      const born = spawn(work, ["init", "py-born", "--pack", "python"]);
+      expect(born.out).toContain("Created py-born/");
+      expect(born.out).toContain("base configs: .mshape/ruff.toml, pyproject.toml");
+      const gate = spawn(join(work, "py-born"), ["gate"]);
+      for (const stage of ["ruff-format", "ruff", "ty", "pytest"])
+        expect(gate.out).toMatch(new RegExp(`\\b${stage} +passed\\b`));
+      // Until the skills say \`mshape\` rather than \`bun run mshape\` (binary's 8il.7), refs
+      // fails on those lines in .agents/skills/ and nowhere else; then the gate is green.
+      const failures = gate.out
+        .split("\n")
+        .filter((line) => /^\S.* {2}[a-z-]+\/[a-z-]+$/.test(line));
+      expect(
+        failures.filter((line) => !/^\.agents\/skills\/.* {2}refs\/unknown-script$/.test(line)),
+      ).toEqual([]);
+      expect(gate.out).not.toContain("bun is not on PATH");
+    },
+    300_000,
+  );
+
   test("a cache it can't write fails, saying to set XDG_CACHE_HOME", () => {
     const ran = Bun.spawnSync([binary, "--version"], {
       cwd: work,
