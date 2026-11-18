@@ -3,7 +3,7 @@ import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import * as Effect from "effect/Effect";
-import { syncAll } from "../../src/adapters/sync.ts";
+import { syncAll, syncRepo } from "../../src/adapters/sync.ts";
 import { PR_TEMPLATE_FILE, PRIME_FILE, prTemplate } from "../../src/core/conventions.ts";
 
 let dir = "";
@@ -109,5 +109,30 @@ describe("sync and a PR template the adopter wrote", () => {
     const exit = await Effect.runPromiseExit(syncAll(repo(), pkg()));
     expect(exit._tag).toBe("Failure");
     expect(await Bun.file(join(repo(), PRIME_FILE)).exists()).toBe(false);
+  });
+});
+
+describe("a pack's base configs", () => {
+  test("sync writes a copy and owned tables, keeps the rest of the file, then has nothing to do", async () => {
+    const deliveries = [
+      { delivery: "copy", pack: "python", file: ".mshape/ruff.toml", text: "line-length = 100\n" },
+      {
+        delivery: "table",
+        pack: "rust",
+        file: "Cargo.toml",
+        tables: ["workspace.lints.rust"],
+        text: '[workspace.lints.rust]\nunsafe_code = "forbid"\n',
+      },
+    ] as const;
+    await put(join(repo(), "Cargo.toml"), '[workspace]\nmembers = ["crates/*"]\n');
+    const first = await Effect.runPromise(syncRepo(repo(), pkg(), [], deliveries));
+    expect(first.created).toContain(".mshape/ruff.toml");
+    expect(await read(repo(), ".mshape/ruff.toml")).toBe("line-length = 100\n");
+    expect(await read(repo(), "Cargo.toml")).toBe(
+      '[workspace]\nmembers = ["crates/*"]\n\n[workspace.lints.rust]\nunsafe_code = "forbid"\n',
+    );
+    const again = await Effect.runPromise(syncRepo(repo(), pkg(), [], deliveries));
+    expect([...again.write.keys()]).not.toContain("Cargo.toml");
+    expect([...again.write.keys()]).not.toContain(".mshape/ruff.toml");
   });
 });
