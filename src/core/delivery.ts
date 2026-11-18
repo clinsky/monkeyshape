@@ -64,7 +64,8 @@ export const deliveries = (
     }),
   );
 
-const HEADER = /^\s*\[([^[\]]+)\]\s*(?:#.*)?$/;
+/** A table header, `[a.b]`, or an array-of-tables header, `[[a.b]]`: either ends a section. */
+const HEADER = /^\s*\[\[?\s*([^[\]]+?)\s*\]\]?\s*(?:#.*)?$/;
 
 /** The table a `[a.b]` header line opens, unquoted, or undefined for any other line. */
 const headerOf = (line: string): string | undefined =>
@@ -151,7 +152,54 @@ const same = (a: unknown, b: unknown): boolean => {
  * `foreign`: an owned table is defined other than by its own `[a.b]` header (dotted keys or an
  * inline table under a parent), which sync can't rewrite without a second definition.
  */
-export type Standing = "current" | "missing" | "diverged" | "unparsable" | "foreign";
+export type Standing =
+  | "current"
+  | "missing"
+  | "diverged"
+  | "unparsable"
+  | "foreign"
+  /** Sync's rewrite would change something outside the owned tables, so it writes nothing. */
+  | "unwritable";
+
+/** A copy of a parsed TOML value with each owned table removed. */
+const withoutOwned = (value: unknown, tables: ReadonlyArray<string>): unknown => {
+  const copy = structuredClone(value);
+  for (const table of tables) {
+    const path = table.split(".");
+    // Delete the table, then each parent it leaves empty: appending `[a.b]` makes `a` too.
+    for (let depth = path.length; depth > 0; depth--) {
+      const parent = depth === 1 ? copy : at(copy, path.slice(0, depth - 1).join("."));
+      if (typeof parent !== "object" || parent === null) break;
+      const key = path[depth - 1] ?? "";
+      const child = (parent as Record<string, unknown>)[key];
+      const empty = typeof child === "object" && child !== null && Object.keys(child).length === 0;
+      if (depth !== path.length && !empty) break;
+      delete (parent as Record<string, unknown>)[key];
+    }
+  }
+  return copy;
+};
+
+/**
+ * Whether `written` keeps every value of `current` outside the owned tables and holds the owned
+ * ones as sync means them: the guard on any line `writeTables` misreads (a header-like line in
+ * a multi-line string), so a rewrite never loses or breaks the rest of the file.
+ */
+const keepsTheRest = (
+  delivery: Extract<Delivery, { delivery: "table" }>,
+  current: string,
+  written: string,
+): boolean => {
+  const before = parseToml(current);
+  const after = parseToml(written);
+  const want = parseToml(delivery.text);
+  return (
+    before !== undefined &&
+    after !== undefined &&
+    same(withoutOwned(before, delivery.tables), withoutOwned(after, delivery.tables)) &&
+    delivery.tables.every((table) => same(at(after, table), at(want, table)))
+  );
+};
 
 /** The owned tables `current` defines other than by their own headers. */
 export const foreignTables = (delivery: Delivery, current: string): ReadonlyArray<string> => {
@@ -175,10 +223,10 @@ export const standing = (delivery: Delivery, current: string | undefined): Stand
   if (have === undefined) return "unparsable";
   if (foreignTables(delivery, current).length > 0) return "foreign";
   const want = parseToml(delivery.text);
-  if (delivery.tables.every((table) => at(have, table) === undefined)) return "missing";
-  return delivery.tables.every((table) => same(at(have, table), at(want, table)))
-    ? "current"
-    : "diverged";
+  if (delivery.tables.every((table) => same(at(have, table), at(want, table)))) return "current";
+  if (!keepsTheRest(delivery, current, writeTables(current, delivery.tables, delivery.text)))
+    return "unwritable";
+  return delivery.tables.every((table) => at(have, table) === undefined) ? "missing" : "diverged";
 };
 
 /** The shipped files the packs' `copy` configs name, for the adapter to read. */
@@ -190,7 +238,7 @@ export const shippedFiles = (packs: ReadonlyArray<Pack>): ReadonlyArray<string> 
 /** What sync writes for one delivery, or undefined when it is current or not sync's to fix. */
 export const deliver = (delivery: Delivery, current: string | undefined): string | undefined => {
   const now = standing(delivery, current);
-  if (now === "current" || now === "unparsable" || now === "foreign") return undefined;
+  if (now !== "missing" && now !== "diverged") return undefined;
   return delivery.delivery === "copy"
     ? delivery.text
     : writeTables(current ?? "", delivery.tables, delivery.text);

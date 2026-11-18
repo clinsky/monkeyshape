@@ -337,6 +337,12 @@ const deliveryMessage = (
         text: `defines ${named(foreign)} as dotted keys or an inline table under a parent table, not under ${foreign.length === 1 ? "its own header" : "their own headers"}. ${SYNC} owns ${foreign.length === 1 ? "that table" : "those tables"} and can't rewrite ${foreign.length === 1 ? "it" : "them"} without defining ${foreign.length === 1 ? "it" : "them"} twice, which the file's tools reject. Delete that definition, move any value you meant to keep to ${foreign.map(instead).join(" and ")}, then run ${SYNC}.`,
       };
     }
+    case "unwritable":
+      return {
+        kind: "base-diverged",
+        unfixable: true,
+        text: `holds ${owned}, which ${SYNC} owns, but rewriting them here would change the file outside those tables (a line that looks like a table header inside a multi-line string, say), so sync writes nothing. Write ${owned} as sync would yourself, each under its own header, with ${SYNC}'s values, or move the line sync misreads, then run ${SYNC}.`,
+      };
     case "unparsable":
       return {
         kind: "base-diverged",

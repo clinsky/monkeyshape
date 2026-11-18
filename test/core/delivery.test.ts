@@ -204,3 +204,79 @@ test("the check names only the diverged table, and its key in shape.toml", () =>
     ),
   ]);
 });
+
+describe("the rest of the file survives a rewrite (review of #105)", () => {
+  const ty: Delivery = {
+    delivery: "table",
+    pack: "python",
+    file: "pyproject.toml",
+    tables: ["tool.ty.rules"],
+    text: '[tool.ty.rules]\npossibly-unresolved-reference = "error"\n',
+  };
+  const PYPROJECT = `[project]
+name = "app"
+dependencies = ["torch"]
+
+[tool.ty.rules]
+possibly-unresolved-reference = "warn"
+
+[[tool.uv.index]]
+name = "pytorch-cu124"
+url = "https://download.pytorch.org/whl/cu124"
+explicit = true
+`;
+
+  test("an array of tables after an owned table is kept: uv's index", () => {
+    expect(standing(ty, PYPROJECT)).toBe("diverged");
+    const written = deliver(ty, PYPROJECT) ?? "";
+    expect(Bun.TOML.parse(written)).toMatchObject({
+      tool: { uv: { index: [{ name: "pytorch-cu124", explicit: true }] } },
+    });
+    expect(standing(ty, written)).toBe("current");
+  });
+
+  test("a package's [[bin]] and a spaced [[ bench ]] after an owned table are kept", () => {
+    const cargo = `${CARGO}\n${table.text.replace('"forbid"', '"deny"')}\n[[bin]]\nname = "app"\n\n[[ bench ]]\nname = "speed"\n`;
+    const written = deliver(table, cargo) ?? "";
+    expect(Bun.TOML.parse(written)).toMatchObject({
+      bin: [{ name: "app" }],
+      bench: [{ name: "speed" }],
+    });
+    expect(standing(table, written)).toBe("current");
+  });
+
+  test("a header-like line in a multi-line string: sync writes nothing rather than break the file", () => {
+    const notes = `${CARGO}\n[workspace.metadata.notes]\ntext = """\n[workspace.lints.clippy]\n"""\n`;
+    expect(standing(table, notes)).toBe("unwritable");
+    expect(deliver(table, notes)).toBeUndefined();
+    const plan = planSync(
+      {
+        ignored: [],
+        beads: false,
+        prime: undefined,
+        prTemplate: undefined,
+        settings: undefined,
+        owned: [],
+        replace: [],
+        otherTemplates: [],
+        deliveries: [{ delivery: table, current: notes }],
+      },
+      "",
+    );
+    expect(plan.write.has("Cargo.toml")).toBe(false);
+    expect(plan.blocked[0]).toContain("would change the file outside those tables");
+  });
+});
+
+test("a top-level owned table is rewritten, the rest kept", () => {
+  const top: Delivery = {
+    delivery: "table",
+    pack: "rust",
+    file: "x.toml",
+    tables: ["lints"],
+    text: "[lints]\na = 1\n",
+  };
+  const written = deliver(top, '[package]\nname = "x"\n\n[lints]\na = 2\n') ?? "";
+  expect(Bun.TOML.parse(written)).toEqual({ package: { name: "x" }, lints: { a: 1 } });
+  expect(standing(top, written)).toBe("current");
+});
