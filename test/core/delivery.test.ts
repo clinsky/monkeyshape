@@ -1,0 +1,129 @@
+/** Base configs sync delivers: the plan's copied-configs table, and its amendment for Cargo. */
+import { describe, expect, test } from "bun:test";
+import { type Delivery, deliver, standing, writeTables } from "../../src/core/delivery.ts";
+import { planSync, type SyncState } from "../../src/core/sync.ts";
+
+const copy: Delivery = {
+  delivery: "copy",
+  pack: "python",
+  file: ".mshape/ruff.toml",
+  text: "line-length = 100\n",
+};
+const table: Delivery = {
+  delivery: "table",
+  pack: "rust",
+  file: "Cargo.toml",
+  tables: ["workspace.lints.rust", "workspace.lints.clippy"],
+  text: '[workspace.lints.rust]\nunsafe_code = "forbid"\n\n[workspace.lints.clippy]\nall = { level = "deny", priority = -1 }\n',
+};
+const CARGO = `[workspace]
+members = ["crates/*"]
+resolver = "3"
+
+[workspace.package]
+edition = "2024"
+`;
+
+describe("copy", () => {
+  test("equal to what the release ships passes; edited by hand or missing does not", () => {
+    expect(standing(copy, copy.text)).toBe("current");
+    expect(standing(copy, "line-length = 120\n")).toBe("diverged");
+    expect(standing(copy, undefined)).toBe("missing");
+  });
+
+  test("sync writes the shipped text, and nothing when it is current", () => {
+    expect(deliver(copy, undefined)).toBe(copy.text);
+    expect(deliver(copy, "line-length = 120\n")).toBe(copy.text);
+    expect(deliver(copy, copy.text)).toBeUndefined();
+  });
+});
+
+describe("table", () => {
+  test("missing tables are appended, every other line kept", () => {
+    const written = deliver(table, CARGO) ?? "";
+    expect(written).toStartWith(CARGO);
+    expect(standing(table, written)).toBe("current");
+    expect(Bun.TOML.parse(written)).toMatchObject({ workspace: { package: { edition: "2024" } } });
+  });
+
+  test("equal by parsed value passes: a reformat is not a failure", () => {
+    const reformatted = `${CARGO}\n[workspace.lints.clippy]\nall={priority=-1,level="deny"}  # ours\n[workspace.lints.rust]\n"unsafe_code" = 'forbid'\n`;
+    expect(standing(table, reformatted)).toBe("current");
+  });
+
+  test("a lint edited by hand diverges; sync rewrites only the owned tables", () => {
+    const edited = `${CARGO}\n[workspace.lints.rust]\nunsafe_code = "allow"\n\n[workspace.lints.clippy]\nall = { level = "deny", priority = -1 }\n\n[profile.release]\nlto = true\n`;
+    expect(standing(table, edited)).toBe("diverged");
+    const written = deliver(table, edited) ?? "";
+    expect(standing(table, written)).toBe("current");
+    // The table after them stays, in its place.
+    expect(written.endsWith("[profile.release]\nlto = true\n")).toBe(true);
+    expect(written.indexOf("[workspace.package]")).toBeLessThan(written.indexOf("unsafe_code"));
+  });
+
+  test("a lint added by hand to an owned table diverges, so it can't hide there", () => {
+    const added = `${CARGO}\n${table.text}missing_docs = "warn"\n`;
+    expect(standing(table, added)).toBe("diverged");
+  });
+
+  test("an owned table written as dotted keys under its parent can't be rewritten: unparsable after", () => {
+    const dotted = `${CARGO}\n[workspace.lints]\nrust.unsafe_code = "allow"\n`;
+    expect(standing(table, dotted)).toBe("diverged");
+    expect(standing(table, deliver(table, dotted))).toBe("unparsable");
+  });
+
+  test("a file that isn't TOML is left alone", () => {
+    expect(standing(table, "[workspace\n")).toBe("unparsable");
+    expect(deliver(table, "[workspace\n")).toBeUndefined();
+  });
+
+  test("writeTables keeps an owned table's subtables out, and a quoted header counts", () => {
+    const text = `[a]\nx = 1\n["workspace".lints.rust.extra]\ny = 2\n[b]\nz = 3\n`;
+    expect(writeTables(text, ["workspace.lints.rust"], "[workspace.lints.rust]\nq = 1\n")).toBe(
+      "[a]\nx = 1\n[workspace.lints.rust]\nq = 1\n\n[b]\nz = 3\n",
+    );
+  });
+});
+
+describe("sync's plan", () => {
+  const state = (files: Record<string, string | undefined>): SyncState => ({
+    ignored: [],
+    beads: false,
+    prime: undefined,
+    prTemplate: undefined,
+    settings: undefined,
+    owned: [],
+    replace: [],
+    otherTemplates: [],
+    deliveries: [copy, table].map((delivery) => ({
+      delivery,
+      current: files[delivery.file],
+    })),
+  });
+
+  test("writes a missing copy and a missing table, and marks a new file created", () => {
+    const plan = planSync(state({ "Cargo.toml": CARGO }), "");
+    expect(plan.write.get(".mshape/ruff.toml")).toBe(copy.text);
+    expect(standing(table, plan.write.get("Cargo.toml"))).toBe("current");
+    expect(plan.created).toContain(".mshape/ruff.toml");
+    expect(plan.created).not.toContain("Cargo.toml");
+  });
+
+  test("current configs write nothing; a file that isn't TOML blocks with the fix", () => {
+    const current = state({
+      ".mshape/ruff.toml": copy.text,
+      "Cargo.toml": `${CARGO}\n${table.text}`,
+    });
+    const plan = planSync(current, "");
+    expect(
+      [...plan.write.keys()].filter(
+        (file) => file !== ".github/pull_request_template.md" && file !== ".claude/settings.json",
+      ),
+    ).toEqual([]);
+    const broken = planSync(state({ "Cargo.toml": "[workspace\n" }), "");
+    expect(broken.write.has("Cargo.toml")).toBe(false);
+    expect(broken.blocked.some((line) => line.startsWith("Cargo.toml isn't valid TOML"))).toBe(
+      true,
+    );
+  });
+});

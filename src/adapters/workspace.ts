@@ -3,6 +3,7 @@ import * as Effect from "effect/Effect";
 import { PRIME_FILE } from "../core/conventions.ts";
 import { parseJsonc } from "../core/coverage.ts";
 import { parseDecisions } from "../core/decisions.ts";
+import { shippedFiles } from "../core/delivery.ts";
 import { SETTINGS_FILE } from "../core/hooks.ts";
 import { type BeadSummary, classify, type Integration, type Snapshot } from "../core/model.ts";
 import { SYNCED_FILES } from "../core/sync.ts";
@@ -11,7 +12,7 @@ import type { LoadedPack, Pack, PackLoad, RepoView } from "../packs/pack.ts";
 import { CHECK_NAMES, type CheckName, type ResolvedConfig } from "../schemas/config.ts";
 import { WorkspaceError } from "../schemas/errors.ts";
 import { loadModes, runCommands } from "./commands.ts";
-import { exists, readText } from "./disk.ts";
+import { exists, readPresent, readText } from "./disk.ts";
 import { loadSizes, loadVendored } from "./files.ts";
 import { LOADERS } from "./packs/index.ts";
 import { BUN_MISSING, bunPath, run, runTool } from "./process.ts";
@@ -309,6 +310,8 @@ export const loadSnapshot = (
         Object.values(PACKS).some((pack) => pack?.kindOf(file) !== undefined) ||
         (enforces(file) && readable(file)) ||
         file.endsWith(".md") ||
+        // What sync copies in for a pack, whatever its kind: the sync check compares it.
+        file.startsWith(".mshape/") ||
         configs.has(file) ||
         classify(file, undefined) === "data" ||
         (classify(file, modes.get(file)) === "executable" && readable(file)),
@@ -332,6 +335,10 @@ export const loadSnapshot = (
         : [];
     const loadedBeads = yield* beads(root);
     const packs = yield* loadPacks(root, config, { files: present, texts }, checks);
+    const shippedConfigs = yield* readPresent(
+      packageRoot,
+      shippedFiles(packs.map(({ pack }) => pack)),
+    );
     const skills = yield* loadSkills(`${packageRoot}/skills`, root);
     const shippedPrime = yield* Effect.promise(() =>
       Bun.file(`${packageRoot}/template/${PRIME_FILE}`)
@@ -353,6 +360,7 @@ export const loadSnapshot = (
       beadRows: loadedBeads.value?.rows,
       integrations: { beads: loadedBeads.integration },
       packs,
+      shippedConfigs,
       otherPacks: Object.values(PACKS).filter(
         (pack): pack is Pack => pack !== undefined && !config.packs.includes(pack.id),
       ),

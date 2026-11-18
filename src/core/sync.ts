@@ -13,6 +13,7 @@
  */
 import type { ResolvedConfig } from "../schemas/config.ts";
 import { OWNABLE_FILES, PR_TEMPLATE_FILE, PRIME_FILE, prTemplate } from "./conventions.ts";
+import { type Delivery, deliver, deliveries, type Standing, standing } from "./delivery.ts";
 import { addHooks, HOOKS, type Hook, missingHooks, SETTINGS_FILE, SYNC_COMMAND } from "./hooks.ts";
 import { SKILLS_MANIFEST } from "./layout.ts";
 import type { Snapshot, Violation } from "./model.ts";
@@ -30,6 +31,8 @@ export const SYNC_RULES = [
   "hook-missing",
   "settings-invalid",
   "ignored",
+  "base-missing",
+  "base-diverged",
 ] as const;
 
 const violation = (
@@ -87,6 +90,11 @@ export interface SyncState {
   readonly replace: ReadonlyArray<string>;
   /** PR templates GitHub would read other than sync's (`isPrTemplate`). */
   readonly otherTemplates: ReadonlyArray<string>;
+  /** The listed packs' `copy` and `table` configs, each with its file's text now. */
+  readonly deliveries?: ReadonlyArray<{
+    readonly delivery: Delivery;
+    readonly current: string | undefined;
+  }>;
 }
 
 /** The parsed settings, `{}` for none, undefined when it isn't a JSON object. */
@@ -158,6 +166,17 @@ export const planSync = (state: SyncState, shippedPrime: string): SyncPlan => {
     write.set(SETTINGS_FILE, addHooks(settings, HOOKS));
     if (state.settings === undefined) created.push(SETTINGS_FILE);
   }
+  for (const { delivery, current } of state.deliveries ?? []) {
+    const message = deliveryMessage(delivery, standing(delivery, current));
+    if (message?.unfixable === true) {
+      blocked.push(`${delivery.file} ${message.text}`);
+      continue;
+    }
+    const text = deliver(delivery, write.get(delivery.file) ?? current);
+    if (text === undefined) continue;
+    write.set(delivery.file, text);
+    if (current === undefined) created.push(delivery.file);
+  }
   return {
     write,
     notes,
@@ -182,10 +201,7 @@ const describe = (hook: Hook): string => `${hook.event}: \`${hook.command}\``;
  * A synced repo's PRIME.md and PR template match what this monkeyshape ships, and its
  * settings.json runs every monkeyshape hook. Its own hooks and settings are its business.
  */
-export const checkSync = (
-  _config: ResolvedConfig,
-  snapshot: Snapshot,
-): ReadonlyArray<Violation> => {
+export const checkSync = (config: ResolvedConfig, snapshot: Snapshot): ReadonlyArray<Violation> => {
   if (!snapshot.skills.installed.has(SKILLS_MANIFEST)) return [];
   const out: Array<Violation> = [...snapshot.unlisted]
     .filter((file) => SYNCED_FILES.includes(file))
@@ -260,5 +276,49 @@ export const checkSync = (
         ),
       );
   }
+  const packs = snapshot.packs.map(({ pack }) => pack);
+  for (const delivery of deliveries(config, packs, snapshot.shippedConfigs)) {
+    const message = deliveryMessage(
+      delivery,
+      standing(delivery, snapshot.texts.get(delivery.file)),
+    );
+    if (message !== undefined) out.push(violation(message.kind, delivery.file, message.text));
+  }
   return out;
+};
+
+/** Why a delivered base config fails, and the fix; undefined when it is current. */
+const deliveryMessage = (
+  delivery: Delivery,
+  now: Standing,
+): { kind: "base-missing" | "base-diverged"; text: string; unfixable?: true } | undefined => {
+  const tables =
+    delivery.delivery === "table" ? delivery.tables.map((t) => `[${t}]`).join(", ") : "";
+  const override = `Change it through this repo's own config, or the \`[${delivery.pack}]\` table in shape.toml where the pack reads one, then run ${SYNC}`;
+  switch (now) {
+    case "current":
+      return undefined;
+    case "missing":
+      return {
+        kind: "base-missing",
+        text:
+          delivery.delivery === "copy"
+            ? `is missing: it is the ${delivery.pack} pack's base config, which ${SYNC} writes and this repo's own config points at. Run ${SYNC} and commit it.`
+            : `has none of ${tables}, the ${delivery.pack} pack's tables that ${SYNC} owns here. Run ${SYNC} and commit it.`,
+      };
+    case "diverged":
+      return {
+        kind: "base-diverged",
+        text:
+          delivery.delivery === "copy"
+            ? `differs from the ${delivery.pack} pack's base config the installed monkeyshape ships, so a hand edit here would be lost at the next sync. ${override}.`
+            : `holds ${tables}, which ${SYNC} owns, with values other than it writes, so a hand edit here would be lost at the next sync. ${override}, which rewrites only those tables.`,
+      };
+    case "unparsable":
+      return {
+        kind: "base-diverged",
+        unfixable: true,
+        text: `isn't valid TOML, so ${tables}, which ${SYNC} owns, can't be compared. Fix the file, then run ${SYNC}. Write the owned tables as \`[a.b]\` headers, not as dotted keys under a parent table.`,
+      };
+  }
 };

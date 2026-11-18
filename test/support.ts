@@ -43,6 +43,8 @@ export const repo = (
     readonly biome?: Integration;
     /** The listed packs as loaded; the TypeScript pack with the tool runs above by default. */
     readonly packs?: ReadonlyArray<LoadedPack>;
+    /** The shipped `copy` configs, by their path in the package. */
+    readonly shippedConfigs?: Readonly<Record<string, string>>;
     /** Packs shipped but not listed; none by default. */
     readonly otherPacks?: ReadonlyArray<Pack>;
     readonly skills?: SkillsSnapshot;
@@ -77,6 +79,7 @@ export const repo = (
     beadRows: beadsOk ? (options.beadRows ?? []) : undefined,
     ...(options.beadsExport === undefined ? {} : { beadsExport: options.beadsExport }),
     otherPacks: options.otherPacks ?? [],
+    shippedConfigs: new Map(Object.entries(options.shippedConfigs ?? {})),
     integrations: { beads: options.beads ?? (beadsOk ? { state: "ok" } : { state: "absent" }) },
     packs: options.packs ?? [
       {
