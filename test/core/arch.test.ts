@@ -449,7 +449,12 @@ describe("module paths", () => {
       },
     },
   });
-  const arch = mapped.arch ?? { root: "", modules: {}, allowedPackages: [], hostSpecifiers: [] };
+  const arch = mapped.arch ?? {
+    root: "",
+    modules: {},
+    allowedPackages: [],
+    hostSpecifiers: undefined,
+  };
 
   test("a module with paths owns the files under each, wherever arch.root is", () => {
     expect(moduleOf(arch, "crates/core/src/lib.ts")).toBe("core");

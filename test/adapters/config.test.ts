@@ -4,6 +4,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import * as Effect from "effect/Effect";
 import { loadConfig } from "../../src/adapters/config.ts";
+import { PACKS } from "../../src/packs/index.ts";
+import { PACK_IDS } from "../../src/schemas/config.ts";
 
 let dir = "";
 
@@ -229,12 +231,19 @@ describe("shape.toml", () => {
     expect((await Effect.runPromise(loadConfig(dir))).packs).toEqual(["typescript"]);
   });
 
-  test("a pack this mshape doesn't ship fails, naming it and the shipped ones", async () => {
-    await write('packs = ["typescript", "python"]\n');
-    expect(await fails()).toContain(
-      "packs: lists `python`, which this mshape doesn't ship (it ships typescript, rust)",
-    );
-  });
+  // A pack id the schema knows whose pack isn't built yet; none once every pack ships, and then
+  // a config can't list one (the schema rejects an unknown id first).
+  const unshipped = PACK_IDS.find((id) => PACKS[id] === undefined);
+  test.skipIf(unshipped === undefined)(
+    "a pack this mshape doesn't ship fails, naming it and the shipped ones",
+    async () => {
+      await write(`packs = ["typescript", "${unshipped}"]\n`);
+      const shipped = PACK_IDS.filter((id) => PACKS[id] !== undefined).join(", ");
+      expect(await fails()).toContain(
+        `packs: lists \`${unshipped}\`, which this mshape doesn't ship (it ships ${shipped})`,
+      );
+    },
+  );
 
   test("a module with no pack in a two-pack repo: fails, naming the module", async () => {
     await write(

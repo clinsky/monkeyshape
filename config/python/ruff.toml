@@ -1,0 +1,56 @@
+# monkeyshape's curated ruff rules. `mshape sync` copies this file to .mshape/ruff.toml, and
+# the sync check keeps it equal: the repo's own ruff config extends it
+# (`[tool.ruff] extend = ".mshape/ruff.toml"` in pyproject.toml) and overrides there.
+#
+# Each family removes a class of agent-written bug; every rule here passes on a fresh
+# `uv init`, since one turned on lands in every Python repo on its next `mshape sync`.
+
+[lint]
+select = [
+  # pycodestyle and pyflakes: undefined names, unused imports and variables, invalid syntax.
+  "E", "F", "W",
+  # Imports sorted, so two sessions adding one don't conflict.
+  "I",
+  # bugbear: mutable defaults, loop variables captured late, `except` that swallows.
+  "B",
+  # Untyped functions are functions ty doesn't check: every signature is annotated.
+  "ANN",
+  # A bare `except:` or `except Exception` that hides the failure it caught.
+  "BLE",
+  # `print` and `pprint` left behind by a session: library code writes no console.
+  "T20",
+  # Commented-out code, which no check reads and every reader must.
+  "ERA",
+  # Naive datetimes: a time without a zone is wrong somewhere.
+  "DTZ",
+  # Unused arguments: a parameter the body forgot.
+  "ARG",
+  # `# noqa` and `# type: ignore` without a code suppress every rule at once.
+  "PGH",
+  # Unused `noqa` comments and ruff's own bug classes (mutable class defaults, implicit Optional).
+  "RUF",
+  # Old syntax for the target version: `Optional[X]`, `typing.List`.
+  "UP",
+  # Simplifications whose long form hides a bug: `if x: return True else: return False`.
+  "SIM",
+  # pytest's idioms: `pytest.raises` with a match, fixtures without parentheses.
+  "PT",
+  # Relative imports that climb out of their package: the import graph arch reads.
+  "TID",
+]
+ignore = [
+  # `Any` is sometimes the honest type at a boundary; ty still checks what flows from it.
+  "ANN401",
+  # Conflicts with the formatter.
+  "E501", "W191",
+]
+
+[lint.flake8-tidy-imports]
+ban-relative-imports = "parents"
+
+[lint.per-file-ignores]
+# Tests take fixtures by name and return nothing: their signatures aren't the API.
+"**/tests/**" = ["ANN001", "ANN201", "ARG001"]
+"**/test_*.py" = ["ANN001", "ANN201", "ARG001"]
+"**/*_test.py" = ["ANN001", "ANN201", "ARG001"]
+"**/conftest.py" = ["ANN001", "ANN201", "ARG001"]
