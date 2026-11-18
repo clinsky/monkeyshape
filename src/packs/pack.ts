@@ -4,8 +4,10 @@
  * pack the repo lists; nothing in it names a language.
  *
  * A pack says which files are its own (`kindOf`), reads their comments, and contributes rules,
- * base configs, an init template and gate stages. Its loader returns what the toolchain sees:
- * which files each tool covers, and the edges `arch` judges, already resolved to repo paths.
+ * base configs, an init template and gate stages. Its loader returns what the toolchain saw:
+ * which files each tool covers, and the raw output the pure part reads (`cargo metadata`'s
+ * JSON). From that and the files' texts, `graph` builds the edges `arch` judges, resolved to
+ * repo paths: parsing lives here, so a test feeds it recorded output instead of a toolchain.
  */
 import type * as Effect from "effect/Effect";
 import type { CheckName, Integration, Snapshot } from "../core/model.ts";
@@ -64,9 +66,9 @@ export interface PackRule {
 }
 
 /**
- * One dependency `arch` judges, from a file of the pack to another file, a package, or the
- * package manifest. Both ends of a `file` edge are mapped to modules by path, so a node may be
- * any file: a TypeScript source, or a crate's `Cargo.toml`. Test edges (a dev-dependency, a
+ * One dependency `arch` judges, from a repo file to another, a package, or the package
+ * manifest. Both ends of a `to` edge are mapped to modules by path whatever `kindOf` says of
+ * them, so a node may be any repo file: a TypeScript source, or a crate's `Cargo.toml`. Test edges (a dev-dependency, a
  * test file's imports) are left out by the pack: arch layers code, not tests.
  */
 export type Edge = {
@@ -92,29 +94,66 @@ export interface HostUse {
   readonly what: string;
 }
 
-/** The files one tool processes, as the tool itself reports them; coverage holds each. */
-export interface ToolCoverage {
-  /** `tsc`, `biome`, `rustc`: named in coverage's messages and in `prerequisites/*`. */
+/** The files one tool processes, as the tool itself reports them, and how it fared. */
+export interface ToolRun {
+  /** One of the pack's `tools`. */
   readonly tool: string;
-  /** How the tool fared; the files are undefined unless it is `ok`. */
   readonly integration: Integration;
+  /** Undefined unless `integration` is ok. */
   readonly files: ReadonlySet<string> | undefined;
-  /**
-   * When the tool couldn't run and the repo set it optional: whether its config covers a file,
-   * read without the tool. Undefined: no approximation, so coverage can't judge without it.
-   */
-  readonly approximate?: ((file: string) => boolean) | undefined;
-  /** Why a file it misses is missed, and how to fix it, completing "<file> is not <...>". */
-  readonly uncovered: string;
 }
 
 /** What a pack's loader found: one entry per listed pack in `Snapshot.packs`. */
 export interface PackLoad {
-  readonly coverage: ReadonlyArray<ToolCoverage>;
+  readonly tools: ReadonlyArray<ToolRun>;
+  /** Raw tool output the pure part reads, by a name the pack chooses (`cargo metadata`). */
+  readonly outputs: ReadonlyMap<string, string>;
+}
+
+/** What `graph` reads: the repo's files and texts, and its own loader's output. */
+export interface GraphInput {
+  readonly config: ResolvedConfig;
+  /** The pack's sources `arch` layers; a pack may start edges at other repo files too. */
+  readonly files: ReadonlyArray<string>;
+  /** Every file in the repo, for resolving a dependency to one that exists. */
+  readonly known: ReadonlySet<string>;
+  readonly texts: Snapshot["texts"];
+  readonly outputs: PackLoad["outputs"];
+  /** Whether a specifier names the host, from `arch.host-specifiers` or the pack's default. */
+  readonly isHost: (specifier: string) => boolean;
+}
+
+export interface Graph {
   readonly edges: ReadonlyArray<Edge>;
   readonly hostUses: ReadonlyArray<HostUse>;
-  /** Files the pack's toolchain says don't parse: `rules/syntax` at each. */
-  readonly syntaxErrors: ReadonlyArray<{ readonly file: string; readonly message: string }>;
+}
+
+/**
+ * A finding of the pack's own that isn't a rule over one source's text (a crate without
+ * `[lints] workspace = true`). Reported by the `packs` check as `packs/<id>/<kind>`, every kind
+ * listed in the pack's `findingKinds` so test/core/ruleCases.test.ts covers it.
+ */
+export interface PackFinding {
+  readonly kind: string;
+  readonly file: string;
+  readonly line?: number;
+  readonly message: string;
+}
+
+/** A tool whose file list coverage holds every claimed source to. */
+export interface Tool {
+  /** `tsc`, `biome`, `rustc`: named in coverage's messages and in `prerequisites/*`. */
+  readonly name: string;
+  /** Why a file it misses is missed and how to fix it, completing "<file> <uncovered>". */
+  readonly uncovered: (config: ResolvedConfig) => string;
+  /**
+   * Whether the tool's config covers a file, read without the tool, for when it couldn't run
+   * and the repo set it optional. Undefined: coverage can't judge without the tool.
+   */
+  readonly approximate?: (
+    config: ResolvedConfig,
+    snapshot: Snapshot,
+  ) => ((file: string) => boolean) | undefined;
 }
 
 /**
@@ -168,7 +207,19 @@ export interface Pack {
   readonly defaultSources: { readonly include: ReadonlyArray<string> };
   /** `arch.host-specifiers` when the config sets none: what counts as the host. */
   readonly hostSpecifiers: ReadonlyArray<string>;
+  /** The edges and host uses `arch` judges, over the files it layers. */
+  readonly graph: (input: GraphInput) => Graph;
+  readonly tools: ReadonlyArray<Tool>;
+  /** The pack's own findings over the repo, pure: its texts and its loader's output. */
+  readonly findings: (input: {
+    readonly config: ResolvedConfig;
+    readonly snapshot: Snapshot;
+    readonly load: PackLoad | undefined;
+  }) => ReadonlyArray<PackFinding>;
+  readonly findingKinds: ReadonlyArray<string>;
   readonly rules: ReadonlyArray<PackRule>;
+  /** Why a claimed source doesn't parse, for `rules/syntax`; none when it does. */
+  readonly syntaxErrors: (file: SourceText) => ReadonlyArray<string>;
   readonly baseConfigs: ReadonlyArray<BaseConfig>;
   /** `template/packs/<id>/`, laid over `template/common/` by `init --pack <id>`. */
   readonly template: string;
