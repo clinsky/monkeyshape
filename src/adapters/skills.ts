@@ -1,7 +1,7 @@
 /** Installs the package's shared skills into a repo, and links them where Claude Code looks. */
 import { lstat, mkdir, readlink, rm, symlink } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
-import { Effect } from "effect";
+import * as Effect from "effect/Effect";
 import {
   CLAUDE_SKILLS_LINK,
   CLAUDE_SKILLS_TARGET,

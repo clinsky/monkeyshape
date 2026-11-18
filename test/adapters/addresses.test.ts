@@ -6,13 +6,13 @@
  * `review-<n>` for a PR from no track). Mail and notices follow the address;
  * `track rm` still counts every session in the worktree, registered or not.
  */
-import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { mkdir, mkdtemp, readdir, realpath, rm, writeFile } from "node:fs/promises";
+import { afterEach, describe, expect, test } from "bun:test";
+import { mkdir, readdir, rm, writeFile } from "node:fs/promises";
 import { createServer, type Server } from "node:net";
-import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { Effect } from "effect";
+import * as Effect from "effect/Effect";
 import { liveSessions } from "../../src/adapters/notices.ts";
+import { useSavedDir } from "./savedDir.ts";
 
 const CLI = join(import.meta.dir, "..", "..", "src", "cli", "main.ts");
 let base = "";
@@ -145,42 +145,46 @@ const publish = (pr: number) => {
 const send = (from: string, to: string, subject: string) =>
   mshape(from, ["msg", "send", to, "--subject", subject], undefined);
 
-beforeEach(async () => {
-  base = await realpath(await mkdtemp(join(tmpdir(), "mshape-addresses-")));
-  claude = join(base, "claude");
-  await mkdir(`${claude}/sessions`, { recursive: true });
-  sh(base, "init", "-q", "--bare", "-b", "main", "origin.git");
-  repo = join(base, "repo");
-  await mkdir(repo);
-  sh(repo, "init", "-q", "-b", "main");
-  for (const [key, value] of [
-    ["user.name", "Test"],
-    ["user.email", "test@example.com"],
-    ["commit.gpgsign", "false"],
-  ] as const)
-    sh(repo, "config", key, value);
-  sh(repo, "remote", "add", "origin", join(base, "origin.git"));
-  await writeFile(join(repo, "shape.config.ts"), "export default {};\n");
-  await writeFile(join(repo, ".gitignore"), ".agents/worktrees/\n.agents/handoffs\n.handoffs\n");
-  sh(repo, "add", ".");
-  sh(repo, "commit", "-qm", "init");
-  sh(repo, "push", "-q", "origin", "main");
-  sh(base, "clone", "-q", join(base, "origin.git"), "author");
-  for (const [key, value] of [
-    ["user.name", "Author"],
-    ["user.email", "a@example.com"],
-    ["commit.gpgsign", "false"],
-  ] as const)
-    sh(join(base, "author"), "config", key, value);
-  for (const pr of [12, 13]) publish(pr);
-  for (const track of ["docs", "tracks"])
-    expect((await mshape(repo, ["track", "new", track], undefined)).code).toBe(0);
-});
+useSavedDir(
+  "mshape-addresses-",
+  (dir) => {
+    base = dir;
+    claude = join(base, "claude");
+  },
+  async () => {
+    await mkdir(`${claude}/sessions`, { recursive: true });
+    sh(base, "init", "-q", "--bare", "-b", "main", "origin.git");
+    repo = join(base, "repo");
+    await mkdir(repo);
+    sh(repo, "init", "-q", "-b", "main");
+    for (const [key, value] of [
+      ["user.name", "Test"],
+      ["user.email", "test@example.com"],
+      ["commit.gpgsign", "false"],
+    ] as const)
+      sh(repo, "config", key, value);
+    sh(repo, "remote", "add", "origin", join(base, "origin.git"));
+    await writeFile(join(repo, "shape.config.ts"), "export default {};\n");
+    await writeFile(join(repo, ".gitignore"), ".agents/worktrees/\n.agents/handoffs\n.handoffs\n");
+    sh(repo, "add", ".");
+    sh(repo, "commit", "-qm", "init");
+    sh(repo, "push", "-q", "origin", "main");
+    sh(base, "clone", "-q", join(base, "origin.git"), "author");
+    for (const [key, value] of [
+      ["user.name", "Author"],
+      ["user.email", "a@example.com"],
+      ["commit.gpgsign", "false"],
+    ] as const)
+      sh(join(base, "author"), "config", key, value);
+    for (const pr of [12, 13]) publish(pr);
+    for (const track of ["docs", "tracks"])
+      expect((await mshape(repo, ["track", "new", track], undefined)).code).toBe(0);
+  },
+);
 
 afterEach(async () => {
   for (const server of servers) server.close();
   servers = [];
-  await rm(base, { recursive: true, force: true });
 });
 
 describe("session addresses: the plan's case table", () => {

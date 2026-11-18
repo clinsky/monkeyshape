@@ -5,7 +5,7 @@
 import { copyFile, mkdir, mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
-import { Effect } from "effect";
+import * as Effect from "effect/Effect";
 import { GATE_SCRIPT } from "../core/conventions.ts";
 import { planBump, type VendoredEntry } from "../core/dep.ts";
 import { WorkspaceError } from "../schemas/errors.ts";

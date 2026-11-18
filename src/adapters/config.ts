@@ -2,7 +2,7 @@
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { basename, dirname, join, relative, resolve } from "node:path";
-import { Effect } from "effect";
+import * as Effect from "effect/Effect";
 import { decodeStrict } from "../helpers/decodeStrict.ts";
 import { resolveConfig, ShapeConfig } from "../schemas/config.ts";
 import { ConfigError } from "../schemas/errors.ts";

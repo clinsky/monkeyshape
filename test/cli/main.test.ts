@@ -45,3 +45,15 @@ describe("the command table", () => {
     expect(result.code).toBe(2);
   });
 });
+
+describe("startup", () => {
+  // Hooks run the CLI at every prompt, and the tests spawn it hundreds of times: the `effect`
+  // barrel loads every module, about 20ms more per run than `effect/<Module>` imports.
+  test("sources import effect by module, never the `effect` barrel", async () => {
+    const root = join(import.meta.dir, "..", "..");
+    const barrel: Array<string> = [];
+    for await (const file of new Bun.Glob("src/**/*.ts").scan(root))
+      if (/from "effect";/.test(await Bun.file(join(root, file)).text())) barrel.push(file);
+    expect(barrel).toEqual([]);
+  });
+});

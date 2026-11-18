@@ -18,7 +18,7 @@ import {
   writeFile,
 } from "node:fs/promises";
 import { posix } from "node:path";
-import { Effect } from "effect";
+import * as Effect from "effect/Effect";
 import { migrateHandoff, parseHandoff, stubHandoff } from "../core/handoff.ts";
 import { mshapeCommand } from "../core/hooks.ts";
 import {

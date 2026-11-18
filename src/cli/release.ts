@@ -8,7 +8,7 @@
  *   tag [<commit>]     tag a merged commit v<its version>, recording its tarball's sha256
  *   verify <version>   pack at v<version> and compare with the tarball npm has
  */
-import { Effect } from "effect";
+import * as Effect from "effect/Effect";
 import { run } from "../adapters/process.ts";
 import {
   fetchPublished,

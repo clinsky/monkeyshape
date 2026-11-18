@@ -1,5 +1,5 @@
 /** The committed beads export, read where bd can't be, so CI checks beads without bd. */
-import { Effect } from "effect";
+import * as Effect from "effect/Effect";
 import { BEADS_EXPORT, parseBeadsExport } from "../core/beads.ts";
 import type { Snapshot } from "../core/model.ts";
 import { readText } from "./workspace.ts";

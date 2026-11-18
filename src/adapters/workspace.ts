@@ -1,7 +1,7 @@
 /** Loads the repo into a `Snapshot`: git's file list, the texts checks read, and what bd, tsc and biome report. */
 import { realpath, stat } from "node:fs/promises";
 import { posix } from "node:path";
-import { Effect } from "effect";
+import * as Effect from "effect/Effect";
 import { PRIME_FILE } from "../core/conventions.ts";
 import { parseJsonc } from "../core/coverage.ts";
 import { parseDecisions } from "../core/decisions.ts";

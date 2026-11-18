@@ -5,7 +5,7 @@
 import { describe, expect, test } from "bun:test";
 import { chmod, mkdir, rename, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { Effect } from "effect";
+import * as Effect from "effect/Effect";
 import { patchMerged } from "../../src/adapters/tracks.ts";
 import {
   base,

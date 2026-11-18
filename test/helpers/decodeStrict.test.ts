@@ -1,5 +1,7 @@
 import { describe, expect, test } from "bun:test";
-import { Effect, Exit, Schema } from "effect";
+import * as Effect from "effect/Effect";
+import * as Exit from "effect/Exit";
+import * as Schema from "effect/Schema";
 import { decodeStrict, decodeStrictSync } from "../../src/api/monkeyshape.ts";
 
 const User = Schema.Struct({ name: Schema.String });

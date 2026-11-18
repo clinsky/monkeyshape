@@ -1,5 +1,6 @@
 /** `.shape/baseline.json`: grandfathered violation counts per rule and file. */
-import { Effect, Schema } from "effect";
+import * as Effect from "effect/Effect";
+import * as Schema from "effect/Schema";
 import type { ChangedLines } from "../core/model.ts";
 import { type Counts, parseChangedLines } from "../core/ratchet.ts";
 import { decodeStrict } from "../helpers/decodeStrict.ts";

@@ -1,7 +1,7 @@
 /** `mshape init`: writes a new repo from the package's template, installs it and commits it. */
 import { copyFile, mkdir, readdir, realpath, symlink } from "node:fs/promises";
 import { basename, dirname, relative } from "node:path";
-import { Effect } from "effect";
+import * as Effect from "effect/Effect";
 import { OWNABLE_FILES } from "../core/conventions.ts";
 import { VENDOR_DIR, vendoredSpecOf } from "../core/dep.ts";
 import { HANDOFFS_LINK, handoffsLink, handoffsStore } from "../core/layout.ts";

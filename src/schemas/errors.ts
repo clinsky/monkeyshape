@@ -1,4 +1,4 @@
-import { Schema } from "effect";
+import * as Schema from "effect/Schema";
 
 /** Reading or writing the repo failed: a missing file, git unavailable, bad JSON. */
 export class WorkspaceError extends Schema.TaggedError<WorkspaceError>()("WorkspaceError", {

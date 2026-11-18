@@ -1,6 +1,6 @@
 /** Sizes and vendored artifacts, read from disk: what the `files` check judges. */
 import { lstat } from "node:fs/promises";
-import { Effect } from "effect";
+import * as Effect from "effect/Effect";
 import type { VendoredRead } from "../core/model.ts";
 import type { ResolvedConfig } from "../schemas/config.ts";
 
