@@ -899,7 +899,7 @@ export const COMMANDS: ReadonlyArray<Command> = [
       review on the PR's head yet) and the push would move its head, on uncommitted changes to track/<name>, a denylisted term
       in what it would send (see scan: the commits the remote lacks, their messages, added
       lines and paths, the title and body), a failing gate (naming its failing tests; the
-      whole output is kept under .git/monkeyshape/gate/), a missing required section or a
+      gate's output and each stage's log are kept under .git/monkeyshape/gate/), a missing required section or a
       bead bd doesn't know. Warns when the tip is behind main,
       naming the files a merge would conflict in. --body-only edits the body (and title)
       with no push and no gate, keeping the Gate section; refused unless that section ran on

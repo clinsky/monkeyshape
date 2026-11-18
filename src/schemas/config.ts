@@ -180,10 +180,20 @@ export const ForbiddenPattern = Schema.Struct({
 /** argv, not a shell line: `["make", "-C", "native", "check"]`. */
 const Argv = Schema.Array(Schema.String).check(Schema.isMinLength(1));
 
+/** The gate's `mshape check` stage: always part of the gate, so no repo stage may take its name. */
+export const CHECK_STAGE = "mshape-check";
+
 /** One step of `mshape gate`: a pack's default, or the repo's own in `[gate].stages`. */
 export const GateStage = Schema.Struct({
-  /** A repo stage with a pack stage's name replaces it. */
-  name: Schema.String.check(Schema.isMinLength(1)),
+  /**
+   * A repo stage with a pack stage's name replaces it. Lowercase words joined by hyphens: it
+   * names the stage's log file, so no `/` or `..`.
+   */
+  name: Schema.String.check(
+    Schema.isPattern(/^[a-z0-9]+(?:-[a-z0-9]+)*$/u, {
+      message: "must be lowercase words joined by hyphens, such as `native-check`",
+    }),
+  ),
   run: Argv,
   /** Runs in the fast phase, the one `--fast` and `track pr` run. */
   fast: Schema.optionalKey(Schema.Boolean),
@@ -362,6 +372,10 @@ export const configProblems = (config: ShapeConfig): ReadonlyArray<string> => {
       );
   }
   const stages = (config.gate?.stages ?? []).map((stage) => stage.name);
+  if (stages.includes(CHECK_STAGE))
+    problems.push(
+      `gate.stages: \`${CHECK_STAGE}\` is the gate's own \`mshape check\`, which always runs and can't be replaced; give the stage another name`,
+    );
   for (const name of new Set(stages.filter((one, i) => stages.indexOf(one) !== i)))
     problems.push(
       `gate.stages: two stages are named \`${name}\`; give each its own name (one with a pack stage's name replaces that stage)`,

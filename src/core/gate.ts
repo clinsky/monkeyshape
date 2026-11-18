@@ -5,7 +5,14 @@
  * name replaces it, in the pack stage's place and phase unless it says `fast`. The table and
  * its cases are plan/MILESTONE.md's; `test/core/gate.test.ts` holds them.
  */
-import type { GateStage, PackId, ResolvedConfig } from "../schemas/config.ts";
+import {
+  CHECK_STAGE,
+  type GateStage,
+  type PackId,
+  type ResolvedConfig,
+} from "../schemas/config.ts";
+
+export { CHECK_STAGE };
 
 /** A pack's default stage, with whether its program is a required prerequisite of the pack. */
 export interface PackStage {
@@ -21,6 +28,14 @@ export interface PackStage {
  * Each pack's default stages: what a born repo's gate runs today, so migrating changes no
  * outcome. Unique names across packs, so a repo stage replaces exactly one.
  */
+/** How to install a pack's programs, for a message an agent can act on unaided. */
+export const PACK_INSTALL: Readonly<Record<PackId, string>> = {
+  typescript: "run `bun install`, which installs the tools package.json pins",
+  rust: "install Rust with rustup (https://rustup.rs), then `rustup component add rustfmt clippy`",
+  python:
+    "install uv (`curl -LsSf https://astral.sh/uv/install.sh | sh`), then `uv sync` for the tools pyproject.toml pins",
+};
+
 export const PACK_STAGES: Readonly<Record<PackId, ReadonlyArray<PackStage>>> = {
   typescript: [
     { name: "tsc", run: ["tsc", "-p", "."], fast: true, prerequisite: "tsc" },
@@ -50,9 +65,6 @@ export const PACK_STAGES: Readonly<Record<PackId, ReadonlyArray<PackStage>>> = {
     { name: "pytest", run: ["uv", "run", "pytest"], fast: false, okExit: [0, 5] },
   ],
 };
-
-/** The stage that is `mshape check`, run in-process rather than spawned. */
-export const CHECK_STAGE = "mshape-check";
 
 /** One stage as the gate runs it. */
 export interface PlannedStage {
@@ -136,7 +148,7 @@ export interface StageResult {
 
 /** How a stage's command reads, on one line whatever its arguments hold. */
 export const stageCommand = (stage: PlannedStage): string =>
-  stage.name === CHECK_STAGE ? "mshape check" : stage.run.join(" ").replaceAll("\n", "\\n");
+  stage.origin === "mshape" ? "mshape check" : stage.run.join(" ").replaceAll("\n", "\\n");
 
 /** The lines of a failing stage's output shown inline; the log has the rest. */
 export const TAIL_LINES = 40;

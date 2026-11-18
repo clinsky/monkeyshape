@@ -1,16 +1,16 @@
 /**
  * Runs `mshape gate`: each stage `gateStages` plans, one after another, a failure never
  * stopping the ones after it. Each run stage's whole output is kept in a log under the git
- * directory, so a failure shows its tail and points at the rest.
+ * common directory, so a failure shows its tail and points at the rest.
  */
 import { mkdir, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join, resolve } from "node:path";
+import { basename, join, resolve } from "node:path";
 import * as Effect from "effect/Effect";
 import {
-  CHECK_STAGE,
   formatGate,
   gateStages,
+  PACK_INSTALL,
   type PlannedStage,
   type StageResult,
   stageCommand,
@@ -20,14 +20,25 @@ import { runTool } from "./process.ts";
 import { localBin } from "./workspace.ts";
 
 /**
- * Where a stage's output is kept: the worktree's own git dir, so tracks never share one; outside
- * git, a temp directory named for the root, so two repos never share one either.
+ * Where a stage's output is kept: under the git common dir, which outlives any worktree (track
+ * pr gates a scratch checkout, then removes it), in a directory named for the checkout, so
+ * tracks never share one. Outside git, a temp directory named for the root.
  */
-const logDir = (root: string) =>
-  Effect.map(runTool(root, ["git", "rev-parse", "--absolute-git-dir"]), (got) =>
-    got.code === 0
-      ? join(got.stdout.trim(), "monkeyshape", "gate")
-      : join(tmpdir(), `mshape-gate-${Bun.hash(resolve(root)).toString(16)}`),
+export const gateLogDir = (root: string) =>
+  Effect.map(
+    runTool(root, [
+      "git",
+      "rev-parse",
+      "--path-format=absolute",
+      "--git-common-dir",
+      "--show-toplevel",
+    ]),
+    (got) => {
+      const [common, top] = got.stdout.trim().split("\n");
+      return got.code === 0 && common !== undefined && top !== undefined
+        ? join(common, "monkeyshape", "gate", basename(top))
+        : join(tmpdir(), `mshape-gate-${Bun.hash(resolve(root)).toString(16)}`);
+    },
   );
 
 /**
@@ -57,7 +68,7 @@ const missing = (stage: PlannedStage): string => {
   if (stage.origin === "repo" || stage.replaced)
     return `\`${program}\` isn't installed here (not in node_modules/.bin or on the PATH), and this repo's gate stage \`${stage.name}\` needs it: install it, or change the stage in [gate].stages`;
   return stage.required
-    ? `\`${program}\` isn't installed here (not in node_modules/.bin or on the PATH): the ${stage.origin} pack requires it. Install it (\`bun install\` for a TypeScript repo's tools)`
+    ? `\`${program}\` isn't installed here (not in node_modules/.bin or on the PATH): the ${stage.origin} pack requires it. To install it, ${stage.origin === "mshape" ? "install monkeyshape" : PACK_INSTALL[stage.origin]}`
     : `\`${program}\` isn't installed, and \`prerequisites\` makes it optional: \`${stage.name}\` didn't run`;
 };
 
@@ -81,7 +92,7 @@ export const runGate = (
   },
 ) =>
   Effect.gen(function* () {
-    const dir = yield* logDir(root);
+    const dir = yield* gateLogDir(root);
     yield* Effect.promise(() => mkdir(dir, { recursive: true }));
     const results: Array<StageResult> = [];
     const output = new Map<string, string>();
@@ -92,7 +103,7 @@ export const runGate = (
         continue;
       }
       let ran: GateRun;
-      if (stage.name === CHECK_STAGE)
+      if (stage.origin === "mshape")
         ran = yield* options.check.pipe(
           Effect.catch((error) =>
             Effect.succeed({ output: `mshape check couldn't run: ${String(error)}`, code: 1 }),

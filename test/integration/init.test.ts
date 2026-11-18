@@ -243,7 +243,7 @@ describe("mshape init", () => {
     // A first run that says "error:" teaches a new user to ignore the gate.
     expect(check.output).not.toContain("error:");
     // The starter test ran: its stage's whole output is kept in the gate's log.
-    const log = join(work, "demo", ".git", "monkeyshape", "gate", "bun-test.log");
+    const log = join(work, "demo", ".git", "monkeyshape", "gate", "demo", "bun-test.log");
     expect(await Bun.file(log).text()).toContain(" 1 pass");
     expect(check.code).toBe(0);
   }, 60_000);

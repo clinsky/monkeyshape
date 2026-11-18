@@ -261,3 +261,25 @@ describe("shape.toml", () => {
     expect(config.packs).toEqual(["python"]);
   });
 });
+
+describe("[gate].stages names", () => {
+  test("a name that isn't kebab-case fails at load, naming the key", async () => {
+    await Bun.write(
+      join(dir, "shape.toml"),
+      'packs = ["typescript"]\n[[gate.stages]]\nname = "native/check"\nrun = ["make"]\n',
+    );
+    const message = (await Effect.runPromise(Effect.flip(loadConfig(dir)))).message;
+    expect(message).toContain('["gate"]["stages"][0]["name"]');
+    expect(message).toContain("lowercase words joined by hyphens");
+  });
+
+  test("mshape-check is the gate's own and can't be replaced", async () => {
+    await Bun.write(
+      join(dir, "shape.toml"),
+      'packs = ["typescript"]\n[[gate.stages]]\nname = "mshape-check"\nrun = ["false"]\nfast = true\n',
+    );
+    expect((await Effect.runPromise(Effect.flip(loadConfig(dir)))).message).toContain(
+      "`mshape-check` is the gate's own `mshape check`, which always runs and can't be replaced",
+    );
+  });
+});

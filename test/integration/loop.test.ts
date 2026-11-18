@@ -10,7 +10,7 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { mkdir, mkdtemp, realpath, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { dirname, join } from "node:path";
+import { basename, dirname, join } from "node:path";
 import { initFromSource, pack, run, unexpectedNotes } from "./harness.ts";
 
 let work = "";
@@ -26,8 +26,10 @@ const gate = (cwd: string) => run(cwd, [process.execPath, "run", "check"]);
 
 /** The test stage's whole output from the gate's last run in `cwd`, kept in its git dir's log. */
 const testLog = async (cwd: string) => {
-  const dir = (await run(cwd, ["git", "rev-parse", "--absolute-git-dir"])).output.trim();
-  return Bun.file(join(dir, "monkeyshape", "gate", "bun-test.log")).text();
+  const common = (
+    await run(cwd, ["git", "rev-parse", "--path-format=absolute", "--git-common-dir"])
+  ).output.trim();
+  return Bun.file(join(common, "monkeyshape", "gate", basename(cwd), "bun-test.log")).text();
 };
 
 const exists = (path: string) => Bun.file(path).exists();

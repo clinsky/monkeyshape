@@ -150,6 +150,37 @@ describe("runGate", () => {
     expect(strict.code).toBe(1);
   });
 
+  test("a stage's log outlives the worktree it ran in, as track pr's scratch checkout (#99's blocker)", async () => {
+    const git = (cwd: string, ...args: ReadonlyArray<string>) =>
+      Bun.spawnSync(["git", "-c", "user.name=t", "-c", "user.email=t@t", ...args], { cwd });
+    git(dir, "init", "-q");
+    git(dir, "commit", "-q", "--allow-empty", "-m", "init");
+    const scratch = join(dir, "..", `${dir.split("/").at(-1)}.gate-x`);
+    git(dir, "worktree", "add", "-q", "--detach", scratch);
+    const ran = await Effect.runPromise(
+      runGate(
+        scratch,
+        config(
+          [],
+          [sh("noisy", "for i in $(seq 0 99); do echo line $i; done; exit 1", { fast: true })],
+        ),
+        { fast: true, check: passing },
+      ),
+    );
+    git(dir, "worktree", "remove", "--force", scratch);
+    const log = /\(the whole output: (.+)\)/.exec(ran.output)?.[1] ?? "";
+    expect(log).toContain(join(".git", "monkeyshape", "gate"));
+    expect(await Bun.file(log).text()).toContain("line 0\n");
+  });
+
+  test("a pack's missing program says how to install it for that pack", async () => {
+    const rust = await gate(config(["rust"], []), { fast: true, path: empty });
+    expect(rust.output).toContain("rustup");
+    expect(rust.output).not.toContain("bun install");
+    const python = await gate(config(["python"], []), { fast: true, path: empty });
+    expect(python.output).toContain("uv sync");
+  });
+
   test("colour codes are gone from what is shown and kept", async () => {
     const ran = await gate(
       config([], [sh("red", "printf '\\033[31mred text\\033[0m\\n'; exit 1")]),
