@@ -71,6 +71,8 @@ export interface Crate {
 }
 
 export interface Workspace {
+  /** cargo's absolute workspace root, which the loader holds to be the repo's root. */
+  readonly root: string;
   /** The workspace's members, by manifest path. */
   readonly members: ReadonlyArray<Crate>;
 }
@@ -160,5 +162,5 @@ export const workspaceOf = (json: string): Result.Result<Workspace, string> => {
     });
   }
   members.sort((a, b) => a.manifest.localeCompare(b.manifest));
-  return Result.succeed({ members });
+  return Result.succeed({ root, members });
 };
