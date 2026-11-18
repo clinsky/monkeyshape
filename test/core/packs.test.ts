@@ -1,7 +1,7 @@
 /** The plan's pack table, row by row: how the core treats files by the packs that claim them. */
 import { describe, expect, test } from "bun:test";
 import { checkArch } from "../../src/core/arch.ts";
-import { evaluate, ruleIds } from "../../src/core/check.ts";
+import { evaluate, prerequisites, ruleIds } from "../../src/core/check.ts";
 import { checkCoverage } from "../../src/core/coverage.ts";
 import { checkPacks } from "../../src/core/packs.ts";
 import { checkSources } from "../../src/core/sources.ts";
@@ -179,4 +179,27 @@ describe("the packs check", () => {
       reason: "typescript has no checks of its own",
     });
   });
+});
+
+test("a tool unavailable for want of something else says that fix, not the tool's install", () => {
+  const missing = (fix?: string) =>
+    prerequisites(
+      config(),
+      repo(
+        { "src/a.ts": "" },
+        {
+          tsc: {
+            state: "unavailable",
+            reason: "bun is not on PATH",
+            ...(fix === undefined ? {} : { fix }),
+          },
+          linted: [],
+        },
+      ),
+      ["coverage"],
+    ).map((v) => v.message);
+  expect(missing()).toEqual([expect.stringContaining("Install it (`bun add -d typescript`")]);
+  expect(missing("Install Bun: https://bun.sh.")).toEqual([
+    "coverage needs tsc, but bun is not on PATH. Install Bun: https://bun.sh.",
+  ]);
 });

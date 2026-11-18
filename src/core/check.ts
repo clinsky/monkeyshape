@@ -560,7 +560,9 @@ export const prerequisites = (
         out.push(
           prerequisite(
             "tool-unavailable",
-            `${check} needs ${name}, but ${integration.reason}. Install it (${fix}).`,
+            integration.fix === undefined
+              ? `${check} needs ${name}, but ${integration.reason}. Install it (${fix}).`
+              : `${check} needs ${name}, but ${integration.reason}. ${integration.fix}`,
             name,
           ),
         );
