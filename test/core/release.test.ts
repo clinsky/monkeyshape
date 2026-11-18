@@ -1,5 +1,17 @@
 import { describe, expect, test } from "bun:test";
-import { packVersion, tarballDifferences, untaggedWarning } from "../../src/core/release.ts";
+import {
+  BINARY_TARGETS,
+  binaryAsset,
+  binaryEntry,
+  lockedPackage,
+  OXC_LOADER,
+  oxcForBinary,
+  packVersion,
+  sha256Sums,
+  tagMessage,
+  tarballDifferences,
+  untaggedWarning,
+} from "../../src/core/release.ts";
 
 const source = { version: "0.3.0", tagged: true, atTag: true, commit: "abc1234", dirty: false };
 
@@ -48,4 +60,90 @@ describe("tarballDifferences", () => {
       "only in the published tarball: package/b.ts",
     ]);
   });
+});
+
+describe("the compiled binaries", () => {
+  test("one per supported platform: Linux x64 and arm64, macOS arm64", () => {
+    expect(BINARY_TARGETS.map(binaryAsset)).toEqual([
+      "mshape-linux-x64",
+      "mshape-linux-arm64",
+      "mshape-darwin-arm64",
+    ]);
+  });
+
+  test("SHA256SUMS is what `sha256sum --check` reads, sorted by file", () => {
+    const sums = sha256Sums(
+      new Map([
+        ["mshape-linux-x64", "b".repeat(64)],
+        ["mshape-darwin-arm64", "a".repeat(64)],
+      ]),
+    );
+    expect(sums).toBe(
+      `${"a".repeat(64)}  mshape-darwin-arm64\n${"b".repeat(64)}  mshape-linux-x64\n`,
+    );
+  });
+
+  test("a binding's version and integrity come from bun.lock, installed or not", () => {
+    const lock = [
+      `    "@oxc-parser/binding-darwin-arm64": ["@oxc-parser/binding-darwin-arm64@0.156.0", "", { "os": "darwin", "cpu": "arm64" }, "sha512-abc+/="],`,
+      `    "@oxc-parser/binding-darwin-arm64-extra": ["@oxc-parser/binding-darwin-arm64-extra@9.9.9", "", {}, "sha512-zzz"],`,
+    ].join("\n");
+    expect(lockedPackage(lock, "@oxc-parser/binding-darwin-arm64")).toEqual({
+      version: "0.156.0",
+      integrity: "sha512-abc+/=",
+    });
+    expect(lockedPackage(lock, "@oxc-parser/binding-linux-x64-gnu")).toBeUndefined();
+  });
+
+  test("the entry embeds each file by path and hands them to start", () => {
+    const entry = binaryEntry(
+      [{ path: "template/AGENTS.md", source: "/r/template/AGENTS.md" }],
+      "/r/src/cli/binary.ts",
+      "1.0.0",
+      "d1",
+    );
+    expect(entry).toContain(`import file0 from "/r/template/AGENTS.md" with { type: "file" };`);
+    expect(entry).toContain(`  "template/AGENTS.md": file0,`);
+    expect(entry).toContain(`await start(files, "1.0.0", "d1");`);
+  });
+
+  test("oxc's files lose createRequire, and its loader loads the embedded binding", () => {
+    const lazy = `function f() {\n  const require = createRequire(import.meta.url);\n  require("./x.js");\n}`;
+    expect(oxcForBinary("/n/oxc-parser/src-js/visit/index.js", lazy, "/b.node")).toBe(
+      `function f() {\n  \n  require("./x.js");\n}`,
+    );
+    const bindings = [
+      "const require = createRequire(import.meta.url)",
+      "function requireNative() { return pick(require('./webcontainer-fallback.cjs')) }",
+      "nativeBinding = requireNative()",
+      `${OXC_LOADER}\n  throw new Error("none")\n}`,
+      "const { parseSync } = nativeBinding",
+      "export { parseSync }",
+      "",
+    ].join("\n");
+    expect(oxcForBinary("/n/oxc-parser/src-js/bindings.js", bindings, "/b.node")).toBe(
+      [
+        `const nativeBinding = require("/b.node");`,
+        `const __napiLoadedBindingTarget = "native";`,
+        "const { parseSync } = nativeBinding",
+        "export { parseSync }",
+        "",
+      ].join("\n"),
+    );
+  });
+
+  test("a bindings.js without the loader it replaces is refused, not bundled as is", () => {
+    expect(oxcForBinary("/n/oxc-parser/src-js/bindings.js", "load()", "/b.node")).toBeUndefined();
+  });
+});
+
+test("the tag records the tarball's digest and SHA256SUMS', the pin's sums", () => {
+  expect(
+    tagMessage("monkeyshape", "1.0.0", [
+      ["monkeyshape-1.0.0.tgz", "a".repeat(64)],
+      ["SHA256SUMS", "b".repeat(64)],
+    ]),
+  ).toBe(
+    `monkeyshape 1.0.0\n\nsha256 ${"a".repeat(64)}  monkeyshape-1.0.0.tgz\nsha256 ${"b".repeat(64)}  SHA256SUMS\n`,
+  );
 });

@@ -7,7 +7,22 @@ import { cp, mkdir, mkdtemp, readdir, rm, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import * as Effect from "effect/Effect";
-import { type PackSource, packVersion, releaseTag, type Tarball } from "../core/release.ts";
+import {
+  BINARY_TARGETS,
+  type BinaryTarget,
+  binaryAsset,
+  binaryEntry,
+  type EmbeddedFile,
+  lockedPackage,
+  OXC_LOADER,
+  oxcForBinary,
+  type PackSource,
+  packVersion,
+  releaseTag,
+  SUMS_FILE,
+  sha256Sums,
+  type Tarball,
+} from "../core/release.ts";
 import { WorkspaceError } from "../schemas/errors.ts";
 import { run } from "./process.ts";
 
@@ -114,13 +129,17 @@ export const packWorkingTree = (repo: string, destination: string) =>
     }).pipe(Effect.ensuring(remove(copy)));
   });
 
-/** Packs `commit` of `repo` as it was committed, in a worktree of its own. */
-export const packCommit = (repo: string, commit: string, destination: string) =>
+/** `use` run on `commit` of `repo` as it was committed, checked out in a worktree of its own. */
+const inCommitTree = <A>(
+  repo: string,
+  commit: string,
+  use: (tree: string) => Effect.Effect<A, WorkspaceError>,
+) =>
   Effect.gen(function* () {
     const dir = yield* scratch("release");
     const tree = join(dir, "tree");
     yield* must(repo, ["git", "worktree", "add", "--detach", "--quiet", tree, commit]);
-    return yield* bunPack(tree, destination).pipe(
+    return yield* use(tree).pipe(
       Effect.ensuring(
         run(repo, ["git", "worktree", "remove", "--force", tree]).pipe(
           Effect.ignore,
@@ -129,6 +148,23 @@ export const packCommit = (repo: string, commit: string, destination: string) =>
       ),
     );
   });
+
+/** Packs `commit` of `repo` as it was committed, in a worktree of its own. */
+export const packCommit = (repo: string, commit: string, destination: string) =>
+  inCommitTree(repo, commit, (tree) => bunPack(tree, destination));
+
+/**
+ * Packs `commit` and compiles its binaries as `version`, from one worktree with the
+ * dependencies its `bun.lock` pins: the tarball's path, then the binaries', `SHA256SUMS` last.
+ */
+export const releaseCommit = (repo: string, commit: string, version: string, destination: string) =>
+  inCommitTree(repo, commit, (tree) =>
+    Effect.gen(function* () {
+      const tarball = yield* bunPack(tree, destination);
+      yield* must(tree, [process.execPath, "install", "--frozen-lockfile", "--silent"]);
+      return [tarball, ...(yield* compileBinaries(tree, destination, version))];
+    }),
+  );
 
 const sha256 = (bytes: Uint8Array): string =>
   new Bun.CryptoHasher("sha256").update(bytes).digest("hex");
@@ -186,4 +222,148 @@ export const fetchPublished = (name: string, version: string, destination: strin
       return path;
     },
     catch: (cause) => fail("fetch", `${name}@${version}`, String(cause)),
+  });
+
+/** What the package ships besides `src/`, which the binary bundles: every file, sorted. */
+const shippedFiles = async (repo: string, pkg: PackageJson): Promise<Array<string>> => {
+  const out: Array<string> = [];
+  for (const entry of pkg.files ?? []) {
+    if (entry.startsWith("!") || entry === "src" || entry.startsWith("src/")) continue;
+    const info = await stat(join(repo, entry)).catch(() => undefined);
+    if (info?.isDirectory()) out.push(...(await walk(repo, entry)));
+    else if (info !== undefined) out.push(entry);
+  }
+  return out.sort();
+};
+
+/**
+ * `target`'s oxc-parser binding, the `.node` file the binary embeds: the installed one where
+ * `bun install` put it, else downloaded from npm and checked against `bun.lock`'s integrity.
+ */
+const oxcBinding = (repo: string, target: BinaryTarget, lock: string, scratchDir: string) =>
+  Effect.gen(function* () {
+    const name = `@oxc-parser/binding-${target.oxcBinding}`;
+    const file = `parser.${target.oxcBinding}.node`;
+    const installed = join(repo, "node_modules", name, file);
+    if (yield* Effect.promise(() => Bun.file(installed).exists())) return installed;
+    const locked = lockedPackage(lock, name);
+    if (locked === undefined)
+      return yield* Effect.fail(fail("find in bun.lock", name, "no entry; run `bun install`"));
+    const url = `https://registry.npmjs.org/${name}/-/binding-${target.oxcBinding}-${locked.version}.tgz`;
+    const dir = join(scratchDir, `oxc-${target.oxcBinding}`);
+    const tarball = `${dir}.tgz`;
+    yield* Effect.tryPromise({
+      try: async () => {
+        const response = await fetch(url);
+        if (!response.ok) throw new Error(`${response.status} ${response.statusText}`);
+        const bytes = new Uint8Array(await response.arrayBuffer());
+        const integrity = `sha512-${new Bun.CryptoHasher("sha512").update(bytes).digest("base64")}`;
+        if (integrity !== locked.integrity)
+          throw new Error(`integrity ${integrity}, but bun.lock pins ${locked.integrity}`);
+        await Bun.write(tarball, bytes);
+        await mkdir(dir, { recursive: true });
+      },
+      catch: (cause) => fail("fetch", url, String(cause)),
+    });
+    yield* must(dir, ["tar", "xzf", tarball, "-C", dir]);
+    return join(dir, "package", file);
+  });
+
+/** oxc-parser's own files, which `oxcForBinary` rewrites for the bundle. */
+const OXC_SOURCE = /oxc-parser[\\/]src-js[\\/].*\.js$/;
+
+const compile = (
+  entry: string,
+  target: BinaryTarget,
+  binding: string,
+  pkgPath: string,
+  pkgText: string,
+  outfile: string,
+) =>
+  Effect.tryPromise({
+    try: async () => {
+      let unloadable: string | undefined;
+      const built = await Bun.build({
+        entrypoints: [entry],
+        // Without whitespace, the bundle has no comments naming each module by its path from
+        // the directory the build ran in, so a commit's build is the same wherever it runs.
+        minify: { whitespace: true },
+        compile: { target: target.bunTarget as Bun.Build.CompileTarget, outfile },
+        plugins: [
+          {
+            name: "mshape-binary",
+            setup: (build) => {
+              build.onLoad({ filter: OXC_SOURCE }, async ({ path }) => {
+                const text = await Bun.file(path).text();
+                const contents = oxcForBinary(path, text, binding);
+                if (contents === undefined) unloadable = path;
+                return { loader: "js", contents: contents ?? text };
+              });
+              // The CLI's version is the pack's, as in the embedded package.json.
+              build.onLoad({ filter: /package\.json$/ }, ({ path }) =>
+                path === pkgPath ? { loader: "json", contents: pkgText } : undefined,
+              );
+            },
+          },
+        ],
+      });
+      if (!built.success) throw new Error(built.logs.map(String).join("\n"));
+      if (unloadable !== undefined)
+        throw new Error(
+          `${unloadable} no longer has the loader the binary replaces: ${OXC_LOADER}`,
+        );
+    },
+    catch: (cause) => fail(`compile for ${target.platform}`, entry, String(cause)),
+  });
+
+/**
+ * Compiles `repo`'s working tree into one `mshape` per target in `destination`, with the
+ * version `version` and the package's other files embedded, and `SHA256SUMS` beside them.
+ * Returns the paths written, `SHA256SUMS` last.
+ */
+export const compileBinaries = (
+  repo: string,
+  destination: string,
+  version: string,
+  targets: ReadonlyArray<BinaryTarget> = BINARY_TARGETS,
+) =>
+  Effect.gen(function* () {
+    // Inside the repo, at a fixed path: the bundle names its modules by their path from the
+    // directory holding them all, so a build of one commit doesn't depend on where it ran.
+    const stage = join(repo, ".release", "binary");
+    yield* remove(stage);
+    yield* Effect.promise(() => mkdir(stage, { recursive: true }));
+    return yield* Effect.gen(function* () {
+      const pkg = yield* readPackage(repo);
+      const pkgText = `${JSON.stringify({ ...pkg, version }, null, 2)}\n`;
+      const lock = yield* Effect.promise(() => Bun.file(join(repo, "bun.lock")).text());
+      const shipped = yield* Effect.promise(() => shippedFiles(repo, pkg));
+      const files: ReadonlyArray<EmbeddedFile> = [
+        { path: "package.json", source: join(stage, "package.json") },
+        ...shipped.map((path) => ({ path, source: join(repo, path) })),
+      ];
+      yield* Effect.promise(() => Bun.write(join(stage, "package.json"), pkgText));
+      // Names the directory the binary unpacks into: a new build of one version gets its own.
+      const digest = yield* Effect.promise(async () => {
+        const listing = new Bun.CryptoHasher("sha256");
+        for (const file of files)
+          listing.update(`${file.path}\0${sha256(await Bun.file(file.source).bytes())}\n`);
+        return listing.digest("hex").slice(0, 16);
+      });
+      const entry = join(stage, "entry.ts");
+      yield* Effect.promise(() =>
+        Bun.write(entry, binaryEntry(files, join(repo, "src/cli/binary.ts"), version, digest)),
+      );
+      yield* Effect.promise(() => mkdir(destination, { recursive: true }));
+      const digests = new Map<string, string>();
+      for (const target of targets) {
+        const binding = yield* oxcBinding(repo, target, lock, stage);
+        const outfile = join(destination, binaryAsset(target));
+        yield* compile(entry, target, binding, join(repo, "package.json"), pkgText, outfile);
+        digests.set(binaryAsset(target), yield* fileDigest(outfile));
+      }
+      const sums = join(destination, SUMS_FILE);
+      yield* Effect.promise(() => Bun.write(sums, sha256Sums(digests)));
+      return [...[...digests.keys()].map((file) => join(destination, file)), sums];
+    }).pipe(Effect.ensuring(remove(stage)));
   });

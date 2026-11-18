@@ -4,22 +4,32 @@
  * tarball packed from the commit its tag `v<version>` names; publishing it and pushing the tag
  * are the maintainer's.
  *
- *   pack [<dir>]       the working tree, with a development version unless HEAD is the release
+ *   pack [<dir>]       the working tree, with a development version unless HEAD is the release:
+ *                      the npm tarball, an `mshape` binary per platform and `SHA256SUMS`
  *   tag [<commit>]     tag a merged commit v<its version>, recording its tarball's sha256
  *   verify <version>   pack at v<version> and compare with the tarball npm has
  */
 import * as Effect from "effect/Effect";
 import { run } from "../adapters/process.ts";
 import {
+  compileBinaries,
   fetchPublished,
   fileDigest,
   packCommit,
   packSource,
   packWorkingTree,
   readTarball,
+  releaseCommit,
 } from "../adapters/release.ts";
 import { MAIN_BRANCH } from "../core/layout.ts";
-import { releaseTag, tagMessage, tarballDifferences, untaggedWarning } from "../core/release.ts";
+import {
+  packVersion,
+  releaseTag,
+  SUMS_FILE,
+  tagMessage,
+  tarballDifferences,
+  untaggedWarning,
+} from "../core/release.ts";
 import type { WorkspaceError } from "../schemas/errors.ts";
 
 const USAGE = `usage: bun run release pack [<dir>] | tag [<commit>] | verify <version>`;
@@ -57,7 +67,12 @@ const tag = (repo: string, commitArg: string, destination: string) =>
     );
     if (merged.code !== 0)
       return refuse(`${commitArg} is not on origin/${MAIN_BRANCH}; release only what has merged`);
-    const tarball = yield* packCommit(repo, commit.out, destination);
+    const [tarball = "", ...assets] = yield* releaseCommit(
+      repo,
+      commit.out,
+      pkg.version,
+      destination,
+    );
     // A version already on npm is tagged only where it reproduces what was published.
     const published = yield* fetchPublished(pkg.name, pkg.version, destination);
     if (published !== undefined) {
@@ -76,6 +91,8 @@ const tag = (repo: string, commitArg: string, destination: string) =>
     }
     const digest = yield* fileDigest(tarball);
     const file = tarball.slice(tarball.lastIndexOf("/") + 1);
+    const sumsPath = assets.at(-1) ?? "";
+    const sums = yield* fileDigest(sumsPath);
     const tagged = yield* git(
       repo,
       "tag",
@@ -83,7 +100,10 @@ const tag = (repo: string, commitArg: string, destination: string) =>
       name,
       commit.out,
       "--message",
-      tagMessage(pkg.name, pkg.version, file, digest),
+      tagMessage(pkg.name, pkg.version, [
+        [file, digest],
+        [SUMS_FILE, sums],
+      ]),
     );
     if (tagged.code !== 0) return refuse(`git tag failed: ${tagged.err}`);
     return {
@@ -91,17 +111,21 @@ const tag = (repo: string, commitArg: string, destination: string) =>
         `${name} tags ${commit.out.slice(0, 7)}`,
         `${tarball}`,
         `sha256 ${digest}`,
+        ...assets,
+        `${SUMS_FILE} sha256 ${sums}: the pin's sums`,
         "",
         ...(published === undefined
           ? [
               "For the maintainer, to publish exactly this tarball:",
               `  git push origin ${name}`,
               `  bun publish ${tarball}`,
+              `  gh release create ${name} --verify-tag ${assets.join(" ")}`,
               `  bun run release verify ${pkg.version}`,
             ]
           : [
               `It reproduces ${pkg.name}@${pkg.version} as published. For the maintainer:`,
               `  git push origin ${name}`,
+              `  gh release create ${name} --verify-tag ${assets.join(" ")}`,
             ]),
       ].join("\n"),
       code: 0,
@@ -140,11 +164,16 @@ const main = (repo: string, args: ReadonlyArray<string>) =>
     if (rest.length > 0) return { output: USAGE, code: 2 };
     const scratch = `${repo}/.release`;
     if (command === "pack") {
-      const warning = untaggedWarning(yield* packSource(repo));
-      const path = yield* packWorkingTree(repo, arg ?? repo);
-      // The path last, for a script that reads it.
+      const source = yield* packSource(repo);
+      const warning = untaggedWarning(source);
+      const destination = arg ?? repo;
+      const binaries = yield* compileBinaries(repo, destination, packVersion(source));
+      const path = yield* packWorkingTree(repo, destination);
+      // The tarball's path last, for a script that reads it.
       return {
-        output: [...(warning === undefined ? [] : [`warning: ${warning}`]), path].join("\n"),
+        output: [...(warning === undefined ? [] : [`warning: ${warning}`]), ...binaries, path].join(
+          "\n",
+        ),
         code: 0,
       } satisfies Outcome;
     }
