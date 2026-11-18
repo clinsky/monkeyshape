@@ -482,3 +482,11 @@ already written by agents, not generated for it.
   sync, its check, the release and AGENTS.md, and the template's AGENTS.md, README and CI are
   `binary`'s and `config`'s, already being made neutral. Only TypeScript's own files move
   (`bunfig`, the config, the starter test). Rust's and Python's stay at `template/packs/<id>/`.
+- **2026-11-18, a row for the install-and-launch table (`binary`, #113), approved by the
+  planning session.** Review of #113 found that a launched `mshape`'s children inherited
+  `MSHAPE_LAUNCHED`, so a nested `mshape` (a gate stage's, `track pr`'s) ran the installed
+  version instead of the pin. Its test is `launch.test.ts`'s "a launched mshape spawns mshape":
+
+  | Case | Result |
+  |---|---|
+  | a launched `mshape` spawns `mshape` (a gate stage, `track pr`) | the nested one follows the pin; `MSHAPE_LAUNCHED` names the `mshape` launched, and only that one runs itself |
