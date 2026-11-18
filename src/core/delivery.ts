@@ -69,7 +69,8 @@ const HEADER = /^\s*\[\[?\s*([^[\]]+?)\s*\]\]?\s*(?:#.*)?$/;
 
 /** The table a `[a.b]` header line opens, unquoted, or undefined for any other line. */
 const headerOf = (line: string): string | undefined =>
-  HEADER.exec(line)?.[1]
+  // A CRLF file's lines keep their `\r` once split on `\n`; `.` in a comment stops at it.
+  HEADER.exec(line.replace(/\r$/, ""))?.[1]
     ?.split(".")
     .map((part) => part.trim().replace(/^"(.*)"$/, "$1"))
     .join(".");
@@ -94,15 +95,23 @@ export const writeTables = (text: string, owned: ReadonlyArray<string>, tables: 
     }
     kept.push(line);
   }
-  const block = tables.trimEnd().split("\n");
+  // Written in the file's own line endings: a CRLF file stays CRLF.
+  const crlf = text.includes("\r\n");
+  const block = tables
+    .trimEnd()
+    .split("\n")
+    .map((line) => (crlf ? `${line}\r` : line));
+  const blank = crlf ? "\r" : "";
+  const end = (lines: ReadonlyArray<string>) =>
+    `${lines.join("\n").trimEnd()}${crlf ? "\r\n" : "\n"}`;
   if (at === undefined) {
     while (kept.length > 0 && kept.at(-1)?.trim() === "") kept.pop();
-    return `${[...kept, ...(kept.length === 0 ? [] : [""]), ...block].join("\n")}\n`;
+    return end([...kept, ...(kept.length === 0 ? [] : [blank]), ...block]);
   }
   const before = kept.slice(0, at);
   const after = kept.slice(at);
   while (after.length > 0 && after[0]?.trim() === "") after.shift();
-  return `${[...before, ...block, ...(after.length === 0 ? [] : ["", ...after])].join("\n").trimEnd()}\n`;
+  return end([...before, ...block, ...(after.length === 0 ? [] : [blank, ...after])]);
 };
 
 const parseToml = (text: string): unknown => {

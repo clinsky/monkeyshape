@@ -280,3 +280,19 @@ test("a top-level owned table is rewritten, the rest kept", () => {
   expect(Bun.TOML.parse(written)).toEqual({ package: { name: "x" }, lints: { a: 1 } });
   expect(standing(top, written)).toBe("current");
 });
+
+describe("a CRLF file (review of #105)", () => {
+  const crlf = (text: string) => text.replaceAll("\n", "\r\n");
+  const owned = `${CARGO}\n[workspace.lints.rust] # curated\nunsafe_code = "deny"\n\n[workspace.lints.clippy]\nall = { level = "deny", priority = -1 }\n`;
+
+  test("an owned header with a trailing comment is a header, as with LF", () => {
+    expect(standing(table, owned)).toBe("diverged");
+    expect(standing(table, crlf(owned))).toBe("diverged");
+  });
+
+  test("sync rewrites it in CRLF throughout, and it is then current", () => {
+    const written = deliver(table, crlf(owned)) ?? "";
+    expect(written.replaceAll("\r\n", "")).not.toContain("\n");
+    expect(standing(table, written)).toBe("current");
+  });
+});
