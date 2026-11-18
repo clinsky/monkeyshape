@@ -4,6 +4,8 @@
  * claims a released number, since `mshape init` stamps the version into every repo it makes.
  */
 
+import type { Platform } from "./tools.ts";
+
 export const releaseTag = (version: string): string => `v${version}`;
 
 /**
@@ -97,8 +99,8 @@ export const tagMessage = (
  * build, which runs on CPUs without AVX2.
  */
 export interface BinaryTarget {
-  /** `<os>-<arch>`, as `install.sh` and the launcher name a machine. */
-  readonly platform: string;
+  /** `<os>-<arch>`, as `install.sh` and the launcher name a machine (`PLATFORMS`). */
+  readonly platform: Platform;
   readonly bunTarget: string;
   /** The suffix of `@oxc-parser/binding-<suffix>` and its `parser.<suffix>.node`. */
   readonly oxcBinding: string;
