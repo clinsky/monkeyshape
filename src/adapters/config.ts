@@ -32,6 +32,27 @@ const unshipped = (config: { readonly packs?: ReadonlyArray<string> | undefined 
     );
 };
 
+/**
+ * A `prerequisites` entry no listed pack declares: a typo, or a tool of a pack the repo doesn't
+ * list, would otherwise set nothing and say nothing. A config with no `packs` is the
+ * TypeScript pack's, as the resolved config is.
+ */
+const undeclared = (config: {
+  readonly packs?: ReadonlyArray<string> | undefined;
+  readonly prerequisites?: Readonly<Record<string, unknown>> | undefined;
+}) => {
+  const listed = config.packs ?? ["typescript"];
+  const declared = listed.flatMap(
+    (id) => PACKS[id as keyof typeof PACKS]?.prerequisites.map((one) => one.name) ?? [],
+  );
+  return Object.keys(config.prerequisites ?? {})
+    .filter((name) => !declared.includes(name))
+    .map(
+      (name) =>
+        `prerequisites.${name}: no listed pack (${listed.join(", ")}) has a tool \`${name}\`; ${declared.length > 0 ? `the ones they have are ${declared.join(", ")}` : "they declare none"}`,
+    );
+};
+
 /** Each shipped pack's default `sources.include`, for a config that sets none. */
 const PACK_SOURCES = Object.fromEntries(
   Object.values(PACKS).flatMap((pack) =>
@@ -224,7 +245,7 @@ const loadToml = (root: string, path: string, shown: string) =>
         }),
       );
     }
-    const problems = [...configProblems(config), ...unshipped(config)];
+    const problems = [...configProblems(config), ...unshipped(config), ...undeclared(config)];
     if (problems.length > 0)
       return yield* Effect.fail(new ConfigError({ path: shown, reason: problems.join("; ") }));
     return resolveConfig(config, shown, [], PACK_SOURCES);
@@ -276,7 +297,7 @@ export const loadConfig = (root: string, given?: string) =>
     const config = yield* decodeStrict(ShapeConfig)(module.default).pipe(
       Effect.mapError((error) => new ConfigError({ path: shown, reason: error.message })),
     );
-    const problems = [...configProblems(config), ...unshipped(config)];
+    const problems = [...configProblems(config), ...unshipped(config), ...undeclared(config)];
     if (problems.length > 0)
       return yield* Effect.fail(new ConfigError({ path: shown, reason: problems.join("; ") }));
     const reached = yield* Effect.promise(() => reachedFrom(path, root));

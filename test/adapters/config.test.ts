@@ -307,3 +307,24 @@ describe("a default list's { add } form", () => {
     expect(config.coverage.exempt).toContain("node_modules");
   });
 });
+
+describe("prerequisites", () => {
+  test("take a listed pack's tool by name; one not set is as the pack declares it", async () => {
+    await Bun.write(
+      join(dir, "shape.toml"),
+      'packs = ["typescript"]\n[prerequisites]\nbiome = "optional"\n',
+    );
+    const config = await Effect.runPromise(loadConfig(dir));
+    expect(config.prerequisites).toEqual({ biome: "optional" });
+  });
+
+  test("a tool no listed pack declares fails at load, naming the ones they do", async () => {
+    await Bun.write(
+      join(dir, "shape.toml"),
+      'packs = ["typescript"]\n[prerequisites]\nrustc = "optional"\n',
+    );
+    expect((await Effect.runPromise(Effect.flip(loadConfig(dir)))).message).toContain(
+      "prerequisites.rustc: no listed pack (typescript) has a tool `rustc`; the ones they have are tsc, biome",
+    );
+  });
+});

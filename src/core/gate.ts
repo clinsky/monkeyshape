@@ -19,8 +19,8 @@ export { CHECK_STAGE };
 export type GatePacks = Readonly<Partial<Record<PackId, Pick<Pack, "stages" | "prerequisites">>>>;
 
 /**
- * Whether a missing program optional for `config` is: a pack prerequisite of its name is
- * required unless the pack says otherwise or `prerequisites` (tsc, biome) makes it optional.
+ * Whether a stage's missing program fails it: as the repo's `prerequisites` sets that tool,
+ * else as its pack declares it; a program the pack doesn't declare is required.
  */
 const requiredHere = (
   config: Pick<ResolvedConfig, "prerequisites">,
@@ -29,8 +29,8 @@ const requiredHere = (
 ): boolean => {
   const prerequisite = pack.prerequisites.find((one) => one.name === program);
   if (prerequisite === undefined) return true;
-  if (program === "tsc" || program === "biome") return config.prerequisites[program] === "required";
-  return prerequisite.required;
+  const setting = config.prerequisites[prerequisite.name];
+  return setting === undefined ? prerequisite.required : setting === "required";
 };
 
 /** How to install a stage's missing program, from its pack's prerequisites. */

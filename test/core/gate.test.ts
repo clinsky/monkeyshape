@@ -7,10 +7,7 @@ import { GATE_PACKS } from "./gatePacks.ts";
 const config = (
   packs: ReadonlyArray<PackId>,
   stages: ReadonlyArray<GateStage> = [],
-  prerequisites: { tsc: "optional" | "required"; biome: "optional" | "required" } = {
-    tsc: "required",
-    biome: "required",
-  },
+  prerequisites: Readonly<Record<string, "optional" | "required">> = {},
 ) => ({ packs, gate: { stages }, prerequisites });
 
 const names = (stages: ReturnType<typeof gateStages>) =>
@@ -95,6 +92,15 @@ describe("gateStages", () => {
     );
     const required = Object.fromEntries(stages.map((stage) => [stage.name, stage.required]));
     expect(required).toEqual({ tsc: false, biome: true, [CHECK_STAGE]: true, "bun-test": true });
+  });
+
+  test("any pack's tool can be made optional, not only tsc and biome", () => {
+    const stages = gateStages(config(["rust"], [], { cargo: "optional" }), GATE_PACKS);
+    expect(
+      stages.filter((stage) => stage.origin === "rust").every((stage) => !stage.required),
+    ).toBe(true);
+    // Unset, it is as the pack declares it: cargo is required.
+    expect(gateStages(config(["rust"]), GATE_PACKS)[0]?.required).toBe(true);
   });
 
   test("a fresh born repo with no tests yet is green in every pack", () => {

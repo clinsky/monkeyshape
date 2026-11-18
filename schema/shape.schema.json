@@ -342,23 +342,13 @@
     },
     "prerequisites": {
       "type": "object",
-      "properties": {
-        "tsc": {
-          "type": "string",
-          "enum": [
-            "optional",
-            "required"
-          ]
-        },
-        "biome": {
-          "type": "string",
-          "enum": [
-            "optional",
-            "required"
-          ]
-        }
-      },
-      "additionalProperties": false
+      "additionalProperties": {
+        "type": "string",
+        "enum": [
+          "optional",
+          "required"
+        ]
+      }
     },
     "arch": {
       "type": "object",

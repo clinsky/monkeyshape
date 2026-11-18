@@ -105,7 +105,7 @@ const packTools = (config: ResolvedConfig, snapshot: Snapshot): ReadonlyArray<Pr
       ? []
       : loaded.pack.tools.map((tool) => {
           const declared = loaded.pack.prerequisites.find((p) => p.name === tool.name);
-          const setting = (config.prerequisites as Readonly<Record<string, string>>)[tool.name];
+          const setting = config.prerequisites[tool.name];
           return {
             name: tool.name,
             integration:
@@ -431,10 +431,7 @@ export const notices = (
     );
   if (only.includes("coverage") && config.checks.coverage === undefined)
     for (const { tool: name, integration } of snapshot.packs.flatMap(({ load }) => load.tools))
-      if (
-        integration.state === "unavailable" &&
-        (config.prerequisites as Readonly<Record<string, string>>)[name] === "optional"
-      )
+      if (integration.state === "unavailable" && config.prerequisites[name] === "optional")
         out.push(
           `coverage approximated ${name}'s file list from its config (${integration.reason}): inheritance and project references are not resolved`,
         );

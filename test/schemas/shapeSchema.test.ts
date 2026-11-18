@@ -70,6 +70,8 @@ const CORPUS: ReadonlyArray<readonly [string, boolean, string]> = [
   ["docs replacing the default", true, '[refs]\ndocs = ["AGENTS.md"]'],
   ["an add with nothing in it", false, "[refs]\ndocs = { add = [] }"],
   ["an add beside another key", false, '[coverage]\nexempt = { add = ["gen"], remove = ["dist"] }'],
+  ["any tool's prerequisite", true, '[prerequisites]\nrustc = "optional"'],
+  ["a prerequisite that isn't optional or required", false, '[prerequisites]\ntsc = "maybe"'],
   ["a shared path", true, '[tracks]\nshared-paths = ["data/large"]'],
   ["a shared path with ./", false, '[tracks]\nshared-paths = ["./data"]'],
   ["a stage", true, '[[gate.stages]]\nname = "x"\nrun = ["a"]\nok-exit = [0, 5]'],

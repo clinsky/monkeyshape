@@ -271,12 +271,7 @@ const configFields = {
    * The tools `coverage` asks. Required by default: a missing or broken one fails the gate.
    * `optional` falls back to reading their configs when the tool isn't installed, with a note.
    */
-  prerequisites: Schema.optionalKey(
-    Schema.Struct({
-      tsc: Schema.optionalKey(Requirement),
-      biome: Schema.optionalKey(Requirement),
-    }),
-  ),
+  prerequisites: Schema.optionalKey(Schema.Record(Schema.String, Requirement)),
   arch: Schema.optionalKey(
     Schema.Struct({
       root: Schema.optionalKey(Schema.String),
@@ -460,10 +455,11 @@ export interface ResolvedConfig {
    */
   readonly declared: ReadonlyArray<Declared>;
   readonly checks: { readonly [C in CheckName]?: { readonly off: string } };
-  readonly prerequisites: {
-    readonly tsc: "optional" | "required";
-    readonly biome: "optional" | "required";
-  };
+  /**
+   * A listed pack's tools, by name, as the repo set them; a tool not here is as its pack
+   * declares it. The loader refuses a name no listed pack declares.
+   */
+  readonly prerequisites: Readonly<Record<string, "optional" | "required">>;
   readonly beads: "optional" | "required";
   readonly tracks: { readonly sharedPaths: ReadonlyArray<string> };
   readonly arch:
@@ -573,10 +569,7 @@ export const resolveConfig = (
     ...declared("entry", config.entry),
   ],
   checks: config.checks ?? {},
-  prerequisites: {
-    tsc: config.prerequisites?.tsc ?? "required",
-    biome: config.prerequisites?.biome ?? "required",
-  },
+  prerequisites: config.prerequisites ?? {},
   beads: config.beads ?? "optional",
   tracks: { sharedPaths: config.tracks?.sharedPaths ?? [] },
   arch:
