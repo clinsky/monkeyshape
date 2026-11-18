@@ -6,7 +6,7 @@ import { parseJsonc } from "../../core/coverage.ts";
 import { mainCheckout } from "../../core/layout.ts";
 import type { Integration, PackLoader, ToolRun } from "../../packs/pack.ts";
 import { exists, readText } from "../disk.ts";
-import { BUN_MISSING, bunPath, runTool } from "../process.ts";
+import { BUN_FIX, BUN_NOT_FOUND, bunPath, runTool } from "../process.ts";
 
 type Loaded<A> = { readonly integration: Integration; readonly value: A | undefined };
 
@@ -14,6 +14,9 @@ const failed = <A>(reason: string): Loaded<A> => ({
   integration: { state: "failed", reason },
   value: undefined,
 });
+
+const unavailable = (reason: string, fix?: string): Integration =>
+  fix === undefined ? { state: "unavailable", reason } : { state: "unavailable", reason, fix };
 
 /** The main checkout of `root`'s repository, which a track worktree shares; undefined if git can't say. */
 const mainOf = (root: string) =>
@@ -26,7 +29,7 @@ const mainOf = (root: string) =>
  * A tool installed in the repo, as a command: the worktree's own install, else the main
  * checkout's, so a track worktree nobody ran `bun install` in still has tsc and biome. Run
  * through Bun (`bunPath`): the bin shims start with `#!/usr/bin/env node`, and a Bun-only
- * machine has no node. A string says why it can't run: `pkg` isn't installed, or no Bun.
+ * machine has no node. Else why it can't run: `pkg` isn't installed, or there is no Bun.
  */
 const localBin = (root: string, name: string, pkg: string) =>
   Effect.gen(function* () {
@@ -34,9 +37,11 @@ const localBin = (root: string, name: string, pkg: string) =>
     for (const dir of main === undefined || main === root ? [root] : [root, main])
       if (yield* exists(dir, `node_modules/.bin/${name}`)) {
         const bun = bunPath();
-        return bun === undefined ? BUN_MISSING : [bun, `${dir}/node_modules/.bin/${name}`];
+        return bun === undefined
+          ? unavailable(BUN_NOT_FOUND, BUN_FIX)
+          : [bun, `${dir}/node_modules/.bin/${name}`];
       }
-    return `${pkg} is not installed`;
+    return unavailable(`${pkg} is not installed`);
   });
 
 /**
@@ -77,9 +82,9 @@ const referencesOf = (root: string, tsconfig: string) =>
 const typechecked = (root: string, realRoot: string, tsconfigs: ReadonlyArray<string>) =>
   Effect.gen(function* () {
     const tsc = yield* localBin(root, "tsc", "typescript");
-    if (typeof tsc === "string")
+    if (!Array.isArray(tsc))
       return {
-        integration: { state: "unavailable", reason: tsc },
+        integration: tsc,
         value: undefined,
       } satisfies Loaded<ReadonlySet<string>>;
     const files = new Set<string>();
@@ -104,9 +109,9 @@ const typechecked = (root: string, realRoot: string, tsconfigs: ReadonlyArray<st
 const linted = (root: string) =>
   Effect.gen(function* () {
     const biome = yield* localBin(root, "biome", "@biomejs/biome");
-    if (typeof biome === "string")
+    if (!Array.isArray(biome))
       return {
-        integration: { state: "unavailable", reason: biome },
+        integration: biome,
         value: undefined,
       } satisfies Loaded<ReadonlySet<string>>;
     const result = yield* runTool(root, [

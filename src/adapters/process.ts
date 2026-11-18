@@ -9,7 +9,11 @@ import { runningCompiled } from "./launch.ts";
 const BUN_HOME = "~/.bun/bin/bun";
 
 /** Why a command that needs Bun can't run: no Bun in either place `bunPath` looks. */
-export const BUN_MISSING = `bun is not on PATH or at ${BUN_HOME}: install Bun (https://bun.sh), which this TypeScript repo's tools run on`;
+export const BUN_NOT_FOUND = `bun is not on PATH or at ${BUN_HOME}`;
+/** What to do about it, as a sentence. */
+export const BUN_FIX = "Install Bun (https://bun.sh): this TypeScript repo's tools run on it.";
+/** Both, for a message that has room for one clause. */
+export const BUN_MISSING = `${BUN_NOT_FOUND}: install Bun (https://bun.sh), which this TypeScript repo's tools run on`;
 
 /**
  * The Bun to spawn for a package's tool, `bun install` or `bun run`. Under Bun (a checkout,
