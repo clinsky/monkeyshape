@@ -274,6 +274,8 @@ export const python: Pack = {
       file: "pyproject.toml",
       tables: [TY_TABLE],
       content: (config) => renderTyRules(effectiveTyRules(config.python?.tyRules)),
+      // A hand edit to the table belongs in shape.toml, where sync lays it over the curated set.
+      override: (table) => (table === TY_TABLE ? "python.ty-rules" : undefined),
     },
   ],
   template: "template/packs/python",

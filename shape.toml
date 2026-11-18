@@ -60,6 +60,11 @@ docs = { add = ["docs/workflow.md", "docs/adopting.md", "docs/local-rules.md"] }
 name = "bun-test"
 run = ["bun", "test", "--parallel", "--timeout=30000"]
 
+[coverage]
+exempt-files = [
+  { path = "template/packs/python/**", reason = "the Python template: test/integration/binary.test.ts runs the gate of the repo it births, ruff, ty and pytest" },
+]
+
 # install.sh is POSIX sh: `sh -n` parses it as dash does on Linux, stricter than bash;
 # test/integration/launch.test.ts runs it.
 [[coverage.commands]]
