@@ -1,5 +1,8 @@
 /** The data every check reads and the findings it returns. Pure: no I/O lives here. */
+import type { Integration, LoadedPack } from "../packs/pack.ts";
 import type { CheckName } from "../schemas/config.ts";
+
+export type { Integration, LoadedPack } from "../packs/pack.ts";
 
 export type { CheckName } from "../schemas/config.ts";
 
@@ -72,11 +75,9 @@ export interface Snapshot {
   readonly beadIds: ReadonlySet<string> | undefined;
   /** Every bead, open or closed, when `integrations.beads` is ok: who owns what. */
   readonly beadRows?: ReadonlyArray<BeadSummary> | undefined;
-  /** Files in a tsconfig program, as `tsc --listFilesOnly` reports them, when tsc ran. */
-  readonly typechecked: ReadonlySet<string> | undefined;
-  /** Files biome processes, as biome itself reports them, when biome ran. */
-  readonly linted: ReadonlySet<string> | undefined;
   readonly integrations: Integrations;
+  /** Each listed pack, in `packs` order, and what its loader found. */
+  readonly packs: ReadonlyArray<LoadedPack>;
   readonly skills: SkillsSnapshot;
   /** The `.beads/PRIME.md` the running monkeyshape ships, when it has one. */
   readonly shippedPrime: string | undefined;
@@ -157,20 +158,8 @@ export interface SkillsSnapshot {
   readonly shipped: SkillFiles;
 }
 
-/**
- * How an optional tool fared. `absent`: the repo doesn't use it. `unavailable`: it isn't
- * installed here (bd in CI). `failed`: it ran and broke, which is never silently skipped.
- */
-export type Integration =
-  | { readonly state: "ok" }
-  | { readonly state: "absent" }
-  | { readonly state: "unavailable"; readonly reason: string }
-  | { readonly state: "failed"; readonly reason: string };
-
 export interface Integrations {
   readonly beads: Integration;
-  readonly tsc: Integration;
-  readonly biome: Integration;
 }
 
 export const TS_SOURCE = /\.(ts|tsx|mts|cts)$/;

@@ -10,8 +10,23 @@
  * repo paths: parsing lives here, so a test feeds it recorded output instead of a toolchain.
  */
 import type * as Effect from "effect/Effect";
-import type { CheckName, Integration, Snapshot } from "../core/model.ts";
-import type { GateStage, PackId, ResolvedConfig } from "../schemas/config.ts";
+import type { CheckName, GateStage, PackId, ResolvedConfig } from "../schemas/config.ts";
+
+/**
+ * How an optional tool fared. `absent`: the repo doesn't use it. `unavailable`: it isn't
+ * installed here (bd in CI). `failed`: it ran and broke, which is never silently skipped.
+ */
+export type Integration =
+  | { readonly state: "ok" }
+  | { readonly state: "absent" }
+  | { readonly state: "unavailable"; readonly reason: string }
+  | { readonly state: "failed"; readonly reason: string };
+
+/** What a pack's pure part may read of the repo: its files and the texts the loader read. */
+export interface RepoView {
+  readonly files: ReadonlyArray<string>;
+  readonly texts: ReadonlyMap<string, string>;
+}
 
 /**
  * What a claimed file is to the pack. `source` is code the rules, `arch` and coverage hold;
@@ -73,8 +88,8 @@ export interface PackRule {
  */
 export type Edge = {
   readonly from: string;
-  /** 1-based; where the dependency is written. */
-  readonly line: number;
+  /** 1-based, where the dependency is written; a pack that can't say leaves it out. */
+  readonly line?: number;
   /** As written (`../core/model.ts`, `serde`), for the message. */
   readonly written: string;
 } & (
@@ -92,6 +107,8 @@ export interface HostUse {
   readonly line: number;
   /** What it does, completing "<what>, but module 'x' has no hostAccess". */
   readonly what: string;
+  /** Another fix than an adapter, completing "Reach the host through ..., or <alternative>". */
+  readonly alternative?: string;
 }
 
 /** The files one tool processes, as the tool itself reports them, and how it fared. */
@@ -117,7 +134,7 @@ export interface GraphInput {
   readonly files: ReadonlyArray<string>;
   /** Every file in the repo, for resolving a dependency to one that exists. */
   readonly known: ReadonlySet<string>;
-  readonly texts: Snapshot["texts"];
+  readonly texts: RepoView["texts"];
   readonly outputs: PackLoad["outputs"];
   /** Whether a specifier names the host, from `arch.host-specifiers` or the pack's default. */
   readonly isHost: (specifier: string) => boolean;
@@ -140,20 +157,26 @@ export interface PackFinding {
   readonly message: string;
 }
 
-/** A tool whose file list coverage holds every claimed source to. */
+/** A tool whose file list coverage holds every claimed file to, bar declarations. */
 export interface Tool {
   /** `tsc`, `biome`, `rustc`: named in coverage's messages and in `prerequisites/*`. */
   readonly name: string;
+  /** The kind a file it misses is reported as, `coverage/<rule>`: one of `COVERAGE_RULES`. */
+  readonly rule: string;
   /** Why a file it misses is missed and how to fix it, completing "<file> <uncovered>". */
   readonly uncovered: (config: ResolvedConfig) => string;
   /**
-   * Whether the tool's config covers a file, read without the tool, for when it couldn't run
-   * and the repo set it optional. Undefined: coverage can't judge without the tool.
+   * Whether the tool's config covers a file, read without the tool, for when it didn't run:
+   * `problems` are configs it couldn't read (`coverage/config`). Undefined: coverage can't
+   * judge without the tool.
    */
   readonly approximate?: (
     config: ResolvedConfig,
-    snapshot: Snapshot,
-  ) => ((file: string) => boolean) | undefined;
+    repo: RepoView,
+  ) => {
+    readonly covers: (file: string) => boolean;
+    readonly problems: ReadonlyArray<{ readonly file: string; readonly message: string }>;
+  };
 }
 
 /**
@@ -213,8 +236,8 @@ export interface Pack {
   /** The pack's own findings over the repo, pure: its texts and its loader's output. */
   readonly findings: (input: {
     readonly config: ResolvedConfig;
-    readonly snapshot: Snapshot;
-    readonly load: PackLoad | undefined;
+    readonly repo: RepoView;
+    readonly load: PackLoad;
   }) => ReadonlyArray<PackFinding>;
   readonly findingKinds: ReadonlyArray<string>;
   readonly rules: ReadonlyArray<PackRule>;
@@ -233,13 +256,17 @@ export interface Pack {
 /**
  * The loader, in `src/adapters/packs/<id>.ts`: runs the toolchain over the files the pack
  * claims and returns what it saw. Never fails: a tool that can't run is an integration state.
- * `snapshot` holds every file and the texts read; `checks` are the checks this run selected,
- * so a slow tool runs only when one needs it.
+ * `checks` are the checks this run selected, so a slow tool runs only when one needs it.
  */
 export type PackLoader = (input: {
   readonly root: string;
   readonly config: ResolvedConfig;
-  readonly files: ReadonlyArray<string>;
-  readonly texts: Snapshot["texts"];
+  readonly repo: RepoView;
   readonly checks: ReadonlyArray<CheckName>;
 }) => Effect.Effect<PackLoad>;
+
+/** A listed pack and what its loader found: `Snapshot.packs` holds one per listed pack. */
+export interface LoadedPack {
+  readonly pack: Pack;
+  readonly load: PackLoad;
+}

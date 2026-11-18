@@ -1,41 +1,21 @@
 /** Loads the repo into a `Snapshot`: git's file list, the texts checks read, and what bd, tsc and biome report. */
-import { realpath, stat } from "node:fs/promises";
-import { posix } from "node:path";
 import * as Effect from "effect/Effect";
 import { PRIME_FILE } from "../core/conventions.ts";
 import { parseJsonc } from "../core/coverage.ts";
 import { parseDecisions } from "../core/decisions.ts";
 import { SETTINGS_FILE } from "../core/hooks.ts";
-import { mainCheckout } from "../core/layout.ts";
-import {
-  type BeadSummary,
-  classify,
-  type Integration,
-  isTsSource,
-  type Snapshot,
-} from "../core/model.ts";
+import { type BeadSummary, classify, type Integration, type Snapshot } from "../core/model.ts";
 import { SYNCED_FILES } from "../core/sync.ts";
+import { PACKS } from "../packs/index.ts";
+import type { LoadedPack, PackLoad, RepoView } from "../packs/pack.ts";
 import { CHECK_NAMES, type CheckName, type ResolvedConfig } from "../schemas/config.ts";
 import { WorkspaceError } from "../schemas/errors.ts";
 import { loadModes, runCommands } from "./commands.ts";
+import { exists, readText } from "./disk.ts";
 import { loadSizes, loadVendored } from "./files.ts";
+import { LOADERS } from "./packs/index.ts";
 import { run, runTool } from "./process.ts";
 import { loadSkills } from "./skills.ts";
-
-export const readText = (root: string, path: string) =>
-  Effect.tryPromise({
-    try: () => Bun.file(`${root}/${path}`).text(),
-    catch: (cause) => new WorkspaceError({ operation: "read", path, reason: String(cause) }),
-  });
-
-/** Files and directories alike: git lists a submodule as one entry, and it is a directory. */
-const exists = (root: string, path: string) =>
-  Effect.promise(() =>
-    stat(`${root}/${path}`).then(
-      () => true,
-      () => false,
-    ),
-  );
 
 const listFiles = (root: string) =>
   Effect.gen(function* () {
@@ -257,132 +237,33 @@ export const installDependencies = (dir: string) =>
     return `note: ${shown} failed in ${dir} (exit ${result.code}${why === "" ? "" : `: ${why}`}); ${fix}. Until then \`mshape check\` uses the main checkout's tsc and biome`;
   });
 
-/** The main checkout of `root`'s repository, which a track worktree shares; undefined if git can't say. */
-const mainOf = (root: string) =>
-  Effect.map(
-    runTool(root, ["git", "rev-parse", "--path-format=absolute", "--git-common-dir"]),
-    (got) => (got.code === 0 ? mainCheckout(got.stdout.trim()) : undefined),
-  );
-
-/**
- * A tool installed in the repo, as a command: the worktree's own install, else the main
- * checkout's, so a track worktree nobody ran `bun install` in still has tsc and biome. Run
- * through the current bun: the bin shims start with `#!/usr/bin/env node`, and a Bun-only
- * machine has no node.
- */
-const localBin = (root: string, name: string) =>
-  Effect.gen(function* () {
-    const main = yield* mainOf(root);
-    for (const dir of main === undefined || main === root ? [root] : [root, main])
-      if (yield* exists(dir, `node_modules/.bin/${name}`))
-        return [process.execPath, `${dir}/node_modules/.bin/${name}`];
-    return undefined;
-  });
-
-/**
- * The tsconfigs a project's references point at. A reference names a tsconfig file or a
- * directory holding `tsconfig.json`; references are not inherited through `extends`, so the
- * file's own JSON is the whole answer. Unreadable files yield none; tsc reports them itself.
- */
-const referencesOf = (root: string, tsconfig: string) =>
-  Effect.gen(function* () {
-    const text = yield* readText(root, tsconfig).pipe(Effect.orElseSucceed(() => "{}"));
-    const parsed = parseJsonc(text);
-    const references =
-      typeof parsed === "object" && parsed !== null && "references" in parsed
-        ? parsed.references
-        : undefined;
-    if (!Array.isArray(references)) return [];
-    const out: Array<string> = [];
-    for (const reference of references) {
-      if (typeof reference !== "object" || reference === null || !("path" in reference)) continue;
-      if (typeof reference.path !== "string") continue;
-      const target = posix.normalize(posix.join(posix.dirname(tsconfig), reference.path));
-      const isDirectory = yield* Effect.promise(() =>
-        stat(`${root}/${target}`).then(
-          (info) => info.isDirectory(),
-          () => false,
-        ),
-      );
-      out.push(isDirectory ? posix.join(target, "tsconfig.json") : target);
-    }
-    return out;
-  });
-
-/**
- * The union of every configured tsconfig's program and, transitively, of every project it
- * references, as tsc itself resolves each one. `tsc -p` checks one project and `--build`
- * won't list files, so the reference graph is walked here, each project once.
- */
-const typechecked = (root: string, realRoot: string, tsconfigs: ReadonlyArray<string>) =>
-  Effect.gen(function* () {
-    const tsc = yield* localBin(root, "tsc");
-    if (tsc === undefined)
-      return {
-        integration: { state: "unavailable", reason: "typescript is not installed" },
-        value: undefined,
-      } satisfies Loaded<ReadonlySet<string>>;
-    const files = new Set<string>();
-    const seen = new Set<string>();
-    const queue = tsconfigs.map((tsconfig) => posix.normalize(tsconfig));
-    for (let tsconfig = queue.shift(); tsconfig !== undefined; tsconfig = queue.shift()) {
-      if (seen.has(tsconfig)) continue;
-      seen.add(tsconfig);
-      const result = yield* runTool(root, [...tsc, "-p", tsconfig, "--listFilesOnly"]);
-      if (result.code !== 0)
-        return failed<ReadonlySet<string>>(
-          `\`tsc -p ${tsconfig} --listFilesOnly\` exited ${result.code}`,
-        );
-      for (const line of result.stdout.split("\n"))
-        if (line.startsWith(`${realRoot}/`)) files.add(line.slice(realRoot.length + 1));
-      queue.push(...(yield* referencesOf(root, tsconfig)));
-    }
-    return { integration: { state: "ok" }, value: files } satisfies Loaded<ReadonlySet<string>>;
-  });
-
-/** The files biome processes, from its verbose report, with `extends` and ignores resolved. */
-const linted = (root: string) =>
-  Effect.gen(function* () {
-    const biome = yield* localBin(root, "biome");
-    if (biome === undefined)
-      return {
-        integration: { state: "unavailable", reason: "@biomejs/biome is not installed" },
-        value: undefined,
-      } satisfies Loaded<ReadonlySet<string>>;
-    const result = yield* runTool(root, [
-      ...biome,
-      "lint",
-      "--verbose",
-      "--colors=off",
-      "--max-diagnostics=0",
-      ".",
-    ]);
-    const report = result.stdout.split("Files processed:")[1];
-    if (report === undefined)
-      return failed<ReadonlySet<string>>(
-        `\`biome lint --verbose\` printed no "Files processed:" list (exit ${result.code})`,
-      );
-    const files = new Set(
-      report.split("\n").flatMap((line) => {
-        const match = /^\s+- (.+)$/.exec(line);
-        return match?.[1] === undefined ? [] : [match[1].trim()];
-      }),
-    );
-    return { integration: { state: "ok" }, value: files } satisfies Loaded<ReadonlySet<string>>;
-  });
-
 /**
  * `packageRoot` is the running monkeyshape: its `skills/` and `template/.beads/PRIME.md` are
  * what a synced repo is compared with.
  */
-/** Not asked: coverage alone reads tsc's, biome's and the declared commands' results. */
-const NOT_SELECTED: Loaded<never> = {
-  integration: {
-    state: "unavailable",
-    reason: "not run: coverage is not among the selected checks",
-  },
-  value: undefined,
-};
+/**
+ * Each listed pack and what its loader found, in `packs` order. A pack this build doesn't
+ * ship yet loads as nothing, so its files are reported as no listed pack's.
+ */
+const loadPacks = (
+  root: string,
+  config: ResolvedConfig,
+  repo: RepoView,
+  checks: ReadonlyArray<CheckName>,
+) =>
+  Effect.forEach(
+    config.packs.flatMap((id) => {
+      const pack = PACKS[id];
+      return pack === undefined ? [] : [{ pack, loader: LOADERS[id] }];
+    }),
+    ({ pack, loader }) =>
+      Effect.map(
+        loader === undefined
+          ? Effect.succeed<PackLoad>({ tools: [], outputs: new Map() })
+          : loader({ root, config, repo, checks }),
+        (load): LoadedPack => ({ pack, load }),
+      ),
+  );
 
 /**
  * `checks` are the checks the caller will run: tsc, biome and the declared commands run only
@@ -422,7 +303,7 @@ export const loadSnapshot = (
       enforcing.some((path) => file === path || file.startsWith(`${path}/`));
     const wanted = present.filter(
       (file) =>
-        isTsSource(file) ||
+        Object.values(PACKS).some((pack) => pack?.kindOf(file) !== undefined) ||
         (enforces(file) && readable(file)) ||
         file.endsWith(".md") ||
         configs.has(file) ||
@@ -446,12 +327,8 @@ export const loadSnapshot = (
       typeof manifest.scripts === "object"
         ? Object.keys(manifest.scripts ?? {})
         : [];
-    const realRoot = yield* Effect.promise(() => realpath(root));
     const loadedBeads = yield* beads(root);
-    const loadedTsc = coverage
-      ? yield* typechecked(root, realRoot, config.coverage.tsconfigs)
-      : NOT_SELECTED;
-    const loadedBiome = coverage ? yield* linted(root) : NOT_SELECTED;
+    const packs = yield* loadPacks(root, config, { files: present, texts }, checks);
     const skills = yield* loadSkills(`${packageRoot}/skills`, root);
     const shippedPrime = yield* Effect.promise(() =>
       Bun.file(`${packageRoot}/template/${PRIME_FILE}`)
@@ -471,13 +348,8 @@ export const loadSnapshot = (
       memories: loadedBeads.value?.memories,
       beadIds: loadedBeads.value?.ids,
       beadRows: loadedBeads.value?.rows,
-      typechecked: loadedTsc.value,
-      linted: loadedBiome.value,
-      integrations: {
-        beads: loadedBeads.integration,
-        tsc: loadedTsc.integration,
-        biome: loadedBiome.integration,
-      },
+      integrations: { beads: loadedBeads.integration },
+      packs,
       skills,
       shippedPrime,
       unlisted,
