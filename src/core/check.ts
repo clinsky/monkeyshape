@@ -207,7 +207,11 @@ const scopeOf = (check: CheckName, config: ResolvedConfig, snapshot: Snapshot): 
       };
     }
     case "rules": {
-      const files = snapshot.files.filter((file) => inSources(config, file));
+      // What the rules ran over: files in sources a listed pack reads. The rest are
+      // `sources/unclaimed`.
+      const files = snapshot.files.filter(
+        (file) => inSources(config, file) && claimOf(snapshot, file) !== undefined,
+      );
       const outside = typescript.filter(({ place }) => place.kind === "outside").length;
       // not-applicable means there is no source in a listed pack, never that sources missed it.
       return files.length === 0 && outside === 0

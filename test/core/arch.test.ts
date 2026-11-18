@@ -476,6 +476,16 @@ describe("module paths", () => {
     ]);
   });
 
+  test("a file at a key's default directory, the key mapped by paths: add it to the paths", () => {
+    const found = checkArch(
+      mapped,
+      repo({ "crates/core/a.ts": "", "crates/io/b.ts": "", "src/core/z.ts": "" }),
+    ).filter((v) => v.rule === "arch/unknown-module");
+    expect(found.map((v) => `${v.file}: ${v.message}`)).toEqual([
+      "src/core/z.ts: is not inside any module in `arch.modules` (shape.config.ts). Module 'core' maps its files by `paths`, not by its key: add 'src/core' to its `paths`, or map this directory as a module under another key.",
+    ]);
+  });
+
   test("a module whose paths match no file is empty, named by its paths", () => {
     const found = checkArch(mapped, repo({ "crates/core/a.ts": "", "src/cli/main.ts": "" }));
     expect(found.map((v) => v.message)).toEqual([

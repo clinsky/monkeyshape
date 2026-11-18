@@ -18,6 +18,20 @@ import {
   ShapeToml,
 } from "../schemas/config.ts";
 
+/**
+ * A listed pack this mshape doesn't ship: the schema knows every pack's id before each pack
+ * lands, so a config can name one that would load as nothing and check nothing.
+ */
+const unshipped = (config: { readonly packs?: ReadonlyArray<string> | undefined }) => {
+  const shipped = Object.keys(PACKS);
+  return (config.packs ?? [])
+    .filter((pack) => !shipped.includes(pack))
+    .map(
+      (pack) =>
+        `packs: lists \`${pack}\`, which this mshape doesn't ship (it ships ${shipped.join(", ")}); run a release that has it, or remove it from \`packs\``,
+    );
+};
+
 /** Each shipped pack's default `sources.include`, for a config that sets none. */
 const PACK_SOURCES = Object.fromEntries(
   Object.values(PACKS).flatMap((pack) =>
@@ -212,7 +226,7 @@ const loadToml = (root: string, path: string, shown: string) =>
         }),
       );
     }
-    const problems = configProblems(config);
+    const problems = [...configProblems(config), ...unshipped(config)];
     if (problems.length > 0)
       return yield* Effect.fail(new ConfigError({ path: shown, reason: problems.join("; ") }));
     return resolveConfig(config, shown, [], PACK_SOURCES);
@@ -264,7 +278,7 @@ export const loadConfig = (root: string, given?: string) =>
     const config = yield* decodeStrict(ShapeConfig)(module.default).pipe(
       Effect.mapError((error) => new ConfigError({ path: shown, reason: error.message })),
     );
-    const problems = configProblems(config);
+    const problems = [...configProblems(config), ...unshipped(config)];
     if (problems.length > 0)
       return yield* Effect.fail(new ConfigError({ path: shown, reason: problems.join("; ") }));
     const reached = yield* Effect.promise(() => reachedFrom(path, root));

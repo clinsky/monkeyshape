@@ -979,6 +979,23 @@ const sourcesCases: Record<string, Cases> = {
       files: { "src/cli.ts": "" },
     },
   },
+  "sources/unclaimed": {
+    // A repo that checks its JavaScript its own way, with JavaScript in the rules' scope.
+    fail: {
+      config: {
+        sources: { include: ["src/**/*.ts", "src/**/*.js"] },
+        coverage: { commands: [{ files: ["src/**/*.js"], run: ["eslint", "{files}"] }] },
+      },
+      files: { "src/a.ts": "", "src/b.js": 'export const g = () => { throw new Error("x"); };\n' },
+    },
+    pass: {
+      config: {
+        sources: { include: ["src/**/*.ts"] },
+        coverage: { commands: [{ files: ["src/**/*.js"], run: ["eslint", "{files}"] }] },
+      },
+      files: { "src/a.ts": "", "src/b.js": "" },
+    },
+  },
   "sources/claimed-twice": {
     fail: {
       files: { "src/a.ts": "" },

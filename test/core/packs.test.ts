@@ -131,3 +131,22 @@ describe("the pack table", () => {
     ]);
   });
 });
+
+test("a file in sources no listed pack reads fails sources, and rules doesn't count it", () => {
+  // The review's probe: JavaScript in the rules' scope, covered by the repo's own command.
+  const jsToo = config({
+    sources: { include: ["src/**/*.ts", "src/**/*.js"] },
+    coverage: { commands: [{ files: ["src/**/*.js"], run: ["eslint", "{files}"] }] },
+  });
+  const snapshot = repo({
+    "src/a.ts": "",
+    "src/b.js": 'export const g = () => { throw new Error("x"); };\n',
+  });
+  const { reports } = evaluate(jsToo, snapshot, ["sources", "rules"]);
+  expect(reports.map((r) => [r.check, r.outcome.state, r.violations.map((v) => v.rule)])).toEqual([
+    ["sources", "failed", ["sources/unclaimed"]],
+    ["rules", "passed", []],
+  ]);
+  expect(reports[1]?.outcome).toEqual({ state: "passed", examined: "1 file in sources" });
+  expect(reports[0]?.violations[0]?.message).toContain("'src/**/*.{ts,tsx}'");
+});

@@ -65,8 +65,14 @@ const within = (path: string, directory: string): boolean =>
   directory === "." || directory === "" || path === directory || path.startsWith(`${directory}/`);
 
 /** The module key that would own a file: its directory below the root, or the file itself. */
-const suggestModule = (rest: string): string => {
+const suggestModule = (arch: Arch, file: string, rest: string): string => {
   const directory = rest.split("/").slice(0, -1).join("/");
+  const key = directory === "" ? rest : directory;
+  // That key is taken by a module mapped elsewhere by `paths`: a new key would collide.
+  if (arch.modules[key]?.paths !== undefined) {
+    const at = file.split("/").slice(0, -1).join("/") || file;
+    return `Module '${key}' maps its files by \`paths\`, not by its key: add '${at}' to its \`paths\`, or map this directory as a module under another key.`;
+  }
   return directory === ""
     ? `Map the file itself as a module: a key may name one file, e.g. '${rest}'.`
     : `Add a module for its directory (a key is a path below \`arch.root\`, e.g. '${directory}').`;
@@ -205,7 +211,7 @@ const judge = (
         file,
         underRoot(arch, file) === undefined
           ? `is in \`sources\` but outside \`arch.root\` ('${arch.root}'), so no module owns it. Set \`arch.root: "."\` and map its directory as a module, or move it under ${arch.root}/.`
-          : `is not inside any module in \`arch.modules\` (${config.configFile}). ${suggestModule(underRoot(arch, file) ?? file)}`,
+          : `is not inside any module in \`arch.modules\` (${config.configFile}). ${suggestModule(arch, file, underRoot(arch, file) ?? file)}`,
       ),
     );
   }

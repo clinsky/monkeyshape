@@ -2,8 +2,8 @@
  * The rules' scope, accounted for. A rule that never saw a file can't fail on it, so a green
  * gate over a layout the defaults don't match (no `src/`) would mean nothing. Every
  * TypeScript file is in `sources`, or a test, or a declaration file, or exempt with a reason;
- * one that is none of them fails here, as does a file two listed packs claim, or one only an
- * unlisted pack claims. A glob the config wrote that matches no file fails
+ * one that is none of them fails here, as does a file two listed packs claim, one only an
+ * unlisted pack claims, and a file in `sources` no listed pack reads. A glob the config wrote that matches no file fails
  * too, unless it is declared optional: a typo in a glob is otherwise a silent hole.
  */
 
@@ -13,7 +13,13 @@ import { matches, matchesAny, matchesPathOrBelow } from "./glob.ts";
 import type { Snapshot, Violation } from "./model.ts";
 
 /** Every rule this check reports, as `sources/<kind>`; test/core/ruleCases.test.ts covers each. */
-export const SOURCES_RULES = ["outside", "unmatched", "claimed-twice", "unlisted-pack"] as const;
+export const SOURCES_RULES = [
+  "outside",
+  "unmatched",
+  "claimed-twice",
+  "unlisted-pack",
+  "unclaimed",
+] as const;
 
 const violation = (
   rule: (typeof SOURCES_RULES)[number],
@@ -128,9 +134,21 @@ const claims = (config: ResolvedConfig, snapshot: Snapshot): ReadonlyArray<Viola
           `is claimed by two packs in \`packs\`, \`${first.pack.id}\` and \`${second.pack.id}\`, and a file belongs to one. List only one of them in ${config.configFile}, or move the file where one pack's files are.`,
         ),
       ];
-    if (first !== undefined || ownWay(file)) return [];
+    if (first !== undefined) return [];
     const other = snapshot.otherPacks.find((pack) => pack.kindOf(file) !== undefined);
-    return other === undefined
+    // In the rules' scope, but no listed pack can read it: the rules never see it.
+    if (inSources(config, file) && (other === undefined || ownWay(file)))
+      return [
+        violation(
+          "unclaimed",
+          file,
+          `is in \`sources\`, but no pack in \`packs\` (${snapshot.packs.map(({ pack }) => pack.id).join(", ")}) reads its language, so no rule analyzes it. Narrow \`sources.include\` in ${config.configFile} to the packs' own files (their default is ${snapshot.packs
+            .flatMap(({ pack }) => pack.defaultSources.include)
+            .map((glob) => `'${glob}'`)
+            .join(", ")}), or list the pack its language needs in \`packs\`.`,
+        ),
+      ];
+    return other === undefined || ownWay(file)
       ? []
       : [
           violation(
