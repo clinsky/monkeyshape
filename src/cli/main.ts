@@ -844,7 +844,7 @@ export const COMMANDS: ReadonlyArray<Command> = [
       Start a track: worktree .agents/worktrees/<repo>@<name> on track/<name> from main (or
       from main's upstream, after fetching it, when that has commits main lacks),
       the shared handoffs and tracks.sharedPaths linked in, and a stub handoff. Shared paths
-      come from the main checkout's shape.config.ts, from whichever checkout this runs.
+      come from the main checkout's config (shape.toml), from whichever checkout this runs.
   mshape track list
       Every track: handoff status, open beads, commits in neither main nor origin/main,
       whether it is done, worktree. Done is yes only with no open bead, the branch merged and
@@ -899,7 +899,7 @@ export const COMMANDS: ReadonlyArray<Command> = [
   {
     name: "dep",
     usage: `  mshape dep bump <name> <tarball> --sha256 <digest>
-      Move the vendored dependency <name> (recorded in shape.config.ts's files.vendored) to
+      Move the vendored dependency <name> (recorded in the config's files.vendored) to
       <tarball>, a release of it on disk. <digest> is the sha256 its release states, never one
       computed here: a tarball that doesn't match it, or is another package, changes nothing.
       Copies it into vendor/, removes the old one, updates package.json, the record and

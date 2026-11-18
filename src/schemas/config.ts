@@ -6,8 +6,16 @@
  */
 import * as Schema from "effect/Schema";
 
-/** Every escape hatch carries a reason a later agent can weigh. */
-const Reason = Schema.String.check(Schema.isMinLength(8));
+/**
+ * Every escape hatch carries a reason a later agent can weigh: 8 characters at least,
+ * counted as JSON Schema counts them (code points), so the shipped schema says the same.
+ */
+const Reason = Schema.String.check(
+  Schema.makeFilter((text: string) => [...text].length >= 8, {
+    expected: "a reason of at least 8 characters",
+    toJsonSchema: () => ({ minLength: 8 }),
+  }),
+);
 
 const Globs = Schema.Array(Schema.String);
 
@@ -126,7 +134,7 @@ const RefsRules = Schema.Struct({
  * So `cases` and `data/large` pass; `/abs`, `../x`, `.`, `./x`, `data//large`, `cases/` don't.
  */
 export const SharedPath = Schema.String.check(
-  Schema.isPattern(/^(?!\.\.?(?:\/|$))[^/\0]+(?:\/(?!\.\.?(?:\/|$))[^/\0]+)*$/, {
+  Schema.isPattern(/^(?!\.\.?(?:\/|$))[^/\0]+(?:\/(?!\.\.?(?:\/|$))[^/\0]+)*$/u, {
     message:
       "must be a repo-relative path written plainly: no leading `/` or `./`, no `.` or `..` segment, no `//` and no trailing `/` (write `vendor/x.tgz`, not `./vendor/x.tgz`)",
   }),
@@ -159,7 +167,7 @@ export const VendoredArtifact = Schema.Struct({
   /** The npm name in the tarball's `package/package.json`. */
   package: Schema.String,
   /** Lowercase hex, as `sha256sum` prints it. */
-  sha256: Schema.String.check(Schema.isPattern(/^[0-9a-f]{64}$/)),
+  sha256: Schema.String.check(Schema.isPattern(/^[0-9a-f]{64}$/u)),
 });
 export type VendoredArtifact = typeof VendoredArtifact.Type;
 
@@ -186,9 +194,9 @@ export type GateStage = typeof GateStage.Type;
 
 /** The `mshape` a repo runs: the launcher fetches and verifies this version. */
 const MshapePin = Schema.Struct({
-  version: Schema.String.check(Schema.isPattern(/^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/)),
+  version: Schema.String.check(Schema.isPattern(/^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/u)),
   /** The sha256 of the release's `SHA256SUMS`, lowercase hex. */
-  sums: Schema.optionalKey(Schema.String.check(Schema.isPattern(/^[0-9a-f]{64}$/))),
+  sums: Schema.optionalKey(Schema.String.check(Schema.isPattern(/^[0-9a-f]{64}$/u))),
   /** Run this argv instead of a fetched binary: monkeyshape's own repo, from source. */
   dev: Schema.optionalKey(Argv),
 });

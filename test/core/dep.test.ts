@@ -77,6 +77,28 @@ describe("planBump", () => {
     expect(refusals({ tarballPackage: undefined })).toContain("no package/package.json");
   });
 
+  test("a shape.toml record is rewritten in place, in either quote", () => {
+    for (const quote of ['"', "'"]) {
+      const toml = `[[files.vendored]]\npath = ${quote}vendor/app-1.0.0.tgz${quote}\npackage = "app"\nsha256 = ${quote}${OLD}${quote}\n`;
+      const plan = planBump({ ...input, configFile: "shape.toml", configText: toml });
+      if ("refused" in plan) throw new Error(plan.refused.join("\n"));
+      expect(plan.configText).toBe(
+        toml.replace("app-1.0.0.tgz", "app-1.1.0.tgz").replace(OLD, NEW),
+      );
+    }
+  });
+
+  test("on a shape.toml, a refusal names it and shows the record in TOML", () => {
+    const said = refusals({ configFile: "shape.toml", configText: "", vendored: [], name: "app" });
+    expect(said).toContain("recorded in shape.toml's files.vendored");
+    expect(said).toContain('{ path = "vendor/<tarball>", package = "app", sha256 = "<digest>" }');
+    expect(
+      refusals({ configFile: "shape.toml", configText: 'packs = ["typescript"]\n' }),
+    ).toContain(
+      `shape.toml has the recorded path "vendor/app-1.0.0.tgz" nowhere as a string literal`,
+    );
+  });
+
   test("an unrecorded name is refused, listing what is recorded", () => {
     expect(refusals({ name: "nope" })).toContain("(recorded: app)");
   });

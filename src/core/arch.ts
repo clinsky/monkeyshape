@@ -2,7 +2,7 @@
  * Module layering as data. Every source file under `arch.root` belongs to exactly one
  * module (the longest matching key in `arch.modules`). A module may import itself and the
  * modules in its `mayImport`; host APIs only with `hostAccess`; third-party packages only
- * from the allowlists. Adding an edge is a deliberate edit to `shape.config.ts`.
+ * from the allowlists. Adding an edge is a deliberate edit to the config (`shape.toml`).
  *
  * Host access needs no import in Bun: `Bun.file`, `process`, `fetch` are globals. Direct
  * uses of those are checked too, respecting lexical shadowing. This is static analysis of
