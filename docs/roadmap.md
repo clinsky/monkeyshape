@@ -16,8 +16,8 @@ Goals not yet shipped are listed in the order they would be taken.
 | Ready for a real application and a new repo: a gate whose pass means what it says, adopter rules | **Shipped** (milestone 3, 0.4.0) | `monkeyshape-xv2` |
 | First real adoptions: an existing application, and a repo born through the loop | **Done** on 0.4.0 | `monkeyshape-36f` |
 | The loop at scale: a PR as one reviewed unit, rules where agents act, the denylist, tracks that start working | **Shipped** (milestone 4, 0.5.0) | `monkeyshape-4sa` |
-| A language-neutral core: config as data, a configurable gate, a pinned binary, the pack interface | Later: milestone 5 | `monkeyshape-070` |
-| Language packs: Rust and Python | Later: milestone 5 | `monkeyshape-gbx` |
+| A language-neutral core: config as data, a configurable gate, a pinned binary, the pack interface | **In progress** (milestone 5) | `monkeyshape-070` |
+| Language packs: Rust and Python | **In progress** (milestone 5) | `monkeyshape-gbx` |
 | Harness adapters: Codex and pi | Later: milestone 6 | `monkeyshape-dlz` |
 | `mshape validate`: the real-data loop (core) | Later | `monkeyshape-97o` |
 | The remaining starter rules (TypeScript pack) | Later | `monkeyshape-hh2` |
@@ -27,8 +27,8 @@ Goals not yet shipped are listed in the order they would be taken.
 | Dependencies between repos: releases that smoke-test their consumers | Idea: when the adopter probe by hand stops being enough | `monkeyshape-a09` |
 | Selectable policy bundles | Idea: when an outside adopter needs it | `monkeyshape-8h4` |
 
-"Shipped" means on `main`; the plans of milestones 1 to 3 are in `notes/`, milestone 4's in
-`plan/MILESTONE.md` until milestone 5 replaces it. A PR that ships a goal updates its row.
+"Shipped" means on `main`; the plans of milestones 1 to 4 are in `notes/`, milestone 5's in
+`plan/MILESTONE.md`. A PR that ships a goal updates its row.
 
 ## 0. Scope
 
@@ -117,22 +117,24 @@ Every rule must trace back to one of these principles. A rule that can't is dele
 ### What milestone 4 taught
 
 Two repos ran on 0.4.0 at scale (four and three parallel tracks) and their reports drove
-milestone 4; its why and plan are in `plan/MILESTONE.md`. Real adopters stay the source of
-the next fixes, and their tracks report precisely when asked. What agents follow must be
-where they act (PRIME.md, the skills, file headers, check messages).
+milestone 4 (`notes/2026-11-18-milestone-4.md`). Real adopters stay the source of the next
+fixes, and their tracks report precisely when asked. What agents follow must be where they
+act (PRIME.md, the skills, file headers, check messages). Milestone 5 (`plan/MILESTONE.md`)
+takes the next goal in order.
 
 ### A language-neutral core (`monkeyshape-070`, milestone 5)
 
 **Intent.** Separate what every repo shares from what its language decides, so a repo with no
 JavaScript can run the loop and the gate.
 
-- **Config as data:** `shape.toml`, validated by a schema, replaces `shape.config.ts`. The two
+- **Config as data:** `shape.toml`, validated by a schema, replaces `shape.config.ts`. The
   adopters and this repo migrate once, by a command; no second config format is kept.
 - **The gate is configured,** not hard-coded as `bun run check`: PRIME.md, the skills, the PR
   template, `track pr` and CI read it from config.
 - **`mshape` ships as a compiled binary** (Bun compiles it; Bun is a build detail), as GitHub
   release assets with hashes for Linux x64 and arm64 and macOS arm64. `shape.toml` pins the
-  version and hash; a small committed bootstrap fetches and verifies it. A non-TypeScript
+  version and hash. A machine installs `mshape` once (`curl -fsSL <release>/install.sh | sh`),
+  and inside a repo it runs that repo's pinned version, fetched and verified. A non-TypeScript
   repo has no `package.json` and no `node_modules`. npm keeps shipping what TypeScript code
   imports or extends (`decodeStrict`, the base `tsconfig` and biome configs).
 - **A language-pack interface,** with TypeScript refactored into the first pack.
@@ -171,9 +173,8 @@ and the gate.
 - **Rust:** `cargo metadata` for sources and the crate graph as module boundaries; clippy and
   rustfmt; curated workspace lints. Cargo has no cross-repo `extends`, so `mshape sync`
   copies the base config in and the `sync` check keeps it equal.
-- **Python:** uv, ruff, pyright or mypy (the milestone picks one), pytest; grimp's import
-  graph as module boundaries; curated ruff rules, delivered by `extend` where it reaches or
-  copied by sync where it doesn't.
+- **Python:** uv, ruff, ty, pytest; the import graph as module boundaries; curated ruff and
+  ty rules, delivered by `extend` where it reaches or copied by sync where it doesn't.
 
 **Consumer.** The maintainer's next Rust repo and next Python repo, both born with
 `mshape init` once this ships. Neither starts before.
@@ -186,6 +187,12 @@ the signal that the interface was shaped by TypeScript and Rust alone.
 
 **Why now.** Same milestone as the core, by the maintainer's choice: the repos wait for both,
 and a second and third pack are what test the interface.
+
+**Chosen at milestone 5's boundary.** ty over basedpyright and mypy, the maintainer's call:
+native and fast, no Node in the toolchain, and one ecosystem with uv and ruff. It is young, so
+it is pinned and its coverage is measured on real agent-written Python. A repo of several
+languages will be needed: the interface takes a list of packs and a test composes two, and
+`init` for several packs waits for its consumer.
 
 **Out of scope:** languages other than these, Windows, and porting monkeyshape's own
 TypeScript rules to ast-grep.
