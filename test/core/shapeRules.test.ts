@@ -180,7 +180,8 @@ describe("adopter rules through ast-grep", () => {
     expect(report("rules", config(), offline).outcome).toEqual({
       state: "unavailable",
       prerequisite: "ast-grep",
-      reason: "ast-grep 0.51.1 is not in the cache and its download failed (offline)",
+      reason:
+        "ast-grep 0.51.1 is not in the cache and its download failed (offline). It runs this repo's shape-rules/, so no rule ran, monkeyshape's own included",
       required: true,
     });
   });

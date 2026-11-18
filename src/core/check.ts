@@ -158,8 +158,23 @@ const prerequisitesOf = (
   if (check === "beads")
     return [{ name: "bd", integration: beads, required: config.beads === "required" }];
   // The repo's own rules run on ast-grep: without it they can't say anything, so it's required.
-  if (check === "rules" && snapshot.shapeRules !== undefined)
-    return [{ name: "ast-grep", integration: snapshot.shapeRules.integration, required: true }];
+  // Its reason says what didn't run: every rule, monkeyshape's own too, not only the repo's.
+  if (check === "rules" && snapshot.shapeRules !== undefined) {
+    const integration = snapshot.shapeRules.integration;
+    return [
+      {
+        name: "ast-grep",
+        integration:
+          integration.state === "unavailable"
+            ? {
+                ...integration,
+                reason: `${integration.reason}. It runs this repo's shape-rules/, so no rule ran, monkeyshape's own included`,
+              }
+            : integration,
+        required: true,
+      },
+    ];
+  }
   return [];
 };
 
