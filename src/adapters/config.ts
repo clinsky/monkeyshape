@@ -40,6 +40,7 @@ const PACK_SOURCES = Object.fromEntries(
 );
 
 import { ConfigError } from "../schemas/errors.ts";
+import { ownRoot } from "./launch.ts";
 
 export const CONFIG_FILE = "shape.toml";
 /** The config as code, which 0.6.0 replaces with `shape.toml`. */
@@ -76,15 +77,12 @@ export const loadFailure = (cause: unknown): string => {
     .join("; ");
 };
 
-/** The running monkeyshape's package directory, which resolves `monkeyshape` by its exports. */
-const OWN_ROOT = `${import.meta.dir}/../..`;
-
 /** Where `specifier`, imported by a file in `dir`, resolves as if that file sat in `root`. */
 const SOURCE = /\.(?:[cm]?[jt]sx?)$/;
 
 /** Bare specifiers as if imported from `root`, falling back to the running monkeyshape. */
 const resolveBare = (specifier: string, root: string): string | undefined => {
-  for (const from of [root, OWN_ROOT])
+  for (const from of [root, ownRoot()])
     try {
       return Bun.resolveSync(specifier, from);
     } catch {
