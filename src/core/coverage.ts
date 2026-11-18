@@ -69,13 +69,18 @@ export const checkCoverage = (
       const covers = ran !== undefined ? (file: string) => ran.has(file) : approximated?.covers;
       return covers === undefined ? [] : [{ tool, covers }];
     });
-    // File by file, each tool in the pack's order: a file's findings sit together.
-    for (const file of files)
+    // File by file, each tool in the pack's order: a file's findings sit together. A file the
+    // repo checks its own way (a declared command) or exempts with a reason is not the
+    // tools' to cover: the way out for what a pack's tools can't see, such as a file only a
+    // macro reaches, or a nested project the pack's toolchain doesn't build.
+    for (const file of files) {
+      if (exempted(config, file) || commanded(config, file)) continue;
       for (const { tool, covers } of judges)
         if (!covers(file))
           violations.push(
             violation(tool.rule as (typeof COVERAGE_RULES)[number], file, tool.uncovered(config)),
           );
+    }
   }
   return [...violations, ...withoutTools(config, snapshot)];
 };
@@ -218,18 +223,21 @@ export const executableSources = (config: ResolvedConfig, snapshot: Snapshot) =>
   );
 };
 
+/** Listed in `coverage.exemptFiles`, with the reason it needs no check. */
+const exempted = (config: ResolvedConfig, file: string): boolean =>
+  config.coverage.exemptFiles.some((entry) => matchesPathOrBelow(file, entry.path));
+
+/** Checked by a declared command, which the loader runs whenever its files match one. */
+const commanded = (config: ResolvedConfig, file: string): boolean =>
+  config.coverage.commands.some((command) =>
+    command.files.some((pattern) => matchesPathOrBelow(file, pattern)),
+  );
+
 /** Executable source no declared command covers, unless exempt by segment or with a reason. */
 const uncovered = (config: ResolvedConfig, snapshot: Snapshot): ReadonlyArray<Violation> => {
-  const exemptPaths = config.coverage.exemptFiles.map((entry) => entry.path);
-  const exempted = (file: string) =>
-    exemptPaths.some((pattern) => matchesPathOrBelow(file, pattern));
-  const covered = (file: string) =>
-    config.coverage.commands.some((command) =>
-      command.files.some((pattern) => matchesPathOrBelow(file, pattern)),
-    );
   const out: Array<Violation> = [];
   for (const file of executableSources(config, snapshot)) {
-    if (exempted(file) || covered(file)) continue;
+    if (exempted(config, file) || commanded(config, file)) continue;
     out.push(
       violation(
         "uncovered",

@@ -40,6 +40,94 @@
       ],
       "additionalProperties": false
     },
+    "rust": {
+      "type": "object",
+      "properties": {
+        "lints": {
+          "type": "object",
+          "properties": {
+            "rust": {
+              "type": "object",
+              "additionalProperties": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "enum": [
+                      "allow",
+                      "warn",
+                      "deny",
+                      "forbid"
+                    ]
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "level": {
+                        "type": "string",
+                        "enum": [
+                          "allow",
+                          "warn",
+                          "deny",
+                          "forbid"
+                        ]
+                      },
+                      "priority": {
+                        "type": "integer"
+                      }
+                    },
+                    "required": [
+                      "level",
+                      "priority"
+                    ],
+                    "additionalProperties": false
+                  }
+                ]
+              }
+            },
+            "clippy": {
+              "type": "object",
+              "additionalProperties": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "enum": [
+                      "allow",
+                      "warn",
+                      "deny",
+                      "forbid"
+                    ]
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "level": {
+                        "type": "string",
+                        "enum": [
+                          "allow",
+                          "warn",
+                          "deny",
+                          "forbid"
+                        ]
+                      },
+                      "priority": {
+                        "type": "integer"
+                      }
+                    },
+                    "required": [
+                      "level",
+                      "priority"
+                    ],
+                    "additionalProperties": false
+                  }
+                ]
+              }
+            }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    },
     "gate": {
       "type": "object",
       "properties": {

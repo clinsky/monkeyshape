@@ -232,7 +232,7 @@ describe("shape.toml", () => {
   test("a pack this mshape doesn't ship fails, naming it and the shipped ones", async () => {
     await write('packs = ["typescript", "python"]\n');
     expect(await fails()).toContain(
-      "packs: lists `python`, which this mshape doesn't ship (it ships typescript)",
+      "packs: lists `python`, which this mshape doesn't ship (it ships typescript, rust)",
     );
   });
 
