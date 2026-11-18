@@ -20,11 +20,6 @@ jobs:
         with:
           bun-version-file: package.json
       - run: bun install --frozen-lockfile
-      # mshape at shape.toml's pin ([mshape] version; the latest release when unpinned), verified
-      # by install.sh against the release's SHA256SUMS. Inside the repo, it runs the pinned version.
-      - name: Install mshape
-        run: |
-          version=$(awk '/^\[/ { t = ($0 == "[mshape]") } t && /^version *=/ { gsub(/^version *= *"|".*$/, ""); print; exit }' shape.toml)
-          curl -fsSL https://github.com/clinsky/monkeyshape/releases/latest/download/install.sh | MSHAPE_VERSION="$version" sh
-          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
-      - run: mshape gate
+      # mshape from node_modules: the npm package at shape.toml's pin (the sync check holds
+      # them equal), so a TypeScript repo's CI downloads no release to run it.
+      - run: bun run --silent mshape gate
