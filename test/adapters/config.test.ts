@@ -57,7 +57,7 @@ describe("loadConfig", () => {
     const given = await Effect.runPromise(Effect.flip(loadConfig(dir, join(dir, "nope.ts"))));
     expect(given.message).toBe("nope.ts: not found");
     const own = await Effect.runPromise(Effect.flip(loadConfig(dir)));
-    expect(own.message).toBe("shape.config.ts: not found; every adopting repo has one");
+    expect(own.message).toBe("shape.toml: not found; every adopting repo has one");
     const outside = await Effect.runPromise(Effect.flip(loadConfig(dir, "/nowhere/x.ts")));
     expect(outside.message).toBe("/nowhere/x.ts: not found");
   });
@@ -118,5 +118,146 @@ describe("loadConfig", () => {
     } finally {
       await rm(outside, { recursive: true, force: true });
     }
+  });
+});
+
+/** The plan's `shape.toml` case table, one test per row. */
+describe("shape.toml", () => {
+  const write = (text: string) => Bun.write(join(dir, "shape.toml"), text);
+  const fails = async () => (await Effect.runPromise(Effect.flip(loadConfig(dir)))).message;
+
+  test("shape.toml only: read, its kebab-case keys into the resolved config", async () => {
+    await write(
+      [
+        'packs = ["typescript"]',
+        "[arch.modules.core]",
+        'description = "Pure checks."',
+        'may-import = ["schemas"]',
+        "host-access = false",
+        "[budgets]",
+        "agents-lines = 120",
+        "[tracks]",
+        'shared-paths = ["data/large"]',
+        "[[gate.stages]]",
+        'name = "native"',
+        'run = ["make", "check"]',
+        "ok-exit = [0, 5]",
+        "",
+      ].join("\n"),
+    );
+    const config = await Effect.runPromise(loadConfig(dir));
+    expect(config.configFile).toBe("shape.toml");
+    expect(config.packs).toEqual(["typescript"]);
+    expect(config.arch?.modules["core"]).toEqual({
+      description: "Pure checks.",
+      mayImport: ["schemas"],
+      hostAccess: false,
+    });
+    expect(config.budgets.agentsLines).toBe(120);
+    expect(config.tracks.sharedPaths).toEqual(["data/large"]);
+    expect(config.gate.stages).toEqual([
+      { name: "native", run: ["make", "check"], okExit: [0, 5] },
+    ]);
+  });
+
+  test("shape.toml only: a value the schema rejects fails with its key path and the reason", async () => {
+    await write('packs = ["typescript"]\n[files]\nmax-bytes = "big"\n');
+    const message = await fails();
+    expect(message).toContain("shape.toml");
+    expect(message).toContain('["files"]["max-bytes"]');
+    expect(message).toContain("Expected number");
+  });
+
+  test("shape.toml that isn't TOML fails, saying so", async () => {
+    await write("packs = [\n");
+    expect(await fails()).toStartWith("shape.toml: isn't valid TOML:");
+  });
+
+  test("shape.config.ts only: still loads, as the typescript pack, until `config migrate` lands", async () => {
+    await Bun.write(join(dir, "shape.config.ts"), "export default { beads: 'required' };\n");
+    const config = await Effect.runPromise(loadConfig(dir));
+    expect(config.configFile).toBe("shape.config.ts");
+    expect(config.packs).toEqual(["typescript"]);
+    expect(config.beads).toBe("required");
+  });
+
+  test("both: fails, naming both", async () => {
+    await write('packs = ["typescript"]\n');
+    await Bun.write(join(dir, "shape.config.ts"), "export default {};\n");
+    const message = await fails();
+    expect(message).toStartWith("shape.toml:");
+    expect(message).toContain("shape.config.ts is here too, and a repo has one config");
+  });
+
+  test("neither: not found, as a missing config always was", async () => {
+    expect(await fails()).toBe("shape.toml: not found; every adopting repo has one");
+  });
+
+  test("an unknown key fails, naming it: a typo or a camelCase key", async () => {
+    await write('packs = ["typescript"]\npakcs = ["rust"]\n');
+    const typo = await fails();
+    expect(typo).toContain("Expected no excess property");
+    expect(typo).toContain('["pakcs"]');
+    await write('packs = ["typescript"]\n[coverage]\nexemptFiles = []\n');
+    expect(await fails()).toContain('["coverage"]["exemptFiles"]');
+  });
+
+  test("packs missing: fails, listing the packs whose files the repo has", async () => {
+    await write("[budgets]\nagents-lines = 120\n");
+    await Bun.write(join(dir, "package.json"), "{}\n");
+    await Bun.write(join(dir, "pyproject.toml"), "");
+    expect(await fails()).toBe(
+      'shape.toml: has no `packs`: this repo has typescript\'s files and python\'s files, so add `packs = ["typescript", "python"]` at the top, in the order their gate stages should run',
+    );
+  });
+
+  test("packs missing in a repo with no pack's files: fails, naming the packs there are", async () => {
+    await write("");
+    expect(await fails()).toContain("(typescript, rust, python)");
+  });
+
+  test("an unknown pack fails, naming the ones there are", async () => {
+    await write('packs = ["cobol"]\n');
+    const message = await fails();
+    expect(message).toContain('["packs"][0]');
+    expect(message).toContain('"typescript"');
+  });
+
+  test("a pack listed with no file of its own: passes", async () => {
+    await write('packs = ["typescript", "rust"]\n');
+    expect((await Effect.runPromise(loadConfig(dir))).packs).toEqual(["typescript", "rust"]);
+  });
+
+  test("a module with no pack in a two-pack repo: fails, naming the module", async () => {
+    await write(
+      'packs = ["rust", "python"]\n[arch.modules.core]\ndescription = "x"\npack = "rust"\n[arch.modules.cli]\ndescription = "y"\n',
+    );
+    const message = await fails();
+    expect(message).toContain("arch.modules.cli: the repo lists 2 packs (rust, python)");
+    expect(message).not.toContain("arch.modules.core");
+  });
+
+  test("a module naming a pack the repo doesn't list fails, naming both", async () => {
+    await write('packs = ["rust"]\n[arch.modules.core]\ndescription = "x"\npack = "python"\n');
+    expect(await fails()).toContain("arch.modules.core.pack: `python` isn't in `packs` (rust)");
+  });
+
+  test("a pack listed twice fails, naming it", async () => {
+    await write('packs = ["rust", "rust"]\n');
+    expect(await fails()).toContain("packs: lists `rust` twice");
+  });
+
+  test("two gate stages with one name fail at load, naming it", async () => {
+    await write(
+      'packs = ["rust"]\n[gate]\nstages = [{ name = "lint", run = ["a"] }, { name = "lint", run = ["b"], fast = true }]\n',
+    );
+    expect(await fails()).toContain("gate.stages: two stages are named `lint`");
+  });
+
+  test("--config with a .toml path reads it as shape.toml", async () => {
+    await Bun.write(join(dir, "trial", "try.toml"), 'packs = ["python"]\n');
+    const config = await Effect.runPromise(loadConfig(dir, join(dir, "trial", "try.toml")));
+    expect(config.configFile).toBe("trial/try.toml");
+    expect(config.packs).toEqual(["python"]);
   });
 });

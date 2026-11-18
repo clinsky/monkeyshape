@@ -19,6 +19,7 @@ const input: BumpInput = {
   actual: NEW,
   expected: NEW,
   packageJson: PKG,
+  configFile: "shape.config.ts",
   configText: CONFIG,
 };
 const refusals = (overrides: Partial<BumpInput>) => {

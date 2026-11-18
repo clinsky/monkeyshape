@@ -12,8 +12,6 @@ import { WorkspaceError } from "../schemas/errors.ts";
 import { run } from "./process.ts";
 import { fileDigest } from "./release.ts";
 
-const CONFIG_FILE = "shape.config.ts";
-
 /** The `name` in a tarball's `package/package.json`; undefined when it has none. */
 const tarballPackage = (tarball: string) =>
   Effect.gen(function* () {
@@ -51,6 +49,8 @@ export interface BumpResult {
 /** Bumps the vendored dependency `name` in `repo` to `tarball`, whose release states `sha256`. */
 export const depBump = (
   repo: string,
+  /** The repo's config file, repo-relative, whose `files.vendored` entry bump rewrites. */
+  configFile: string,
   vendored: ReadonlyArray<VendoredEntry>,
   name: string,
   tarball: string,
@@ -67,7 +67,8 @@ export const depBump = (
       actual: yield* fileDigest(tarball),
       expected: sha256,
       packageJson: yield* read(join(repo, "package.json")),
-      configText: yield* read(join(repo, CONFIG_FILE)),
+      configFile,
+      configText: yield* read(join(repo, configFile)),
     });
     if ("refused" in plan)
       return { lines: ["nothing changed:", ...plan.refused], code: 1 } satisfies BumpResult;
@@ -77,14 +78,14 @@ export const depBump = (
         await copyFile(tarball, join(repo, plan.to.path));
         if (plan.from.path !== plan.to.path) await rm(join(repo, plan.from.path), { force: true });
         await Bun.write(join(repo, "package.json"), plan.packageJson);
-        await Bun.write(join(repo, CONFIG_FILE), plan.configText);
+        await Bun.write(join(repo, configFile), plan.configText);
       },
       catch: (cause) =>
         new WorkspaceError({ operation: "dep bump", path: repo, reason: String(cause) }),
     });
     const lines = [
       `${name}: ${plan.from.path} -> ${plan.to.path}, sha256 ${plan.to.sha256}`,
-      `updated package.json and ${CONFIG_FILE}`,
+      `updated package.json and ${configFile}`,
     ];
     const install = yield* run(repo, [process.execPath, "install"]);
     if (install.code !== 0)

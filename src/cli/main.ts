@@ -13,7 +13,7 @@ import {
   writeBaseline,
 } from "../adapters/baseline.ts";
 import { withBeadsExport } from "../adapters/beads.ts";
-import { CONFIG_FILE, loadConfig } from "../adapters/config.ts";
+import { findConfig, loadConfig } from "../adapters/config.ts";
 import { reviewPost, scanFile } from "../adapters/denylist.ts";
 import { depBump } from "../adapters/dep.ts";
 import { initRepo, vendoredSpec } from "../adapters/init.ts";
@@ -61,6 +61,7 @@ import { nextStep, REPO_NAME } from "../core/scaffold.ts";
 import { formatCollisions, formatSync, SKILL_NAME } from "../core/skills.ts";
 import { formatSyncPlan } from "../core/sync.ts";
 import { headingProblems } from "../core/trackPr.ts";
+import { shapeJsonSchema } from "../schemas/config.ts";
 import { type ConfigError, TrackError, WorkspaceError } from "../schemas/errors.ts";
 
 /** What a command returns: the text to print, and the exit code (0 prints to stdout). */
@@ -83,7 +84,7 @@ interface Command {
   ) => Effect.Effect<Outcome, ConfigError | WorkspaceError | TrackError>;
 }
 
-const FLAGS = `  --config <path>   For check, baseline, garden and rules: use this config instead of ./shape.config.ts
+const FLAGS = `  --config <path>   For check, baseline, garden and rules: use this config instead of ./shape.toml
                     (trying a repo before adopting).`;
 
 /** Every command's usage, in table order. A function, since the table is declared below. */
@@ -645,7 +646,7 @@ const skills = (root: string, args: ReadonlyArray<string>) =>
   args.length === 1 && args[0] === "sync" ? sync(root, []) : Effect.succeed(usage());
 
 /** What `check`, `baseline` and `garden` all read: the config, the snapshot, the baseline. */
-/** `--config <path>`, resolved from the repo root, or undefined for ./shape.config.ts. */
+/** `--config <path>`, resolved from the repo root, or undefined for the repo's own config. */
 const configFlag = (root: string, args: ReadonlyArray<string>): string | undefined => {
   const at = args.indexOf("--config");
   const path = at === -1 ? undefined : args[at + 1];
@@ -692,6 +693,7 @@ const dep = (root: string, args: ReadonlyArray<string>) =>
     const config = yield* loadConfig(root);
     const result = yield* depBump(
       root,
+      config.configFile,
       config.files.vendored,
       name,
       resolve(root, tarball),
@@ -760,17 +762,23 @@ const gardenCommand = (root: string, args: ReadonlyArray<string>) =>
   }));
 
 /**
- * Works before adopting: with no ./shape.config.ts, the registry's rules alone. A `--config`
+ * Works before adopting: with no ./shape.toml, the registry's rules alone. A `--config`
  * that can't load is an error, as for `check`, so a typo can't read as "no local rules".
  */
 const rules = (root: string, args: ReadonlyArray<string>) =>
   Effect.gen(function* () {
-    const flagged = configFlag(root, args);
-    const path = flagged ?? `${root}/${CONFIG_FILE}`;
-    const present = flagged !== undefined || (yield* Effect.promise(() => Bun.file(path).exists()));
-    const config = present ? yield* loadConfig(root, path) : undefined;
+    const path = configFlag(root, args) ?? (yield* findConfig(root));
+    const config = path === undefined ? undefined : yield* loadConfig(root, path);
     return { output: formatRules(RULES, config?.localRules), code: 0 };
   });
+
+/** `mshape config schema`: the JSON Schema of `shape.toml`, as the package ships it. */
+const configCommand = (_root: string, args: ReadonlyArray<string>) =>
+  Effect.succeed(
+    args.length === 1 && args[0] === "schema"
+      ? { output: shapeJsonSchema().trimEnd(), code: 0 }
+      : usage(),
+  );
 
 /** Every command, in the order the help lists them. */
 export const COMMANDS: ReadonlyArray<Command> = [
@@ -822,6 +830,13 @@ export const COMMANDS: ReadonlyArray<Command> = [
     usage: `  mshape rules [--config <path>]
       List the custom rules, the repo's own (localRules) included, and the bug class each removes.`,
     run: rules,
+  },
+  {
+    name: "config",
+    usage: `  mshape config schema
+      Print the JSON Schema of shape.toml, which the package ships as schema/shape.schema.json:
+      point an editor's TOML support at it to validate the config as you type.`,
+    run: configCommand,
   },
   {
     name: "track",

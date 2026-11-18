@@ -1,13 +1,34 @@
-/** Loads `shape.config.ts` by importing it, then decodes it strictly. */
+/**
+ * Loads the repo's config, `shape.toml`, and decodes it strictly. `shape.config.ts` still
+ * loads, by importing it, until `mshape config migrate` replaces it.
+ */
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { basename, dirname, join, relative, resolve } from "node:path";
 import * as Effect from "effect/Effect";
 import { decodeStrict } from "../helpers/decodeStrict.ts";
-import { resolveConfig, ShapeConfig } from "../schemas/config.ts";
+import {
+  configProblems,
+  PACK_IDS,
+  type PackId,
+  resolveConfig,
+  ShapeConfig,
+  ShapeToml,
+} from "../schemas/config.ts";
 import { ConfigError } from "../schemas/errors.ts";
 
-export const CONFIG_FILE = "shape.config.ts";
+export const CONFIG_FILE = "shape.toml";
+/** The config as code, which 0.6.0 replaces with `shape.toml`. */
+export const TS_CONFIG_FILE = "shape.config.ts";
+
+/** Each pack's mark at the repo root, so a `shape.toml` without `packs` can be told what to list. */
+const PACK_MARKERS: ReadonlyArray<readonly [PackId, ReadonlyArray<string>]> = [
+  ["typescript", ["tsconfig.json", "package.json"]],
+  ["rust", ["Cargo.toml"]],
+  ["python", ["pyproject.toml"]],
+];
+
+const exists = (path: string) => Effect.promise(() => Bun.file(path).exists());
 
 /**
  * Why importing the config failed, naming where: Bun's build and resolve errors carry the file
@@ -136,20 +157,76 @@ const reachedFrom = async (config: string, root: string): Promise<ReadonlyArray<
     .sort();
 };
 
-/** `path` overrides the repo's own config, e.g. to try monkeyshape on a repo before adopting it. */
-export const loadConfig = (root: string, path = `${root}/${CONFIG_FILE}`) =>
+/** The repo's own config: `shape.toml`, or `shape.config.ts` until it is migrated. */
+export const findConfig = (root: string) =>
   Effect.gen(function* () {
+    const toml = yield* exists(join(root, CONFIG_FILE));
+    const ts = yield* exists(join(root, TS_CONFIG_FILE));
+    if (toml && ts)
+      return yield* Effect.fail(
+        new ConfigError({
+          path: CONFIG_FILE,
+          reason: `${TS_CONFIG_FILE} is here too, and a repo has one config: keep ${CONFIG_FILE}, move into it anything only ${TS_CONFIG_FILE} says, and delete ${TS_CONFIG_FILE}`,
+        }),
+      );
+    if (ts) return join(root, TS_CONFIG_FILE);
+    return toml ? join(root, CONFIG_FILE) : undefined;
+  });
+
+const loadToml = (root: string, path: string, shown: string) =>
+  Effect.gen(function* () {
+    const text = yield* Effect.promise(() => Bun.file(path).text());
+    const parsed = yield* Effect.try({
+      try: (): unknown => Bun.TOML.parse(text),
+      catch: (cause) =>
+        new ConfigError({
+          path: shown,
+          reason: `isn't valid TOML: ${cause instanceof Error ? cause.message : String(cause)}`,
+        }),
+    });
+    const config = yield* decodeStrict(ShapeToml)(parsed).pipe(
+      Effect.mapError((error) => new ConfigError({ path: shown, reason: error.message })),
+    );
+    if (config.packs === undefined) {
+      const found: Array<PackId> = [];
+      for (const [pack, markers] of PACK_MARKERS)
+        for (const marker of markers)
+          if (!found.includes(pack) && (yield* exists(join(root, marker)))) found.push(pack);
+      return yield* Effect.fail(
+        new ConfigError({
+          path: shown,
+          reason:
+            found.length > 0
+              ? `has no \`packs\`: this repo has ${found.map((pack) => `${pack}'s files`).join(" and ")}, so add \`packs = [${found.map((pack) => `"${pack}"`).join(", ")}]\` at the top, in the order their gate stages should run`
+              : `has no \`packs\`: add \`packs = ["<pack>"]\` at the top, naming the languages this repo is written in (${PACK_IDS.join(", ")})`,
+        }),
+      );
+    }
+    const problems = configProblems(config);
+    if (problems.length > 0)
+      return yield* Effect.fail(new ConfigError({ path: shown, reason: problems.join("; ") }));
+    return resolveConfig(config, shown);
+  });
+
+/**
+ * `path` overrides the repo's own config, e.g. to try monkeyshape on a repo before adopting
+ * it: a `.toml` file is read as `shape.toml`, anything else imported as `shape.config.ts`.
+ */
+export const loadConfig = (root: string, given?: string) =>
+  Effect.gen(function* () {
+    const path = given ?? (yield* findConfig(root)) ?? join(root, CONFIG_FILE);
     // The file tried, as the user would name it: `--config` may point anywhere.
     const shown = relative(root, path).startsWith("..") ? path : relative(root, path);
-    const own = shown === CONFIG_FILE;
+    const own = given === undefined;
     const outside = relative(root, path).startsWith("..");
-    if (!(yield* Effect.promise(() => Bun.file(path).exists())))
+    if (!(yield* exists(path)))
       return yield* Effect.fail(
         new ConfigError({
           path: shown,
           reason: own ? "not found; every adopting repo has one" : "not found",
         }),
       );
+    if (path.endsWith(".toml")) return yield* loadToml(root, path, shown);
     const module = yield* Effect.tryPromise({
       try: async () => {
         if (!outside) return (await import(path)) as { readonly default?: unknown };
@@ -177,6 +254,9 @@ export const loadConfig = (root: string, path = `${root}/${CONFIG_FILE}`) =>
     const config = yield* decodeStrict(ShapeConfig)(module.default).pipe(
       Effect.mapError((error) => new ConfigError({ path: shown, reason: error.message })),
     );
+    const problems = configProblems(config);
+    if (problems.length > 0)
+      return yield* Effect.fail(new ConfigError({ path: shown, reason: problems.join("; ") }));
     const reached = yield* Effect.promise(() => reachedFrom(path, root));
     return resolveConfig(config, shown, reached);
   });

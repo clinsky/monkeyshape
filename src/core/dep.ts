@@ -1,6 +1,6 @@
 /**
  * `mshape dep bump`: moving a dependency on another repo's release tarball, vendored under
- * `vendor/` and recorded in `shape.config.ts` as `files.vendored` (`{ path, package, sha256 }`,
+ * `vendor/` and recorded in the config (`shape.toml`) as `files.vendored` (`{ path, package, sha256 }`,
  * verified by the `files` check). The digest comes from the upstream release, never from the
  * tarball in hand, so a tarball that isn't the release is refused; bump never fetches.
  * Planning is pure and refuses before anything is written; the adapter writes, installs and
@@ -32,6 +32,8 @@ export interface BumpInput {
   /** The sha256 the upstream release states, from `--sha256`. */
   readonly expected: string;
   readonly packageJson: string;
+  /** The config file as the repo names it (`shape.toml`), and its text. */
+  readonly configFile: string;
   readonly configText: string;
 }
 
@@ -90,7 +92,7 @@ export const planBump = (
   if (from === undefined)
     return {
       refused: [
-        `no vendored dependency ${input.name} is recorded in shape.config.ts's files.vendored${input.vendored.length > 0 ? ` (recorded: ${input.vendored.map((entry) => entry.package).join(", ")})` : ""}. Record it first: { path: "${VENDOR_DIR}/<tarball>", package: "${input.name}", sha256: "<digest>" }.`,
+        `no vendored dependency ${input.name} is recorded in ${input.configFile}'s files.vendored${input.vendored.length > 0 ? ` (recorded: ${input.vendored.map((entry) => entry.package).join(", ")})` : ""}. Record it first: ${input.configFile.endsWith(".toml") ? `{ path = "${VENDOR_DIR}/<tarball>", package = "${input.name}", sha256 = "<digest>" }` : `{ path: "${VENDOR_DIR}/<tarball>", package: "${input.name}", sha256: "<digest>" }`}.`,
       ],
     };
   const expected = input.expected.toLowerCase();
@@ -159,7 +161,7 @@ export const planBump = (
     if ("text" in replaced) configText = replaced.text;
     else
       refused.push(
-        `shape.config.ts has the recorded ${field} "${value}" ${replaced.count === 0 ? "nowhere as a string literal" : `${replaced.count} times`}, so bump can't rewrite it safely. Write it once, as a literal in the files.vendored entry, then bump again.`,
+        `${input.configFile} has the recorded ${field} "${value}" ${replaced.count === 0 ? "nowhere as a string literal" : `${replaced.count} times`}, so bump can't rewrite it safely. Write it once, as a literal in the files.vendored entry, then bump again.`,
       );
   }
   if (refused.length > 0) return { refused };

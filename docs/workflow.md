@@ -83,7 +83,7 @@ A track is one line of parallel work: a name, a git worktree, a branch, a beads 
 handoff, all derived from the name by `mshape track`:
 
 - `mshape track new <name>` creates the worktree `.agents/worktrees/<repo>@<name>`, the branch
-  `track/<name>` and the handoff, and links the shared paths from `shape.config.ts`
+  `track/<name>` and the handoff, and links the shared paths from `shape.toml`
   (gitignored data such as a dataset) into the worktree.
 - `mshape track list` shows the tracks and each one's open beads; `mshape track current`
   names the track of the current directory, and fails with a reason anywhere else.

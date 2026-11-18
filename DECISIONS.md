@@ -16,7 +16,7 @@ maintainer's call.
 Decision: Every check takes the resolved config and a loaded Snapshot and returns violations. Only `src/adapters/` touches disk, git or `bd`.
 Tempting wrong fix: Let a check read the file it needs. It works until checks need fixtures, and then every test needs a temp repo.
 Evidence: verified: every check in `test/` runs on an in-memory Snapshot.
-Enforced by: shape.config.ts (core has no hostAccess), test/core/
+Enforced by: shape.toml (core has no host-access), test/core/
 Revisit when: a check needs data too large to load up front.
 
 ## D-own-rule-engine: Custom rules run on the oxc AST inside mshape, not as Biome plugins

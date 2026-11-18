@@ -1,6 +1,7 @@
 /**
- * `shape.config.ts`: the one file where an adopting repo states its local facts.
- * Everything optional has a default in `resolveConfig`; the defaults are the template's
+ * `shape.toml`: the one file where an adopting repo states its local facts, with kebab-case
+ * keys; `shape.config.ts` states the same in camelCase until `mshape config migrate` replaces
+ * it. Everything optional has a default in `resolveConfig`; the defaults are the template's
  * opinion, so overriding one should be rare and visible.
  */
 import * as Schema from "effect/Schema";
@@ -66,8 +67,15 @@ export const Allowance = Schema.Struct({
 });
 export type Allowance = typeof Allowance.Type;
 
+/** The language packs a repo can list, in `packs`; each owns its files, checks and stages. */
+export const PACK_IDS = ["typescript", "rust", "python"] as const;
+export type PackId = (typeof PACK_IDS)[number];
+const Pack = Schema.Literals(PACK_IDS);
+
 export const ModuleRule = Schema.Struct({
   description: Schema.String,
+  /** The pack whose files the module holds: required when the repo lists more than one. */
+  pack: Schema.optionalKey(Pack),
   /** Modules this one may import besides itself. */
   mayImport: Schema.optionalKey(Schema.Array(Schema.String)),
   /** May touch the host directly (`node:*`, `bun`, platform packages). */
@@ -78,7 +86,7 @@ export const ModuleRule = Schema.Struct({
   manifest: Schema.optionalKey(Schema.Boolean),
   /** Matching no file is not a failure: the module is still to come. */
   optional: Schema.optionalKey(Schema.Boolean),
-});
+}).pipe(Schema.encodeKeys({ mayImport: "may-import", hostAccess: "host-access" }));
 export type ModuleRule = typeof ModuleRule.Type;
 
 export const RuleSetting = Schema.Struct({
@@ -161,7 +169,36 @@ export const ForbiddenPattern = Schema.Struct({
   reason: Reason,
 });
 
-export const ShapeConfig = Schema.Struct({
+/** argv, not a shell line: `["make", "-C", "native", "check"]`. */
+const Argv = Schema.Array(Schema.String).check(Schema.isMinLength(1));
+
+/** One step of `mshape gate`: a pack's default, or the repo's own in `[gate].stages`. */
+export const GateStage = Schema.Struct({
+  /** A repo stage with a pack stage's name replaces it. */
+  name: Schema.String.check(Schema.isMinLength(1)),
+  run: Argv,
+  /** Runs in the fast phase, the one `--fast` and `track pr` run. */
+  fast: Schema.optionalKey(Schema.Boolean),
+  /** The exit codes that pass; `[0]` when unset. */
+  okExit: Schema.optionalKey(Schema.Array(Schema.Int).check(Schema.isMinLength(1))),
+}).pipe(Schema.encodeKeys({ okExit: "ok-exit" }));
+export type GateStage = typeof GateStage.Type;
+
+/** The `mshape` a repo runs: the launcher fetches and verifies this version. */
+const MshapePin = Schema.Struct({
+  version: Schema.String.check(Schema.isPattern(/^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/)),
+  /** The sha256 of the release's `SHA256SUMS`, lowercase hex. */
+  sums: Schema.optionalKey(Schema.String.check(Schema.isPattern(/^[0-9a-f]{64}$/))),
+  /** Run this argv instead of a fetched binary: monkeyshape's own repo, from source. */
+  dev: Schema.optionalKey(Argv),
+});
+
+const configFields = {
+  /** The packs, in the order their gate stages run. */
+  packs: Schema.optionalKey(Schema.Array(Pack).check(Schema.isMinLength(1))),
+  mshape: Schema.optionalKey(MshapePin),
+  /** The repo's own gate stages, after its packs' defaults. */
+  gate: Schema.optionalKey(Schema.Struct({ stages: Schema.optionalKey(Schema.Array(GateStage)) })),
   layers: Schema.optionalKey(Schema.Array(Schema.Literals(["core", "agentic"]))),
   /**
    * Files the custom rules apply to. Every other TypeScript file is a test, a declaration
@@ -201,15 +238,11 @@ export const ShapeConfig = Schema.Struct({
       /** Third-party packages every module may import, in addition to `effect`. */
       allowedPackages: Schema.optionalKey(Schema.Array(Schema.String)),
       hostSpecifiers: Schema.optionalKey(Schema.Array(Schema.String)),
-    }),
+    }).pipe(
+      Schema.encodeKeys({ allowedPackages: "allowed-packages", hostSpecifiers: "host-specifiers" }),
+    ),
   ),
   rules: Schema.optionalKey(Schema.Record(Schema.String, RuleSetting)),
-  /**
-   * The repo's own rules: each a module's default export, imported here
-   * (`import indexWrites from "./rules/indexWrites.ts"`). The rules check validates each and
-   * runs it as `local/<id>`; `rules` configures it under that id.
-   */
-  localRules: Schema.optionalKey(Schema.Array(Schema.Unknown)),
   /** `required` fails the check when bd can't answer, so a green CI run means beads was checked. */
   beads: Schema.optionalKey(Schema.Literals(["optional", "required"])),
   tracks: Schema.optionalKey(
@@ -220,7 +253,7 @@ export const ShapeConfig = Schema.Struct({
        * `<main>/<path>`. The semantics are in plan/MILESTONE.md, "Interfaces the tracks share".
        */
       sharedPaths: Schema.optionalKey(Schema.Array(SharedPath)),
-    }),
+    }).pipe(Schema.encodeKeys({ sharedPaths: "shared-paths" })),
   ),
   refs: Schema.optionalKey(
     Schema.Struct({
@@ -236,7 +269,7 @@ export const ShapeConfig = Schema.Struct({
       forbidden: Schema.optionalKey(Schema.Array(ForbiddenPattern)),
       /** Per kind, as `rules` per rule: `off` with a reason, or `allow` for paths with reasons. */
       rules: Schema.optionalKey(RefsRules),
-    }),
+    }).pipe(Schema.encodeKeys({ narrativeDocs: "narrative-docs", formOnlyDocs: "form-only-docs" })),
   ),
   budgets: Schema.optionalKey(
     Schema.Struct({
@@ -249,7 +282,17 @@ export const ShapeConfig = Schema.Struct({
       fileWarnLines: Schema.optionalKey(Schema.Int),
       fileFailLines: Schema.optionalKey(Schema.Int),
       largeFiles: Schema.optionalKey(Schema.Array(Allowance)),
-    }),
+    }).pipe(
+      Schema.encodeKeys({
+        agentsLines: "agents-lines",
+        readmeLines: "readme-lines",
+        decisionWords: "decision-words",
+        memoryBytes: "memory-bytes",
+        fileWarnLines: "file-warn-lines",
+        fileFailLines: "file-fail-lines",
+        largeFiles: "large-files",
+      }),
+    ),
   ),
   files: Schema.optionalKey(
     Schema.Struct({
@@ -258,7 +301,7 @@ export const ShapeConfig = Schema.Struct({
       /** Files allowed past the cap, each with its reason. */
       large: Schema.optionalKey(Schema.Array(Allowance)),
       vendored: Schema.optionalKey(Schema.Array(VendoredArtifact)),
-    }),
+    }).pipe(Schema.encodeKeys({ maxBytes: "max-bytes" })),
   ),
   coverage: Schema.optionalKey(
     Schema.Struct({
@@ -269,14 +312,86 @@ export const ShapeConfig = Schema.Struct({
       commands: Schema.optionalKey(Schema.Array(DeclaredCommand)),
       /** Executable source no command checks, each with the reason it needs none. */
       exemptFiles: Schema.optionalKey(Schema.Array(Allowance)),
-    }),
+    }).pipe(Schema.encodeKeys({ exemptFiles: "exempt-files" })),
   ),
-});
+};
+
+/** `shape.toml` as written: kebab-case keys, decoded into the camelCase `ShapeConfig`. */
+export const ShapeToml = Schema.Struct(configFields);
+
+/** `shape.config.ts`'s default export: the same values in camelCase, plus `localRules`. */
+export const ShapeConfig = Schema.toType(
+  Schema.Struct({
+    ...configFields,
+    /**
+     * The repo's own rules: each a module's default export, imported here
+     * (`import indexWrites from "./rules/indexWrites.ts"`). The rules check validates each and
+     * runs it as `local/<id>`; `rules` configures it under that id.
+     */
+    localRules: Schema.optionalKey(Schema.Array(Schema.Unknown)),
+  }),
+);
 export type ShapeConfig = typeof ShapeConfig.Type;
 
+/**
+ * What the schema can't say about one `shape.toml`, each naming its key: a module without a
+ * pack where the repo lists several, a pack a module names but `packs` doesn't, a pack or
+ * gate stage listed twice. `packs` missing is the loader's, which can say what to list.
+ */
+export const configProblems = (config: ShapeConfig): ReadonlyArray<string> => {
+  const problems: Array<string> = [];
+  const packs = config.packs ?? [];
+  for (const pack of new Set(packs.filter((one, i) => packs.indexOf(one) !== i)))
+    problems.push(`packs: lists \`${pack}\` twice; list each pack once`);
+  for (const [name, module] of Object.entries(config.arch?.modules ?? {})) {
+    if (module.pack === undefined && packs.length > 1)
+      problems.push(
+        `arch.modules.${name}: the repo lists ${packs.length} packs (${packs.join(", ")}), so say whose files the module holds: \`pack = "${packs[0]}"\` or another of them`,
+      );
+    if (module.pack !== undefined && packs.length > 0 && !packs.includes(module.pack))
+      problems.push(
+        `arch.modules.${name}.pack: \`${module.pack}\` isn't in \`packs\` (${packs.join(", ")}); add it there or name one of those`,
+      );
+  }
+  const stages = (config.gate?.stages ?? []).map((stage) => stage.name);
+  for (const name of new Set(stages.filter((one, i) => stages.indexOf(one) !== i)))
+    problems.push(
+      `gate.stages: two stages are named \`${name}\`; give each its own name (one with a pack stage's name replaces that stage)`,
+    );
+  return problems;
+};
+
+/** The JSON Schema of `shape.toml` that editors validate against, shipped as `schema/shape.schema.json`. */
+export const shapeJsonSchema = (): string => {
+  const document = Schema.toJsonSchemaDocument(ShapeToml);
+  // Effect leaves objects open; the loader refuses an unknown key, so the editor should too.
+  const close = (node: unknown): unknown => {
+    if (Array.isArray(node)) return node.map(close);
+    if (typeof node !== "object" || node === null) return node;
+    const out: Record<string, unknown> & { additionalProperties?: unknown } = {};
+    for (const [key, value] of Object.entries(node)) out[key] = close(value);
+    if ("properties" in out && out.additionalProperties === true) out.additionalProperties = false;
+    return out;
+  };
+  const root = {
+    $schema: "https://json-schema.org/draft/2020-12/schema",
+    title: "shape.toml",
+    description: "monkeyshape's config: https://github.com/clinsky/monkeyshape",
+    ...(close(document.schema) as object),
+    ...(Object.keys(document.definitions).length > 0 ? { $defs: close(document.definitions) } : {}),
+  };
+  return `${JSON.stringify(root, null, 2)}\n`;
+};
+
 export interface ResolvedConfig {
-  /** The config file as its reader names it: `shape.config.ts`, or what `--config` loaded. */
+  /** The config file as its reader names it: `shape.toml`, or what `--config` loaded. */
   readonly configFile: string;
+  /** In the order their gate stages run; `["typescript"]` for a `shape.config.ts`. */
+  readonly packs: ReadonlyArray<PackId>;
+  readonly mshape:
+    | { readonly version: string; readonly sums?: string; readonly dev?: ReadonlyArray<string> }
+    | undefined;
+  readonly gate: { readonly stages: ReadonlyArray<GateStage> };
   /**
    * The repo's files the config imports, directly or not: its local rules and their helpers.
    * Like the config, they are mshape's, so arch asks no module to own them.
@@ -368,6 +483,9 @@ export const resolveConfig = (
   modules: ReadonlyArray<string> = [],
 ): ResolvedConfig => ({
   configFile: file,
+  packs: config.packs ?? ["typescript"],
+  mshape: config.mshape,
+  gate: { stages: config.gate?.stages ?? [] },
   configModules: modules,
   layers: config.layers ?? ["core"],
   sources: {

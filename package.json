@@ -42,6 +42,7 @@
     "config",
     "template",
     "skills",
+    "schema",
     "!src/**/*.test.ts",
     "README.md",
     "docs/workflow.md",
@@ -54,6 +55,7 @@
     "mshape": "bun src/cli/main.ts",
     "shape": "bun src/cli/main.ts check",
     "release": "bun src/cli/release.ts",
+    "schema": "bun src/cli/main.ts config schema > schema/shape.schema.json",
     "check": "bun run typecheck && bun run lint && bun run shape && bun test --parallel --timeout=30000"
   },
   "dependencies": {
