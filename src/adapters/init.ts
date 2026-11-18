@@ -152,8 +152,8 @@ export const initRepo = (
     if (template === undefined)
       return yield* Effect.fail(
         fail(
-          `${packageRoot}/template/${PACKS_DIR}/${pack}`,
-          `is missing: this monkeyshape has no template for the ${pack} pack (it has ${shippedTemplates(tree).join(", ")})`,
+          `--pack ${pack}`,
+          `this monkeyshape has no template for the ${pack} pack yet (it has ${shippedTemplates(tree).join(", ")}): run an mshape release that ships one, or init with --pack ${shippedTemplates(tree)[0] ?? "typescript"}`,
         ),
       );
     // A tarball is recorded with its digest, so the files check verifies it from the first gate.

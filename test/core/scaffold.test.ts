@@ -1,12 +1,14 @@
 import { describe, expect, test } from "bun:test";
 import {
   nextStep,
+  PACKS_DIR,
   REPO_NAME,
   SHARE_BEADS,
   scaffold,
   targetPath,
   templateFor,
 } from "../../src/core/scaffold.ts";
+import { PACKS } from "../../src/packs/index.ts";
 
 const toolchain = {
   bun: "1.4.2",
@@ -130,4 +132,10 @@ describe("a pack's template over the common one", () => {
     expect([...ts.keys()]).toContain("bunfig.toml");
     expect(ts.get("AGENTS.md")).toBe("# app, in TypeScript\n");
   });
+});
+
+test("every shipped pack's template is where init looks for it: template/packs/<id>", () => {
+  // init composes by id (templateFor); Pack.template must say the same, or the two drift.
+  for (const pack of Object.values(PACKS))
+    expect(pack?.template).toBe(`template/${PACKS_DIR}/${pack?.id}`);
 });
