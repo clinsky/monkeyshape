@@ -24,12 +24,14 @@ describe("modDeclarations", () => {
 
   test("records enclosing inline modules and #[path]", () => {
     const text = 'mod outer { #[path = "x.rs"] mod a; mod b; }\nmod c;\n#[cfg(test)]\nmod tests;';
-    expect(modDeclarations(text).map((d) => [d.name, d.inline, d.path])).toEqual([
-      ["a", ["outer"], "x.rs"],
-      ["b", ["outer"], undefined],
-      ["c", [], undefined],
-      ["tests", [], undefined],
-    ]);
+    expect(modDeclarations(text).map((d) => [d.name, d.inline.map((b) => b.name), d.path])).toEqual(
+      [
+        ["a", ["outer"], "x.rs"],
+        ["b", ["outer"], undefined],
+        ["c", [], undefined],
+        ["tests", [], undefined],
+      ],
+    );
   });
 
   test("a raw identifier names its file without r#", () => {
@@ -92,5 +94,55 @@ describe("reachedFiles", () => {
         "src/gen/y.rs": "",
       }),
     ).toEqual(["src/gen/x.rs", "src/gen/y.rs", "src/lib.rs"]);
+  });
+
+  // Each case below is what rustc 1.100's dep-info listed, or the file its error asked for;
+  // each was reported as coverage/compile before (review of #102).
+  test("include! reads a file relative to the including file's directory", () => {
+    expect(
+      reached({
+        "src/lib.rs": 'mod a;\ninclude!("gen.rs");',
+        "src/gen.rs": "",
+        "src/a.rs": 'include!("inc.rs");',
+        "src/inc.rs": "",
+        "src/a/inc.rs": "",
+      }),
+    ).toEqual(["src/a.rs", "src/gen.rs", "src/inc.rs", "src/lib.rs"]);
+  });
+
+  test("an include! of a computed path, or inside a string, is not followed", () => {
+    expect(
+      reached({
+        "src/lib.rs":
+          'include!(concat!(env!("OUT_DIR"), "/x.rs"));\nconst S: &str = "include!(\\"y.rs\\")";',
+        "src/x.rs": "",
+        "src/y.rs": "",
+      }),
+    ).toEqual(["src/lib.rs"]);
+  });
+
+  test("every cfg_attr path is compiled on some platform", () => {
+    expect(
+      reached({
+        "src/lib.rs":
+          '#[cfg_attr(unix, path = "plat_unix.rs")]\n#[cfg_attr(windows, path = "plat_win.rs")]\nmod plat;',
+        "src/plat_unix.rs": "",
+        "src/plat_win.rs": "",
+        "src/plat.rs": "",
+      }),
+    ).toEqual(["src/lib.rs", "src/plat.rs", "src/plat_unix.rs", "src/plat_win.rs"]);
+  });
+
+  test("#[path] on an inline block, in a mod.rs file and in another", () => {
+    expect(
+      reached({
+        "src/lib.rs": '#[path = "other"]\nmod k { mod l; }\nmod a;',
+        "src/other/l.rs": "",
+        "src/k/l.rs": "",
+        "src/a.rs": '#[path = "k2"] mod k { mod m; }',
+        "src/k2/m.rs": "",
+        "src/a/k2/m.rs": "",
+      }),
+    ).toEqual(["src/a.rs", "src/k2/m.rs", "src/lib.rs", "src/other/l.rs"]);
   });
 });

@@ -121,4 +121,56 @@ describe("the Rust pack through mshape's checks", () => {
   test("every .rs file is in sources by the pack's default, and no rule misreads Rust", () => {
     expect(runChecks(shape, snapshot, ["sources", "rules"])).toEqual([]);
   });
+
+  // The review of #102: files rustc does compile, or another workspace builds, that the mod
+  // tree can't reach. Each has a way out that coverage honours, and the message names both.
+  describe("what the mod tree can't reach", () => {
+    const withFuzz = repo(
+      { ...FILES, "fuzz/Cargo.toml": '[package]\nname = "f"\n', "fuzz/fuzz_targets/t1.rs": "" },
+      {
+        packs: [
+          {
+            pack: rust,
+            load: {
+              tools: [{ tool: RUSTC, integration: { state: "ok" }, files: new Set(COMPILED) }],
+              outputs: new Map([[CARGO_METADATA, metadata]]),
+            },
+          },
+        ],
+      },
+    );
+    const compile = (input: ShapeConfig) =>
+      runChecks(config(input), withFuzz, ["coverage"])
+        .filter((v) => v.rule === "coverage/compile")
+        .map((v) => v.file);
+
+    test("a nested workspace's file is reported, and the message says how to check it", () => {
+      expect(compile({ packs: ["rust"] })).toEqual([
+        "crates/core/src/orphan.rs",
+        "fuzz/fuzz_targets/t1.rs",
+      ]);
+      const [first] = runChecks(config({ packs: ["rust"] }), withFuzz, ["coverage"]);
+      expect(first?.message).toContain("`coverage.commands` in shape.toml");
+      expect(first?.message).toContain("`coverage.exempt-files`");
+    });
+
+    test("a declared command that checks it, or an exemption with a reason, excuses it", () => {
+      expect(
+        compile({
+          packs: ["rust"],
+          coverage: {
+            commands: [
+              {
+                files: ["fuzz/**"],
+                run: ["cargo", "clippy", "--manifest-path", "fuzz/Cargo.toml"],
+              },
+            ],
+            exemptFiles: [
+              { path: "crates/core/src/orphan.rs", reason: "reached only by a macro's mod" },
+            ],
+          },
+        }),
+      ).toEqual([]);
+    });
+  });
 });
