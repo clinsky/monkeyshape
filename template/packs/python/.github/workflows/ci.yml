@@ -1,0 +1,27 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      # uv runs the gate's ruff, ty and pytest at the versions uv.lock pins.
+      - uses: astral-sh/setup-uv@v6
+        with:
+          version: "0.8.22"
+      # mshape as every machine installs it, verified against the release's SHA256SUMS: no Bun.
+      - name: Install mshape
+        run: |
+          curl -fsSL https://github.com/clinsky/monkeyshape/releases/latest/download/install.sh | sh
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+      - run: mshape gate

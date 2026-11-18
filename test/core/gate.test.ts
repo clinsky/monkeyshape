@@ -101,10 +101,18 @@ describe("gateStages", () => {
           .filter((stage) => stage.origin === id)
           .map((stage) => [stage.name, stage.required]),
       );
-    expect(required("rust")).toEqual({ fmt: true, clippy: true, test: true });
+    expect(required("rust")).toEqual({ "cargo-fmt": true, clippy: true, "cargo-test": true });
     // cargo stands for the toolchain, rustc; the clippy stage for clippy, by its name.
-    expect(required("rust", "rustc")).toEqual({ fmt: false, clippy: true, test: false });
-    expect(required("rust", "clippy")).toEqual({ fmt: true, clippy: false, test: true });
+    expect(required("rust", "rustc")).toEqual({
+      "cargo-fmt": false,
+      clippy: true,
+      "cargo-test": false,
+    });
+    expect(required("rust", "clippy")).toEqual({
+      "cargo-fmt": true,
+      clippy: false,
+      "cargo-test": true,
+    });
     // ruff and ty reach their stages, as they reach mshape check.
     expect(required("python", "ruff")).toMatchObject({ ruff: false, ty: true });
     expect(required("python", "ty")).toMatchObject({ ruff: true, ty: false });
