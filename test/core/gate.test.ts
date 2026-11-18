@@ -7,10 +7,7 @@ import { GATE_PACKS } from "./gatePacks.ts";
 const config = (
   packs: ReadonlyArray<PackId>,
   stages: ReadonlyArray<GateStage> = [],
-  prerequisites: { tsc: "optional" | "required"; biome: "optional" | "required" } = {
-    tsc: "required",
-    biome: "required",
-  },
+  prerequisites: Readonly<Record<string, "optional" | "required">> = {},
 ) => ({ packs, gate: { stages }, prerequisites });
 
 const names = (stages: ReturnType<typeof gateStages>) =>
@@ -44,7 +41,7 @@ describe("gateStages", () => {
       "fast:tsc",
       "fast:biome",
       "fast:ruff-format",
-      "fast:ruff-check",
+      "fast:ruff",
       "fast:ty",
       `fast:${CHECK_STAGE}`,
       "full:bun-test",
@@ -95,6 +92,22 @@ describe("gateStages", () => {
     );
     const required = Object.fromEntries(stages.map((stage) => [stage.name, stage.required]));
     expect(required).toEqual({ tsc: false, biome: true, [CHECK_STAGE]: true, "bun-test": true });
+  });
+
+  test("any pack's tool can be made optional, each reaching the stage that stands for it (#110's review)", () => {
+    const required = (id: "rust" | "python", key?: string) =>
+      Object.fromEntries(
+        gateStages(config([id], [], key === undefined ? {} : { [key]: "optional" }), GATE_PACKS)
+          .filter((stage) => stage.origin === id)
+          .map((stage) => [stage.name, stage.required]),
+      );
+    expect(required("rust")).toEqual({ fmt: true, clippy: true, test: true });
+    // cargo stands for the toolchain, rustc; the clippy stage for clippy, by its name.
+    expect(required("rust", "rustc")).toEqual({ fmt: false, clippy: true, test: false });
+    expect(required("rust", "clippy")).toEqual({ fmt: true, clippy: false, test: true });
+    // ruff and ty reach their stages, as they reach mshape check.
+    expect(required("python", "ruff")).toMatchObject({ ruff: false, ty: true });
+    expect(required("python", "ty")).toMatchObject({ ruff: true, ty: false });
   });
 
   test("a fresh born repo with no tests yet is green in every pack", () => {

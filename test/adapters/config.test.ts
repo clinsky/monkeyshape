@@ -5,7 +5,7 @@ import { join } from "node:path";
 import * as Effect from "effect/Effect";
 import { loadConfig } from "../../src/adapters/config.ts";
 import { PACKS } from "../../src/packs/index.ts";
-import { PACK_IDS } from "../../src/schemas/config.ts";
+import { DEFAULT_DOCS, PACK_IDS } from "../../src/schemas/config.ts";
 
 let dir = "";
 
@@ -298,5 +298,65 @@ describe("[gate].stages names", () => {
     expect((await Effect.runPromise(Effect.flip(loadConfig(dir)))).message).toContain(
       "`mshape-check` is the gate's own `mshape check`, which always runs and can't be replaced",
     );
+  });
+});
+
+describe("a default list's { add } form", () => {
+  test("is the default with the added entries after it; a whole list replaces the default", async () => {
+    await Bun.write(
+      join(dir, "shape.toml"),
+      'packs = ["typescript"]\n[refs]\ndocs = { add = ["docs/guide.md", "AGENTS.md"] }\nform-only-docs = ["notes/**/*.md"]\n[coverage]\nexempt = { add = ["gen"] }\n',
+    );
+    const config = await Effect.runPromise(loadConfig(dir));
+    expect(config.refs.docs).toEqual([...DEFAULT_DOCS, "docs/guide.md"]);
+    expect(config.refs.formOnlyDocs).toEqual(["notes/**/*.md"]);
+    expect(config.refs.narrativeDocs).toEqual(["README.md"]);
+    expect(config.coverage.exempt.at(-1)).toBe("gen");
+    expect(config.coverage.exempt).toContain("node_modules");
+  });
+});
+
+describe("prerequisites", () => {
+  test("take a listed pack's tool by name; one not set is as the pack declares it", async () => {
+    await Bun.write(
+      join(dir, "shape.toml"),
+      'packs = ["typescript"]\n[prerequisites]\nbiome = "optional"\n',
+    );
+    const config = await Effect.runPromise(loadConfig(dir));
+    expect(config.prerequisites).toEqual({ biome: "optional" });
+  });
+
+  test("a tool no listed pack declares fails at load, naming the ones they do", async () => {
+    await Bun.write(
+      join(dir, "shape.toml"),
+      'packs = ["typescript"]\n[prerequisites]\nrustc = "optional"\n',
+    );
+    expect((await Effect.runPromise(Effect.flip(loadConfig(dir)))).message).toContain(
+      "prerequisites.rustc: no listed pack (typescript) has a tool `rustc`; the ones that can be set are tsc, biome",
+    );
+  });
+});
+
+describe("prerequisites nothing reads", () => {
+  test("a tool its pack checks only for itself is refused, saying which can be set (#110's review)", async () => {
+    await Bun.write(
+      join(dir, "shape.toml"),
+      'packs = ["rust"]\n[prerequisites]\nrustfmt = "optional"\n',
+    );
+    const message = (await Effect.runPromise(Effect.flip(loadConfig(dir)))).message;
+    expect(message).toContain(
+      "prerequisites.rustfmt: `rustfmt` is a tool its pack checks for itself, and no check or gate stage reads a setting for it",
+    );
+    expect(message).toContain("the ones that can are rustc, clippy");
+  });
+
+  test("a tool a gate stage stands for loads", async () => {
+    await Bun.write(
+      join(dir, "shape.toml"),
+      'packs = ["rust"]\n[prerequisites]\nclippy = "optional"\n',
+    );
+    expect((await Effect.runPromise(loadConfig(dir))).prerequisites).toEqual({
+      clippy: "optional",
+    });
   });
 });
