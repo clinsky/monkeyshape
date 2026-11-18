@@ -1,0 +1,6 @@
+# The pinned toolchain: rustup installs it, with clippy and rustfmt, on the first cargo
+# command. Bump it deliberately, in its own PR.
+[toolchain]
+channel = "1.100.0"
+components = ["clippy", "rustfmt"]
+profile = "minimal"

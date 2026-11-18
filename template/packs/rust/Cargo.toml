@@ -1,0 +1,22 @@
+[workspace]
+resolver = "3"
+members = ["crates/*"]
+
+[workspace.package]
+edition = "2024"
+
+# The tables below are `mshape sync`'s: change a lint under [rust.lints.clippy] or
+# [rust.lints.rust] in shape.toml, then run sync, never here.
+
+[workspace.lints.rust]
+let_underscore_drop = "warn"
+rust_2018_idioms = { level = "warn", priority = -1 }
+unsafe_code = "deny"
+
+[workspace.lints.clippy]
+allow_attributes = "warn"
+allow_attributes_without_reason = "warn"
+dbg_macro = "warn"
+todo = "warn"
+undocumented_unsafe_blocks = "warn"
+unimplemented = "warn"

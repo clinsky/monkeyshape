@@ -1,0 +1,24 @@
+name: pr
+
+# A track's PR body has every required section (PR_SECTIONS in monkeyshape's conventions.ts),
+# however it was opened. Other branches' PRs skip this job.
+on:
+  pull_request:
+    types: [opened, edited, reopened, synchronize]
+
+jobs:
+  body:
+    if: startsWith(github.head_ref, 'track/')
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install mshape
+        run: |
+          curl -fsSL https://github.com/clinsky/monkeyshape/releases/latest/download/install.sh | sh
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+      - name: The PR body has every required section
+        env:
+          # Through the environment, never interpolated into the script: the body is untrusted.
+          BODY: ${{ github.event.pull_request.body }}
+        run: printf '%s' "$BODY" | mshape track pr --check-body

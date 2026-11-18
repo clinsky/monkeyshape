@@ -1,0 +1,10 @@
+# monkeyshape's config for this repo: the module map is the layout; nothing else restates it.
+
+packs = ["rust"]
+
+# One module per crate, by its directory. A module may depend only on itself and the modules
+# in its `may-import`, and on external crates only in its `packages`: the crate graph, from
+# each crate's Cargo.toml, is checked against this map.
+[arch.modules.core]
+description = "{{name}}'s first crate."
+paths = ["crates/core"]
