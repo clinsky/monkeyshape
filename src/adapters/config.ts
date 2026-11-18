@@ -7,6 +7,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { basename, dirname, join, relative, resolve } from "node:path";
 import * as Effect from "effect/Effect";
+import { settablePrerequisites } from "../core/gate.ts";
 import { decodeStrict } from "../helpers/decodeStrict.ts";
 import { PACKS } from "../packs/index.ts";
 import {
@@ -29,6 +30,30 @@ const unshipped = (config: { readonly packs?: ReadonlyArray<string> | undefined 
     .map(
       (pack) =>
         `packs: lists \`${pack}\`, which this mshape doesn't ship (it ships ${shipped.join(", ")}); run a release that has it, or remove it from \`packs\``,
+    );
+};
+
+/**
+ * A `prerequisites` entry nothing would read: a typo, a tool of a pack the repo doesn't list,
+ * or one its pack checks only for itself would otherwise set nothing and say nothing. Read are
+ * the listed packs' `tools` (by `mshape check`) and the prerequisite each stage stands for
+ * (by `mshape gate`). A config with no `packs` is the TypeScript pack's, as resolved.
+ */
+const undeclared = (config: {
+  readonly packs?: ReadonlyArray<string> | undefined;
+  readonly prerequisites?: Readonly<Record<string, unknown>> | undefined;
+}) => {
+  const listed = config.packs ?? ["typescript"];
+  const packs = listed.flatMap((id) => PACKS[id as keyof typeof PACKS] ?? []);
+  const declared = packs.flatMap((pack) => pack.prerequisites.map((one) => one.name));
+  const read = settablePrerequisites(packs);
+  const settable = declared.filter((name) => read.has(name));
+  return Object.keys(config.prerequisites ?? {})
+    .filter((name) => !read.has(name))
+    .map((name) =>
+      declared.includes(name)
+        ? `prerequisites.${name}: \`${name}\` is a tool its pack checks for itself, and no check or gate stage reads a setting for it, so it can't be made optional here; the ones that can are ${settable.join(", ")}`
+        : `prerequisites.${name}: no listed pack (${listed.join(", ")}) has a tool \`${name}\`; the ones that can be set are ${settable.length > 0 ? settable.join(", ") : "none"}`,
     );
 };
 
@@ -224,7 +249,7 @@ const loadToml = (root: string, path: string, shown: string) =>
         }),
       );
     }
-    const problems = [...configProblems(config), ...unshipped(config)];
+    const problems = [...configProblems(config), ...unshipped(config), ...undeclared(config)];
     if (problems.length > 0)
       return yield* Effect.fail(new ConfigError({ path: shown, reason: problems.join("; ") }));
     return resolveConfig(config, shown, [], PACK_SOURCES);
@@ -276,7 +301,7 @@ export const loadConfig = (root: string, given?: string) =>
     const config = yield* decodeStrict(ShapeConfig)(module.default).pipe(
       Effect.mapError((error) => new ConfigError({ path: shown, reason: error.message })),
     );
-    const problems = [...configProblems(config), ...unshipped(config)];
+    const problems = [...configProblems(config), ...unshipped(config), ...undeclared(config)];
     if (problems.length > 0)
       return yield* Effect.fail(new ConfigError({ path: shown, reason: problems.join("; ") }));
     const reached = yield* Effect.promise(() => reachedFrom(path, root));

@@ -4,6 +4,8 @@
  * keeps in the root `Cargo.toml`.
  */
 import * as Result from "effect/Result";
+import { SYNC_COMMAND } from "../../core/hooks.ts";
+import { SKILLS_DIR, SKILLS_MANIFEST } from "../../core/layout.ts";
 import type { Edge, Pack, PackFinding } from "../pack.ts";
 import { crateEdges } from "./crateGraph.ts";
 import { lex } from "./lexer.ts";
@@ -80,14 +82,15 @@ export const rust: Pack = {
         `is compiled by no crate of this workspace: no \`mod\` declaration or \`include!\` reaches it from a target's root (lib.rs, main.rs, a test, bench, example or build script), so rustc, clippy and rustfmt never see it. Declare it with \`mod <name>;\` in its parent module, or delete it. If it belongs to a package this workspace doesn't build (one under \`exclude\`, such as cargo-fuzz's \`fuzz/\`), check it with a command in \`coverage.commands\` in ${config.configFile}, e.g. \`{ files = ["fuzz/**"], run = ["cargo", "clippy", "--manifest-path", "fuzz/Cargo.toml", "--", "-D", "warnings"] }\`. If only a macro reaches it, list it in \`coverage.exempt-files\` with that reason.`,
     },
   ],
-  findings: ({ config, repo, load }) => {
+  findings: ({ repo, load }) => {
     // The root's tables are read from its text, not cargo's: a member that opted in too early
     // makes cargo fail, and this finding is then the one that says what to add.
     const rootText = repo.texts.get("Cargo.toml");
     const root = workspaceFinding(
       rootText,
       tomlOf,
-      renderLints(effectiveLints(config.rust?.lints)),
+      repo.files.includes(`${SKILLS_DIR}/${SKILLS_MANIFEST}`),
+      SYNC_COMMAND,
     );
     const workspace = workspaceIn(load.outputs);
     // Until the root defines `[workspace.lints]`, following member-lints' advice breaks cargo.
@@ -111,6 +114,8 @@ export const rust: Pack = {
       file: "Cargo.toml",
       tables: LINT_TABLES,
       content: (config) => renderLints(effectiveLints(config.rust?.lints)),
+      // Where a change to `[workspace.lints.clippy]` goes instead: `[rust.lints.clippy]`.
+      override: (table) => table.replace("workspace.", "rust."),
     },
   ],
   template: "template/packs/rust",

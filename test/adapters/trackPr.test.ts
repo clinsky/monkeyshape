@@ -695,6 +695,7 @@ describe("track pr: --body-only, behind main, --wait", () => {
     timing: object,
     conflicts = false,
     before: ReadonlyArray<number> = [],
+    expectCi = false,
   ) => {
     const script = join(base, "await.ts");
     await writeFile(
@@ -703,7 +704,7 @@ describe("track pr: --body-only, behind main, --wait", () => {
       `import { Effect } from ${JSON.stringify(Bun.resolveSync("effect", import.meta.dir))};
 import { awaitCi } from ${JSON.stringify(join(import.meta.dir, "..", "..", "src", "adapters", "trackPr.ts"))};
 const out = await Effect.runPromise(
-  awaitCi(process.cwd(), ${JSON.stringify(sha)}, new Set(${JSON.stringify(before)}), "updated", ${JSON.stringify(timing)}, (line) => Effect.sync(() => console.error(line)), ${conflicts}),
+  awaitCi(process.cwd(), ${JSON.stringify(sha)}, new Set(${JSON.stringify(before)}), "updated", ${JSON.stringify(timing)}, (line) => Effect.sync(() => console.error(line)), ${conflicts}, undefined, ${expectCi}),
 );
 console.log(out);
 `,
@@ -758,6 +759,42 @@ console.log(out);
     );
     expect(ran.stderr).toContain("but CI failed on dddddddddddd: body (failure)");
     expect(await Bun.file(`${gh}/polls`).text()).toBe("3");
+  });
+
+  test("awaitCi where a workflow runs the gate: a check not started by startMs is queued, so it keeps waiting", async () => {
+    // Polls 0 to 4 see nothing (startMs passes meanwhile); then CI starts and passes.
+    for (const n of [0, 1, 2, 3, 4]) await checks(`checks-${n}.json`, []);
+    await checks("checks-5.json", [
+      { id: 107, name: "check", status: "completed", conclusion: "success" },
+    ]);
+    const ran = await awaitCiRun(
+      "e".repeat(40),
+      { pollMs: 10, startMs: 20, limitMs: 10_000 },
+      false,
+      [],
+      true,
+    );
+    expect(ran.code).toBe(0);
+    expect(ran.stdout).toContain("CI passed on eeeeeeeeeeee");
+    expect(ran.stderr).toContain("it is likely queued: still waiting");
+    expect(ran.stderr).not.toContain("may have no CI");
+    // Said once, not on every poll.
+    expect(ran.stderr.split("likely queued").length).toBe(2);
+  });
+
+  test("awaitCi on a tip CI already ran on, with no rerun coming: once one is overdue, the runs there answer (#99's real run)", async () => {
+    const ran = { id: 1, name: "check", status: "completed", conclusion: "success" };
+    await checks("checks.json", [ran]);
+    const result = await awaitCiRun(
+      "f".repeat(40),
+      { pollMs: 5, startMs: 20, limitMs: 10_000 },
+      false,
+      [1],
+      true,
+    );
+    expect(result.code).toBe(0);
+    expect(result.stdout).toBe("updated\nCI passed on ffffffffffff:\n  check: success");
+    expect(result.stderr).not.toContain("may have no CI");
   });
 
   test("awaitCi with no check starting: says so, and stops waiting", async () => {

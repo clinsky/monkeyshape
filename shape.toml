@@ -3,6 +3,11 @@
 
 packs = ["typescript"]
 
+# The mshape this repo runs: its own source, never a fetched binary.
+[mshape]
+version = "0.5.0"
+dev = ["bun", "src/cli/main.ts"]
+
 [sources]
 exempt = [
   { path = "template/**", reason = "scaffold data that `mshape init` copies; each born repo's own gate checks it" },
@@ -44,22 +49,10 @@ may-import = ["schemas", "core", "adapters"]
 host-access = true
 manifest = true
 
-# The adopters' guides live in this repo, not in theirs, so only this repo checks them:
-# the last three, after the default docs.
+# The adopters' guides live in this repo, not in theirs, so only this repo checks them, after
+# the default docs.
 [refs]
-docs = [
-  "AGENTS.md",
-  "CLAUDE.md",
-  "README.md",
-  "DECISIONS.md",
-  "skills/**/*.md",
-  ".agents/skills/**/*.md",
-  ".claude/skills/**/*.md",
-  ".github/pull_request_template.md",
-  "docs/workflow.md",
-  "docs/adopting.md",
-  "docs/local-rules.md",
-]
+docs = { add = ["docs/workflow.md", "docs/adopting.md", "docs/local-rules.md"] }
 
 # Replaces the typescript pack's test stage: in parallel, with a hang guard sized for CI's
 # slower runner (AGENTS.md's gotcha on test timeouts).
@@ -71,3 +64,9 @@ run = ["bun", "test", "--parallel", "--timeout=30000"]
 exempt-files = [
   { path = "template/packs/python/**", reason = "the Python template: test/integration/binary.test.ts runs the gate of the repo it births, ruff, ty and pytest" },
 ]
+
+# install.sh is POSIX sh: `sh -n` parses it as dash does on Linux, stricter than bash;
+# test/integration/launch.test.ts runs it.
+[[coverage.commands]]
+files = ["install.sh"]
+run = ["sh", "-n", "{files}"]

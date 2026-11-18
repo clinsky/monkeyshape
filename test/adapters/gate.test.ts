@@ -180,7 +180,7 @@ describe("runGate", () => {
     expect(rust.output).toContain("rustup");
     expect(rust.output).not.toContain("bun install");
     const python = await gate(config(["python"], []), { fast: true, path: empty });
-    expect(python.output).toContain("uv sync");
+    expect(python.output).toContain("astral.sh/uv/install.sh");
   });
 
   test("a tool in node_modules/.bin runs through Bun, though its shim would want node", async () => {
@@ -193,6 +193,22 @@ describe("runGate", () => {
     });
     expect(ran.output).toContain("hello from the bin");
     expect(ran.output).toMatch(/^ {2}hello +failed/m);
+  });
+
+  test("with the toolchain missing, every stage's hint is the toolchain's, never a component's (#110's review)", async () => {
+    const hints = (output: string) =>
+      output
+        .split("\n")
+        .filter((line) => /^ {2}\S+ +failed/.test(line))
+        .map((line) => /Install it: (.*)$/.exec(line)?.[1]);
+    const rust = await gate(config(["rust"], []), { fast: true, path: empty });
+    expect(new Set(hints(rust.output))).toEqual(
+      new Set(["install Rust with rustup (https://rustup.rs), which brings cargo and rustc"]),
+    );
+    const python = await gate(config(["python"], []), { fast: true, path: empty });
+    expect(new Set(hints(python.output))).toEqual(
+      new Set(["install uv: `curl -LsSf https://astral.sh/uv/install.sh | sh`"]),
+    );
   });
 
   test("colour codes are gone from what is shown and kept", async () => {

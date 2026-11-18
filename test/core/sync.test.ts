@@ -14,7 +14,9 @@ import {
   SETTINGS_FILE,
 } from "../../src/core/hooks.ts";
 import { lineCount } from "../../src/core/model.ts";
-import { formatSyncPlan, isPrTemplate, planSync } from "../../src/core/sync.ts";
+import { checkSync, formatSyncPlan, isPrTemplate, planSync } from "../../src/core/sync.ts";
+import { resolveConfig } from "../../src/schemas/config.ts";
+import { repo } from "../support.ts";
 
 const ROOT = join(import.meta.dir, "..", "..");
 const PRIME = "# The working loop\n";
@@ -195,5 +197,28 @@ describe("hooks in a settings.json monkeyshape doesn't own whole", () => {
       },
     };
     expect(missingHooks(elsewhere, [first])).toEqual([first]);
+  });
+});
+
+describe("the pin against the npm package", () => {
+  const pinned = (mshape: { version: string } | undefined, installed: string | undefined) =>
+    checkSync(
+      resolveConfig(mshape === undefined ? {} : { mshape }),
+      repo({}, installed === undefined ? {} : { installedMonkeyshape: installed }),
+    ).filter((violation) => violation.rule === "sync/pin-npm-differs");
+
+  test("one monkeyshape: the pin and node_modules agree, or either is absent", () => {
+    expect(pinned({ version: "0.6.0" }, "0.6.0")).toEqual([]);
+    expect(pinned(undefined, "0.5.0")).toEqual([]);
+    expect(pinned({ version: "0.6.0" }, undefined)).toEqual([]);
+  });
+
+  test("two: fails on shape.toml, naming both versions and both ways to agree", () => {
+    const [found] = pinned({ version: "0.6.0" }, "0.5.0");
+    expect(found?.file).toBe("shape.toml");
+    expect(found?.message).toContain(
+      "pins mshape 0.6.0, but node_modules has the monkeyshape npm package 0.5.0",
+    );
+    expect(found?.message).toContain("to 0.6.0 and run `bun install`");
   });
 });

@@ -21,7 +21,11 @@ describe("garden and line budgets over any text source", () => {
     ]);
     expect(checkReport("budgets", config(), snapshot).outcome).toMatchObject({
       examined:
-        "the loaded docs, decisions, memories and 0 TypeScript files and 1 other source file' lengths",
+        "lengths of the loaded docs, decisions, memories, 0 TypeScript files and 1 other source file",
+    });
+    const one = repo({ "src/a.ts": lines(1) });
+    expect(checkReport("budgets", config(), one).outcome).toMatchObject({
+      examined: "lengths of the loaded docs, decisions, memories, 1 TypeScript file",
     });
   });
 

@@ -115,6 +115,9 @@ export const BINARY_TARGETS: ReadonlyArray<BinaryTarget> = [
 /** The release asset holding `target`'s binary. */
 export const binaryAsset = (target: BinaryTarget): string => `mshape-${target.platform}`;
 
+/** The release asset `curl ... | sh` runs: it installs the binary for the machine. */
+export const INSTALLER = "install.sh";
+
 /** The release asset listing every binary's sha256, the file a repo's pin hashes. */
 export const SUMS_FILE = "SHA256SUMS";
 

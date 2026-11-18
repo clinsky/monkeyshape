@@ -51,6 +51,7 @@ jobs:
           name: binaries
           path: |
             ${{ runner.temp }}/release/mshape-*
+            ${{ runner.temp }}/release/install.sh
             ${{ runner.temp }}/release/SHA256SUMS
 
   binary-run:
@@ -77,3 +78,14 @@ jobs:
           env -i HOME="$RUNNER_TEMP" PATH=/usr/bin:/bin sh -c '! command -v bun'
           env -i HOME="$RUNNER_TEMP" PATH=/usr/bin:/bin "./$bin" --version
           env -i HOME="$RUNNER_TEMP" PATH=/usr/bin:/bin "./$bin" --help
+      # install.sh as `curl | sh` runs it, from these assets laid out as a release (file://),
+      # with only the system's tools: shasum on macOS, sha256sum on Linux.
+      - name: Install with install.sh, with no Bun
+        run: |
+          mkdir -p "$RUNNER_TEMP/rel/download/v0.0.0"
+          cp mshape-* install.sh SHA256SUMS "$RUNNER_TEMP/rel/download/v0.0.0/"
+          env -i HOME="$RUNNER_TEMP/home" PATH=/usr/bin:/bin \
+            MSHAPE_RELEASES_URL="file://$RUNNER_TEMP/rel" MSHAPE_VERSION=0.0.0 \
+            MSHAPE_INSTALL_DIR="$RUNNER_TEMP/bin" sh install.sh
+          test -x "$RUNNER_TEMP/bin/mshape" && test -s "$RUNNER_TEMP/bin/mshape.sums"
+          env -i HOME="$RUNNER_TEMP/home" PATH="$RUNNER_TEMP/bin:/usr/bin:/bin" mshape --version

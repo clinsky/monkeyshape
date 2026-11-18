@@ -14,6 +14,7 @@ import {
   withoutTools,
 } from "./coverage.ts";
 import { checkFiles, FILES_RULES, formatBytes, heldFiles } from "./files.ts";
+import { settablePrerequisites } from "./gate.ts";
 import { matchesAny } from "./glob.ts";
 import { SKILLS_DIR, SKILLS_MANIFEST } from "./layout.ts";
 import {
@@ -99,8 +100,13 @@ interface Prerequisite {
  * How to make a tool optional, where the config can say so and coverage can then read the
  * tool's config in its place; nothing where either is false, so the fix is only to install it.
  */
-const optionalHint = (config: ResolvedConfig, name: string, approximates: boolean): string => {
-  if (!approximates || !Object.hasOwn(config.prerequisites, name)) return "";
+const optionalHint = (
+  config: ResolvedConfig,
+  settable: ReadonlySet<string>,
+  name: string,
+  approximates: boolean,
+): string => {
+  if (!approximates || !settable.has(name)) return "";
   const setting = config.configFile.endsWith(".toml")
     ? `\`${name} = "optional"\` under \`[prerequisites]\``
     : `\`prerequisites: { ${name}: "optional" }\``;
@@ -119,7 +125,7 @@ const packTools = (config: ResolvedConfig, snapshot: Snapshot): ReadonlyArray<Pr
       ? []
       : loaded.pack.tools.map((tool) => {
           const declared = loaded.pack.prerequisites.find((p) => p.name === tool.name);
-          const setting = (config.prerequisites as Readonly<Record<string, string>>)[tool.name];
+          const setting = config.prerequisites[tool.name];
           return {
             name: tool.name,
             integration:
@@ -250,7 +256,8 @@ const scopeOf = (check: CheckName, config: ResolvedConfig, snapshot: Snapshot): 
         (file) => claimOf(snapshot, file) === undefined,
       ).length;
       return {
-        examined: `the loaded docs, decisions, memories and ${plural(typescript.length, `${language(snapshot)} file`)}${other === 0 ? "" : ` and ${plural(other, "other source file")}`}' lengths`,
+        // Lengths first, so the count reads right for one file and for many.
+        examined: `lengths of the loaded docs, decisions, memories, ${plural(typescript.length, `${language(snapshot)} file`)}${other === 0 ? "" : ` and ${plural(other, "other source file")}`}`,
       };
     }
     case "coverage": {
@@ -446,10 +453,7 @@ export const notices = (
     );
   if (only.includes("coverage") && config.checks.coverage === undefined)
     for (const { tool: name, integration } of snapshot.packs.flatMap(({ load }) => load.tools))
-      if (
-        integration.state === "unavailable" &&
-        (config.prerequisites as Readonly<Record<string, string>>)[name] === "optional"
-      )
+      if (integration.state === "unavailable" && config.prerequisites[name] === "optional")
         out.push(
           `coverage approximated ${name}'s file list from its config (${integration.reason}): inheritance and project references are not resolved`,
         );
@@ -562,7 +566,7 @@ export const prerequisites = (
       snapshot,
     )) {
       if (name === "bd") continue;
-      const fix = `${install ?? `\`${name}\``}${optionalHint(config, name, approximates === true)}`;
+      const fix = `${install ?? `\`${name}\``}${optionalHint(config, settablePrerequisites(snapshot.packs.map((loaded) => loaded.pack)), name, approximates === true)}`;
       if (integration.state === "failed")
         out.push(
           prerequisite(

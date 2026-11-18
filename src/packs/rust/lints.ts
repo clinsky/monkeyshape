@@ -112,16 +112,19 @@ export const membersCanOptIn = (
 };
 
 /**
- * The root manifest's finding when it lacks an owned table: it carries the tables to add.
- * With none at all, a member that opts in fails to load (cargo: "`workspace.lints` was not
- * defined"), so members are judged only once `membersCanOptIn`.
+ * The root manifest's finding when it lacks an owned table, where `mshape sync` hasn't run:
+ * where it has, the `sync` check reports the table (`sync/base-missing` or `base-diverged`),
+ * so a missing table is one finding either way. With no table at all, a member that opts in
+ * fails to load (cargo: "`workspace.lints` was not defined"), so members are judged only once
+ * `membersCanOptIn`. `sync` is how the repo runs sync, as the core words it.
  */
 export const workspaceFinding = (
   root: string | undefined,
   parse: (text: string) => unknown,
-  tables: string,
+  syncRan: boolean,
+  sync: string,
 ): LintsFinding | undefined => {
-  if (root === undefined) return undefined;
+  if (root === undefined || syncRan) return undefined;
   const parsed = parse(root);
   if (parsed === undefined) return undefined;
   const missing = missingTables(parsed);
@@ -131,7 +134,7 @@ export const workspaceFinding = (
     kind: "workspace-lints",
     file: "Cargo.toml",
     line: 1,
-    message: `${none ? "defines no `[workspace.lints]`, so no crate is held to the curated lints, and a member can't opt in yet (cargo refuses `[lints] workspace = true` without them)" : `lacks ${missing.join(" and ")}, so no crate is held to those curated lints`}. Add these tables to this Cargo.toml, as they are (to change a lint, set it under \`[rust.lints.clippy]\` or \`[rust.lints.rust]\` in shape.toml and these change with it):\n\n${tables}\n\nThen give each member's Cargo.toml \`[lints]\` with \`workspace = true\`; \`cargo new\` does it for a crate added after.`,
+    message: `${none ? "defines no `[workspace.lints]`, so no crate is held to the curated lints, and a member can't opt in yet (cargo refuses `[lints] workspace = true` without them)" : `lacks ${missing.join(" and ")}, so no crate is held to those curated lints`}. Run \`${sync}\`, which writes ${missing.join(" and ")} here, and commit it. To change a lint, set it under \`[rust.lints.clippy]\` or \`[rust.lints.rust]\` in shape.toml and run sync again, never in Cargo.toml. Then give each member's Cargo.toml \`[lints]\` with \`workspace = true\`; \`cargo new\` does it for a crate added after.`,
   };
 };
 

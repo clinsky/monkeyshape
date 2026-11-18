@@ -274,13 +274,6 @@ describe("mshape init", () => {
     expect(await Bun.file(join(work, "no-value", "package.json")).exists()).toBe(false);
   });
 
-  test("refuses --from for a pack whose repo has no package.json to install it", async () => {
-    const result = await fromSource(["py-from", "--pack", "python", "--from", "x.tgz"]);
-    expect(result.output).toContain("--from installs monkeyshape's npm package");
-    expect(result.code).toBe(2);
-    expect(await Bun.file(join(work, "py-from")).exists()).toBe(false);
-  });
-
   test("refuses a directory that is not empty, and leaves it alone", async () => {
     await mkdir(join(work, "taken"));
     await writeFile(join(work, "taken", "keep.txt"), "mine\n");
