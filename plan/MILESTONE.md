@@ -469,3 +469,10 @@ already written by agents, not generated for it.
   over them rule by rule, through the frozen `table` delivery. ruff stays a copy,
   `.mshape/ruff.toml`, with `[tool.ruff] extend` pointing at it, checked as
   `packs/python/ruff-extend`. `shape.toml` gains a `[python]` table. `pack.ts` unchanged.
+- **2026-11-18, `pack.ts` gains an optional `override` on `table` deliveries (`packs`, #105),
+  approved by the planning session.** The first change after the freeze, from `packs` for
+  `rust`, not from `python`. `override?: (table) => string | undefined` names the
+  `shape.toml` key that a change to an owned table belongs in (`workspace.lints.clippy` to
+  `rust.lints.clippy`), so `sync/base-diverged` tells an agent what to edit. TypeScript and
+  Rust missed it because the generic message was only seen on `rust`'s probe. Additive and
+  optional; `python`'s ty table sets it too.
