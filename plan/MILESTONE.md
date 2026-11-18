@@ -476,3 +476,9 @@ already written by agents, not generated for it.
   `rust.lints.clippy`), so `sync/base-diverged` tells an agent what to edit. TypeScript and
   Rust missed it because the generic message was only seen on `rust`'s probe. Additive and
   optional; `python`'s ty table sets it too.
+- **2026-11-18, `template/` itself is the common layer (`packs`, `8il.12`), approved by the
+  planning session.** `init --pack <id>` lays `template/packs/<id>/` over `template/` outside
+  `packs/`, not over a `template/common/`: `template/.beads/PRIME.md` is read by that path in
+  sync, its check, the release and AGENTS.md, and the template's AGENTS.md, README and CI are
+  `binary`'s and `config`'s, already being made neutral. Only TypeScript's own files move
+  (`bunfig`, the config, the starter test). Rust's and Python's stay at `template/packs/<id>/`.
