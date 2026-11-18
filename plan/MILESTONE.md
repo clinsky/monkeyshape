@@ -438,3 +438,27 @@ already written by agents, not generated for it.
   | a crate made by `cargo new` inside the workspace | has that line already (cargo 1.100) |
 
   Why: Cargo has no `extends`, and a `.mshape/` copy has nothing in Cargo to point at it.
+- **2026-11-18, the pack interface is frozen (`packs`, #98; `rust`'s #102 builds on it
+  unchanged), recorded by the planning session.** The frozen file is `src/packs/pack.ts` on
+  `main` at 3ad637b, plus one optional field from #101: `fix?: string` on an unavailable
+  integration, the fix to print when it isn't installing the tool (no Bun under the compiled
+  binary). A pack is pure (`src/packs/<id>/`): `id`, `language`, `kindOf(file)` (source, test,
+  declaration or none), `comments`, `syntaxErrors`, `defaultSources`, `hostSpecifiers`,
+  `graph(input)` returning edges and host uses, `tools` with their coverage, `rules`,
+  `findings` with declared `findingKinds` (reported as `packs/<id>/<kind>`), `baseConfigs`
+  (`extends`, `copy` or `table`), `template`, `stages`, `prerequisites` and `loadFor`. Its
+  loader (`src/adapters/packs/<id>.ts`) returns only tool runs and raw outputs. `pack.ts` is
+  its own arch module, depending on schemas only. `python` starts now; from here a change to
+  `pack.ts` is a divergence sent to `main` with why.
+- **2026-11-18, the pack table's outcomes as built (`packs`, #98), approved by the planning
+  session.** A file two listed packs claim is the `sources` finding `sources/claimed-twice`,
+  naming the file and both packs, not a config failure: config load reads no files, and the
+  fix is the same. Rows added beyond the table, each in `test/core/packs.test.ts`:
+
+  | Case | Result |
+  |---|---|
+  | a listed pack this `mshape` doesn't ship | fails at config load |
+  | a file in sources that no listed pack reads | `sources/unclaimed` |
+  | an import into another listed pack's file | dropped: graphs are per pack |
+  | a module sets `paths` | its files are those paths |
+  | a pack reports a finding kind it didn't declare | `packs/undeclared-kind` |
