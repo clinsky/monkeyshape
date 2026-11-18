@@ -954,6 +954,16 @@ describe("track pr: the fast stages here, the tests in CI", () => {
     expect(gate).not.toContain("red");
   });
 
+  test("the main checkout's config doesn't load: track pr still gates and pushes the tip, reading the tip's", async () => {
+    // As on #123: the main checkout two commits behind a fix to its config.
+    await writeFile(join(repo, "shape.config.ts"), "export default { bogus: 1 };\n");
+    await writeFile(`${wt()}/body.md`, body("x"));
+    const opened = mshape(wt(), "pr", "--title", "t", "--body-file", "body.md");
+    expect(opened.stderr).not.toContain("bogus");
+    expect(opened.code).toBe(0);
+    expect(remoteHas()).toBe(true);
+  });
+
   test("a gate with no CI workflow stays whole here", async () => {
     await writeFile(`${wt()}/body.md`, body("x"));
     const opened = mshape(wt(), "pr", "--title", "t", "--body-file", "body.md");
