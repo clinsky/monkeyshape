@@ -23,8 +23,9 @@ import type {
   Snapshot,
   Violation,
 } from "../../src/core/model.ts";
+import { typescript } from "../../src/packs/typescript/index.ts";
 import type { ShapeConfig } from "../../src/schemas/config.ts";
-import { config, repo } from "../support.ts";
+import { config, fakePack, listed, repo } from "../support.ts";
 
 interface Case {
   readonly files?: Readonly<Record<string, string>>;
@@ -362,6 +363,25 @@ const NO_TOOLS = { prerequisites: { tsc: "optional", biome: "optional" } } as co
 
 const TOOLS = { "tsconfig.json": '{ "include": ["src"] }', "biome.json": "{}" };
 
+/** A Rust-like pack whose compiler reached only `crates/a/lib.rs`. */
+const RUST: ShapeConfig = { packs: ["rust"], sources: { include: ["crates/**/*.rs"] } };
+const rustc = {
+  packs: [
+    {
+      pack: {
+        ...fakePack("rust", "Rust", "rs"),
+        tools: [{ name: "rustc", rule: "compile", uncovered: () => "is in no target's mod tree" }],
+      },
+      load: {
+        tools: [
+          { tool: "rustc", integration: { state: "ok" }, files: new Set(["crates/a/lib.rs"]) },
+        ],
+        outputs: new Map(),
+      },
+    },
+  ],
+} as const;
+
 const coverage: Record<string, Cases> = {
   "coverage/config": {
     // Only with TypeScript to cover: a repo without any needs neither config.
@@ -387,6 +407,15 @@ const coverage: Record<string, Cases> = {
         "src/a.ts": "",
       },
     },
+  },
+  "coverage/compile": {
+    fail: {
+      config: RUST,
+      files: { "crates/a/lib.rs": "", "crates/a/orphan.rs": "" },
+      options: rustc,
+    },
+    // Every claimed file in the compiler's own list.
+    pass: { config: RUST, files: { "crates/a/lib.rs": "" }, options: rustc },
   },
   "coverage/uncovered": {
     fail: { files: { ...TOOLS, "scripts/gen.py": "" } },
@@ -948,6 +977,50 @@ const sourcesCases: Record<string, Cases> = {
     pass: {
       config: { entry: ["src/cli.ts", { path: "src/main.ts", optional: true }] },
       files: { "src/cli.ts": "" },
+    },
+  },
+  "sources/unclaimed": {
+    // A repo that checks its JavaScript its own way, with JavaScript in the rules' scope.
+    fail: {
+      config: {
+        sources: { include: ["src/**/*.ts", "src/**/*.js"] },
+        coverage: { commands: [{ files: ["src/**/*.js"], run: ["eslint", "{files}"] }] },
+      },
+      files: { "src/a.ts": "", "src/b.js": 'export const g = () => { throw new Error("x"); };\n' },
+    },
+    pass: {
+      config: {
+        sources: { include: ["src/**/*.ts"] },
+        coverage: { commands: [{ files: ["src/**/*.js"], run: ["eslint", "{files}"] }] },
+      },
+      files: { "src/a.ts": "", "src/b.js": "" },
+    },
+  },
+  "sources/claimed-twice": {
+    fail: {
+      files: { "src/a.ts": "" },
+      options: { packs: [listed(typescript), listed(fakePack("python", "Python", "ts"))] },
+    },
+    // Two packs listed, each with its own files.
+    pass: {
+      config: {
+        packs: ["typescript", "python"],
+        sources: { include: ["src/**/*.ts", "src/**/*.py"] },
+      },
+      files: { "src/a.ts": "", "src/b.py": "" },
+      options: { packs: [listed(typescript), listed(fakePack("python", "Python", "py"))] },
+    },
+  },
+  "sources/unlisted-pack": {
+    fail: {
+      files: { "src/a.ts": "", "crates/x/lib.rs": "" },
+      options: { otherPacks: [fakePack("rust", "Rust", "rs")] },
+    },
+    // The repo checks its Rust its own way: a declared command covers it.
+    pass: {
+      config: { coverage: { commands: [{ files: ["crates/**"], run: ["cargo", "check"] }] } },
+      files: { "src/a.ts": "", "crates/x/lib.rs": "" },
+      options: { otherPacks: [fakePack("rust", "Rust", "rs")] },
     },
   },
 };

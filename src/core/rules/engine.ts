@@ -14,6 +14,7 @@ import { matchesAny } from "../glob.ts";
 import { lineAt, type Snapshot, type Violation } from "../model.ts";
 import { type Parsed, parse } from "../parse.ts";
 import { dirname, join } from "../paths.ts";
+import { claimOf } from "../sources.ts";
 import { localRules } from "./local.ts";
 import type { Finding, Rule, RuleContext } from "./rule.ts";
 
@@ -121,14 +122,17 @@ export const checkRules = (
     if (!matchesAny(file, config.sources.include) || matchesAny(file, config.sources.exclude))
       continue;
     const text = snapshot.texts.get(file);
-    if (text === undefined) continue;
-    const parsed = parse(file, text);
-    for (const error of parsed.syntaxErrors)
+    // A file no listed pack claims has no language here to parse it in.
+    const claim = claimOf(snapshot, file);
+    if (text === undefined || claim === undefined) continue;
+    const pack = claim.loaded.pack;
+    const source = { path: file, text };
+    for (const error of pack.syntaxErrors(source))
       violations.push(violation("syntax", file, 1, `does not parse: ${error}`));
 
     const ignores: Array<Ignore> = [];
-    for (const comment of parsed.comments) {
-      const match = comment.type === "Line" ? IGNORE.exec(comment.value) : null;
+    for (const comment of pack.comments(source)) {
+      const match = comment.kind === "line" ? IGNORE.exec(comment.text) : null;
       if (match === null) continue;
       const reason = (match[2] ?? "").trim();
       const line = lineAt(text, comment.end);
@@ -148,7 +152,11 @@ export const checkRules = (
 
     const entry = matchesAny(file, config.entry);
     const context = contextFor(snapshot, file);
+    // The registry's rules and `localRules` read oxc's tree: TypeScript's alone, until the
+    // engine runs each pack's own rules (with ast-grep's for the repo's).
+    const parsed = pack.id === "typescript" ? parse(file, text) : undefined;
     for (const rule of active) {
+      if (parsed === undefined) break;
       if (rule.entryExempt && entry) continue;
       const allowance = (config.rules[rule.id]?.allow ?? []).find((a) =>
         matchesAny(file, [a.path]),

@@ -369,6 +369,13 @@
                   "python"
                 ]
               },
+              "paths": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              },
               "may-import": {
                 "type": "array",
                 "items": {

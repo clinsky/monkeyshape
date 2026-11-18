@@ -9,7 +9,7 @@ import { dirname, join } from "node:path";
 import * as Effect from "effect/Effect";
 import { loadModes, runCommands } from "../../src/adapters/commands.ts";
 import type { DeclaredCommand } from "../../src/schemas/config.ts";
-import { config } from "../support.ts";
+import { config, toolRun } from "../support.ts";
 
 let repo = "";
 
@@ -153,7 +153,7 @@ describe("declared commands run only when coverage is selected", () => {
     await load([]);
     expect(await runs()).toBe(0);
     expect(budgets.commands.size).toBe(0);
-    expect(budgets.integrations.tsc.state).toBe("unavailable");
+    expect(toolRun(budgets, "tsc").integration.state).toBe("unavailable");
 
     const coverage = await load(["coverage"]);
     expect(await runs()).toBe(1);

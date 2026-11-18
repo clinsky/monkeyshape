@@ -4,16 +4,16 @@
  * each backticked span sits on one line, where it can be checked;
  * normative docs may not link into notes/, plan/ or handoffs. Plans and notes are held to form
  * only (`refs.formOnlyDocs`): one-line spans, no `§N`, no forbidden text, never whether a
- * path still exists. Code comments: no links into
+ * path still exists. Code comments, in every listed pack's language: no links into
  * those either, no `§N` citations, decision slugs must exist, bead ids only in `TODO(id)`.
  */
 import { REFS_KINDS, type ResolvedConfig } from "../schemas/config.ts";
 import { parseDecisions, SLUG } from "./decisions.ts";
 import { matchesAny } from "./glob.ts";
 import { fencedLines, splitCodeSpans } from "./markdown.ts";
-import { isTsSource, lineAt, pathIndex, type Snapshot, type Violation } from "./model.ts";
-import { parse } from "./parse.ts";
+import { lineAt, pathIndex, type Snapshot, type Violation } from "./model.ts";
 import { basename, dirname, join } from "./paths.ts";
+import { claimOf } from "./sources.ts";
 
 /**
  * A specific note or handoff, or a section of the milestone plan or the roadmap. Naming the
@@ -260,13 +260,14 @@ const findRefs = (config: ResolvedConfig, snapshot: Snapshot): ReadonlyArray<Vio
   }
 
   for (const file of snapshot.files) {
-    if (!isTsSource(file)) continue;
+    const claim = claimOf(snapshot, file);
+    if (claim === undefined || claim.kind === "declaration") continue;
     const text = snapshot.texts.get(file);
     if (text === undefined) continue;
-    for (const comment of parse(file, text).comments) {
+    for (const comment of claim.loaded.pack.comments({ path: file, text })) {
       const line = lineAt(text, comment.start);
-      checkCommon(file, line, comment.value);
-      if (NON_NORMATIVE.test(comment.value))
+      checkCommon(file, line, comment.text);
+      if (NON_NORMATIVE.test(comment.text))
         violations.push(
           violation(
             "normative-link",
@@ -276,9 +277,9 @@ const findRefs = (config: ResolvedConfig, snapshot: Snapshot): ReadonlyArray<Vio
           ),
         );
       if (beads !== undefined)
-        for (const match of comment.value.matchAll(BEAD_CANDIDATE)) {
+        for (const match of comment.text.matchAll(BEAD_CANDIDATE)) {
           if (!beads.has(match[0])) continue;
-          const before = comment.value.slice(0, match.index).trimEnd();
+          const before = comment.text.slice(0, match.index).trimEnd();
           if (!before.endsWith("TODO("))
             violations.push(
               violation(
