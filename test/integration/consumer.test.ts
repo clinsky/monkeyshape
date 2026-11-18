@@ -198,4 +198,23 @@ describe("an adopter following docs/adopting.md", () => {
     expect(onlyRefs.code).toBe(1);
     await rm(path, { recursive: true, force: true });
   });
+
+  test("baseline --init without bd keeps the bead rules' entries it couldn't count (#90)", async () => {
+    const config = await Bun.file(join(repo, "shape.config.ts")).text();
+    await write("shape.config.ts", config.replace('\n  beads: "required",', ""));
+    const path = await mkdtemp(join(tmpdir(), "mshape-path-"));
+    await symlink(process.execPath, join(path, "bun"));
+    await symlink(Bun.which("git") ?? "/usr/bin/git", join(path, "git"));
+    await write(
+      ".shape/baseline.json",
+      `${JSON.stringify({ version: 1, counts: { "refs/bead-in-code": { "src/kept.ts": 3 } } })}\n`,
+    );
+
+    const init = await mshape(["baseline", "--init"], { PATH: path });
+    expect(init.code).toBe(0);
+    expect(init.output).toContain("kept as they were");
+    const written = await Bun.file(join(repo, ".shape/baseline.json")).json();
+    expect(written.counts["refs/bead-in-code"]).toEqual({ "src/kept.ts": 3 });
+    await rm(path, { recursive: true, force: true });
+  });
 });

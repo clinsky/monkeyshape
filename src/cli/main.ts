@@ -52,7 +52,7 @@ import { CLAUDE_SKILLS_LINK, isReviewAddress, SKILLS_DIR } from "../core/layout.
 import { formatAllInboxes, formatInbox, formatMessage, formatSent } from "../core/mail.ts";
 import type { CheckName } from "../core/model.ts";
 import { formatDelivery, unregisteredNote } from "../core/notices.ts";
-import { count, tighten } from "../core/ratchet.ts";
+import { initBaseline, tighten } from "../core/ratchet.ts";
 import { packVersion } from "../core/release.ts";
 import { formatCheck, formatGarden, formatViolation, tallyByRule } from "../core/report.ts";
 import { formatRules } from "../core/rules/engine.ts";
@@ -732,11 +732,15 @@ const baseline = (root: string, args: ReadonlyArray<string>) =>
       Object.keys(loaded.baseline),
     );
     if (args.includes("--init")) {
-      yield* writeBaseline(root, count(violations));
+      yield* writeBaseline(root, initBaseline(loaded.baseline, violations, skipped));
+      const kept = [...skipped].filter((rule) => loaded.baseline[rule] !== undefined).sort();
       return {
         output: [
           `${BASELINE_FILE}: grandfathered ${violations.length} violation(s)`,
           ...tallyByRule(violations.map((v) => v.rule)),
+          ...(kept.length > 0
+            ? [`kept as they were, since this checkout couldn't evaluate them: ${kept.join(", ")}`]
+            : []),
         ].join("\n"),
         code: 0,
       };
