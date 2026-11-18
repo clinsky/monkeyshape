@@ -12,9 +12,14 @@ import type {
 import { lineAt } from "../src/core/model.ts";
 import { parse } from "../src/core/parse.ts";
 import { type Rule, runRule } from "../src/core/rules/engine.ts";
-import type { LoadedPack } from "../src/packs/pack.ts";
+import type { LoadedPack, Pack } from "../src/packs/pack.ts";
 import { typescript } from "../src/packs/typescript/index.ts";
-import { type ResolvedConfig, resolveConfig, type ShapeConfig } from "../src/schemas/config.ts";
+import {
+  type PackId,
+  type ResolvedConfig,
+  resolveConfig,
+  type ShapeConfig,
+} from "../src/schemas/config.ts";
 
 /**
  * Beads is ok when memories or bead ids are given, else absent; `beads` overrides that.
@@ -38,6 +43,8 @@ export const repo = (
     readonly biome?: Integration;
     /** The listed packs as loaded; the TypeScript pack with the tool runs above by default. */
     readonly packs?: ReadonlyArray<LoadedPack>;
+    /** Packs shipped but not listed; none by default. */
+    readonly otherPacks?: ReadonlyArray<Pack>;
     readonly skills?: SkillsSnapshot;
     readonly shippedPrime?: string;
     readonly unlisted?: ReadonlyArray<string>;
@@ -69,6 +76,7 @@ export const repo = (
       : undefined,
     beadRows: beadsOk ? (options.beadRows ?? []) : undefined,
     ...(options.beadsExport === undefined ? {} : { beadsExport: options.beadsExport }),
+    otherPacks: options.otherPacks ?? [],
     integrations: { beads: options.beads ?? (beadsOk ? { state: "ok" } : { state: "absent" }) },
     packs: options.packs ?? [
       {
@@ -127,3 +135,34 @@ export const toolRun = (snapshot: Snapshot, tool: string) => {
   if (run === undefined) throw new Error(`no ${tool} run in the snapshot`);
   return run;
 };
+
+/**
+ * A pack that claims files by extension and has no tools, rules or edges: enough for the core
+ * to see a second language. `kindOf` says `test` under a `tests/` directory.
+ */
+export const fakePack = (id: PackId, language: string, extension: string): Pack => ({
+  id,
+  language,
+  kindOf: (file) =>
+    file.endsWith(`.${extension}`) ? (file.includes("tests/") ? "test" : "source") : undefined,
+  comments: () => [],
+  syntaxErrors: () => [],
+  defaultSources: { include: [`**/*.${extension}`] },
+  hostSpecifiers: [],
+  graph: () => ({ edges: [], hostUses: [] }),
+  tools: [],
+  findings: () => [],
+  findingKinds: [],
+  rules: [],
+  baseConfigs: [],
+  template: `template/packs/${id}`,
+  stages: [],
+  prerequisites: [],
+  loadFor: [],
+});
+
+/** A pack as listed and loaded, with nothing found by its loader. */
+export const listed = (pack: Pack): LoadedPack => ({
+  pack,
+  load: { tools: [], outputs: new Map() },
+});

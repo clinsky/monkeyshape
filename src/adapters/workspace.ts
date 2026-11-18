@@ -7,7 +7,7 @@ import { SETTINGS_FILE } from "../core/hooks.ts";
 import { type BeadSummary, classify, type Integration, type Snapshot } from "../core/model.ts";
 import { SYNCED_FILES } from "../core/sync.ts";
 import { PACKS } from "../packs/index.ts";
-import type { LoadedPack, PackLoad, RepoView } from "../packs/pack.ts";
+import type { LoadedPack, Pack, PackLoad, RepoView } from "../packs/pack.ts";
 import { CHECK_NAMES, type CheckName, type ResolvedConfig } from "../schemas/config.ts";
 import { WorkspaceError } from "../schemas/errors.ts";
 import { loadModes, runCommands } from "./commands.ts";
@@ -350,6 +350,9 @@ export const loadSnapshot = (
       beadRows: loadedBeads.value?.rows,
       integrations: { beads: loadedBeads.integration },
       packs,
+      otherPacks: Object.values(PACKS).filter(
+        (pack): pack is Pack => pack !== undefined && !config.packs.includes(pack.id),
+      ),
       skills,
       shippedPrime,
       unlisted,

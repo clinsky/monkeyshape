@@ -438,3 +438,48 @@ describe("host access: #58 review", () => {
     ).toEqual([]);
   });
 });
+
+describe("module paths", () => {
+  const mapped = config({
+    arch: {
+      modules: {
+        core: { description: "logic", paths: ["crates/core"] },
+        io: { description: "edges", paths: ["crates/io", "./tools/"], mayImport: ["core"] },
+        cli: { description: "entry", mayImport: ["core", "io"] },
+      },
+    },
+  });
+  const arch = mapped.arch ?? { root: "", modules: {}, allowedPackages: [], hostSpecifiers: [] };
+
+  test("a module with paths owns the files under each, wherever arch.root is", () => {
+    expect(moduleOf(arch, "crates/core/src/lib.ts")).toBe("core");
+    expect(moduleOf(arch, "crates/io/a.ts")).toBe("io");
+    expect(moduleOf(arch, "tools/x.ts")).toBe("io");
+    expect(moduleOf(arch, "src/cli/main.ts")).toBe("cli");
+    // A key without paths still means arch.root/<key>: crates/cli is no module's.
+    expect(moduleOf(arch, "crates/cli/a.ts")).toBeUndefined();
+    expect(moduleOf(arch, "crates/coreutils/a.ts")).toBeUndefined();
+  });
+
+  test("edges between modules mapped by paths are judged as by key", () => {
+    const found = checkArch(
+      mapped,
+      repo({
+        "crates/core/a.ts": 'import "../../crates/io/b.ts";\n',
+        "crates/io/b.ts": 'import "../core/c.ts";\n',
+        "crates/core/c.ts": "",
+        "src/cli/main.ts": 'import "../../crates/io/b.ts";\n',
+      }),
+    );
+    expect(found.map((v) => `${v.rule} ${v.file}`)).toEqual([
+      "arch/forbidden-import crates/core/a.ts",
+    ]);
+  });
+
+  test("a module whose paths match no file is empty, named by its paths", () => {
+    const found = checkArch(mapped, repo({ "crates/core/a.ts": "", "src/cli/main.ts": "" }));
+    expect(found.map((v) => v.message)).toEqual([
+      "module 'io' matches no TypeScript file under crates/io/ or tools/. Fix its paths, remove it, or mark it `optional: true` if its code is still to come.",
+    ]);
+  });
+});

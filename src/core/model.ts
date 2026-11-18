@@ -1,5 +1,5 @@
 /** The data every check reads and the findings it returns. Pure: no I/O lives here. */
-import type { Integration, LoadedPack } from "../packs/pack.ts";
+import type { Integration, LoadedPack, Pack } from "../packs/pack.ts";
 import type { CheckName } from "../schemas/config.ts";
 
 export type { Integration, LoadedPack } from "../packs/pack.ts";
@@ -78,6 +78,8 @@ export interface Snapshot {
   readonly integrations: Integrations;
   /** Each listed pack, in `packs` order, and what its loader found. */
   readonly packs: ReadonlyArray<LoadedPack>;
+  /** The packs monkeyshape ships that the repo doesn't list: `sources` names one to list. */
+  readonly otherPacks: ReadonlyArray<Pack>;
   readonly skills: SkillsSnapshot;
   /** The `.beads/PRIME.md` the running monkeyshape ships, when it has one. */
   readonly shippedPrime: string | undefined;

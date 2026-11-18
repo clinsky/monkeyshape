@@ -16,7 +16,7 @@ import { dataFormat, parseError } from "./data.ts";
 import { matchesPathOrBelow } from "./glob.ts";
 import { stripJsonc } from "./jsonc.ts";
 import { classify, type Outcome, type Snapshot, type Violation } from "./model.ts";
-import { toCover } from "./sources.ts";
+import { claimOf, toCover } from "./sources.ts";
 
 /** Every rule this check reports, as `coverage/<kind>`; test/core/ruleCases.test.ts covers each. */
 export const COVERAGE_RULES = [
@@ -24,6 +24,8 @@ export const COVERAGE_RULES = [
   "typecheck",
   "lint",
   "uncovered",
+  /** A pack's compiler reaches no such file: Rust's, from no target's `mod` tree. */
+  "compile",
   "command-failed",
   "command-unavailable",
   "command-unmatched",
@@ -202,13 +204,17 @@ const commandViolations = (config: ResolvedConfig, snapshot: Snapshot): Readonly
     ];
   });
 
-/** Executable source outside `coverage.exempt` segments: what the declared commands answer for. */
+/**
+ * Executable source outside `coverage.exempt` segments that no listed pack claims: what the
+ * declared commands answer for. A listed pack's files are held to its own tools instead.
+ */
 export const executableSources = (config: ResolvedConfig, snapshot: Snapshot) => {
   const segments = new Set(config.coverage.exempt);
   return snapshot.files.filter(
     (file) =>
       classify(file, snapshot.modes.get(file)) === "executable" &&
-      !file.split("/").some((segment) => segments.has(segment)),
+      !file.split("/").some((segment) => segments.has(segment)) &&
+      claimOf(snapshot, file) === undefined,
   );
 };
 

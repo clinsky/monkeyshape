@@ -51,9 +51,18 @@ const underRoot = (arch: Arch, path: string): string | undefined =>
       ? path.slice(arch.root.length + 1)
       : undefined;
 
-/** A module's directory from the repo root: its key is a path below `arch.root`. */
-const directoryOf = (arch: Arch, name: string): string =>
-  arch.root === "." ? name : `${arch.root}/${name}`;
+/**
+ * Where a module's files are, from the repo root: its `paths`, or else its key below
+ * `arch.root`.
+ */
+const directoriesOf = (arch: Arch, name: string): ReadonlyArray<string> =>
+  (arch.modules[name]?.paths ?? [arch.root === "." ? name : `${arch.root}/${name}`]).map((path) =>
+    path.replace(/^(\.\/)+/, "").replace(/\/+$/, ""),
+  );
+
+/** Whether `path` is `directory` itself or below it. */
+const within = (path: string, directory: string): boolean =>
+  directory === "." || directory === "" || path === directory || path.startsWith(`${directory}/`);
 
 /** The module key that would own a file: its directory below the root, or the file itself. */
 const suggestModule = (rest: string): string => {
@@ -63,17 +72,14 @@ const suggestModule = (rest: string): string => {
     : `Add a module for its directory (a key is a path below \`arch.root\`, e.g. '${directory}').`;
 };
 
+/** The module owning `path`: the one whose directory holds it most closely. */
 export const moduleOf = (arch: Arch, path: string): string | undefined => {
-  const rest = underRoot(arch, path);
-  if (rest === undefined) return undefined;
-  let best: string | undefined;
+  let best: { name: string; length: number } | undefined;
   for (const name of Object.keys(arch.modules))
-    if (
-      (rest === name || rest.startsWith(`${name}/`)) &&
-      (best === undefined || name.length > best.length)
-    )
-      best = name;
-  return best;
+    for (const directory of directoriesOf(arch, name))
+      if (within(path, directory) && (best === undefined || directory.length > best.length))
+        best = { name, length: directory.length };
+  return best?.name;
 };
 
 /**
@@ -97,7 +103,9 @@ export const archFiles = (
     if (config.configModules.includes(file) && moduleOf(arch, file) === undefined) return false;
     const kind = placeOf(config, file, claim.kind).kind;
     if (kind !== "source" && kind !== "outside") return false;
-    return underRoot(arch, file) !== undefined || kind === "source";
+    return (
+      underRoot(arch, file) !== undefined || kind === "source" || moduleOf(arch, file) !== undefined
+    );
   });
 };
 
@@ -138,21 +146,17 @@ export const checkArch = (config: ResolvedConfig, snapshot: Snapshot): ReadonlyA
         );
 
   const files = archFiles(config, snapshot);
-  for (const [name, rule] of Object.entries(arch.modules))
-    if (
-      rule.optional !== true &&
-      !files.some(
-        (file) =>
-          file === directoryOf(arch, name) || file.startsWith(`${directoryOf(arch, name)}/`),
-      )
-    )
+  for (const [name, rule] of Object.entries(arch.modules)) {
+    const directories = directoriesOf(arch, name);
+    if (rule.optional !== true && !files.some((file) => directories.some((d) => within(file, d))))
       violations.push(
         violation(
           "empty-module",
           config.configFile,
-          `module '${name}' matches no ${languages(snapshot)} file under ${directoryOf(arch, name)}/. Fix its name, remove it, or mark it \`optional: true\` if its code is still to come.`,
+          `module '${name}' matches no ${languages(snapshot)} file under ${directories.map((d) => `${d}/`).join(" or ")}. Fix its ${rule.paths === undefined ? "name" : "paths"}, remove it, or mark it \`optional: true\` if its code is still to come.`,
         ),
       );
+  }
 
   const known = new Set(snapshot.files);
   const isHost = (specifier: string) =>
@@ -163,6 +167,7 @@ export const checkArch = (config: ResolvedConfig, snapshot: Snapshot): ReadonlyA
         known,
         texts: snapshot.texts,
         isHost,
+        claimed: (file) => claimOf(snapshot, file)?.loaded,
       }),
     );
   return violations;
@@ -178,6 +183,7 @@ const judge = (
     readonly known: ReadonlySet<string>;
     readonly texts: Snapshot["texts"];
     readonly isHost: (specifier: string) => boolean;
+    readonly claimed: (file: string) => LoadedPack | undefined;
   },
 ): ReadonlyArray<Violation> => {
   const violations: Array<Violation> = [];
@@ -247,6 +253,9 @@ const judge = (
     } else if ("unresolved" in edge) {
       violations.push(violation("unresolved-import", edge.from, edge.unresolved, edge.line));
     } else {
+      // Graphs are per pack: an edge into a file another listed pack claims is no edge.
+      const owner = repo.claimed(edge.to);
+      if (owner !== undefined && owner !== loaded) continue;
       const list = targets.get(edge.from) ?? [];
       list.push(edge.to);
       targets.set(edge.from, list);

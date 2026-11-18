@@ -2,11 +2,13 @@
  * Loads the repo's config, `shape.toml`, and decodes it strictly. `shape.config.ts` still
  * loads, by importing it, until `mshape config migrate` replaces it.
  */
+
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { basename, dirname, join, relative, resolve } from "node:path";
 import * as Effect from "effect/Effect";
 import { decodeStrict } from "../helpers/decodeStrict.ts";
+import { PACKS } from "../packs/index.ts";
 import {
   configProblems,
   PACK_IDS,
@@ -15,6 +17,14 @@ import {
   ShapeConfig,
   ShapeToml,
 } from "../schemas/config.ts";
+
+/** Each shipped pack's default `sources.include`, for a config that sets none. */
+const PACK_SOURCES = Object.fromEntries(
+  Object.values(PACKS).flatMap((pack) =>
+    pack === undefined ? [] : [[pack.id, pack.defaultSources.include] as const],
+  ),
+);
+
 import { ConfigError } from "../schemas/errors.ts";
 
 export const CONFIG_FILE = "shape.toml";
@@ -205,7 +215,7 @@ const loadToml = (root: string, path: string, shown: string) =>
     const problems = configProblems(config);
     if (problems.length > 0)
       return yield* Effect.fail(new ConfigError({ path: shown, reason: problems.join("; ") }));
-    return resolveConfig(config, shown);
+    return resolveConfig(config, shown, [], PACK_SOURCES);
   });
 
 /**
@@ -258,5 +268,5 @@ export const loadConfig = (root: string, given?: string) =>
     if (problems.length > 0)
       return yield* Effect.fail(new ConfigError({ path: shown, reason: problems.join("; ") }));
     const reached = yield* Effect.promise(() => reachedFrom(path, root));
-    return resolveConfig(config, shown, reached);
+    return resolveConfig(config, shown, reached, PACK_SOURCES);
   });

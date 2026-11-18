@@ -2,17 +2,18 @@
  * The rules' scope, accounted for. A rule that never saw a file can't fail on it, so a green
  * gate over a layout the defaults don't match (no `src/`) would mean nothing. Every
  * TypeScript file is in `sources`, or a test, or a declaration file, or exempt with a reason;
- * one that is none of them fails here. A glob the config wrote that matches no file fails
+ * one that is none of them fails here, as does a file two listed packs claim, or one only an
+ * unlisted pack claims. A glob the config wrote that matches no file fails
  * too, unless it is declared optional: a typo in a glob is otherwise a silent hole.
  */
 
 import type { FileKind, LoadedPack } from "../packs/pack.ts";
 import type { ResolvedConfig } from "../schemas/config.ts";
-import { matches, matchesAny } from "./glob.ts";
+import { matches, matchesAny, matchesPathOrBelow } from "./glob.ts";
 import type { Snapshot, Violation } from "./model.ts";
 
 /** Every rule this check reports, as `sources/<kind>`; test/core/ruleCases.test.ts covers each. */
-export const SOURCES_RULES = ["outside", "unmatched"] as const;
+export const SOURCES_RULES = ["outside", "unmatched", "claimed-twice", "unlisted-pack"] as const;
 
 const violation = (
   rule: (typeof SOURCES_RULES)[number],
@@ -103,6 +104,44 @@ export const places = (
     return claim === undefined ? [] : [{ file, place: placeOf(config, file, claim.kind) }];
   });
 
+/**
+ * Each file belongs to one pack. A file two listed packs claim fails; so does a file only an
+ * unlisted pack claims, unless the repo checks it its own way: a declared command covers it,
+ * or `coverage` exempts it (a few scripts in another language need no pack).
+ */
+const claims = (config: ResolvedConfig, snapshot: Snapshot): ReadonlyArray<Violation> => {
+  const segments = new Set(config.coverage.exempt);
+  const ownWay = (file: string) =>
+    file.split("/").some((segment) => segments.has(segment)) ||
+    config.coverage.exemptFiles.some((entry) => matchesPathOrBelow(file, entry.path)) ||
+    config.coverage.commands.some((command) =>
+      command.files.some((pattern) => matchesPathOrBelow(file, pattern)),
+    );
+  return snapshot.files.flatMap((file) => {
+    const listed = snapshot.packs.filter(({ pack }) => pack.kindOf(file) !== undefined);
+    const [first, second] = listed;
+    if (first !== undefined && second !== undefined)
+      return [
+        violation(
+          "claimed-twice",
+          file,
+          `is claimed by two packs in \`packs\`, \`${first.pack.id}\` and \`${second.pack.id}\`, and a file belongs to one. List only one of them in ${config.configFile}, or move the file where one pack's files are.`,
+        ),
+      ];
+    if (first !== undefined || ownWay(file)) return [];
+    const other = snapshot.otherPacks.find((pack) => pack.kindOf(file) !== undefined);
+    return other === undefined
+      ? []
+      : [
+          violation(
+            "unlisted-pack",
+            file,
+            `is ${other.language}, but \`packs\` in ${config.configFile} doesn't list \`${other.id}\`, so no check reads it. Add \`"${other.id}"\` to \`packs\`; or, if the repo checks it its own way, cover it with a command in \`coverage.commands\` or list it in \`coverage.exemptFiles\` with the reason.`,
+          ),
+        ];
+  });
+};
+
 /** The glob a fix would add for `file`: its top-level directory, or the root, by its extension. */
 const suggestedGlob = (file: string): string => {
   const extension = file.slice(file.lastIndexOf(".") + 1);
@@ -111,10 +150,10 @@ const suggestedGlob = (file: string): string => {
 };
 
 /** How to fix one file outside the rules' scope, which depends on why it is outside. */
-const outsideMessage = (config: ResolvedConfig, file: string): string =>
+const outsideMessage = (config: ResolvedConfig, file: string, language: string): string =>
   matchesAny(file, config.sources.include)
-    ? "is TypeScript in `sources.include` but removed by `sources.exclude`, so no rule analyzes it. `exclude` is for tests; move the glob to `sources.exempt` in shape.config.ts with the reason this code needn't be analyzed, or drop it from `exclude`."
-    : `is TypeScript outside \`sources\`, so no rule analyzes it. Add a glob such as '${suggestedGlob(file)}' to \`sources.include\` in shape.config.ts, or list it in \`sources.exempt\` with the reason it needn't be.`;
+    ? `is ${language} in \`sources.include\` but removed by \`sources.exclude\`, so no rule analyzes it. \`exclude\` is for tests; move the glob to \`sources.exempt\` in ${config.configFile} with the reason this code needn't be analyzed, or drop it from \`exclude\`.`
+    : `is ${language} outside \`sources\`, so no rule analyzes it. Add a glob such as '${suggestedGlob(file)}' to \`sources.include\` in ${config.configFile}, or list it in \`sources.exempt\` with the reason it needn't be.`;
 
 export const checkSources = (
   config: ResolvedConfig,
@@ -132,6 +171,13 @@ export const checkSources = (
       );
   for (const { file, place } of places(config, snapshot))
     if (place.kind === "outside")
-      violations.push(violation("outside", file, outsideMessage(config, file)));
+      violations.push(
+        violation(
+          "outside",
+          file,
+          outsideMessage(config, file, claimOf(snapshot, file)?.loaded.pack.language ?? "source"),
+        ),
+      );
+  violations.push(...claims(config, snapshot));
   return violations;
 };
