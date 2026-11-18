@@ -57,6 +57,9 @@ where the two differ.
   two bugs that the first real run of `track pr` found (colour codes, gh 2.4's `pr edit`).
 - A test that spawns the CLI sets `CLAUDE_CODE_SESSION_ID` and `CLAUDE_PID` to `""`: run inside
   a Claude Code session, the real ids leak in and register that session in the temp repo.
+- The gate runs test files in parallel, so a test's time depends on the machine's load: CI's
+  4-core runner is several times slower than a laptop. The gate's `--timeout=30000` is a hang
+  guard sized for that; give a test its own timeout only above it.
 - The code blocks in `docs/adopting.md` are the consumer test's fixture, and the README's
   `$ mshape check` block its expected output: edit both as code.
 

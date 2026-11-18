@@ -54,7 +54,7 @@
     "mshape": "bun src/cli/main.ts",
     "shape": "bun src/cli/main.ts check",
     "release": "bun src/cli/release.ts",
-    "check": "bun run typecheck && bun run lint && bun run shape && bun test --parallel"
+    "check": "bun run typecheck && bun run lint && bun run shape && bun test --parallel --timeout=30000"
   },
   "dependencies": {
     "oxc-parser": "0.156.0"
