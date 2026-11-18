@@ -1,0 +1,24 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      # mshape runs the version shape.toml pins; rustup installs rust-toolchain.toml's
+      # toolchain on the first cargo command. No Bun.
+      - name: Install mshape
+        run: |
+          curl -fsSL https://github.com/clinsky/monkeyshape/releases/latest/download/install.sh | sh
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+      - run: mshape gate

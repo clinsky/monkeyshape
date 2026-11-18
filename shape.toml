@@ -13,6 +13,13 @@ exempt = [
   { path = "template/**", reason = "scaffold data that `mshape init` copies; each born repo's own gate checks it" },
 ]
 
+# The same for a pack this repo doesn't list: sources.exempt covers only its own packs' files.
+[coverage]
+exempt-files = [
+  { path = "template/packs/rust/**", reason = "the Rust template `mshape init --pack rust` copies; each born repo's own gate checks it" },
+  { path = "template/packs/python/**", reason = "the Python template: test/integration/binary.test.ts runs the gate of the repo it births, ruff, ty and pytest" },
+]
+
 [arch.modules.schemas]
 description = "Config schema and tagged errors: pure data contracts."
 
@@ -59,11 +66,6 @@ docs = { add = ["docs/workflow.md", "docs/adopting.md", "docs/local-rules.md"] }
 [[gate.stages]]
 name = "bun-test"
 run = ["bun", "test", "--parallel", "--timeout=30000"]
-
-[coverage]
-exempt-files = [
-  { path = "template/packs/python/**", reason = "the Python template: test/integration/binary.test.ts runs the gate of the repo it births, ruff, ty and pytest" },
-]
 
 # install.sh is POSIX sh: `sh -n` parses it as dash does on Linux, stricter than bash;
 # test/integration/launch.test.ts runs it.
