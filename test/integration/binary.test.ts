@@ -31,6 +31,9 @@ const run = (cwd: string, args: ReadonlyArray<string>, path: ReadonlyArray<strin
       HOME: join(work, "home"),
       CLAUDE_CODE_SESSION_ID: "",
       CLAUDE_PID: "",
+      // This repo pins `dev`, its own source: what is tested here is the binary itself, run as
+      // the launcher runs the version it launched.
+      MSHAPE_LAUNCHED: version,
     },
   });
   return { code: ran.exitCode, out: `${ran.stdout}${ran.stderr}` };
@@ -60,11 +63,12 @@ describe.skipIf(host === undefined)("the compiled mshape, with no Bun", () => {
     expect(help.out).toContain(`mshape ${version}`);
   });
 
-  test("SHA256SUMS lists the binary by its hash", async () => {
-    const digest = new Bun.CryptoHasher("sha256")
-      .update(await Bun.file(binary).bytes())
-      .digest("hex");
-    expect(sums).toBe(`${digest}  mshape-${host?.platform}\n`);
+  test("SHA256SUMS lists the binary and install.sh by their hashes", async () => {
+    const digest = async (path: string) =>
+      new Bun.CryptoHasher("sha256").update(await Bun.file(path).bytes()).digest("hex");
+    expect(sums).toBe(
+      `${await digest(join(ROOT, "install.sh"))}  install.sh\n${await digest(binary)}  mshape-${host?.platform}\n`,
+    );
   });
 
   test("names no path of the machine that built it, so a commit builds the same anywhere", async () => {
