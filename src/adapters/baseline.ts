@@ -5,9 +5,9 @@ import type { ChangedLines } from "../core/model.ts";
 import { type Counts, parseChangedLines } from "../core/ratchet.ts";
 import { decodeStrict } from "../helpers/decodeStrict.ts";
 import { WorkspaceError } from "../schemas/errors.ts";
+import { readText } from "./disk.ts";
 import { run } from "./process.ts";
 import { mergeTargets } from "./tracks.ts";
-import { readText } from "./workspace.ts";
 
 export const BASELINE_FILE = ".shape/baseline.json";
 

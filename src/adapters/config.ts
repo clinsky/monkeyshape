@@ -2,11 +2,13 @@
  * Loads the repo's config, `shape.toml`, and decodes it strictly. `shape.config.ts` still
  * loads, by importing it, until `mshape config migrate` replaces it.
  */
+
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { basename, dirname, join, relative, resolve } from "node:path";
 import * as Effect from "effect/Effect";
 import { decodeStrict } from "../helpers/decodeStrict.ts";
+import { PACKS } from "../packs/index.ts";
 import {
   configProblems,
   PACK_IDS,
@@ -15,7 +17,30 @@ import {
   ShapeConfig,
   ShapeToml,
 } from "../schemas/config.ts";
+
+/**
+ * A listed pack this mshape doesn't ship: the schema knows every pack's id before each pack
+ * lands, so a config can name one that would load as nothing and check nothing.
+ */
+const unshipped = (config: { readonly packs?: ReadonlyArray<string> | undefined }) => {
+  const shipped = Object.keys(PACKS);
+  return (config.packs ?? [])
+    .filter((pack) => !shipped.includes(pack))
+    .map(
+      (pack) =>
+        `packs: lists \`${pack}\`, which this mshape doesn't ship (it ships ${shipped.join(", ")}); run a release that has it, or remove it from \`packs\``,
+    );
+};
+
+/** Each shipped pack's default `sources.include`, for a config that sets none. */
+const PACK_SOURCES = Object.fromEntries(
+  Object.values(PACKS).flatMap((pack) =>
+    pack === undefined ? [] : [[pack.id, pack.defaultSources.include] as const],
+  ),
+);
+
 import { ConfigError } from "../schemas/errors.ts";
+import { ownRoot } from "./launch.ts";
 
 export const CONFIG_FILE = "shape.toml";
 /** The config as code, which 0.6.0 replaces with `shape.toml`. */
@@ -52,15 +77,12 @@ export const loadFailure = (cause: unknown): string => {
     .join("; ");
 };
 
-/** The running monkeyshape's package directory, which resolves `monkeyshape` by its exports. */
-const OWN_ROOT = `${import.meta.dir}/../..`;
-
 /** Where `specifier`, imported by a file in `dir`, resolves as if that file sat in `root`. */
 const SOURCE = /\.(?:[cm]?[jt]sx?)$/;
 
 /** Bare specifiers as if imported from `root`, falling back to the running monkeyshape. */
 const resolveBare = (specifier: string, root: string): string | undefined => {
-  for (const from of [root, OWN_ROOT])
+  for (const from of [root, ownRoot()])
     try {
       return Bun.resolveSync(specifier, from);
     } catch {
@@ -202,10 +224,10 @@ const loadToml = (root: string, path: string, shown: string) =>
         }),
       );
     }
-    const problems = configProblems(config);
+    const problems = [...configProblems(config), ...unshipped(config)];
     if (problems.length > 0)
       return yield* Effect.fail(new ConfigError({ path: shown, reason: problems.join("; ") }));
-    return resolveConfig(config, shown);
+    return resolveConfig(config, shown, [], PACK_SOURCES);
   });
 
 /**
@@ -254,9 +276,9 @@ export const loadConfig = (root: string, given?: string) =>
     const config = yield* decodeStrict(ShapeConfig)(module.default).pipe(
       Effect.mapError((error) => new ConfigError({ path: shown, reason: error.message })),
     );
-    const problems = configProblems(config);
+    const problems = [...configProblems(config), ...unshipped(config)];
     if (problems.length > 0)
       return yield* Effect.fail(new ConfigError({ path: shown, reason: problems.join("; ") }));
     const reached = yield* Effect.promise(() => reachedFrom(path, root));
-    return resolveConfig(config, shown, reached);
+    return resolveConfig(config, shown, reached, PACK_SOURCES);
   });

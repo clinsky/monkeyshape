@@ -422,3 +422,43 @@ already written by agents, not generated for it.
   because `localRules`, their tests and `init` still use the TypeScript config until `packs`'
   `8il.10` and `8il.11` land. `8il.2` flips that row to "fails: run `mshape config migrate`",
   with its test, and moves check messages to kebab-case keys then. The end state is the plan's.
+- **2026-11-18, Cargo's lints are a table `mshape sync` owns in the root `Cargo.toml`
+  (`rust`, agreed with `packs`), approved by the planning session.** The copied-configs table
+  gains the case the plan left to `rust`. A base config's delivery in `pack.ts` is `extends`,
+  `copy` or `table`. Sync owns `[workspace.lints.rust]` and `[workspace.lints.clippy]`: the
+  curated lints with `shape.toml`'s `[rust.lints.<tool>]` overrides laid over them, lint by
+  lint. Cases, `rust`'s test:
+
+  | Case | Result |
+  |---|---|
+  | the tables equal what sync writes, by parsed value | passes; a reformat isn't a failure |
+  | a lint edited in `Cargo.toml` by hand | `sync` fails, naming the file: override in `shape.toml`, then `mshape sync` |
+  | the tables missing | `sync` fails: run `mshape sync` |
+  | a member crate without `[lints] workspace = true` | `packs/rust/member-lints` fails, naming the line to add |
+  | a crate made by `cargo new` inside the workspace | has that line already (cargo 1.100) |
+
+  Why: Cargo has no `extends`, and a `.mshape/` copy has nothing in Cargo to point at it.
+- **2026-11-18, the pack interface is frozen (`packs`, #98; `rust`'s #102 builds on it
+  unchanged), recorded by the planning session.** The frozen file is `src/packs/pack.ts` on
+  `main` at 3ad637b, plus one optional field from #101: `fix?: string` on an unavailable
+  integration, the fix to print when it isn't installing the tool (no Bun under the compiled
+  binary). A pack is pure (`src/packs/<id>/`): `id`, `language`, `kindOf(file)` (source, test,
+  declaration or none), `comments`, `syntaxErrors`, `defaultSources`, `hostSpecifiers`,
+  `graph(input)` returning edges and host uses, `tools` with their coverage, `rules`,
+  `findings` with declared `findingKinds` (reported as `packs/<id>/<kind>`), `baseConfigs`
+  (`extends`, `copy` or `table`), `template`, `stages`, `prerequisites` and `loadFor`. Its
+  loader (`src/adapters/packs/<id>.ts`) returns only tool runs and raw outputs. `pack.ts` is
+  its own arch module, depending on schemas only. `python` starts now; from here a change to
+  `pack.ts` is a divergence sent to `main` with why.
+- **2026-11-18, the pack table's outcomes as built (`packs`, #98), approved by the planning
+  session.** A file two listed packs claim is the `sources` finding `sources/claimed-twice`,
+  naming the file and both packs, not a config failure: config load reads no files, and the
+  fix is the same. Rows added beyond the table, each in `test/core/packs.test.ts`:
+
+  | Case | Result |
+  |---|---|
+  | a listed pack this `mshape` doesn't ship | fails at config load |
+  | a file in sources that no listed pack reads | `sources/unclaimed` |
+  | an import into another listed pack's file | dropped: graphs are per pack |
+  | a module sets `paths` | its files are those paths |
+  | a pack reports a finding kind it didn't declare | `packs/undeclared-kind` |

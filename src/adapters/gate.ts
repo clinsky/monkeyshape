@@ -9,15 +9,17 @@ import { basename, join, resolve } from "node:path";
 import * as Effect from "effect/Effect";
 import {
   formatGate,
+  type GatePacks,
   gateStages,
-  PACK_INSTALL,
+  installHint,
   type PlannedStage,
   type StageResult,
   stageCommand,
 } from "../core/gate.ts";
+import { PACKS } from "../packs/index.ts";
 import type { ResolvedConfig } from "../schemas/config.ts";
-import { runTool } from "./process.ts";
-import { localBin } from "./workspace.ts";
+import { localBin } from "./packs/typescript.ts";
+import { BUN_MISSING, bunPath, runTool } from "./process.ts";
 
 /**
  * Where a stage's output is kept: under the git common dir, which outlives any worktree (track
@@ -41,35 +43,49 @@ export const gateLogDir = (root: string) =>
     },
   );
 
+/** A stage's argv as it can be spawned, or why it can't be (undefined: the program isn't here). */
+type Command = { readonly argv: ReadonlyArray<string> } | { readonly why: string | undefined };
+
 /**
- * A stage's argv as it can be spawned, or undefined when its program isn't here. `bun` is this
- * bun. A tool in node_modules/.bin (the worktree's, else the main checkout's) runs through this
- * bun too, since its shim starts with `#!/usr/bin/env node`. Anything else, from the PATH.
+ * `bun` is Bun (`bunPath`). A tool in node_modules/.bin (the worktree's, else the main
+ * checkout's) runs through Bun too, since its shim starts with `#!/usr/bin/env node`. Anything
+ * else, from the PATH.
  */
 const command = (root: string, run: ReadonlyArray<string>, path: string | undefined) =>
   Effect.gen(function* () {
     const [program, ...rest] = run;
-    if (program === undefined) return undefined;
-    if (program === "bun") return [process.execPath, ...rest];
+    if (program === undefined) return { why: undefined } satisfies Command as Command;
+    if (program === "bun") {
+      const bun = bunPath();
+      return (bun === undefined ? { why: BUN_MISSING } : { argv: [bun, ...rest] }) as Command;
+    }
     // A path, such as `./scripts/check.sh`: there or not, from the repo root.
     if (program.includes("/"))
-      return (yield* Effect.promise(() => Bun.file(resolve(root, program)).exists()))
-        ? [...run]
-        : undefined;
-    const bin = yield* localBin(root, program);
-    if (bin !== undefined) return [...bin, ...rest];
-    return Bun.which(program, path === undefined ? {} : { PATH: path }) === null
-      ? undefined
-      : [...run];
+      return (
+        (yield* Effect.promise(() => Bun.file(resolve(root, program)).exists()))
+          ? { argv: run }
+          : { why: undefined }
+      ) as Command;
+    const bin = yield* localBin(root, program, program);
+    if (typeof bin !== "string") return { argv: [...bin, ...rest] } as Command;
+    if (bin === BUN_MISSING) return { why: BUN_MISSING } as Command;
+    return (
+      Bun.which(program, path === undefined ? {} : { PATH: path }) === null
+        ? { why: undefined }
+        : { argv: run }
+    ) as Command;
   });
 
-const missing = (stage: PlannedStage): string => {
+const missing = (packs: GatePacks, stage: PlannedStage, why: string | undefined): string => {
   const program = stage.run[0] ?? "";
+  const absent =
+    why ?? `\`${program}\` isn't installed here (not in node_modules/.bin or on the PATH)`;
   if (stage.origin === "repo" || stage.replaced)
-    return `\`${program}\` isn't installed here (not in node_modules/.bin or on the PATH), and this repo's gate stage \`${stage.name}\` needs it: install it, or change the stage in [gate].stages`;
+    return `${absent}, and this repo's gate stage \`${stage.name}\` needs it: install it, or change the stage in [gate].stages`;
+  const hint = installHint(packs, stage);
   return stage.required
-    ? `\`${program}\` isn't installed here (not in node_modules/.bin or on the PATH): the ${stage.origin} pack requires it. To install it, ${stage.origin === "mshape" ? "install monkeyshape" : PACK_INSTALL[stage.origin]}`
-    : `\`${program}\` isn't installed, and \`prerequisites\` makes it optional: \`${stage.name}\` didn't run`;
+    ? `${absent}: the ${stage.origin} pack requires it${hint === undefined ? "" : `. Install it: ${hint}`}`
+    : `${absent}, and \`prerequisites\` makes it optional: \`${stage.name}\` didn't run`;
 };
 
 export interface GateRun {
@@ -89,6 +105,8 @@ export const runGate = (
     readonly check: Effect.Effect<GateRun, unknown>;
     /** Where to look for programs, instead of the PATH: for tests. */
     readonly path?: string;
+    /** The packs' stages and prerequisites, instead of the registry: for tests. */
+    readonly packs?: GatePacks;
   },
 ) =>
   Effect.gen(function* () {
@@ -96,7 +114,8 @@ export const runGate = (
     yield* Effect.promise(() => mkdir(dir, { recursive: true }));
     const results: Array<StageResult> = [];
     const output = new Map<string, string>();
-    for (const stage of gateStages(config)) {
+    const packs = options.packs ?? PACKS;
+    for (const stage of gateStages(config, packs)) {
       const shown = stageCommand(stage);
       if (options.fast && !stage.fast) {
         results.push({ stage, state: "skipped", detail: `${shown} (--fast runs the fast phase)` });
@@ -110,15 +129,16 @@ export const runGate = (
           ),
         );
       else {
-        const argv = yield* command(root, stage.run, options.path);
-        if (argv === undefined) {
+        const found = yield* command(root, stage.run, options.path);
+        if (!("argv" in found)) {
           results.push({
             stage,
             state: stage.required ? "failed" : "note",
-            detail: missing(stage),
+            detail: missing(packs, stage, found.why),
           });
           continue;
         }
+        const argv = found.argv;
         const got = yield* runTool(root, argv);
         ran = {
           output: [Bun.stripANSI(got.stdout), Bun.stripANSI(got.stderr)]

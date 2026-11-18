@@ -28,6 +28,7 @@ export const CHECK_NAMES = [
   "coverage",
   "files",
   "rules",
+  "packs",
   "skills",
   "sync",
   "beads",
@@ -84,6 +85,11 @@ export const ModuleRule = Schema.Struct({
   description: Schema.String,
   /** The pack whose files the module holds: required when the repo lists more than one. */
   pack: Schema.optionalKey(Pack),
+  /**
+   * Where the module's files are, as repo-relative directories or files: for code that isn't
+   * at `arch.root/<key>`, such as a crate at `crates/<name>`. Unset: `arch.root/<key>`.
+   */
+  paths: Schema.optionalKey(Schema.Array(Schema.String.check(Schema.isMinLength(1)))),
   /** Modules this one may import besides itself. */
   mayImport: Schema.optionalKey(Schema.Array(Schema.String)),
   /** May touch the host directly (`node:*`, `bun`, platform packages). */
@@ -498,11 +504,21 @@ export const DEFAULT_DOCS: ReadonlyArray<string> = [
 const normalRoot = (root: string): string =>
   root.replace(/^(\.\/)+/, "").replace(/\/+$/, "") || ".";
 
-/** `file`: the config as its reader names it, where findings about the config point. */
+/** TypeScript's: `sources.include` when neither the config nor the packs say otherwise. */
+const TS_SOURCES = ["src/**/*.{ts,tsx}", "tools/**/*.{ts,tsx}"];
+
+/**
+ * `file`: the config as its reader names it, where findings about the config point.
+ * `packSources`: each listed pack's `sources.include` default, by id; the loader passes them,
+ * since the packs, not the schema, know their languages.
+ */
 export const resolveConfig = (
   config: ShapeConfig,
   file = "shape.config.ts",
   modules: ReadonlyArray<string> = [],
+  packSources: Readonly<Partial<Record<PackId, ReadonlyArray<string>>>> = {
+    typescript: TS_SOURCES,
+  },
 ): ResolvedConfig => ({
   configFile: file,
   packs: config.packs ?? ["typescript"],
@@ -511,7 +527,10 @@ export const resolveConfig = (
   configModules: modules,
   layers: config.layers ?? ["core"],
   sources: {
-    include: globsOf(config.sources?.include ?? ["src/**/*.{ts,tsx}", "tools/**/*.{ts,tsx}"]),
+    include: globsOf(
+      config.sources?.include ??
+        (config.packs ?? ["typescript"]).flatMap((pack) => packSources[pack] ?? []),
+    ),
     // An exempt file is counted, never analyzed: excluding it here keeps the rules engine,
     // and any later reader of `sources`, from analyzing it.
     exclude: [

@@ -1,13 +1,9 @@
 import { describe, expect, test } from "bun:test";
 import { assess, notices, report } from "../../src/core/check.ts";
-import {
-  biomeCovers,
-  checkCoverage,
-  commandReports,
-  tsconfigCovers,
-} from "../../src/core/coverage.ts";
+import { checkCoverage, commandReports } from "../../src/core/coverage.ts";
 import { stripJsonc } from "../../src/core/jsonc.ts";
 import { formatCheck } from "../../src/core/report.ts";
+import { biomeCovers, tsconfigCovers } from "../../src/packs/typescript/tools.ts";
 import type { ShapeConfig } from "../../src/schemas/config.ts";
 import { config, repo } from "../support.ts";
 

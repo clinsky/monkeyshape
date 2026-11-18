@@ -17,12 +17,21 @@ description = "Runtime helpers adopters import, e.g. decodeStrict."
 [arch.modules.core]
 description = "Every check, as pure functions over a Snapshot. No host I/O."
 # No host-access: only adapters touch disk, git or bd (D-pure-checks).
+may-import = ["schemas", "packs/pack.ts"]
+packages = ["oxc-parser"]
+
+[arch.modules."packs/pack.ts"]
+description = "The language-pack interface: types only, which the core and every pack share."
 may-import = ["schemas"]
+
+[arch.modules.packs]
+description = "Each language pack's pure part. No host I/O."
+may-import = ["schemas", "core", "packs/pack.ts"]
 packages = ["oxc-parser"]
 
 [arch.modules.adapters]
 description = "Loads the repo, the config and the baseline from disk and git."
-may-import = ["schemas", "helpers", "core"]
+may-import = ["schemas", "helpers", "core", "packs", "packs/pack.ts"]
 host-access = true
 
 [arch.modules.api]

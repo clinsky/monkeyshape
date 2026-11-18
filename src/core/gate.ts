@@ -5,6 +5,7 @@
  * name replaces it, in the pack stage's place and phase unless it says `fast`. The table and
  * its cases are plan/MILESTONE.md's; `test/core/gate.test.ts` holds them.
  */
+import type { Pack } from "../packs/pack.ts";
 import {
   CHECK_STAGE,
   type GateStage,
@@ -14,57 +15,32 @@ import {
 
 export { CHECK_STAGE };
 
-/** A pack's default stage, with whether its program is a required prerequisite of the pack. */
-export interface PackStage {
-  readonly name: string;
-  readonly run: ReadonlyArray<string>;
-  readonly fast: boolean;
-  readonly okExit?: ReadonlyArray<number>;
-  /** The `prerequisites` key that makes it optional; required when it has none. */
-  readonly prerequisite?: "tsc" | "biome";
-}
+/** What the gate reads of each pack: its default stages and the programs it needs. */
+export type GatePacks = Readonly<Partial<Record<PackId, Pick<Pack, "stages" | "prerequisites">>>>;
 
 /**
- * Each pack's default stages: what a born repo's gate runs today, so migrating changes no
- * outcome. Unique names across packs, so a repo stage replaces exactly one.
+ * Whether a missing program optional for `config` is: a pack prerequisite of its name is
+ * required unless the pack says otherwise or `prerequisites` (tsc, biome) makes it optional.
  */
-/** How to install a pack's programs, for a message an agent can act on unaided. */
-export const PACK_INSTALL: Readonly<Record<PackId, string>> = {
-  typescript: "run `bun install`, which installs the tools package.json pins",
-  rust: "install Rust with rustup (https://rustup.rs), then `rustup component add rustfmt clippy`",
-  python:
-    "install uv (`curl -LsSf https://astral.sh/uv/install.sh | sh`), then `uv sync` for the tools pyproject.toml pins",
+const requiredHere = (
+  config: Pick<ResolvedConfig, "prerequisites">,
+  program: string | undefined,
+  pack: Pick<Pack, "prerequisites">,
+): boolean => {
+  const prerequisite = pack.prerequisites.find((one) => one.name === program);
+  if (prerequisite === undefined) return true;
+  if (program === "tsc" || program === "biome") return config.prerequisites[program] === "required";
+  return prerequisite.required;
 };
 
-export const PACK_STAGES: Readonly<Record<PackId, ReadonlyArray<PackStage>>> = {
-  typescript: [
-    { name: "tsc", run: ["tsc", "-p", "."], fast: true, prerequisite: "tsc" },
-    {
-      name: "biome",
-      run: ["biome", "ci", "--error-on-warnings", "."],
-      fast: true,
-      prerequisite: "biome",
-    },
-    { name: "bun-test", run: ["bun", "test", "--pass-with-no-tests"], fast: false },
-  ],
-  rust: [
-    { name: "cargo-fmt", run: ["cargo", "fmt", "--all", "--check"], fast: true },
-    {
-      name: "clippy",
-      run: ["cargo", "clippy", "--workspace", "--all-targets", "--", "-D", "warnings"],
-      fast: true,
-    },
-    // cargo passes a workspace with no tests.
-    { name: "cargo-test", run: ["cargo", "test", "--workspace"], fast: false },
-  ],
-  python: [
-    { name: "ruff-format", run: ["uv", "run", "ruff", "format", "--check"], fast: true },
-    { name: "ruff-check", run: ["uv", "run", "ruff", "check"], fast: true },
-    { name: "ty", run: ["uv", "run", "ty", "check"], fast: true },
-    // 5: pytest collected no tests, which a born repo has none of yet.
-    { name: "pytest", run: ["uv", "run", "pytest"], fast: false, okExit: [0, 5] },
-  ],
-};
+/** How to install a stage's missing program, from its pack's prerequisites. */
+export const installHint = (
+  packs: GatePacks,
+  stage: Pick<PlannedStage, "origin" | "run">,
+): string | undefined =>
+  stage.origin === "mshape" || stage.origin === "repo"
+    ? undefined
+    : packs[stage.origin]?.prerequisites.find((one) => one.name === stage.run[0])?.install;
 
 /** One stage as the gate runs it. */
 export interface PlannedStage {
@@ -97,22 +73,28 @@ const planned = (
   replaced,
 });
 
-/** Every stage of the gate, fast phase first, in the order they run. */
+/**
+ * Every stage of the gate, fast phase first, in the order they run. `packs` is the registry
+ * (`src/packs/index.ts`); a listed pack it lacks has no stages (loading the config refuses one).
+ */
 export const gateStages = (
   config: Pick<ResolvedConfig, "packs" | "gate" | "prerequisites">,
+  packs: GatePacks,
 ): ReadonlyArray<PlannedStage> => {
   const own = new Map(config.gate.stages.map((stage) => [stage.name, stage]));
-  const packStages = config.packs.flatMap((pack) =>
-    PACK_STAGES[pack].map((stage): PlannedStage => {
+  const packStages = config.packs.flatMap((id) => {
+    const pack = packs[id];
+    if (pack === undefined) return [];
+    return pack.stages.map((stage): PlannedStage => {
       const replacement = own.get(stage.name);
-      const required =
-        stage.prerequisite === undefined || config.prerequisites[stage.prerequisite] === "required";
-      if (replacement === undefined) return planned(stage, pack, required, false, stage.fast);
+      const required = requiredHere(config, stage.run[0], pack);
+      const fast = stage.fast ?? false;
+      if (replacement === undefined) return planned(stage, id, required, false, fast);
       own.delete(stage.name);
       // The repo's stage is the repo's to keep working: its program is always required.
-      return planned(replacement, pack, true, true, replacement.fast ?? stage.fast);
-    }),
-  );
+      return planned(replacement, id, true, true, replacement.fast ?? fast);
+    });
+  });
   const repoStages = [...own.values()].map((stage) =>
     planned(stage, "repo", true, false, stage.fast ?? false),
   );

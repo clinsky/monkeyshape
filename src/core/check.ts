@@ -1,4 +1,6 @@
 /** Runs the selected checks over a snapshot. Pure: the CLI loads, this decides. */
+
+import type { Pack } from "../packs/pack.ts";
 import { CHECK_NAMES, type ResolvedConfig } from "../schemas/config.ts";
 import { ARCH_RULES, archFiles, checkArch } from "./arch.ts";
 import { BEADS_RULES, checkBeads } from "./beads.ts";
@@ -18,12 +20,12 @@ import {
   type CheckName,
   type CheckReport,
   type Integration,
-  isTsSource,
   lineSources,
   type Outcome,
   type Snapshot,
   type Violation,
 } from "./model.ts";
+import { checkPacks, PACKS_RULES, packRuleIds } from "./packs.ts";
 import { applyBaseline, type Counts, type RatchetResult } from "./ratchet.ts";
 import { checkRefs, REFS_RULES } from "./refs.ts";
 import { checkRules, ENGINE_RULES, type Rule } from "./rules/engine.ts";
@@ -31,12 +33,12 @@ import { RULES } from "./rules/registry.ts";
 import { checkSkills, SKILLS_RULES } from "./skills.ts";
 import {
   checkSources,
+  claimOf,
   inSources,
-  isTest,
   type Place,
   places,
   SOURCES_RULES,
-  tsToCover,
+  toCover,
 } from "./sources.ts";
 import { checkSync, SYNC_RULES } from "./sync.ts";
 
@@ -53,6 +55,7 @@ const run: Record<
   coverage: checkCoverage,
   files: checkFiles,
   rules: (config, snapshot) => checkRules(config, snapshot, RULES),
+  packs: checkPacks,
   skills: checkSkills,
   sync: checkSync,
   beads: checkBeads,
@@ -86,7 +89,32 @@ interface Prerequisite {
   readonly name: string;
   readonly integration: Integration;
   readonly required: boolean;
+  /** How to install it, when it is a pack's tool. */
+  readonly install?: string;
 }
+
+const NOT_LOADED: Integration = { state: "unavailable", reason: "its pack's loader didn't run it" };
+
+/**
+ * Each tool of a pack with files to cover, how its run fared, and whether it is required: as
+ * `prerequisites` in the config says, else as its pack does.
+ */
+const packTools = (config: ResolvedConfig, snapshot: Snapshot): ReadonlyArray<Prerequisite> =>
+  snapshot.packs.flatMap((loaded) =>
+    toCover(config, snapshot, loaded).length === 0
+      ? []
+      : loaded.pack.tools.map((tool) => {
+          const declared = loaded.pack.prerequisites.find((p) => p.name === tool.name);
+          const setting = (config.prerequisites as Readonly<Record<string, string>>)[tool.name];
+          return {
+            name: tool.name,
+            integration:
+              loaded.load.tools.find((run) => run.tool === tool.name)?.integration ?? NOT_LOADED,
+            required: setting === undefined ? (declared?.required ?? true) : setting === "required",
+            ...(declared === undefined ? {} : { install: declared.install }),
+          };
+        }),
+  );
 
 /**
  * What each check can't run without. A failed tool fails the gate whatever the config says;
@@ -98,14 +126,9 @@ const prerequisitesOf = (
   config: ResolvedConfig,
   snapshot: Snapshot,
 ): ReadonlyArray<Prerequisite> => {
-  const { tsc, biome, beads } = snapshot.integrations;
-  // tsc and biome cover TypeScript: a repo with none to cover doesn't need them.
-  if (check === "coverage" && tsToCover(config, snapshot).length === 0) return [];
-  if (check === "coverage")
-    return [
-      { name: "tsc", integration: tsc, required: config.prerequisites.tsc === "required" },
-      { name: "biome", integration: biome, required: config.prerequisites.biome === "required" },
-    ];
+  const { beads } = snapshot.integrations;
+  // A pack's tools cover its files: a pack with none to cover doesn't need them.
+  if (check === "coverage") return packTools(config, snapshot);
   // The export stands in for an unavailable bd, unless the config requires bd itself.
   if (check === "beads" && snapshot.beadsExport !== undefined && config.beads === "optional")
     return beads.state === "unavailable"
@@ -143,6 +166,10 @@ const blocker = (
   return undefined;
 };
 
+/** The listed packs' languages, for what a check looked at: "TypeScript", "Rust or Python". */
+const language = (snapshot: Snapshot): string =>
+  snapshot.packs.map(({ pack }) => pack.language).join(" or ") || "language source";
+
 const plural = (n: number, word: string, many = `${word}s`): string =>
   `${n} ${n === 1 ? word : many}`;
 
@@ -151,25 +178,25 @@ type Scope = { readonly examined: string } | { readonly notApplicable: string };
 
 const scopeOf = (check: CheckName, config: ResolvedConfig, snapshot: Snapshot): Scope => {
   const typescript = places(config, snapshot);
-  const code = snapshot.files.filter((file) => isTsSource(file) && !isTest(file));
+  const code = snapshot.files.filter((file) => claimOf(snapshot, file)?.kind === "source");
   switch (check) {
     case "arch": {
       const arch = config.arch;
       if (arch === undefined)
         return code.length === 0
-          ? { notApplicable: "no TypeScript source, and no module map" }
+          ? { notApplicable: `no ${language(snapshot)} source, and no module map` }
           : { examined: "no module map" };
       const files = archFiles(config, snapshot);
       return files.length === 0
         ? {
-            notApplicable: `no TypeScript source under ${arch.root === "." ? "the repo root" : `${arch.root}/`}`,
+            notApplicable: `no ${language(snapshot)} source under ${arch.root === "." ? "the repo root" : `${arch.root}/`}`,
           }
         : {
             examined: `${plural(files.length, "file")} in ${plural(Object.keys(arch.modules).length, "module")}`,
           };
     }
     case "sources": {
-      if (typescript.length === 0) return { notApplicable: "no TypeScript file" };
+      if (typescript.length === 0) return { notApplicable: `no ${language(snapshot)} file` };
       const count = (kind: Place["kind"]) =>
         typescript.filter(({ place }) => place.kind === kind).length;
       const parts = [
@@ -179,46 +206,59 @@ const scopeOf = (check: CheckName, config: ResolvedConfig, snapshot: Snapshot): 
         count("exempt") > 0 ? `${count("exempt")} exempt` : "",
         count("outside") > 0 ? `${count("outside")} outside` : "",
       ].filter(Boolean);
-      return { examined: `${plural(typescript.length, "TypeScript file")}: ${parts.join(", ")}` };
+      return {
+        examined: `${plural(typescript.length, `${language(snapshot)} file`)}: ${parts.join(", ")}`,
+      };
     }
     case "rules": {
-      const files = snapshot.files.filter((file) => inSources(config, file));
+      // What the rules ran over: files in sources a listed pack reads. The rest are
+      // `sources/unclaimed`.
+      const files = snapshot.files.filter(
+        (file) => inSources(config, file) && claimOf(snapshot, file) !== undefined,
+      );
       const outside = typescript.filter(({ place }) => place.kind === "outside").length;
-      // not-applicable means there is no TypeScript source, never that sources missed it.
+      // not-applicable means there is no source in a listed pack, never that sources missed it.
       return files.length === 0 && outside === 0
-        ? { notApplicable: "no TypeScript source" }
+        ? { notApplicable: `no ${language(snapshot)} source` }
         : {
-            examined: `${plural(files.length, "file")} in sources${outside > 0 ? `; ${outside} TypeScript outside it, not analyzed` : ""}`,
+            examined: `${plural(files.length, "file")} in sources${outside > 0 ? `; ${outside} ${language(snapshot)} outside it, not analyzed` : ""}`,
           };
     }
     case "refs": {
       const docs = snapshot.files.filter((file) =>
         matchesAny(file, [...config.refs.docs, ...config.refs.formOnlyDocs]),
       );
-      return { examined: `${plural(docs.length, "doc")}, and comments in TypeScript` };
+      return { examined: `${plural(docs.length, "doc")}, and comments in ${language(snapshot)}` };
     }
     case "budgets": {
       const other = lineSources(snapshot, config.coverage.exempt).filter(
-        (file) => !isTsSource(file),
+        (file) => claimOf(snapshot, file) === undefined,
       ).length;
       return {
-        examined: `the loaded docs, decisions, memories and ${plural(typescript.length, "TypeScript file")}${other === 0 ? "" : ` and ${plural(other, "other source file")}`}' lengths`,
+        examined: `the loaded docs, decisions, memories and ${plural(typescript.length, `${language(snapshot)} file`)}${other === 0 ? "" : ` and ${plural(other, "other source file")}`}' lengths`,
       };
     }
     case "coverage": {
-      const files = tsToCover(config, snapshot);
-      const guessed = (["tsc", "biome"] as const).filter(
-        (tool) => snapshot.integrations[tool].state !== "ok",
-      );
+      const covered = snapshot.packs.flatMap((loaded) => {
+        const files = toCover(config, snapshot, loaded);
+        if (files.length === 0) return [];
+        const tools = loaded.pack.tools.map((tool) => tool.name);
+        const guessed = tools.filter(
+          (tool) => loaded.load.tools.find((run) => run.tool === tool)?.integration.state !== "ok",
+        );
+        const own =
+          tools.length === 1
+            ? `${tools[0]}'s own file list`
+            : `${tools.map((tool) => `${tool}'s`).join(" and ")} own file lists`;
+        return [
+          `${plural(files.length, `${loaded.pack.language} file`)} against ${guessed.length === 0 ? own : `${tools.join(" and ")}, ${guessed.join(" and ")} read from its config`}`,
+        ];
+      });
       const other = executableSources(config, snapshot).length;
       const commands = config.coverage.commands.length;
       const data = dataFiles(config, snapshot).length;
       const parts = [
-        ...(files.length === 0
-          ? []
-          : [
-              `${plural(files.length, "TypeScript file")} against ${guessed.length === 0 ? "tsc's and biome's own file lists" : `tsc and biome, ${guessed.join(" and ")} read from its config`}`,
-            ]),
+        ...covered,
         ...(other + commands === 0
           ? []
           : [
@@ -227,8 +267,15 @@ const scopeOf = (check: CheckName, config: ResolvedConfig, snapshot: Snapshot): 
         ...(data === 0 ? [] : [`${plural(data, "data file")} parsed`]),
       ];
       return parts.length === 0
-        ? { notApplicable: "no TypeScript, other source or data file" }
+        ? { notApplicable: `no ${language(snapshot)}, other source or data file` }
         : { examined: parts.join("; ") };
+    }
+    case "packs": {
+      const own = snapshot.packs.filter(({ pack }) => pack.findingKinds.length > 0);
+      const ids = snapshot.packs.map(({ pack }) => pack.id).join(", ");
+      return own.length === 0
+        ? { notApplicable: `${ids === "" ? "no listed pack" : ids} has no checks of its own` }
+        : { examined: `${own.map(({ pack }) => pack.id).join(" and ")}'s own checks` };
     }
     case "skills": {
       const { link, installed } = snapshot.skills;
@@ -334,7 +381,10 @@ const unevaluatedBy = (
   // names: `tighten` must keep a turned-off check's entries whoever calls it.
   new Set([
     ...withoutBd(snapshot),
-    ...[...ruleIds(), ...baselineRules]
+    ...[
+      ...ruleIds(RULES, [...snapshot.packs.map(({ pack }) => pack), ...snapshot.otherPacks]),
+      ...baselineRules,
+    ]
       .filter((rule) => !rule.startsWith("prerequisites/"))
       .filter((rule) => !(ran as ReadonlyArray<string>).includes(rule.split("/")[0] ?? "")),
   ]);
@@ -372,7 +422,7 @@ export const notices = (
   only: ReadonlyArray<CheckName> = CHECKS,
 ): ReadonlyArray<string> => {
   const out: Array<string> = [];
-  const { beads, tsc, biome } = snapshot.integrations;
+  const { beads } = snapshot.integrations;
   if (beads.state === "unavailable" && config.beads === "optional")
     out.push(
       fromExport(snapshot)
@@ -380,11 +430,11 @@ export const notices = (
         : `skipped ${withoutBd(snapshot).join(", ")}: ${beads.reason}`,
     );
   if (only.includes("coverage") && config.checks.coverage === undefined)
-    for (const [name, integration] of [
-      ["tsc", tsc],
-      ["biome", biome],
-    ] as const)
-      if (integration.state === "unavailable" && config.prerequisites[name] === "optional")
+    for (const { tool: name, integration } of snapshot.packs.flatMap(({ load }) => load.tools))
+      if (
+        integration.state === "unavailable" &&
+        (config.prerequisites as Readonly<Record<string, string>>)[name] === "optional"
+      )
         out.push(
           `coverage approximated ${name}'s file list from its config (${integration.reason}): inheritance and project references are not resolved`,
         );
@@ -415,6 +465,8 @@ const KINDS: { readonly [C in Violation["check"]]: ReadonlyArray<string> } = {
   coverage: COVERAGE_RULES,
   files: FILES_RULES,
   rules: ENGINE_RULES,
+  // Beside each pack's own, which `ruleIds` adds from the packs it is given.
+  packs: PACKS_RULES,
   skills: SKILLS_RULES,
   sync: SYNC_RULES,
   beads: BEADS_RULES,
@@ -423,12 +475,16 @@ const KINDS: { readonly [C in Violation["check"]]: ReadonlyArray<string> } = {
 
 /**
  * Every rule id `mshape check` can report, namespaced as violations carry it: each check's own
- * kinds and one per registry rule. test/core/ruleCases.test.ts holds a case that must fail and
- * one that must pass for each, so a new id can't land without both.
+ * kinds, one per registry rule, and each given pack's kinds. test/core/ruleCases.test.ts holds a
+ * case that must fail and one that must pass for each, so a new id can't land without both.
  */
-export const ruleIds = (rules: ReadonlyArray<Rule> = RULES): ReadonlyArray<string> => [
+export const ruleIds = (
+  rules: ReadonlyArray<Rule> = RULES,
+  packs: ReadonlyArray<Pack> = [],
+): ReadonlyArray<string> => [
   ...Object.entries(KINDS).flatMap(([check, kinds]) => kinds.map((kind) => `${check}/${kind}`)),
   ...rules.map((rule) => `rules/${rule.id}`),
+  ...packRuleIds(packs),
 ];
 
 const prerequisite = (
@@ -441,12 +497,6 @@ const prerequisite = (
   file,
   message,
 });
-
-/** How to install each tool, for a message that lets an agent fix it unaided. */
-const TOOL_PACKAGES: Readonly<Record<string, string>> = {
-  tsc: "typescript",
-  biome: "@biomejs/biome",
-};
 
 /**
  * When beads can't be trusted, whatever asks it: `failed` when bd ran and failed, whatever the
@@ -491,9 +541,13 @@ export const prerequisites = (
       ),
     );
   for (const check of only.filter((check) => config.checks[check] === undefined))
-    for (const { name, integration, required } of prerequisitesOf(check, config, snapshot)) {
+    for (const { name, integration, required, install } of prerequisitesOf(
+      check,
+      config,
+      snapshot,
+    )) {
       if (name === "bd") continue;
-      const fix = `\`bun add -d ${TOOL_PACKAGES[name] ?? name}\`, or set \`prerequisites: { ${name}: "optional" }\` in shape.config.ts to read its config instead`;
+      const fix = `${install ?? `\`${name}\``}, or set \`prerequisites: { ${name}: "optional" }\` in shape.config.ts to read its config instead`;
       if (integration.state === "failed")
         out.push(
           prerequisite(
@@ -506,7 +560,9 @@ export const prerequisites = (
         out.push(
           prerequisite(
             "tool-unavailable",
-            `${check} needs ${name}, but ${integration.reason}. Install it (${fix}).`,
+            integration.fix === undefined
+              ? `${check} needs ${name}, but ${integration.reason}. Install it (${fix}).`
+              : `${check} needs ${name}, but ${integration.reason}. ${integration.fix}`,
             name,
           ),
         );

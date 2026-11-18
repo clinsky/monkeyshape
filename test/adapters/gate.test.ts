@@ -10,6 +10,7 @@ import {
   type ResolvedConfig,
   resolveConfig,
 } from "../../src/schemas/config.ts";
+import { GATE_PACKS } from "../core/gatePacks.ts";
 
 let dir = "";
 let empty = "";
@@ -46,6 +47,7 @@ const gate = (
     runGate(dir, value, {
       fast: options.fast ?? false,
       check: options.check ?? passing,
+      packs: GATE_PACKS,
       ...(options.path === undefined ? {} : { path: options.path }),
     }),
   );
@@ -173,7 +175,7 @@ describe("runGate", () => {
     expect(await Bun.file(log).text()).toContain("line 0\n");
   });
 
-  test("a pack's missing program says how to install it for that pack", async () => {
+  test("a pack's missing program says how to install it, from that pack's prerequisites", async () => {
     const rust = await gate(config(["rust"], []), { fast: true, path: empty });
     expect(rust.output).toContain("rustup");
     expect(rust.output).not.toContain("bun install");

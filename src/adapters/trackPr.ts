@@ -50,6 +50,7 @@ import { type TrackError, WorkspaceError } from "../schemas/errors.ts";
 import { loadConfig } from "./config.ts";
 import { guard, outgoingCommits } from "./denylist.ts";
 import { liveSessions } from "./notices.ts";
+import { bunPath } from "./process.ts";
 import { linkHandoffs, linkShared } from "./reviews.ts";
 import {
   fetchUpstream,
@@ -282,10 +283,11 @@ const gateOnTip = (
           ? `running the gate, \`${GATE_COMMAND}\`, on a clean checkout of ${tip.slice(0, 12)}: it can take minutes`
           : `running the gate's fast phase, \`${gatePlanCommand(plan)}\`, on a clean checkout of ${tip.slice(0, 12)}; CI runs the whole gate`,
       );
-      // One stream, as a terminal shows it: the summary lines come from both. `$0` is this
-      // bun, which a hook's PATH may lack.
+      // One stream, as a terminal shows it: the summary lines come from both. `$0` is Bun
+      // (\`bunPath\`), which a hook's PATH may lack; without one, \`bun\` fails, saying so.
       const args = plan.kind === "fast" ? "gate --fast" : "gate";
-      const gate = yield* spawn(path, ["sh", "-c", `${mshape} ${args} 2>&1`, process.execPath]);
+      const bun = bunPath() ?? "bun";
+      const gate = yield* spawn(path, ["sh", "-c", `${mshape} ${args} 2>&1`, bun]);
       const log = gateLogPath(common, track);
       yield* Effect.promise(async () => {
         await mkdir(dirname(log), { recursive: true });

@@ -23,8 +23,12 @@ import type {
   Snapshot,
   Violation,
 } from "../../src/core/model.ts";
+import { RULES } from "../../src/core/rules/registry.ts";
+import { PACKS } from "../../src/packs/index.ts";
+import type { Pack } from "../../src/packs/pack.ts";
+import { typescript } from "../../src/packs/typescript/index.ts";
 import type { ShapeConfig } from "../../src/schemas/config.ts";
-import { config, repo } from "../support.ts";
+import { config, fakePack, listed, repo } from "../support.ts";
 
 interface Case {
   readonly files?: Readonly<Record<string, string>>;
@@ -362,6 +366,35 @@ const NO_TOOLS = { prerequisites: { tsc: "optional", biome: "optional" } } as co
 
 const TOOLS = { "tsconfig.json": '{ "include": ["src"] }', "biome.json": "{}" };
 
+/** A Python-like pack that reports `kind` at every `.py` file, having declared `declared`. */
+const reporting = (declared: ReadonlyArray<string>, kind: string): Pack => ({
+  ...fakePack("python", "Python", "py"),
+  findingKinds: declared,
+  findings: ({ repo: view }) =>
+    view.files
+      .filter((file) => file.endsWith(".py"))
+      .map((file) => ({ kind, file, message: "a finding" })),
+});
+
+/** A Rust-like pack whose compiler reached only `crates/a/lib.rs`. */
+const RUST: ShapeConfig = { packs: ["rust"], sources: { include: ["crates/**/*.rs"] } };
+const rustc = {
+  packs: [
+    {
+      pack: {
+        ...fakePack("rust", "Rust", "rs"),
+        tools: [{ name: "rustc", rule: "compile", uncovered: () => "is in no target's mod tree" }],
+      },
+      load: {
+        tools: [
+          { tool: "rustc", integration: { state: "ok" }, files: new Set(["crates/a/lib.rs"]) },
+        ],
+        outputs: new Map(),
+      },
+    },
+  ],
+} as const;
+
 const coverage: Record<string, Cases> = {
   "coverage/config": {
     // Only with TypeScript to cover: a repo without any needs neither config.
@@ -387,6 +420,15 @@ const coverage: Record<string, Cases> = {
         "src/a.ts": "",
       },
     },
+  },
+  "coverage/compile": {
+    fail: {
+      config: RUST,
+      files: { "crates/a/lib.rs": "", "crates/a/orphan.rs": "" },
+      options: rustc,
+    },
+    // Every claimed file in the compiler's own list.
+    pass: { config: RUST, files: { "crates/a/lib.rs": "" }, options: rustc },
   },
   "coverage/uncovered": {
     fail: { files: { ...TOOLS, "scripts/gen.py": "" } },
@@ -950,6 +992,61 @@ const sourcesCases: Record<string, Cases> = {
       files: { "src/cli.ts": "" },
     },
   },
+  "packs/undeclared-kind": {
+    fail: {
+      files: { "app/b.py": "" },
+      options: { packs: [listed(reporting(["declared"], "undeclared"))] },
+    },
+    // Nothing to report: a declared kind reports as itself (test/core/packs.test.ts).
+    pass: {
+      files: { "app/b.txt": "" },
+      options: { packs: [listed(reporting(["declared"], "undeclared"))] },
+    },
+  },
+  "sources/unclaimed": {
+    // A repo that checks its JavaScript its own way, with JavaScript in the rules' scope.
+    fail: {
+      config: {
+        sources: { include: ["src/**/*.ts", "src/**/*.js"] },
+        coverage: { commands: [{ files: ["src/**/*.js"], run: ["eslint", "{files}"] }] },
+      },
+      files: { "src/a.ts": "", "src/b.js": 'export const g = () => { throw new Error("x"); };\n' },
+    },
+    pass: {
+      config: {
+        sources: { include: ["src/**/*.ts"] },
+        coverage: { commands: [{ files: ["src/**/*.js"], run: ["eslint", "{files}"] }] },
+      },
+      files: { "src/a.ts": "", "src/b.js": "" },
+    },
+  },
+  "sources/claimed-twice": {
+    fail: {
+      files: { "src/a.ts": "" },
+      options: { packs: [listed(typescript), listed(fakePack("python", "Python", "ts"))] },
+    },
+    // Two packs listed, each with its own files.
+    pass: {
+      config: {
+        packs: ["typescript", "python"],
+        sources: { include: ["src/**/*.ts", "src/**/*.py"] },
+      },
+      files: { "src/a.ts": "", "src/b.py": "" },
+      options: { packs: [listed(typescript), listed(fakePack("python", "Python", "py"))] },
+    },
+  },
+  "sources/unlisted-pack": {
+    fail: {
+      files: { "src/a.ts": "", "crates/x/lib.rs": "" },
+      options: { otherPacks: [fakePack("rust", "Rust", "rs")] },
+    },
+    // The repo checks its Rust its own way: a declared command covers it.
+    pass: {
+      config: { coverage: { commands: [{ files: ["crates/**"], run: ["cargo", "check"] }] } },
+      files: { "src/a.ts": "", "crates/x/lib.rs": "" },
+      options: { otherPacks: [fakePack("rust", "Rust", "rs")] },
+    },
+  },
 };
 
 // prerequisites
@@ -1013,9 +1110,12 @@ const evaluate = (id: string, input: Case): ReadonlyArray<Violation> => {
     : runChecks(resolved, snapshot, [check as CheckName]);
 };
 
+/** Every pack monkeyshape ships: their kinds need cases too. */
+const SHIPPED = Object.values(PACKS).filter((pack): pack is Pack => pack !== undefined);
+
 describe("rule cases", () => {
   test("every rule id has a must-fail and a must-pass case, and no case names a rule that's gone", () => {
-    const ids = ruleIds();
+    const ids = ruleIds(RULES, SHIPPED);
     expect(new Set(ids).size).toBe(ids.length);
     const missing = ids.filter(
       (id) => CASES[id]?.fail === undefined || CASES[id]?.pass === undefined,
@@ -1025,7 +1125,7 @@ describe("rule cases", () => {
   });
 
   test("every check lists the kinds it reports, so none escapes the cases above", () => {
-    const ids = ruleIds();
+    const ids = ruleIds(RULES, SHIPPED);
     expect(
       [...CHECKS, "prerequisites"].filter((check) => !ids.some((id) => id.startsWith(`${check}/`))),
     ).toEqual([]);

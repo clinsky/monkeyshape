@@ -285,6 +285,19 @@
           ],
           "additionalProperties": false
         },
+        "packs": {
+          "type": "object",
+          "properties": {
+            "off": {
+              "type": "string",
+              "minLength": 8
+            }
+          },
+          "required": [
+            "off"
+          ],
+          "additionalProperties": false
+        },
         "skills": {
           "type": "object",
           "properties": {
@@ -368,6 +381,13 @@
                   "rust",
                   "python"
                 ]
+              },
+              "paths": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "minLength": 1
+                }
               },
               "may-import": {
                 "type": "array",
