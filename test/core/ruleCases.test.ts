@@ -26,21 +26,11 @@ import type {
 import { RULES } from "../../src/core/rules/registry.ts";
 import { PACKS } from "../../src/packs/index.ts";
 import type { Pack } from "../../src/packs/pack.ts";
-import { CARGO_METADATA, rust } from "../../src/packs/rust/index.ts";
 import { typescript } from "../../src/packs/typescript/index.ts";
 import type { ShapeConfig } from "../../src/schemas/config.ts";
+import { rustCases } from "../packs/rust/ruleCases.ts";
 import { config, fakePack, listed, repo } from "../support.ts";
-
-interface Case {
-  readonly files?: Readonly<Record<string, string>>;
-  readonly config?: ShapeConfig;
-  readonly options?: Parameters<typeof repo>[1];
-}
-
-interface Cases {
-  readonly fail: Case;
-  readonly pass: Case;
-}
+import type { Case, Cases } from "./ruleCase.ts";
 
 const lines = (n: number): string =>
   `${Array.from({ length: n }, (_, i) => `line ${i}`).join("\n")}\n`;
@@ -1124,37 +1114,6 @@ const prerequisitesCases: Record<string, Cases> = {
     fail: { files: { "src/a.ts": "" }, options: { linted: [] } },
     // The same missing tsc, declared optional: coverage reads tsconfig instead.
     pass: { config: { prerequisites: { tsc: "optional" } }, options: { linted: [] } },
-  },
-};
-
-// the Rust pack's findings
-
-/** `cargo metadata` for one member, `crates/a`, as the Rust loader records it. */
-const METADATA = `{"workspace_root":"/repo","workspace_members":["a"],"packages":[{"id":"a","name":"a",
-"manifest_path":"/repo/crates/a/Cargo.toml","targets":[],"dependencies":[]}]}`;
-
-/** A one-crate Rust repo: `root` is its Cargo.toml, `member` crates/a's. */
-const rustRepo = (root: string, member: string): Case => ({
-  config: { packs: ["rust"] },
-  files: { "Cargo.toml": root, "crates/a/Cargo.toml": member },
-  options: {
-    packs: [{ pack: rust, load: { tools: [], outputs: new Map([[CARGO_METADATA, METADATA]]) } }],
-  },
-});
-
-const BARE_ROOT = '[workspace]\nmembers = ["crates/*"]\n';
-/** A root that defines both owned tables, so members are judged. */
-const LINTED_ROOT = `${BARE_ROOT}\n[workspace.lints.rust]\nunsafe_code = "deny"\n\n[workspace.lints.clippy]\ntodo = "warn"\n`;
-const OPTED_IN = '[package]\nname = "a"\n\n[lints]\nworkspace = true\n';
-
-const rustCases: Record<string, Cases> = {
-  "packs/rust/workspace-lints": {
-    fail: rustRepo(BARE_ROOT, ""),
-    pass: rustRepo(LINTED_ROOT, OPTED_IN),
-  },
-  "packs/rust/member-lints": {
-    fail: rustRepo(LINTED_ROOT, '[package]\nname = "a"\n'),
-    pass: rustRepo(LINTED_ROOT, OPTED_IN),
   },
 };
 
