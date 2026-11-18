@@ -462,3 +462,10 @@ already written by agents, not generated for it.
   | an import into another listed pack's file | dropped: graphs are per pack |
   | a module sets `paths` | its files are those paths |
   | a pack reports a finding kind it didn't declare | `packs/undeclared-kind` |
+- **2026-11-18, ty's curated rules are a table `mshape sync` owns in `pyproject.toml`
+  (`python`), approved by the planning session.** ty (0.0.106) has no `extends`, so a
+  `.mshape/` copy has nothing to point at it. As Cargo's lints: sync owns `[tool.ty.rules]` in
+  the root `pyproject.toml`, the curated levels with `shape.toml`'s `[python.ty-rules]` laid
+  over them rule by rule, through the frozen `table` delivery. ruff stays a copy,
+  `.mshape/ruff.toml`, with `[tool.ruff] extend` pointing at it, checked as
+  `packs/python/ruff-extend`. `shape.toml` gains a `[python]` table. `pack.ts` unchanged.
