@@ -250,7 +250,8 @@ const scopeOf = (check: CheckName, config: ResolvedConfig, snapshot: Snapshot): 
         (file) => claimOf(snapshot, file) === undefined,
       ).length;
       return {
-        examined: `the loaded docs, decisions, memories and ${plural(typescript.length, `${language(snapshot)} file`)}${other === 0 ? "" : ` and ${plural(other, "other source file")}`}' lengths`,
+        // Lengths first, so the count reads right for one file and for many.
+        examined: `lengths of the loaded docs, decisions, memories, ${plural(typescript.length, `${language(snapshot)} file`)}${other === 0 ? "" : ` and ${plural(other, "other source file")}`}`,
       };
     }
     case "coverage": {

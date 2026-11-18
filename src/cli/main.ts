@@ -151,6 +151,12 @@ const init = (root: string, args: ReadonlyArray<string>) =>
         output: `mshape init: --pack takes one of ${PACK_IDS.join(", ")}${pack === undefined ? "" : `, not '${pack}'`}`,
         code: 2,
       };
+    // --from names the npm package a TypeScript repo installs; another pack's repo installs none.
+    if (fromFlag !== -1 && pack !== "typescript")
+      return {
+        output: `mshape init: --from sets the monkeyshape package a TypeScript repo installs, and a ${pack} repo installs none: drop --from`,
+        code: 2,
+      };
     const flagged = new Set([fromFlag, packFlag].flatMap((at) => (at === -1 ? [] : [at, at + 1])));
     const positional = args.filter((_, i) => !flagged.has(i));
     const [name, ...extra] = positional;
@@ -173,8 +179,9 @@ const init = (root: string, args: ReadonlyArray<string>) =>
         ? local
         : undefined;
     // From a checkout that isn't the release, npm's package of this version isn't this code:
-    // vendor a pack of the checkout instead, as --from would.
-    const checkout = from === undefined ? yield* checkoutPack() : undefined;
+    // vendor a pack of the checkout instead, as --from would. Only a TypeScript repo installs it.
+    const checkout =
+      from === undefined && pack === "typescript" ? yield* checkoutPack() : undefined;
     const tarball = given ?? checkout?.tarball;
     const spec =
       tarball !== undefined ? vendoredSpec(tarball) : local !== undefined ? `file:${local}` : from;
