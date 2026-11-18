@@ -78,6 +78,27 @@ const suggestModule = (arch: Arch, file: string, rest: string): string => {
     : `Add a module for its directory (a key is a path below \`arch.root\`, e.g. '${directory}').`;
 };
 
+/** Whether the repo places its modules by `paths`, as a Cargo workspace's crates are. */
+const mapsByPaths = (arch: Arch): boolean =>
+  Object.values(arch.modules).some((module) => module.paths !== undefined);
+
+/**
+ * A module for an unowned file in a repo that maps modules by `paths`, in the config's own
+ * syntax: its top two directories (`crates/api` for `crates/api/src/lib.rs`), or its one
+ * directory, or the file itself at the root, keyed by that path's last name.
+ */
+const suggestPaths = (arch: Arch, file: string, configFile: string): string => {
+  const parts = file.split("/");
+  const at = parts.length >= 3 ? parts.slice(0, 2).join("/") : parts.length === 2 ? parts[0] : file;
+  const last = (at ?? file).split("/").at(-1) ?? file;
+  const short = last.replace(/\.[^.]*$/u, "") || last;
+  const key = arch.modules[short] === undefined ? short : (at ?? file);
+  const bare = /^[A-Za-z0-9_-]+$/u.test(key);
+  return configFile.endsWith(".toml")
+    ? `Add a module for it: \`[arch.modules.${bare ? key : JSON.stringify(key)}]\` with \`paths = [${JSON.stringify(at)}]\` and a \`description\`, or add ${JSON.stringify(at)} to an existing module's \`paths\`.`
+    : `Add a module for it: \`${bare ? key : JSON.stringify(key)}: { description: "...", paths: [${JSON.stringify(at)}] }\` under \`arch.modules\`, or add ${JSON.stringify(at)} to an existing module's \`paths\`.`;
+};
+
 /** The module owning `path`: the one whose directory holds it most closely. */
 export const moduleOf = (arch: Arch, path: string): string | undefined => {
   let best: { name: string; length: number } | undefined;
@@ -213,9 +234,11 @@ const judge = (
       violation(
         "unknown-module",
         file,
-        underRoot(arch, file) === undefined
-          ? `is in \`sources\` but outside \`arch.root\` ('${arch.root}'), so no module owns it. Set \`arch.root: "."\` and map its directory as a module, or move it under ${arch.root}/.`
-          : `is not inside any module in \`arch.modules\` (${config.configFile}). ${suggestModule(arch, file, underRoot(arch, file) ?? file)}`,
+        underRoot(arch, file) === undefined && mapsByPaths(arch)
+          ? `is in \`sources\`, but no module in ${config.configFile} maps it. ${suggestPaths(arch, file, config.configFile)}`
+          : underRoot(arch, file) === undefined
+            ? `is in \`sources\` but outside \`arch.root\` ('${arch.root}'), so no module owns it. Set ${config.configFile.endsWith(".toml") ? '`root = "."` under `[arch]`' : '`arch.root: "."`'} and map its directory as a module, or move it under ${arch.root}/.`
+            : `is not inside any module in \`arch.modules\` (${config.configFile}). ${suggestModule(arch, file, underRoot(arch, file) ?? file)}`,
       ),
     );
   }
