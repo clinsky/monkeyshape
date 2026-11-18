@@ -158,8 +158,14 @@ const ruffIgnoreAll = (repo: RepoView): ReadonlyArray<PackFinding> =>
   ruffConfigs(repo).flatMap(({ file, table }) => {
     const text = repo.texts.get(file);
     const parsed = tomlOf(text);
-    return ["per-file-ignores", "extend-per-file-ignores"].flatMap((key) => {
-      const ignores = at(parsed, [...table, "lint", key]);
+    // Under `lint`, and the deprecated top-level form ruff still reads.
+    const keys = [["lint"], []].flatMap((section) =>
+      ["per-file-ignores", "extend-per-file-ignores"].map((key) => [...section, key]),
+    );
+    return keys.flatMap((path) => {
+      const owner = [...table, ...path.slice(0, -1)].join(".");
+      const key = `${owner === "" ? "" : `\`[${owner}]\` `}\`${path.at(-1)}\``;
+      const ignores = at(parsed, [...table, ...path]);
       if (typeof ignores !== "object" || ignores === null) return [];
       return Object.entries(ignores).flatMap(([pattern, codes]) => {
         if (!Array.isArray(codes) || !codes.includes("ALL")) return [];
@@ -170,7 +176,7 @@ const ruffIgnoreAll = (repo: RepoView): ReadonlyArray<PackFinding> =>
             kind: "ruff-exclude",
             file,
             ...(line === undefined ? {} : { line }),
-            message: `\`${key}\` turns off every ruff rule for \`${pattern}\` with \`ALL\`, but ruff's file list still shows those files, so coverage can't see what it hides. Name the rules to silence by their codes; or, for generated or vendored code, move the paths to ruff's top-level \`exclude\`${table.length === 0 ? "" : " (under `[tool.ruff]`)"}, where coverage reports each file it leaves out and \`coverage.exempt\` in shape.toml holds it.`,
+            message: `${key} turns off every ruff rule for \`${pattern}\` with \`ALL\`, but ruff's file list still shows those files, so coverage can't see what it hides. Name the rules to silence by their codes; or, for generated or vendored code, move the paths to ruff's top-level \`exclude\`${table.length === 0 ? "" : " (under `[tool.ruff]`)"}, where coverage reports each file it leaves out and \`coverage.exempt\` in shape.toml holds it.`,
           },
         ];
       });

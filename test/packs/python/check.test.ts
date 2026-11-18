@@ -259,6 +259,11 @@ describe("the Python pack's own findings", () => {
     expect(ignored[0]?.[3]).toContain(
       "`per-file-ignores` turns off every ruff rule for `scripts/*.py`",
     );
+    // The deprecated top-level form, which ruff 0.17.5 still reads (re-review of #108).
+    const legacy = `${PYPROJECT}\n[tool.ruff.per-file-ignores]\n"scripts/*.py" = ["ALL"]\n`;
+    const old = findings({ ...FILES, "pyproject.toml": legacy });
+    expect(old.map((row) => [row[0], row[2]])).toEqual([["packs/python/ruff-exclude", 9]]);
+    expect(old[0]?.[3]).toContain("`per-file-ignores` turns off every ruff rule");
     // ruff's top-level exclude is in its file list, so coverage holds it: no finding.
     const top = `${PYPROJECT.replace("[tool.ruff]\n", '[tool.ruff]\nexclude = ["gen"]\n')}`;
     expect(findings({ ...FILES, "pyproject.toml": top })).toEqual([]);
