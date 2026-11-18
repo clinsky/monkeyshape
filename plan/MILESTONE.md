@@ -490,3 +490,8 @@ already written by agents, not generated for it.
   | Case | Result |
   |---|---|
   | a launched `mshape` spawns `mshape` (a gate stage, `track pr`) | the nested one follows the pin; `MSHAPE_LAUNCHED` names the `mshape` launched, and only that one runs itself |
+- **2026-11-18, `init --pack typescript` writes `shape.toml` (`packs`, `465`), approved by the
+  planning session.** `init` pins the running `mshape` in the born repo's `[mshape]`, and the
+  launcher reads the pin only from `shape.toml`, so the TypeScript template moves to it now.
+  It has no `localRules`, the reason the first amendment kept `init` on the TypeScript config.
+  Adopters and this repo are unchanged: `shape.config.ts` still loads for them until `8il.2`.
