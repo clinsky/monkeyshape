@@ -80,10 +80,10 @@ export default defineRule({
 });
 ```
 
-`shape.config.ts` imports the module and lists it. It also adds `rules/` to `sources`, so the
+shape.config.ts imports the module and lists it. It also adds `rules/` to `sources`, so the
 rule modules are checked like the rest of the code; without that, `sources` fails on them as
 TypeScript that no rule analyzes. With a module map, they need no module: what the config
-imports, a rule and the files it imports, belongs to the config, as `shape.config.ts` does.
+imports, a rule and the files it imports, belongs to the config, as shape.config.ts does.
 
 ```ts
 // shape.config.ts
@@ -141,7 +141,7 @@ everything and exempt the enforcement point in the config, with
 nothing, as in a real run; must-fail and must-pass cases ignore allowances. In the code, the exception sits beside the rule and its cases;
 in the config, garden counts it as an escape hatch.
 
-In `shape.config.ts`, `rules["local/<id>"]` takes `off` and `allow` like any rule, and
+In shape.config.ts, `rules["local/<id>"]` takes `off` and `allow` like any rule, and
 `// shape-ignore local/<id>: <reason>` covers its own line and the next. `mshape rules` lists
 local rules under the layer `local`.
 

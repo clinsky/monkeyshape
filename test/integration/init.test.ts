@@ -62,24 +62,40 @@ describe("mshape init", () => {
     expect(created.output).toContain(`note: monkeyshape is installed from vendor/${name}`);
   });
 
+  test("shape.toml pins the monkeyshape bun installed, and the sync check agrees", async () => {
+    const repo = join(work, "demo");
+    const installed = (
+      await Bun.file(join(repo, "node_modules", "monkeyshape", "package.json")).json()
+    ).version;
+    const config = Bun.TOML.parse(await Bun.file(join(repo, "shape.toml")).text());
+    // A build from source has no release's sums to pin.
+    expect(config).toMatchObject({ packs: ["typescript"], mshape: { version: installed } });
+    expect((config as { mshape: object }).mshape).not.toHaveProperty("sums");
+    expect(created.output).toContain(`note: shape.toml pins mshape ${installed} with no sums`);
+    const bin = join(repo, "node_modules", ".bin", "mshape");
+    const sync = await run(repo, [process.execPath, bin, "check", "--only", "sync"]);
+    expect(sync.output).not.toContain("pin-npm-differs");
+    expect(sync.code).toBe(0);
+  }, 60_000);
+
   test("a --from tarball is recorded with its digest, and the files check verifies it", async () => {
     const repo = join(work, "demo");
     const name = tarball.split("/").at(-1) ?? "";
     const digest = new Bun.CryptoHasher("sha256")
       .update(await Bun.file(tarball).bytes())
       .digest("hex");
-    const config = await Bun.file(join(repo, "shape.config.ts")).text();
-    // Laid out by the born repo's own biome, so field by field.
-    expect(config).toContain(`path: "vendor/${name}"`);
-    expect(config).toContain(`package: "monkeyshape"`);
-    expect(config).toContain(`sha256: "${digest}"`);
+    const config = await Bun.file(join(repo, "shape.toml")).text();
+    expect(Bun.TOML.parse(config)).toMatchObject({
+      files: { vendored: [{ path: `vendor/${name}`, package: "monkeyshape", sha256: digest }] },
+    });
+    expect(await Bun.file(join(repo, "shape.config.ts")).exists()).toBe(false);
     const bin = join(repo, "node_modules", ".bin", "mshape");
     const files = await run(repo, [process.execPath, bin, "check", "--only", "files"]);
     expect(files.output).toMatch(/files +passed .*1 vendored artifact/);
     expect(files.code).toBe(0);
     // A record that isn't the tarball's digest fails, so the record is checked, not trusted.
     // Outside the repo, as `--config` is used to try a config: it must still resolve monkeyshape.
-    const tampered = join(work, "tampered.config.ts");
+    const tampered = join(work, "tampered.toml");
     await writeFile(tampered, config.replace(digest, "0".repeat(64)));
     const wrong = await run(repo, [
       process.execPath,

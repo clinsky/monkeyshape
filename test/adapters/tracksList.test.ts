@@ -95,10 +95,10 @@ describe("track list", () => {
       const listed = mshape(repo, "list");
       expect(listed.code).toBe(0);
       expect(listed.stdout).toContain(
-        "note: .handoffs/docs.md is in an older format; `bun run --silent mshape track migrate` upgrades it (moved `## Messages` into the track's mailbox; removed `Status: active`)",
+        "note: .handoffs/docs.md is in an older format; `mshape track migrate` upgrades it (moved `## Messages` into the track's mailbox; removed `Status: active`)",
       );
       expect(listed.stdout).toContain(
-        "note: .handoffs/init.md is in an older format; `bun run --silent mshape track migrate` upgrades it (removed `## Messages`, which held nothing)",
+        "note: .handoffs/init.md is in an older format; `mshape track migrate` upgrades it (removed `## Messages`, which held nothing)",
       );
       expect(listed.stdout).toMatch(/^docs\s+active\s/m);
       expect(listed.stdout).toMatch(/^init\s+stub\s/m);

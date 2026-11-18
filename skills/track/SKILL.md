@@ -11,7 +11,7 @@ Your job is to pick up exactly where it stopped.
 
 ## 1. Which track
 
-Run `bun run --silent mshape track current` (every `mshape` below runs the same way). It
+Run `mshape track current`. It
 prints the track's name on any branch; a note says when the worktree has another branch
 (the next work) or a detached HEAD checked out, and `track pr` still pushes
 `track/<name>`'s tip.
@@ -49,8 +49,8 @@ your mail come with `main`; if this session started before they were there, run
 - Where the code is: `git status`, `git log --oneline main..HEAD`, open PRs from this
   branch (`gh pr list --head track/<name>`), and any local branch holding the next work
   (`git branch --list '<name>-next'`).
-- The gate, before any change: `bun run check` (AGENTS.md may name another). If it is red
-  because `tsc` or biome is missing, install dependencies as AGENTS.md says and rerun it;
+- The gate, before any change: `mshape gate`. If it is red because a pack's tool is
+  missing, install dependencies as AGENTS.md says and rerun it;
   a red gate you didn't cause is the first thing to report. Then `mshape rules`: the rules
   the gate holds you to, and the bug each removes, so you write to them and don't learn
   them from a failure.

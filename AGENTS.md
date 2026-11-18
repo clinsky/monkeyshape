@@ -18,7 +18,8 @@ where the two differ.
 | `bun run fix` | Apply biome formatting and safe fixes |
 | `bun src/cli/main.ts garden` | Budgets and escape hatches |
 | `bun src/cli/main.ts rules` | Custom rules and the bug class each removes |
-| `bun run release pack\|tag\|verify` | Pack this checkout (a `-dev` version unless HEAD is a release tag): the npm tarball, an `mshape` binary per platform and `SHA256SUMS`; tag a merged commit `v<version>`, built from that commit, refused where npm already has that version with other content; check a tag reproduces npm. Pushing the tag, `bun publish` and `gh release create` are the maintainer's. |
+| `bun run release install` | Install this checkout's `mshape` into `~/.local/bin` through `install.sh`, once per machine: with this repo's `dev` pin it then runs the checkout's source, so the hooks and skills work here before any release |
+| `bun run release pack\|tag\|verify` | Pack this checkout (a `-dev` version unless HEAD is a release tag): the npm tarball, an `mshape` binary per platform, `install.sh` and `SHA256SUMS`; tag a merged commit `v<version>`, built from that commit, refused where npm already has that version with other content; check a tag reproduces npm. Pushing the tag, `bun publish` and `gh release create` are the maintainer's. |
 
 ## Where to start
 

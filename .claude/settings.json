@@ -15,7 +15,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "PATH=\"$PATH:$HOME/.bun/bin\"; if command -v bun >/dev/null; then bun run --silent mshape msg register || echo 'note: mshape could not run here, so this hook did nothing. Run `bun install`; package.json needs the script `\"mshape\": \"mshape\"`.'; else echo 'note: bun is neither on this session'\\''s PATH nor in ~/.bun/bin, so this hook did nothing. Install bun (https://bun.sh), or add the directory holding it to the PATH Claude Code starts with.'; fi"
+            "command": "PATH=\"$PATH:$HOME/.local/bin\"; if command -v mshape >/dev/null; then mshape msg register || echo 'note: mshape could not run here, so this hook did nothing. Run the hook'\\''s command in a terminal to see why.'; else echo 'note: mshape is neither on this session'\\''s PATH nor in ~/.local/bin, so this hook did nothing. Install it once per machine: curl -fsSL https://github.com/clinsky/monkeyshape/releases/latest/download/install.sh | sh'; fi"
           }
         ]
       },
@@ -24,7 +24,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "PATH=\"$PATH:$HOME/.bun/bin\"; if command -v bun >/dev/null; then bun run --silent mshape msg inbox --quiet || echo 'note: mshape could not run here, so this hook did nothing. Run `bun install`; package.json needs the script `\"mshape\": \"mshape\"`.'; else echo 'note: bun is neither on this session'\\''s PATH nor in ~/.bun/bin, so this hook did nothing. Install bun (https://bun.sh), or add the directory holding it to the PATH Claude Code starts with.'; fi"
+            "command": "PATH=\"$PATH:$HOME/.local/bin\"; if command -v mshape >/dev/null; then mshape msg inbox --quiet || echo 'note: mshape could not run here, so this hook did nothing. Run the hook'\\''s command in a terminal to see why.'; else echo 'note: mshape is neither on this session'\\''s PATH nor in ~/.local/bin, so this hook did nothing. Install it once per machine: curl -fsSL https://github.com/clinsky/monkeyshape/releases/latest/download/install.sh | sh'; fi"
           }
         ]
       }
@@ -35,7 +35,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "PATH=\"$PATH:$HOME/.bun/bin\"; if command -v bun >/dev/null; then bun run --silent mshape msg inbox --quiet || echo 'note: mshape could not run here, so this hook did nothing. Run `bun install`; package.json needs the script `\"mshape\": \"mshape\"`.'; else echo 'note: bun is neither on this session'\\''s PATH nor in ~/.bun/bin, so this hook did nothing. Install bun (https://bun.sh), or add the directory holding it to the PATH Claude Code starts with.'; fi"
+            "command": "PATH=\"$PATH:$HOME/.local/bin\"; if command -v mshape >/dev/null; then mshape msg inbox --quiet || echo 'note: mshape could not run here, so this hook did nothing. Run the hook'\\''s command in a terminal to see why.'; else echo 'note: mshape is neither on this session'\\''s PATH nor in ~/.local/bin, so this hook did nothing. Install it once per machine: curl -fsSL https://github.com/clinsky/monkeyshape/releases/latest/download/install.sh | sh'; fi"
           }
         ]
       }

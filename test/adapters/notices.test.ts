@@ -167,7 +167,7 @@ describe("live notices", () => {
         .map((line) => JSON.parse(line));
       expect(auth).toEqual({ type: "auth", token });
       expect(user.message.content).toBe(
-        `[mshape] Message from docs: parser changed (bun run --silent mshape msg read ${id})`,
+        `[mshape] Message from docs: parser changed (mshape msg read ${id})`,
       );
     }
     expect(other).toEqual([]);

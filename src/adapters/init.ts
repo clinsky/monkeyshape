@@ -6,7 +6,15 @@ import { OWNABLE_FILES } from "../core/conventions.ts";
 import { deliver, deliveries, shippedFiles } from "../core/delivery.ts";
 import { VENDOR_DIR, vendoredSpecOf } from "../core/dep.ts";
 import { HANDOFFS_LINK, handoffsLink, handoffsStore } from "../core/layout.ts";
-import { PACKS_DIR, scaffold, type Toolchain, templateFor } from "../core/scaffold.ts";
+import {
+  type BornPin,
+  CONFIG,
+  PACKS_DIR,
+  pinTable,
+  scaffold,
+  type Toolchain,
+  templateFor,
+} from "../core/scaffold.ts";
 import { PACKS } from "../packs/index.ts";
 import { PACK_IDS, type PackId, resolveConfig } from "../schemas/config.ts";
 import { WorkspaceError } from "../schemas/errors.ts";
@@ -129,6 +137,8 @@ export const vendoredSpec = (tarball: string): string => vendoredSpecOf(vendored
  * `given`, from `--from`, is copied into `vendor/` and `toolchain.monkeyshape` should be its
  * `vendoredSpec`: a path relative to the repo, never one that resolves only on this machine.
  * Only a TypeScript repo installs the package, so another pack's repo vendors nothing.
+ * `pin` is the `mshape` the repo runs, written as `shape.toml`'s `[mshape]`; a TypeScript
+ * repo's is moved to the package version bun installed, which its configs resolve.
  */
 export const initRepo = (
   target: string,
@@ -137,6 +147,7 @@ export const initRepo = (
   toolchain: Toolchain,
   given?: string,
   pack = "typescript",
+  pin?: BornPin,
 ) =>
   Effect.gen(function* () {
     const tarball = pack === "typescript" ? given : undefined;
@@ -172,7 +183,7 @@ export const initRepo = (
               Effect.mapError((error) => fail(tarball, error.reason)),
             ),
           };
-    const files = scaffold(name, template, toolchain, vendored, pack);
+    const files = scaffold(name, template, toolchain, vendored, pack, pin);
     yield* Effect.tryPromise({
       try: async () => {
         for (const [path, text] of files) {
@@ -199,7 +210,7 @@ export const initRepo = (
       });
       done.push(`monkeyshape from vendor/${basename(tarball)}`);
       notes.push(
-        `monkeyshape is installed from vendor/${basename(tarball)}, which is committed so every clone and CI resolve it. Once a release of it is on npm, run \`bun add -d monkeyshape@<version>\`, delete vendor/ and its entry in shape.config.ts's files.vendored, and commit`,
+        `monkeyshape is installed from vendor/${basename(tarball)}, which is committed so every clone and CI resolve it. Once a release of it is on npm, run \`bun add -d monkeyshape@<version>\`, delete vendor/ and its entry in shape.toml's files.vendored, set [mshape] version to that release with its sums, and commit`,
       );
     }
     // init wrote PRIME.md and the PR template from the package, so sync owns them from the start.
@@ -222,20 +233,29 @@ export const initRepo = (
     const metrics = yield* metricsNote(target);
     if (metrics !== undefined) notes.push(metrics);
 
+    /** The pin as it ends up: a TypeScript repo's follows what bun installs. */
+    let pinned = pin;
+    const unverified = () => {
+      if (pinned !== undefined && pinned.sums === undefined) notes.push(unverifiedNote(pinned));
+    };
     // Bun installs and formats a TypeScript repo; another pack's needs none of it.
-    if (pack !== "typescript") return yield* commit(target, name, done, notes);
+    if (pack !== "typescript") {
+      unverified();
+      return yield* commit(target, name, done, notes);
+    }
     // The bun running mshape where there is one, so it exists (`bunPath`).
     const bun = bunPath();
     const install =
       bun === undefined ? { code: 1, output: BUN_MISSING } : yield* run(target, [bun, "install"]);
     if (bun !== undefined && install.code === 0) {
       done.push("bun install");
+      pinned = yield* pinInstalled(target, pin);
       // The installed package's own sync: skills, PRIME.md and hooks then match the version
       // the repo depends on, even when this mshape is another one.
       const synced = yield* run(target, [bun, "node_modules/.bin/mshape", "sync"]);
       if (synced.code !== 0)
         notes.push(
-          `the installed monkeyshape's sync failed, so the first gate may fail; run \`bun run --silent mshape sync\`:\n  ${tail(synced.output)}`,
+          `the installed monkeyshape's sync failed, so the first gate may fail; run \`mshape sync\`:\n  ${tail(synced.output)}`,
         );
       // The generated JSON is laid out by JSON.stringify; the repo's own biome has the last word.
       const format = yield* run(target, [bun, "node_modules/.bin/biome", "format", "--write", "."]);
@@ -245,9 +265,34 @@ export const initRepo = (
       notes.push(
         `bun install failed, so bun.lock is not committed. Run \`bun install\` in ${name}/ and commit bun.lock:\n  ${tail(install.output)}`,
       );
-
+    unverified();
     return yield* commit(target, name, done, notes);
   });
+
+/**
+ * A TypeScript repo's pin moved to the monkeyshape bun installed, when it differs: `mshape`
+ * must run the version whose configs and imports the repo resolves (sync/pin-npm-differs).
+ * The sums belong to the version first pinned, so they go. Returns the pin as written.
+ */
+const pinInstalled = (target: string, pin: BornPin | undefined) =>
+  Effect.promise(async () => {
+    if (pin === undefined) return pin;
+    const installed: unknown = await Bun.file(`${target}/node_modules/monkeyshape/package.json`)
+      .json()
+      .then((manifest: { version?: unknown }) => manifest.version)
+      .catch(() => undefined);
+    if (typeof installed !== "string" || installed === pin.version) return pin;
+    const config = Bun.file(`${target}/${CONFIG}`);
+    const text = await config.text();
+    const moved = { version: installed };
+    if (!text.includes(pinTable(pin))) return pin;
+    await Bun.write(config, text.replace(pinTable(pin), pinTable(moved)));
+    return moved;
+  });
+
+/** Why a pin without sums matters, and how to add them once the version is released. */
+const unverifiedNote = (pin: BornPin): string =>
+  `shape.toml pins mshape ${pin.version} with no sums, since no release verified this build: an installed mshape of another version refuses to run this repo until [mshape] has a release's version and sums`;
 
 /** Writes `pack`'s `copy` and `table` base configs over what scaffold wrote; their paths. */
 const deliverBaseConfigs = (

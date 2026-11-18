@@ -4,6 +4,7 @@
  * `mshape init` creates, is rendered from it, and a test fails when this repo's drifts. The
  * file's other keys belong to the repo. A new hook is one entry here.
  */
+import { INSTALL_URL } from "./launch.ts";
 
 /** The hook events monkeyshape uses; add one when an entry needs it. */
 export type HookEvent = "SessionStart" | "UserPromptSubmit";
@@ -18,71 +19,77 @@ export interface Hook {
   readonly retired?: ReadonlyArray<string>;
 }
 
-/**
- * `mshape <args>` as a shell command that works from a hook and from a skill (D-run-mshape):
- * the package script `mshape`, which every repo has. bun puts every ancestor's
- * `node_modules/.bin` on a script's PATH, so a track worktree without `node_modules` finds the
- * main checkout's. `--silent` keeps bun from echoing the script to stderr.
- */
-export const mshapeCommand = (args: ReadonlyArray<string>): string =>
-  ["bun", "run", "--silent", "mshape", ...args.map(quote)].join(" ");
-
-/** What a check's message tells an agent to run to refresh what the package ships. */
-export const SYNC_COMMAND = "bun run --silent mshape sync";
-
 /** POSIX single quotes, only when needed: hook commands stay readable. */
 const quote = (arg: string): string =>
   /^[\w@%+=:,./-]+$/.test(arg) ? arg : `'${arg.replaceAll("'", `'\\''`)}'`;
 
 /**
+ * `mshape <args>` as a shell command, for a hook and for a skill (D-run-mshape): the `mshape`
+ * installed once per machine, which runs the version the repo pins.
+ */
+export const mshapeCommand = (args: ReadonlyArray<string>): string =>
+  ["mshape", ...args.map(quote)].join(" ");
+
+/** What a check's message tells an agent to run to refresh what the package ships. */
+export const SYNC_COMMAND = mshapeCommand(["sync"]);
+
+/**
  * A hook's command that degrades to a note: `command`, or, when it can't run, `note` and
- * exit 0. Before `bun install` the `mshape` script exits 127 (or 1 without the script), and
- * a hook failing at every prompt says nothing useful. Only commands that never fail once
- * they run are wrapped (`msg register`, `msg inbox --quiet`, `bd prime`), so any failure is
- * one of not running.
+ * exit 0. A hook failing at every prompt says nothing useful. Only commands that never fail
+ * once they run are wrapped (`msg register`, `msg inbox --quiet`, `bd prime`), so any failure
+ * is one of not running: the launcher offline with the pinned version not cached, say, whose
+ * own message names the URL just before the note.
  */
 export const withNote = (command: string, note: string): string =>
   `${command} || echo ${quote(`note: ${note}`)}`;
 
 /**
- * What 0.4's hooks printed, when they couldn't tell a session without bun from a missing
- * install: sync replaces a hook carrying it.
+ * Where a hook looks for `mshape` after the session's PATH: where `install.sh` puts it. A
+ * session started from a shell that sets PATH only for login shells has no `~/.local/bin`.
  */
-const MSHAPE_MISSING_0_4 =
-  'mshape could not run here, so this hook did nothing. Either bun is not on this session\'s PATH (run `command -v bun`; add bun\'s bin directory, often ~/.bun/bin, to the PATH Claude Code starts with), or monkeyshape is not installed (run `bun install`; package.json needs the script `"mshape": "mshape"`).';
+export const MSHAPE_FALLBACK = "$HOME/.local/bin";
 
-/** With bun found, the one reason left for `mshape` not running. 0.3's hooks printed it too. */
-const MSHAPE_MISSING =
-  'mshape could not run here, so this hook did nothing. Run `bun install`; package.json needs the script `"mshape": "mshape"`.';
+const MSHAPE_NOT_INSTALLED = `mshape is neither on this session's PATH nor in ~/.local/bin, so this hook did nothing. Install it once per machine: curl -fsSL ${INSTALL_URL} | sh`;
+
+const MSHAPE_FAILED =
+  "mshape could not run here, so this hook did nothing. Run the hook's command in a terminal to see why.";
 
 /**
- * Where a hook looks for bun: the session's PATH, then bun's default install. A session
- * restarted from a shell that sets PATH only for login shells has no bun on its PATH.
+ * `command`, run with `mshape` found when the hook runs: the session's PATH first, then
+ * `MSHAPE_FALLBACK`. `$HOME` stays a variable, so `.claude/settings.json` is the same on every
+ * machine. Without `mshape`, a note naming the install line, and exit 0.
  */
-export const BUN_FALLBACK = "$HOME/.bun/bin";
-
-const BUN_MISSING =
-  "bun is neither on this session's PATH nor in ~/.bun/bin, so this hook did nothing. Install bun (https://bun.sh), or add the directory holding it to the PATH Claude Code starts with.";
+export const withMshape = (command: string): string =>
+  `PATH="$PATH:${MSHAPE_FALLBACK}"; if command -v mshape >/dev/null; then ${command}; else echo ${quote(`note: ${MSHAPE_NOT_INSTALLED}`)}; fi`;
 
 /**
- * `command`, run with bun found when the hook runs: the session's PATH first, then
- * `BUN_FALLBACK`. The fallback joins the PATH, not just the command, since `mshape` itself
- * starts with `#!/usr/bin/env bun`. `$HOME` stays a variable, so `.claude/settings.json` is
- * the same on every machine. Without bun, a note and exit 0.
+ * What hooks before 0.6 ran: `mshape` through the package script, with bun found on the PATH or
+ * in ~/.bun/bin. Kept only so sync knows them as monkeyshape's and replaces them.
  */
-export const withBun = (command: string): string =>
-  `PATH="$PATH:${BUN_FALLBACK}"; if command -v bun >/dev/null; then ${command}; else echo ${quote(`note: ${BUN_MISSING}`)}; fi`;
+const legacy = (args: ReadonlyArray<string>): ReadonlyArray<string> => {
+  const script = ["bun", "run", "--silent", "mshape", ...args.map(quote)].join(" ");
+  const missing04 =
+    'mshape could not run here, so this hook did nothing. Either bun is not on this session\'s PATH (run `command -v bun`; add bun\'s bin directory, often ~/.bun/bin, to the PATH Claude Code starts with), or monkeyshape is not installed (run `bun install`; package.json needs the script `"mshape": "mshape"`).';
+  const missing =
+    'mshape could not run here, so this hook did nothing. Run `bun install`; package.json needs the script `"mshape": "mshape"`.';
+  const noBun =
+    "bun is neither on this session's PATH nor in ~/.bun/bin, so this hook did nothing. Install bun (https://bun.sh), or add the directory holding it to the PATH Claude Code starts with.";
+  const withBun = (command: string) =>
+    `PATH="$PATH:$HOME/.bun/bin"; if command -v bun >/dev/null; then ${command}; else echo ${quote(`note: ${noBun}`)}; fi`;
+  return [
+    script,
+    withNote(script, missing),
+    withNote(script, missing04),
+    withBun(withNote(script, missing)),
+  ];
+};
 
 /** A hook running `mshape <args>`, degrading to a note, replacing what earlier versions ran. */
 const mshapeHook = (event: HookEvent, args: ReadonlyArray<string>): Hook => ({
   event,
   matcher: "",
-  command: withBun(withNote(mshapeCommand(args), MSHAPE_MISSING)),
-  retired: [
-    mshapeCommand(args),
-    withNote(mshapeCommand(args), MSHAPE_MISSING),
-    withNote(mshapeCommand(args), MSHAPE_MISSING_0_4),
-  ],
+  command: withMshape(withNote(mshapeCommand(args), MSHAPE_FAILED)),
+  retired: legacy(args),
 });
 
 /** Every hook, in the order each event runs them. */

@@ -392,7 +392,7 @@ describe("session addresses: the plan's case table", () => {
     expect(inbox.code).toBe(0);
     expect(inbox.stdout).toContain("for docs");
     expect(inbox.stdout).toContain("isn't registered");
-    expect(inbox.stdout).toContain("bun run --silent mshape msg register");
+    expect(inbox.stdout).toContain("mshape msg register");
   });
 
   test("`track rm <name>` while an unregistered session runs in its worktree: refuses, naming the session", async () => {
@@ -524,7 +524,7 @@ describe("track enter: the plan's case table", () => {
     const refused = await mshape(repo, ["track", "enter", "nope"], 1);
     expect(refused.code).toBe(1);
     expect(refused.stderr).toContain("no track `nope`: the tracks are docs, tracks");
-    expect(refused.stderr).toContain("bun run --silent mshape track new nope");
+    expect(refused.stderr).toContain("mshape track new nope");
     expect(await registered("main")).toEqual(at(1));
   });
 

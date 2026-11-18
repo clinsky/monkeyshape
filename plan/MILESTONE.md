@@ -495,3 +495,12 @@ already written by agents, not generated for it.
   launcher reads the pin only from `shape.toml`, so the TypeScript template moves to it now.
   It has no `localRules`, the reason the first amendment kept `init` on the TypeScript config.
   Adopters and this repo are unchanged: `shape.config.ts` still loads for them until `8il.2`.
+- **2026-11-18, adopter rules' outcomes as built (`packs`, `8il.10`), approved by the planning
+  session.** In the adopter-rules table, a rule with no cases, no `invalid` case, or a case
+  that misbehaves reports as `rules/local-cases`, the kind `localRules` already uses, so one
+  kind means "the rule's cases are wrong" however the rule is written; `local-rule` stays for
+  the rule itself (not valid YAML, rejected by ast-grep, an id that collides, no `message` or
+  `metadata.bugClass`). Where ast-grep can't be had, the whole `rules` check is `unavailable`
+  and required, oxc rules included, since a check has one outcome: it fails closed, and only
+  a repo with `shape-rules/` fetches ast-grep. Moving the engine onto each pack's own rules is
+  split out as `q0z`, under the epic, and the acceptance waits on it.
