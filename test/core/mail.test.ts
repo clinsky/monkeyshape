@@ -110,7 +110,7 @@ describe("mail", () => {
       true,
     );
     expect(inbox.split("\n")).toEqual([
-      "Unread messages for track messaging. Read one with `bun run --silent mshape msg read <id>`; until then it stays unread.",
+      "Unread messages for track messaging. Read one with `mshape msg read <id>`; until then it stays unread.",
       "  20261103-140000-0001  from tracks, 2026-11-03 14:00 UTC: first",
       "  20261103-150000-0002  from tracks, 2026-11-03 15:00 UTC: second",
     ]);
@@ -150,14 +150,14 @@ describe("mail", () => {
       box("review-7", false, [first]),
     ]);
     expect(shown.split("\n")).toEqual([
-      "old: 1 unread (no such track: its worktree and handoff are gone; recreate it with `bun run --silent mshape track new old` to read this, or delete /r/.git/monkeyshape/mail/old if it is no longer wanted)",
+      "old: 1 unread (no such track: its worktree and handoff are gone; recreate it with `mshape track new old` to read this, or delete /r/.git/monkeyshape/mail/old if it is no longer wanted)",
       "  20261103-140000-0001  from tracks, 2026-11-03 14:00 UTC: first",
-      "review-7: 1 unread (no review of #7 is running; `bun run --silent mshape review 7` from the main checkout moves a session there to read it, or delete /r/.git/monkeyshape/mail/review-7 if it is no longer wanted)",
+      "review-7: 1 unread (no review of #7 is running; `mshape review 7` from the main checkout moves a session there to read it, or delete /r/.git/monkeyshape/mail/review-7 if it is no longer wanted)",
       "  20261103-140000-0001  from tracks, 2026-11-03 14:00 UTC: first",
       "tracks: 2 unread",
       "  20261103-140000-0001  from tracks, 2026-11-03 14:00 UTC: first",
       "  20261103-150000-0002  from tracks, 2026-11-03 15:00 UTC: second",
-      "4 unread in 3 mailboxes. Each address reads its own, from a session there, with `bun run --silent mshape msg read <id>`; this marks nothing read.",
+      "4 unread in 3 mailboxes. Each address reads its own, from a session there, with `mshape msg read <id>`; this marks nothing read.",
     ]);
     expect(formatAllInboxes([box("docs", true, [])])).toBe("No unread mail anywhere.");
   });

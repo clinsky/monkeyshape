@@ -5,8 +5,8 @@ What it is and who it is for, in a paragraph.
 ## Develop
 
 ```sh
-bun install --frozen-lockfile
-bun run check
+curl -fsSL https://github.com/clinsky/monkeyshape/releases/latest/download/install.sh | sh  # once per machine
+mshape gate
 ```
 
 Built with [monkeyshape](https://github.com/clinsky/monkeyshape): where it's going is in

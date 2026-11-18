@@ -60,7 +60,7 @@ const configs = (name: string, toolchain: Toolchain): Record<string, string> => 
       typecheck: "tsc -p .",
       lint: "biome ci --error-on-warnings .",
       fix: "biome check --write .",
-      // How hooks and skills run mshape: D-run-mshape.
+      // The npm copy, for this repo's own scripts; hooks and skills run the installed mshape (D-run-mshape).
       mshape: "mshape",
       shape: "mshape check",
       // The gate's stages are the typescript pack's, run by `mshape gate`.

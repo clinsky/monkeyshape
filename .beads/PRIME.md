@@ -2,7 +2,7 @@
 
 Loaded at every session start by `bd prime`. This is what monkeyshape decides for every repo
 that uses it; AGENTS.md is what this repo decides, and wins where the two differ. Shipped by
-monkeyshape and checked by `mshape check`: refresh it with `bun run --silent mshape sync`,
+monkeyshape and checked by `mshape check`: refresh it with `mshape sync`,
 never by hand.
 
 ## Beads: what is left to do
@@ -28,8 +28,8 @@ never by hand.
 - A track is a worktree on `track/<name>`, a handoff and a `track:<name>` label. In its
   worktree, `/track` picks the work up; `/handoff` when the context is running out.
 - Message another track with
-  `bun run --silent mshape msg send <track> --subject "<one line>" "<body>"`. Your unread
-  mail is listed at session start and at each prompt; `bun run --silent mshape msg read <id>`
+  `mshape msg send <track> --subject "<one line>" "<body>"`. Your unread
+  mail is listed at session start and at each prompt; `mshape msg read <id>`
   reads one and marks it read. Put `--` before a body that starts with `--`. Never edit
   another track's handoff.
 - A `[mshape] Message from <track>: <subject>` notice can arrive at any time, even while
@@ -46,7 +46,7 @@ never by hand.
   `track pr` runs `mshape gate --fast` before each push; run it whole outside a track.
 - The body has the sections of `.github/pull_request_template.md`, each bead a list item
   starting with its id. Write it to a file. In a track, open and refresh the PR with
-  `bun run --silent mshape track pr --title "<title>" --body-file <file>` (after the first
+  `mshape track pr --title "<title>" --body-file <file>` (after the first
   time, `track pr` alone): it runs `mshape gate --fast`, pushes, and fills the Gate
   section; CI runs the whole gate, and `track pr --wait` records its result there.
   Outside a track, `gh pr create --body-file <file>`, which skips GitHub's template.
