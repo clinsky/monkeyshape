@@ -28,6 +28,7 @@ export const CHECK_NAMES = [
   "coverage",
   "files",
   "rules",
+  "packs",
   "skills",
   "sync",
   "beads",

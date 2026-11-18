@@ -1,4 +1,6 @@
 /** Runs the selected checks over a snapshot. Pure: the CLI loads, this decides. */
+
+import type { Pack } from "../packs/pack.ts";
 import { CHECK_NAMES, type ResolvedConfig } from "../schemas/config.ts";
 import { ARCH_RULES, archFiles, checkArch } from "./arch.ts";
 import { BEADS_RULES, checkBeads } from "./beads.ts";
@@ -23,6 +25,7 @@ import {
   type Snapshot,
   type Violation,
 } from "./model.ts";
+import { checkPacks, PACKS_RULES, packRuleIds } from "./packs.ts";
 import { applyBaseline, type Counts, type RatchetResult } from "./ratchet.ts";
 import { checkRefs, REFS_RULES } from "./refs.ts";
 import { checkRules, ENGINE_RULES, type Rule } from "./rules/engine.ts";
@@ -52,6 +55,7 @@ const run: Record<
   coverage: checkCoverage,
   files: checkFiles,
   rules: (config, snapshot) => checkRules(config, snapshot, RULES),
+  packs: checkPacks,
   skills: checkSkills,
   sync: checkSync,
   beads: checkBeads,
@@ -266,6 +270,13 @@ const scopeOf = (check: CheckName, config: ResolvedConfig, snapshot: Snapshot): 
         ? { notApplicable: `no ${language(snapshot)}, other source or data file` }
         : { examined: parts.join("; ") };
     }
+    case "packs": {
+      const own = snapshot.packs.filter(({ pack }) => pack.findingKinds.length > 0);
+      const ids = snapshot.packs.map(({ pack }) => pack.id).join(", ");
+      return own.length === 0
+        ? { notApplicable: `${ids === "" ? "no listed pack" : ids} has no checks of its own` }
+        : { examined: `${own.map(({ pack }) => pack.id).join(" and ")}'s own checks` };
+    }
     case "skills": {
       const { link, installed } = snapshot.skills;
       // A skill is a directory; the manifest beside them is sync's record, not a skill.
@@ -370,7 +381,10 @@ const unevaluatedBy = (
   // names: `tighten` must keep a turned-off check's entries whoever calls it.
   new Set([
     ...withoutBd(snapshot),
-    ...[...ruleIds(), ...baselineRules]
+    ...[
+      ...ruleIds(RULES, [...snapshot.packs.map(({ pack }) => pack), ...snapshot.otherPacks]),
+      ...baselineRules,
+    ]
       .filter((rule) => !rule.startsWith("prerequisites/"))
       .filter((rule) => !(ran as ReadonlyArray<string>).includes(rule.split("/")[0] ?? "")),
   ]);
@@ -451,6 +465,8 @@ const KINDS: { readonly [C in Violation["check"]]: ReadonlyArray<string> } = {
   coverage: COVERAGE_RULES,
   files: FILES_RULES,
   rules: ENGINE_RULES,
+  // Beside each pack's own, which `ruleIds` adds from the packs it is given.
+  packs: PACKS_RULES,
   skills: SKILLS_RULES,
   sync: SYNC_RULES,
   beads: BEADS_RULES,
@@ -459,12 +475,16 @@ const KINDS: { readonly [C in Violation["check"]]: ReadonlyArray<string> } = {
 
 /**
  * Every rule id `mshape check` can report, namespaced as violations carry it: each check's own
- * kinds and one per registry rule. test/core/ruleCases.test.ts holds a case that must fail and
- * one that must pass for each, so a new id can't land without both.
+ * kinds, one per registry rule, and each given pack's kinds. test/core/ruleCases.test.ts holds a
+ * case that must fail and one that must pass for each, so a new id can't land without both.
  */
-export const ruleIds = (rules: ReadonlyArray<Rule> = RULES): ReadonlyArray<string> => [
+export const ruleIds = (
+  rules: ReadonlyArray<Rule> = RULES,
+  packs: ReadonlyArray<Pack> = [],
+): ReadonlyArray<string> => [
   ...Object.entries(KINDS).flatMap(([check, kinds]) => kinds.map((kind) => `${check}/${kind}`)),
   ...rules.map((rule) => `rules/${rule.id}`),
+  ...packRuleIds(packs),
 ];
 
 const prerequisite = (
@@ -540,7 +560,9 @@ export const prerequisites = (
         out.push(
           prerequisite(
             "tool-unavailable",
-            `${check} needs ${name}, but ${integration.reason}. Install it (${fix}).`,
+            integration.fix === undefined
+              ? `${check} needs ${name}, but ${integration.reason}. Install it (${fix}).`
+              : `${check} needs ${name}, but ${integration.reason}. ${integration.fix}`,
             name,
           ),
         );

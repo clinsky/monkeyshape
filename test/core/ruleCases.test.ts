@@ -23,6 +23,9 @@ import type {
   Snapshot,
   Violation,
 } from "../../src/core/model.ts";
+import { RULES } from "../../src/core/rules/registry.ts";
+import { PACKS } from "../../src/packs/index.ts";
+import type { Pack } from "../../src/packs/pack.ts";
 import { typescript } from "../../src/packs/typescript/index.ts";
 import type { ShapeConfig } from "../../src/schemas/config.ts";
 import { config, fakePack, listed, repo } from "../support.ts";
@@ -362,6 +365,16 @@ const budgets: Record<string, Cases> = {
 const NO_TOOLS = { prerequisites: { tsc: "optional", biome: "optional" } } as const;
 
 const TOOLS = { "tsconfig.json": '{ "include": ["src"] }', "biome.json": "{}" };
+
+/** A Python-like pack that reports `kind` at every `.py` file, having declared `declared`. */
+const reporting = (declared: ReadonlyArray<string>, kind: string): Pack => ({
+  ...fakePack("python", "Python", "py"),
+  findingKinds: declared,
+  findings: ({ repo: view }) =>
+    view.files
+      .filter((file) => file.endsWith(".py"))
+      .map((file) => ({ kind, file, message: "a finding" })),
+});
 
 /** A Rust-like pack whose compiler reached only `crates/a/lib.rs`. */
 const RUST: ShapeConfig = { packs: ["rust"], sources: { include: ["crates/**/*.rs"] } };
@@ -979,6 +992,17 @@ const sourcesCases: Record<string, Cases> = {
       files: { "src/cli.ts": "" },
     },
   },
+  "packs/undeclared-kind": {
+    fail: {
+      files: { "app/b.py": "" },
+      options: { packs: [listed(reporting(["declared"], "undeclared"))] },
+    },
+    // Nothing to report: a declared kind reports as itself (test/core/packs.test.ts).
+    pass: {
+      files: { "app/b.txt": "" },
+      options: { packs: [listed(reporting(["declared"], "undeclared"))] },
+    },
+  },
   "sources/unclaimed": {
     // A repo that checks its JavaScript its own way, with JavaScript in the rules' scope.
     fail: {
@@ -1086,9 +1110,12 @@ const evaluate = (id: string, input: Case): ReadonlyArray<Violation> => {
     : runChecks(resolved, snapshot, [check as CheckName]);
 };
 
+/** Every pack monkeyshape ships: their kinds need cases too. */
+const SHIPPED = Object.values(PACKS).filter((pack): pack is Pack => pack !== undefined);
+
 describe("rule cases", () => {
   test("every rule id has a must-fail and a must-pass case, and no case names a rule that's gone", () => {
-    const ids = ruleIds();
+    const ids = ruleIds(RULES, SHIPPED);
     expect(new Set(ids).size).toBe(ids.length);
     const missing = ids.filter(
       (id) => CASES[id]?.fail === undefined || CASES[id]?.pass === undefined,
@@ -1098,7 +1125,7 @@ describe("rule cases", () => {
   });
 
   test("every check lists the kinds it reports, so none escapes the cases above", () => {
-    const ids = ruleIds();
+    const ids = ruleIds(RULES, SHIPPED);
     expect(
       [...CHECKS, "prerequisites"].filter((check) => !ids.some((id) => id.startsWith(`${check}/`))),
     ).toEqual([]);
