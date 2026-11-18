@@ -33,6 +33,7 @@ import {
   ciState,
   failingTests,
   gateCheckoutPath,
+  gateChecks,
   gatedCommit,
   gateLogPath,
   gatePlan,
@@ -277,7 +278,7 @@ const gateOnTip = (
         if (line.startsWith("note:")) yield* say(line);
       const installed = yield* installDependencies(path);
       if (installed?.startsWith("note:")) yield* say(installed);
-      const { plan, mshape } = yield* planFor(path);
+      const { plan, mshape, checks } = yield* planFor(path);
       yield* say(
         plan.kind === "full"
           ? `running the gate, \`${GATE_COMMAND}\`, on a clean checkout of ${tip.slice(0, 12)}: it can take minutes`
@@ -293,7 +294,7 @@ const gateOnTip = (
         await mkdir(dirname(log), { recursive: true });
         await writeFile(log, gate.stdout);
       });
-      return { ...gate, log, plan };
+      return { ...gate, log, plan, checks };
     }).pipe(
       Effect.ensuring(removeCheckout(repo, path).pipe(Effect.orElseSucceed(() => undefined))),
     );
@@ -324,7 +325,7 @@ const planFor = (path: string) =>
           .text()
           .catch(() => ""),
       );
-    return { plan: gatePlan(workflows), mshape };
+    return { plan: gatePlan(workflows), mshape, checks: gateChecks(workflows) };
   });
 
 /** Removes a scratch checkout, registered or left behind by a crash. */
@@ -529,6 +530,8 @@ export const awaitCi = (
    * the wait for it to start runs to the overall limit, not `startMs`.
    */
   expectCi = false,
+  /** The checks CI's gate makes (`gateChecks`): each must have a run before CI is done. */
+  expected: ReadonlyArray<string> = [],
 ) =>
   Effect.gen(function* () {
     yield* say(`waiting for CI on ${sha.slice(0, 12)}`);
@@ -540,7 +543,7 @@ export const awaitCi = (
       // A tip CI already ran on gets no new run for a push, and none for a body edit no
       // workflow watches: once a new run is overdue, CI's answer is the runs already there.
       const standing = before.size > 0 && waited >= timing.startMs;
-      const state = ciState(runs, standing ? new Set() : before);
+      const state = ciState(runs, standing ? new Set() : before, expected);
       if (state.kind === "done") yield* onDone(state.runs);
       if (state.kind === "done")
         return state.failed.length === 0
@@ -695,6 +698,8 @@ export const trackPr = (
         say,
         bodyBehind.conflicts,
         recordCiResult(top, branch, plan.body, kept),
+        false,
+        (yield* planFor(top)).checks,
       );
     }
 
@@ -815,5 +820,6 @@ export const trackPr = (
       behindMain.conflicts,
       recordCi,
       gate.plan.kind === "fast",
+      gate.checks,
     );
   });
