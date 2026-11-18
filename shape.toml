@@ -29,6 +29,10 @@ description = "Each language pack's pure part. No host I/O."
 may-import = ["schemas", "core", "packs/pack.ts"]
 packages = ["oxc-parser"]
 
+[arch.modules.packs]
+description = "Language packs: each pack's pure part, and the interface in pack.ts. No host I/O."
+may-import = ["schemas", "core"]
+
 [arch.modules.adapters]
 description = "Loads the repo, the config and the baseline from disk and git."
 may-import = ["schemas", "helpers", "core", "packs", "packs/pack.ts"]
