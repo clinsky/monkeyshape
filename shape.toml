@@ -1,0 +1,53 @@
+#:schema ./schema/shape.schema.json
+# monkeyshape's config for this repo: the module map is the layout; nothing else restates it.
+
+packs = ["typescript"]
+
+[sources]
+exempt = [
+  { path = "template/**", reason = "scaffold data that `mshape init` copies; each born repo's own gate checks it" },
+]
+
+[arch.modules.schemas]
+description = "Config schema and tagged errors: pure data contracts."
+
+[arch.modules.helpers]
+description = "Runtime helpers adopters import, e.g. decodeStrict."
+
+[arch.modules.core]
+description = "Every check, as pure functions over a Snapshot. No host I/O."
+# No host-access: only adapters touch disk, git or bd (D-pure-checks).
+may-import = ["schemas"]
+packages = ["oxc-parser"]
+
+[arch.modules.adapters]
+description = "Loads the repo, the config and the baseline from disk and git."
+may-import = ["schemas", "helpers", "core"]
+host-access = true
+
+[arch.modules.api]
+description = "The package's public surface."
+may-import = ["schemas", "helpers", "core"]
+
+[arch.modules.cli]
+description = "The mshape executable and composition root."
+may-import = ["schemas", "core", "adapters"]
+host-access = true
+manifest = true
+
+# The adopters' guides live in this repo, not in theirs, so only this repo checks them:
+# the last three, after the default docs.
+[refs]
+docs = [
+  "AGENTS.md",
+  "CLAUDE.md",
+  "README.md",
+  "DECISIONS.md",
+  "skills/**/*.md",
+  ".agents/skills/**/*.md",
+  ".claude/skills/**/*.md",
+  ".github/pull_request_template.md",
+  "docs/workflow.md",
+  "docs/adopting.md",
+  "docs/local-rules.md",
+]

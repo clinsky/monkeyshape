@@ -11,7 +11,7 @@ export class WorkspaceError extends Schema.TaggedError<WorkspaceError>()("Worksp
   }
 }
 
-/** `shape.config.ts` is missing or does not match the schema. */
+/** The config (`shape.toml`) is missing, unreadable, or does not match the schema. */
 export class ConfigError extends Schema.TaggedError<ConfigError>()("ConfigError", {
   path: Schema.String,
   reason: Schema.String,

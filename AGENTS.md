@@ -22,7 +22,7 @@ where the two differ.
 
 ## Where to start
 
-- `shape.config.ts`: the module map. It is the layout; nothing else restates it.
+- `shape.toml`: the module map. It is the layout; nothing else restates it.
 - `src/core/check.ts`: runs every check over a `Snapshot`. Checks are pure; `src/adapters/` loads.
 - `src/core/conventions.ts`: the loop's machine-checkable values (the PR body's sections, the
   gate, the PR size). The PR template is rendered from it; PRIME.md words them for a reader.

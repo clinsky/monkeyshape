@@ -468,7 +468,7 @@ const trackedInMain = (repo: string, path: string) =>
   });
 
 /**
- * Shared paths come from the main checkout's `shape.config.ts`: they name the main checkout's
+ * Shared paths come from the main checkout's config (`shape.toml`): they name the main checkout's
  * data, whichever checkout the command runs from.
  */
 /**
@@ -951,7 +951,7 @@ export const trackRm = (
     if (unfetched !== undefined) yield* say(`note: ${unfetched}`);
     const targets = yield* mergeTargets(repo);
     const found = yield* trackBeads(repo);
-    // A repo without shape.config.ts gets the default, `optional`; a failing bd refuses either way.
+    // A repo without a config gets the default, `optional`; a failing bd refuses either way.
     const setting = yield* loadConfig(repo).pipe(
       Effect.map((config) => config.beads),
       Effect.orElseSucceed(() => "optional" as const),

@@ -55,7 +55,7 @@ describe("depBump on a born repo's vendored dependency", () => {
     const next = await release("app", "1.1.0");
     const before = await Bun.file(join(repo(), "shape.config.ts")).text();
     const result = await Effect.runPromise(
-      depBump(repo(), record(), "app", next.path, "0".repeat(64)),
+      depBump(repo(), "shape.config.ts", record(), "app", next.path, "0".repeat(64)),
     );
     expect(result.code).toBe(1);
     expect(result.lines.join("\n")).toContain("not that release");
@@ -67,7 +67,7 @@ describe("depBump on a born repo's vendored dependency", () => {
   test("the right digest moves the tarball, package.json, lockfile and record, and runs the gate", async () => {
     const next = await release("app", "1.1.0");
     const result = await Effect.runPromise(
-      depBump(repo(), record(), "app", next.path, next.sha256),
+      depBump(repo(), "shape.config.ts", record(), "app", next.path, next.sha256),
     );
     expect(result.lines.join("\n")).toContain("gate passed");
     expect(result.code).toBe(0);
@@ -86,7 +86,7 @@ describe("depBump on a born repo's vendored dependency", () => {
   test("a release of another package is refused, even with its own right digest", async () => {
     const other = await release("other", "1.1.0");
     const result = await Effect.runPromise(
-      depBump(repo(), record(), "app", other.path, other.sha256),
+      depBump(repo(), "shape.config.ts", record(), "app", other.path, other.sha256),
     );
     expect(result.code).toBe(1);
     expect(result.lines.join("\n")).toContain("is the package other, not app");
