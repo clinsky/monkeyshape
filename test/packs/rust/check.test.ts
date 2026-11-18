@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { runChecks } from "../../../src/core/check.ts";
+import { SYNC_COMMAND } from "../../../src/core/hooks.ts";
 import { CARGO_METADATA, RUSTC, rust } from "../../../src/packs/rust/index.ts";
 import { CURATED, renderLints } from "../../../src/packs/rust/lints.ts";
 import {
@@ -181,12 +182,19 @@ describe("the Rust pack through mshape's checks", () => {
     const packs = (files: Readonly<Record<string, string>>) =>
       runChecks(shape, repo(files, { packs: snapshot.packs.map((loaded) => loaded) }), ["packs"]);
 
-    test("a root without [workspace.lints]: one finding there, with the tables, none on members", () => {
+    test("a root without [workspace.lints]: one finding there, saying to run sync, none on members", () => {
       const found = packs(FILES);
       expect(found.map((v) => [v.rule, v.file])).toEqual([
         ["packs/rust/workspace-lints", "Cargo.toml"],
       ]);
-      expect(found[0]?.message).toContain(renderLints(CURATED));
+      expect(found[0]?.message).toContain(
+        `Run \`${SYNC_COMMAND}\`, which writes [workspace.lints.rust]`,
+      );
+    });
+
+    // 8il.21: once sync has run here, its own check reports a missing table; one finding.
+    test("where sync has run, the sync check owns a missing table, not workspace-lints", () => {
+      expect(packs({ ...FILES, ".agents/skills/monkeyshape.json": "{}" })).toEqual([]);
     });
 
     test("once the root has them, each member without the opt-in is reported", () => {
