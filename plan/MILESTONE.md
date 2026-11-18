@@ -422,3 +422,19 @@ already written by agents, not generated for it.
   because `localRules`, their tests and `init` still use the TypeScript config until `packs`'
   `8il.10` and `8il.11` land. `8il.2` flips that row to "fails: run `mshape config migrate`",
   with its test, and moves check messages to kebab-case keys then. The end state is the plan's.
+- **2026-11-18, Cargo's lints are a table `mshape sync` owns in the root `Cargo.toml`
+  (`rust`, agreed with `packs`), approved by the planning session.** The copied-configs table
+  gains the case the plan left to `rust`. A base config's delivery in `pack.ts` is `extends`,
+  `copy` or `table`. Sync owns `[workspace.lints.rust]` and `[workspace.lints.clippy]`: the
+  curated lints with `shape.toml`'s `[rust.lints.<tool>]` overrides laid over them, lint by
+  lint. Cases, `rust`'s test:
+
+  | Case | Result |
+  |---|---|
+  | the tables equal what sync writes, by parsed value | passes; a reformat isn't a failure |
+  | a lint edited in `Cargo.toml` by hand | `sync` fails, naming the file: override in `shape.toml`, then `mshape sync` |
+  | the tables missing | `sync` fails: run `mshape sync` |
+  | a member crate without `[lints] workspace = true` | `packs/rust/member-lints` fails, naming the line to add |
+  | a crate made by `cargo new` inside the workspace | has that line already (cargo 1.100) |
+
+  Why: Cargo has no `extends`, and a `.mshape/` copy has nothing in Cargo to point at it.
