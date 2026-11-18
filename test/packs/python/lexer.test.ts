@@ -40,6 +40,12 @@ describe("the Python lexer", () => {
     expect(comments("abr = 1\nx = abr'\\'#no'\n# yes\n")).toEqual([" yes"]);
   });
 
+  test("a raw string ending in an escaped backslash closes at its quote (review of #108)", () => {
+    // `r"C:\\"` holds C: and two backslashes, then closes: a backslash in a
+    // raw string still pairs with the next character, whatever it is.
+    expect(comments("w = r\"C:\\\\\"  # one\nb = rb'\\\\'  # two\n")).toEqual([" one", " two"]);
+  });
+
   test("an unterminated string ends at its line, and the next line is code again", () => {
     expect(comments("x = 'open\n# yes\n")).toEqual([" yes"]);
   });
@@ -95,6 +101,34 @@ describe("Python's import statements", () => {
       [4, 0, "y", undefined],
       [5, 0, "z", ["w"]],
     ]);
+  });
+
+  test("every import after a raw string ending in a backslash is read (review of #108)", () => {
+    const text =
+      'import re\nWIN = re.compile(r"C:\\\\")\n\nimport subprocess\nfrom app.io import disk\n';
+    expect(read(text).map(([line, , module]) => [line, module])).toEqual([
+      [1, "re"],
+      [4, "subprocess"],
+      [5, "app.io"],
+    ]);
+  });
+
+  test("the scan is linear in the file's length (review of #108)", () => {
+    // Best of three, so one slow run under the gate's parallel load doesn't decide it.
+    const time = (lines: number) => {
+      const text = `${"x = 1\n".repeat(lines)}import os\n`;
+      let best = Number.POSITIVE_INFINITY;
+      for (let run = 0; run < 3; run++) {
+        const started = performance.now();
+        expect(read(text)).toEqual([[lines + 1, 0, "os", undefined]]);
+        best = Math.min(best, performance.now() - started);
+      }
+      return best;
+    };
+    const small = time(2_000);
+    const large = time(20_000);
+    // Ten times the lines: about ten times the time when linear, a hundred when quadratic.
+    expect(large / Math.max(small, 1)).toBeLessThan(40);
   });
 
   test("an import in a string or a comment is none", () => {

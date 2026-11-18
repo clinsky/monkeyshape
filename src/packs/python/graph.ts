@@ -112,15 +112,24 @@ const resolve = (
   return { outside: true };
 };
 
-/** Names a file binds to `open` itself, which then isn't the builtin. */
+/**
+ * A module-level binding of `open` (at column 0: a `def`, a `class`, an assignment or an
+ * import, parenthesised or not), which then shadows the builtin in the module. A method, a
+ * field or a keyword argument named `open` binds it only in its own scope, so it doesn't count.
+ */
 const BINDS_OPEN =
-  /(?:^|\n)\s*(?:(?:async\s+)?def\s+open\b|class\s+open\b|open\s*(?::[^=\n]*)?=(?!=)|(?:from\s+\S+\s+)?import\s+[^\n]*\bopen\b)/;
+  /^(?:(?:async\s+)?def\s+open\b|class\s+open\b|open\s*(?::[^=\n]*)?=(?!=)|(?:from\s+\S+\s+)?import\s+(?:\([^)]*\bopen\b|[^\n]*\bopen\b))/m;
 
-/** Calls of the builtin `open`, as offsets: `open(` that isn't an attribute (`path.open(`). */
+/**
+ * Calls of the builtin `open`, as offsets: `open(` that isn't an attribute (`path.open(`) or
+ * the definition of a method named `open`.
+ */
 const builtinOpens = (text: string): ReadonlyArray<number> => {
   const { code } = lex(text);
   if (BINDS_OPEN.test(code)) return [];
-  return [...code.matchAll(/(?<![\p{L}\p{N}_.])open\s*\(/gu)].map((match) => match.index);
+  return [...code.matchAll(/(?<![\p{L}\p{N}_.])(?<!\bdef\s+)open\s*\(/gu)].map(
+    (match) => match.index,
+  );
 };
 
 export const graph = ({ files, known, texts, isHost }: GraphInput): Graph => {

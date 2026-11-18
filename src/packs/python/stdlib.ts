@@ -1,9 +1,10 @@
 /**
- * The standard library's top-level modules: CPython 3.10's `sys.stdlib_module_names`, without the
- * private ones, plus what 3.11 to 3.14 added. An import of one is the language's own, never a
- * package edge; the host modules among them are `hostSpecifiers`.
+ * The standard library's top-level modules: CPython 3.10's `sys.stdlib_module_names`, without
+ * the private `_` ones but with `__future__`, plus what 3.11 to 3.14 added. An import of one is
+ * the language's own, never a package edge; the host modules among them are `hostSpecifiers`.
  */
 export const STDLIB: ReadonlySet<string> = new Set([
+  "__future__",
   "abc",
   "aifc",
   "annotationlib",

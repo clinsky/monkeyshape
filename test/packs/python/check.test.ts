@@ -100,6 +100,20 @@ describe("the Python pack through mshape's checks", () => {
     expect(found[0]?.message).toContain("yaml");
   });
 
+  test("`from __future__ import annotations` is the language's own, no edge (review of #108)", () => {
+    const files = {
+      ...FILES,
+      "src/app/core/model.py": "from __future__ import annotations\n",
+    };
+    const strict = config({
+      packs: ["python"],
+      arch: { modules: { ...MODULES, core: { ...MODULES.core, packages: [] } } },
+    });
+    expect(runChecks(strict, snapshot(files), ["arch"]).map((v) => v.rule)).toEqual([
+      "arch/forbidden-import",
+    ]);
+  });
+
   test("a host module outside a hostAccess module is host access", () => {
     const files = { ...FILES, "src/app/core/model.py": "import subprocess\n" };
     const found = runChecks(shape, snapshot(files), ["arch"]).filter(
@@ -131,6 +145,32 @@ describe("the Python pack through mshape's checks", () => {
       (v) => v.rule === "arch/host-access",
     );
     expect(found).toEqual([]);
+  });
+
+  test("open bound in a class, a function or a call's keywords is still the builtin at the top (review of #108)", () => {
+    const files = {
+      ...FILES,
+      "src/app/core/model.py": [
+        "class Store:",
+        "    open: bool = False",
+        "",
+        "    def open(self) -> None: ...",
+        "",
+        "",
+        "def make() -> dict[str, int]:",
+        "    return dict(",
+        "        open=1,",
+        "    )",
+        "",
+        "",
+        'data = open("x").read()',
+        "",
+      ].join("\n"),
+    };
+    const found = runChecks(shape, snapshot(files), ["arch"])
+      .filter((v) => v.rule === "arch/host-access")
+      .map((v) => v.line);
+    expect(found).toEqual([13]);
   });
 
   test("a first-party import of a module that doesn't exist is unresolved", () => {
@@ -197,6 +237,31 @@ describe("the Python pack's own findings", () => {
     const [found] = findings({ ...FILES, "ruff.toml": "line-length = 100\n" });
     expect(found?.slice(0, 2)).toEqual(["packs/python/ruff-extend", "ruff.toml"]);
     expect(found?.[3]).toContain("at the top of ruff.toml");
+  });
+
+  test("a ruff lint.exclude or format.exclude, which ruff's file list doesn't show (review of #108)", () => {
+    const lint = `${PYPROJECT}\n[tool.ruff.lint]\nexclude = ["scripts/*"]\n`;
+    const [found] = findings({ ...FILES, "pyproject.toml": lint });
+    expect(found?.slice(0, 3)).toEqual(["packs/python/ruff-exclude", "pyproject.toml", 9]);
+    expect(found?.[3]).toContain("`[tool.ruff.lint]` `exclude`");
+    expect(found?.[3]).toContain("coverage.exempt");
+    const format = { ...FILES, "tools/ruff.toml": '[format]\nexclude = ["gen.py"]\n' };
+    expect(findings(format).map((row) => [row[0], row[1], row[2]])).toEqual([
+      ["packs/python/ruff-exclude", "tools/ruff.toml", 2],
+    ]);
+    // The dotted form under [tool.ruff] is the same key, at its own line.
+    const dotted = PYPROJECT.replace("[tool.ruff]\n", '[tool.ruff]\nlint.exclude = ["x"]\n');
+    expect(findings({ ...FILES, "pyproject.toml": dotted }).map((row) => row[2])).toEqual([6]);
+    // per-file-ignores with ALL silences a file the same way; with codes, it doesn't.
+    const all = `${PYPROJECT}\n[tool.ruff.lint.per-file-ignores]\n"scripts/*.py" = ["ALL"]\n"tests/*" = ["S101"]\n`;
+    const ignored = findings({ ...FILES, "pyproject.toml": all });
+    expect(ignored.map((row) => [row[0], row[2]])).toEqual([["packs/python/ruff-exclude", 9]]);
+    expect(ignored[0]?.[3]).toContain(
+      "`per-file-ignores` turns off every ruff rule for `scripts/*.py`",
+    );
+    // ruff's top-level exclude is in its file list, so coverage holds it: no finding.
+    const top = `${PYPROJECT.replace("[tool.ruff]\n", '[tool.ruff]\nexclude = ["gen"]\n')}`;
+    expect(findings({ ...FILES, "pyproject.toml": top })).toEqual([]);
   });
 
   test("a root ty.toml: ty would ignore the synced rules", () => {

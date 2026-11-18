@@ -43,19 +43,15 @@ export const lex = (text: string): Lexed => {
     const quote = text[start] ?? "";
     const triple = text.startsWith(quote.repeat(3), start);
     const close = triple ? quote.repeat(3) : quote;
-    const raw = /[rR]/.test(prefix);
     const formatted = /[fFtT]/.test(prefix);
     let i = start + close.length;
     let blankFrom = i;
     while (i < text.length) {
       const char = text[i];
-      if (char === "\\" && !raw) {
+      if (char === "\\") {
+        // Raw or not, a backslash pairs with the next character: `r"\\"` ends at its quote,
+        // and `r"\""` doesn't. A raw string only keeps the backslash in its value.
         i += 2;
-        continue;
-      }
-      if (char === "\\" && raw) {
-        // A raw string still can't end at an escaped quote.
-        i += text[i + 1] === quote ? 2 : 1;
         continue;
       }
       if (!triple && char === "\n") {

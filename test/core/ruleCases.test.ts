@@ -1025,6 +1025,24 @@ const sourcesCases: Record<string, Cases> = {
       options: { packs: [listed(python)] },
     },
   },
+  "packs/python/ruff-exclude": {
+    fail: {
+      config: PYTHON,
+      files: { "pyproject.toml": `${PYPROJECT}\n[tool.ruff.lint]\nexclude = ["app/b.py"]\n` },
+      options: { packs: [listed(python)] },
+    },
+    // A top-level exclude: ruff's file list leaves the file out, so coverage reports it.
+    pass: {
+      config: PYTHON,
+      files: {
+        "pyproject.toml": PYPROJECT.replace(
+          "[tool.ruff]\n",
+          '[tool.ruff]\nexclude = ["app/b.py"]\n',
+        ),
+      },
+      options: { packs: [listed(python)] },
+    },
+  },
   "packs/python/ty-config": {
     fail: {
       config: PYTHON,

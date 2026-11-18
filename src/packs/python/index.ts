@@ -91,6 +91,92 @@ const ruffExtend = (repo: RepoView): ReadonlyArray<PackFinding> => {
   ];
 };
 
+/** Every ruff config in the repo: ruff reads the nearest one to each file, at any depth. */
+const ruffConfigs = (
+  repo: RepoView,
+): ReadonlyArray<{ file: string; table: ReadonlyArray<string> }> =>
+  repo.files.flatMap((file) => {
+    const name = file.slice(file.lastIndexOf("/") + 1);
+    if (file === RUFF_COPY) return [];
+    if (name === "ruff.toml" || name === ".ruff.toml") return [{ file, table: [] }];
+    return name === "pyproject.toml" ? [{ file, table: ["tool", "ruff"] }] : [];
+  });
+
+/** The 1-based line of `key` in the TOML table `header` (`tool.ruff.lint`), if written there. */
+const keyLine = (text: string | undefined, header: string, key: string): number | undefined => {
+  const lines = (text ?? "").split("\n");
+  let current = "";
+  for (let index = 0; index < lines.length; index++) {
+    const line = (lines[index] ?? "").replace(/#.*$/, "").trim();
+    const opened = /^\[([^\]]+)\]$/.exec(line);
+    if (opened !== null) {
+      current = (opened[1] ?? "").replace(/\s+/g, "");
+      continue;
+    }
+    const assigned = /^([\w.-]+)\s*=/.exec(line)?.[1];
+    if (
+      assigned !== undefined &&
+      [current, assigned].filter((part) => part !== "").join(".") === `${header}.${key}`
+    )
+      return index + 1;
+  }
+  return undefined;
+};
+
+/**
+ * ruff's `lint.exclude` and `format.exclude` keep files from linting or formatting, but ruff
+ * still lists them in `--show-files`, the list coverage reads: so coverage can't see what they
+ * hide. Its top-level `exclude` filters that list, so coverage holds it.
+ */
+const ruffExclude = (repo: RepoView): ReadonlyArray<PackFinding> =>
+  ruffConfigs(repo)
+    .flatMap(({ file, table }) => {
+      const text = repo.texts.get(file);
+      const parsed = tomlOf(text);
+      return (["lint", "format"] as const).flatMap((section) => {
+        const exclude = at(parsed, [...table, section, "exclude"]);
+        if (!Array.isArray(exclude) || exclude.length === 0) return [];
+        const header = [...table, section].join(".");
+        const line = keyLine(text, header, "exclude");
+        return [
+          {
+            kind: "ruff-exclude",
+            file,
+            ...(line === undefined ? {} : { line }),
+            message: `\`[${header}]\` \`exclude\` keeps files out of ruff's ${section === "lint" ? "lint" : "formatting"}, but ruff's file list still shows them, so coverage can't see what it hides. Move the paths to ruff's top-level \`exclude\`${table.length === 0 ? "" : " (under `[tool.ruff]`)"}, where coverage reports each file it leaves out and \`coverage.exempt\` in shape.toml holds generated or vendored code${section === "lint" ? "; or silence specific rules on those files with `per-file-ignores` and their codes" : ""}.`,
+          },
+        ];
+      });
+    })
+    .concat(ruffIgnoreAll(repo));
+
+/**
+ * The same hole as `lint.exclude`, one key over: a `per-file-ignores` entry with `ALL`
+ * silences every rule on its files, which ruff still lists.
+ */
+const ruffIgnoreAll = (repo: RepoView): ReadonlyArray<PackFinding> =>
+  ruffConfigs(repo).flatMap(({ file, table }) => {
+    const text = repo.texts.get(file);
+    const parsed = tomlOf(text);
+    return ["per-file-ignores", "extend-per-file-ignores"].flatMap((key) => {
+      const ignores = at(parsed, [...table, "lint", key]);
+      if (typeof ignores !== "object" || ignores === null) return [];
+      return Object.entries(ignores).flatMap(([pattern, codes]) => {
+        if (!Array.isArray(codes) || !codes.includes("ALL")) return [];
+        const quoted = pattern.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+        const line = lineOf(text, new RegExp(`["']${quoted}["']\\s*=.*["']ALL["']`));
+        return [
+          {
+            kind: "ruff-exclude",
+            file,
+            ...(line === undefined ? {} : { line }),
+            message: `\`${key}\` turns off every ruff rule for \`${pattern}\` with \`ALL\`, but ruff's file list still shows those files, so coverage can't see what it hides. Name the rules to silence by their codes; or, for generated or vendored code, move the paths to ruff's top-level \`exclude\`${table.length === 0 ? "" : " (under `[tool.ruff]`)"}, where coverage reports each file it leaves out and \`coverage.exempt\` in shape.toml holds it.`,
+          },
+        ];
+      });
+    });
+  });
+
 /**
  * A root `ty.toml` wins over `[tool.ty]` in pyproject.toml, so the curated rules that `sync`
  * writes there would be ignored.
@@ -167,8 +253,8 @@ export const python: Pack = {
         "is not type-checked by ty: `[tool.ty.src]` in pyproject.toml (its `include` or `exclude`) leaves it out. Include it; if it is generated or vendored code, keep it under a directory named in `coverage.exempt` in shape.toml.",
     },
   ],
-  findings: ({ repo }) => [...ruffExtend(repo), ...tyConfig(repo)],
-  findingKinds: ["ruff-extend", "ty-config"],
+  findings: ({ repo }) => [...ruffExtend(repo), ...ruffExclude(repo), ...tyConfig(repo)],
+  findingKinds: ["ruff-extend", "ruff-exclude", "ty-config"],
   rules: [],
   baseConfigs: [
     {

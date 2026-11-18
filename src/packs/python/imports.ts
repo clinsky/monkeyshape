@@ -62,12 +62,6 @@ const flat = (text: string): string =>
     .replace(/\s+/g, " ")
     .trim();
 
-const lineOf = (code: string, offset: number): number => {
-  let line = 1;
-  for (let i = 0; i < offset; i++) if (code.charCodeAt(i) === 10) line++;
-  return line;
-};
-
 /** `a.b as c` → `a.b`; undefined when it isn't a dotted name with an optional alias. */
 const target = (part: string): string | undefined => {
   const [name, ...alias] = part.trim().split(/\s+as\s+/);
@@ -125,9 +119,13 @@ const parseStatement = (raw: string): ReadonlyArray<Omit<Import, "line">> => {
 /** Every import statement in `text`, in order. */
 export const importsOf = (text: string): ReadonlyArray<Import> => {
   const { code } = lex(text);
+  // Statements come in order, so lines are counted once, from where the last one stood.
+  let line = 1;
+  let counted = 0;
   return statements(code).flatMap((statement) => {
     const offset = statement.start + (statement.text.length - statement.text.trimStart().length);
-    const line = lineOf(code, offset);
-    return parseStatement(statement.text).map((found) => ({ ...found, line }));
+    for (; counted < offset; counted++) if (code.charCodeAt(counted) === 10) line++;
+    const at = line;
+    return parseStatement(statement.text).map((found) => ({ ...found, line: at }));
   });
 };
