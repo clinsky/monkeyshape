@@ -1,395 +1,374 @@
-# Milestone 4: the loop at scale
+# Milestone 5: a language-neutral core, and Rust and Python packs
 
-**Draft for approval, 2026-11-07.** Beads are filed only after the maintainer approves. Once
-tracks start, the plan is frozen, except that a divergence the maintainer approves is
-appended under "Amendments" with its date and reason.
+**2026-11-18.** Once tracks start, this plan is frozen, except that an approved divergence is
+appended under "Amendments" with its date, what changed, why, and who approved it.
 
 ## Why this milestone
 
-Milestone 3 made monkeyshape safe to adopt, and two repos have since run on 0.4.0: an
-existing application adopted it and ran its first milestone with four parallel tracks, and a
-new repo was born and ran its first milestone with three. That is the first time the loop
-ran at scale outside this repo, and its tracks, its reviewers and the maintainer reported
-what got in the way. This milestone fixes what they hit. It comes before any new roadmap
-goal because every repo pays for these on every track, and principle 8's consumer is now
-real: each item below was hit by at least one real track.
+monkeyshape is a TypeScript-and-Bun tool with a language-neutral loop trapped inside it. The
+maintainer's next two repos are a Rust project and a Python project, two separate repos,
+and neither starts until it can be born on monkeyshape with no workaround. Today it can't:
 
-What they found:
+- **The config is code.** `shape.config.ts` is a TypeScript module that `mshape` imports, so a
+  repo needs Bun and the npm package just to say what its modules are. Three of its values
+  are functions (the `localRules` of two adopters), which no data format can hold.
+- **The gate is hard-coded.** PRIME.md, the skills, the PR template, `track pr` and CI all
+  say `bun run check`; `track pr`'s fast stages are tsc, biome and `mshape check`.
+- **`mshape` runs only through Bun and `node_modules`.** `D-run-mshape` makes every hook and
+  skill call `bun run --silent mshape`; the loop's text names `bun` 16 times across PRIME.md,
+  the skills and the template's AGENTS.md. Milestone 4 spent three sessions on hooks that
+  couldn't find `bun` after a restart.
+- **The checks that look at code are TypeScript's.** `arch`, `sources`, `rules` and
+  `coverage` read TypeScript through oxc, tsc and biome; `refs` reads comments only in
+  TypeScript (`sgy`). The rest (budgets, files, skills, sync, beads, decisions, refs over
+  docs) are pure functions over a `Snapshot` (`D-pure-checks`) and are neutral once their
+  inputs are.
 
-- **A PR was not one reviewed unit.** Tracks opened a PR and kept working on its branch, so
-  commits landed mid-review; a message arriving mid-review made a track update the PR under
-  its reviewer. PRIME.md and the `track` skill both say "a commit pushed while it is in review
-  joins it", which reads as permission. Tracks asked for an endorsed local branch for the next
-  bead's work instead. `track pr` refuses uncommitted changes and pushes the commit it gated,
-  but runs the gate in the track's worktree, so ignored and untracked files there can make a
-  gate pass that the pushed commit fails; when it fails, only its last lines are kept. Two
-  tracks polled CI by hand, and a body-only edit reruns the gate (`gh pr edit` is broken on
-  this GitHub host).
-- **Agents didn't know rules that only the human docs state.** The PR size (1000 to 2500
-  changed lines) is in PRIME.md but not in the `track` skill, where a PR is made. Tracks sent
-  each other many short messages at the start, in cycles. A track's divergence from the plan
-  was written into its own handoff, which no one else reads, and Amendments stayed empty for
-  the whole of milestone 3: two divergences were recorded only at its boundary.
-  `docs/workflow.md` states some rules no agent ever loads. One repo's tracks asked how to
-  start (run the gate first, list the rules: `mshape rules` exists but no skill names it).
-- **Decisions filled their budget with no test for what earns one.** The existing
-  application raised its decisions budget to fit exactly; the merit test lives in
-  `docs/workflow.md`, nothing says when to retire an entry or who reviews the change, and a
-  decision names its enforcing test while the test doesn't name the decision, so an agent
-  editing that test isn't told why it must stay.
-- **Private data reached a public PR body** (#56, first revision: a fix timeline and a quoted
-  commit line from a private repo). GitHub keeps a body's edit history. AGENTS.md calls this
-  "can't be a check" because the names must not be in the repo; a list kept outside it can be.
-- **A new track didn't start working.** A worktree has no `node_modules`, and `mshape check`
-  looks for `tsc` and biome only there (`src/adapters/workspace.ts`), so a fresh track's gate
-  is red until someone runs `bun install` (three tracks here, one in each adopter). After a
-  restart, `bun` was missing from the hooks' PATH in three sessions: no registration, no mail.
-  `bun test` found tests inside a linked shared-data directory (all three tracks of one
-  adopter). Two tracks' temp-file cleanup could match each other's files.
-- **The human starts each step from a different directory** (`zdw`): the main checkout for
-  `/roadmap`, `/milestone` and `/review-pr`, a worktree for `/track`. The maintainer has no
-  way to tell every track one thing at once, and a message body with an apostrophe broke shell
-  quoting twice.
-- **Checks that misfit a living adopter:**
-  - setting `arch.allowedPackages` replaces the default `effect`, though
-    `docs/adopting.md` says the list adds to it (`src/schemas/config.ts`);
-  - `refs/*` has no per-rule `off` or `allow`, as `rules/*` does;
-  - a file over its baseline count reports every occurrence, not the new one;
-  - with no `bd` (CI), the beads checks are skipped though `.beads/issues.jsonl` is committed;
-  - a declared command's glob can be wider than what the command checks, and passes;
-  - a local rule's own file has no place in the module map;
-  - `track list` advises `bd defer` for a bead left open after its PR, and the `beads` check
-    then flags the deferred bead for keeping its `track:` label, so the track is never done;
-  - PRIME.md's "`bd sync` where shared" made `bd` offer to adopt a remote, which looked like
-    publishing;
-  - `init`'s checkout test is red when this repo's HEAD sits on a release tag (`alg`), and
-    three reported P3s (`07u`, `2s3`, `737`).
+It comes now, ahead of the harness adapters, because two real repos wait on it and no Codex
+or pi user does yet (`docs/roadmap.md`'s order, confirmed by the maintainer on 2026-11-18).
+The core and the packs are one milestone so the interface is shaped by TypeScript and Rust
+rather than guessed, and tested by Python, which must fit it unchanged.
+
+Milestone 4 closed with 0.5.0 (#90); its plan is `notes/2026-11-18-milestone-4.md`.
 
 ## Goal, and how we'll know
 
-**The cut line.** A track in any adopter goes from `track new` to a merged PR without a
-broken environment, a PR changed under its reviewer, a rule it couldn't have known, or a
-private name leaving the machine. Goals 1, 4 and 5, and goal 2's skill text, are that (P1).
-The rest is P2: worth doing if contained, dropped with a reason if not.
-
-1. **A PR is one reviewed unit.** A track has one open PR; its next work is local commits on
-   another branch, not pushed until the PR merges. `track pr` gates and pushes the tip of
-   `track/<name>`, never whatever `HEAD` is, so that work can't join the PR; it refuses to
-   push while a review of the PR is in progress. The gate runs on a clean checkout of that
-   tip, and a failure shows the failing tests and keeps the full log. `track pr --wait` waits
-   for CI; a body-only refresh skips the gate when the tip hasn't moved since it last ran;
-   and it warns when the branch is behind `main` or conflicts with it.
-2. **Agents learn the loop's rules where they act.** The `track` skill states the PR size and
-   its exceptions (a smaller PR that unblocks another track or ends the track), the one-PR
-   rule with its local branch, what makes a message worth sending, that a handoff is the
-   track's own, and that a divergence goes to `msg send main`. It starts with the gate and
-   `mshape rules`. The `milestone` skill keeps its session open for the milestone, reads
-   `main`'s mail and appends approved divergences. `review-pr` runs the repo's real-data
-   probes, which AGENTS.md names. PRIME.md says neither "joins it" nor an unsafe `bd sync`.
-   `docs/workflow.md` says it is for humans, and agents don't read it. AGENTS.md's "can't be
-   a check" note on private names is rewritten once goal 4's denylist exists.
-3. **A decision earns its slot.** The shipped `DECISIONS.md` header holds the merit test and
-   the lifecycle; every file a decision's `Enforced by` names cites the decision's slug, and
-   a check fails when one doesn't; `review-pr`'s Fit applies the merit test to any decision a
-   PR adds or retires; at each boundary, each bd memory is promoted or deleted.
-4. **Nothing private leaves the machine.** A denylist kept outside every repo is checked
-   before `track pr` pushes (the lines and file paths the push adds, the commit messages, the
-   PR title and body) and before a review is posted, through `mshape review post`, which
-   scans and then posts; a match refuses and names the term's position, never posting.
-5. **A new track starts working.** `track new` installs dependencies in the new worktree;
-   `mshape check` finds `tsc` and biome in the worktree or up to the main checkout's; the
-   hooks find `bun` when they run, even with it missing from the session's PATH, and no
-   machine's path is written into a shared file; the template ships `bunfig.toml` with the test root,
-   so `bun test` never searches shared data.
-6. **The human starts any step from anywhere, and reaches every track.** `/track <name>`
-   started in the main checkout moves the session to that track's address and works in its
-   worktree; `msg send --all` reaches every track; `msg send --body-file` reads a body from a
-   file. A per-track temp directory (P2).
-7. **Checks fit a living adopter.** `allowedPackages` adds to `effect`; `refs/*` takes `off`
-   and `allow` per rule; a file over its baseline count reports the new occurrence; with no
-   `bd`, the beads checks read the committed export and say so; a declared command receives
-   the files its glob matched; local rules have a home in the module map; `track list`'s
-   advice for an open bead agrees with the `beads` check; `alg`, `07u`, `2s3` and `737` are
-   fixed or closed with a reason.
+1. **Config is data.** `shape.toml`, validated by a schema monkeyshape ships, replaces
+   `shape.config.ts`. `mshape config migrate` converts a repo once; no second format is kept.
+2. **The gate is configured.** `mshape gate` runs the repo's gate: each pack's default
+   stages, then the repo's own, read from `shape.toml`; `--fast` runs the stages marked fast.
+   PRIME.md, the skills, the PR template, `track pr` and CI name `./mshape gate`, never a
+   language's tool.
+3. **`mshape` is a pinned binary.** Bun compiles it into GitHub release assets for Linux x64
+   and arm64 and macOS arm64, listed with their hashes in a `SHA256SUMS` asset. `shape.toml`
+   pins the version and the hash of that list; a committed POSIX `./mshape` bootstrap fetches,
+   verifies and runs it. Every hook, skill and doc calls `./mshape`. A non-TypeScript repo has
+   no `package.json` and no `node_modules`. `mshape sync` replaces hooks monkeyshape changed
+   (`iwf`). npm keeps shipping what TypeScript code imports or extends.
+4. **A language-pack interface, with TypeScript refactored into the first pack.** A pack
+   claims its files and tests, loads its toolchain's view of them, builds the import graph
+   the now-neutral `arch` check runs over, carries its `core`-layer rules, delivers its base
+   configs, and contributes an init template and default gate stages. A repo lists its packs;
+   the core runs each.
+5. **Adopter rules through ast-grep, in every language.** A repo's own rules are ast-grep
+   rule files with their must-fail and must-pass cases; the engine keeps owning scope,
+   allowances, `shape-ignore` and ratchets. `localRules` is removed after the adopters' three
+   rules are ported. `refs` reads comments in every pack's languages (`sgy`).
+6. **A Rust pack and a Python pack.** Rust: cargo metadata, the crate graph as modules,
+   clippy, rustfmt, curated workspace lints. Python: uv, ruff, ty, pytest, the import graph
+   as modules, curated ruff and ty rules. Python is built on the frozen interface and doesn't
+   change it.
 
 **Acceptance on real data:**
-- **In each adopter** (the existing application and the new repo, both private; recorded as
-  counts and outcomes in the closing PR, never their content), on the release that ships
-  this milestone:
-  - a new track's first `bun run check` is green with no manual step, including after its
-    session restarts;
-  - a track opens a PR, is reviewed, and merges with no commit pushed between the review's
-    start and its findings; one `track pr` attempted mid-review is refused;
-  - each adopter's handoffs, at its next boundary, show no rule a track learned only from the
-    human or a review;
-  - the existing application's gate on its current `main`, with `allowedPackages` set, still
-    allows `effect`, and a new occurrence over its baseline is reported alone; its CI, with no
-    `bd`, runs the beads checks from the export.
-- **The maintainer's run:** a `track pr` whose body, title or added lines hold a denylisted
-  term is refused before anything is pushed, and so is a review through `review post`; `/track <name>` started in the main checkout works in that track and
-  receives its mail; `msg send --all` reaches every live track.
-- **Releases:** 0.4.1 as soon as goal 2's first PR merges, so adopters' running tracks get the
-  skill text; 0.5.0 at the end, its quick start working from npm.
 
-**Closing:** as milestone 3's: a P1 defect the acceptance finds is fixed before the milestone
-closes; a P2 limitation is deferred with a reason and the maintainer's yes.
+- **The Rust repo** (a Cargo workspace of several crates) and **the Python repo** (a uv
+  project), both private, are born with `mshape init` from the release that ships this
+  milestone: green on their first `./mshape gate`, with no `package.json`, `node_modules` or
+  Bun anywhere in them or needed on the machine. Each runs its first track through the loop
+  to a merged PR: session start loads the loop, mail arrives, `track pr` pushes, CI runs
+  `./mshape gate`. Recorded as counts and outcomes in the closing PR, never their content.
+- **The three adopters** (two existing applications and the repo born on 0.4.0) are
+  migrated by `mshape config migrate` and stay green on that release: the same check outcomes
+  as on 0.5.0 except what this milestone changes, each line of difference explained; their
+  ported ast-grep rules report what their `localRules` reported on the same commit.
+- **ty's coverage:** a corpus of real agent-written Python (from this milestone's tracks and
+  the Python repo's first track), each defect labelled, is run through the Python pack's gate;
+  the closing PR lists what ruff and ty catch, what they miss, and which miss became a rule.
+- **The interface held:** the Python pack's PRs change nothing in `src/packs/pack.ts`, or each
+  change is an amendment recorded below with the reason TypeScript and Rust missed it.
+- **This repo** runs `./mshape gate` in CI and through `track pr`, from source.
+
+**Release:** 0.6.0 at the end: the npm package and the binaries, published by the maintainer.
+The two new repos are born from it, so it ships before the acceptance runs; a P1 defect the
+acceptance finds is fixed in 0.6.x before the milestone closes, and a P2 limitation is
+deferred with a reason and the maintainer's yes.
 
 ## Non-goals
 
-- **A citation syntax into a frozen design document** (`refs.frozenDocs`): it would keep code
-  citing a long design by section, the decay principle 5 names. An adopter keeps the document
-  as history and burns its section citations down under the baseline. Settled in milestone 3.
-- **A check that a repo's old decision records are each superseded, promoted or binding:**
-  one consumer, and migration bookkeeping; an adopter rule can do it.
-- **Matching bead ids written without their prefix:** short ids collide with code vocabulary;
-  an adopter that cites them so writes an adopter rule for its own syntax (one exists).
-- **Locks on shared data** (`mshape lock`): one consumer; revisit when a second repo's tracks
-  write shared data at once.
-- **`mshape track adopt`** (existing parallel work into tracks): its one consumer has adopted;
-  revisit at the next adoption of an existing repo.
-- **Stacked PRs:** the local branch keeps one reviewed unit; stacks multiply review.
-- **Moving decisions next to their enforcement:** no failure seen of an agent undoing a
-  decision because its reason lived in another file; the back-link (goal 3) puts the slug in
-  the enforcing file. Revisit if agents undo decisions despite it.
-- **Capping review rounds:** the maintainer's call: not a problem worth a mechanism.
-- **Effect enforcement (`rrn`), `mshape validate` (`97o`), agents other than Claude Code:**
-  unchanged; no adopter's track hit them.
+- **Init for a repo of several languages, and dependencies between packs** (a Python
+  extension built from a crate): no consumer; no adopter has a second language beyond a few
+  files its declared commands already cover. The interface takes a list of packs and a test
+  composes two (goal 4), so the later work adds no new concept.
+- **Porting monkeyshape's own TypeScript rules to ast-grep:** they stay on oxc inside the
+  TypeScript pack (`D-own-rule-engine`); only adopter rules move.
+- **Harness adapters (`dlz`):** milestone 6. The hooks stay Claude Code's; only their command
+  changes. Nothing here may add a Claude Code-specific mechanism.
+- **Windows, and languages other than TypeScript, Rust and Python.**
+- **Keeping `shape.config.ts` working beside `shape.toml`:** one format; the migration is
+  a command and every known repo runs it this milestone.
+- **A package manager for the binary** (Homebrew, cargo install, pip): the bootstrap is the
+  one way; others wait for a consumer outside the maintainer.
+- **CI under a minute (`3q2`):** deferred by the maintainer.
+- **`validate` (`97o`), the agentic layer (`v56`), Effect (`rrn`), starter rules (`hh2`):**
+  later goals, each now cheaper on the neutral core; no consumer this milestone.
 
 ## Where we are
 
-| Area | Today |
-|---|---|
-| Pushing during review | invited by PRIME.md and the `track` skill; nothing refuses it |
-| Where `track pr` gates | the track's worktree, ignored and untracked files included |
-| PR size in the `track` skill | absent (PRIME.md only) |
-| Divergences | written in the track's own handoff; Amendments empty for all of milestone 3 |
-| Decisions | one adopter at budget (17, raised to fit); merit test only in `docs/workflow.md`; links one way |
-| Private names | AGENTS.md prose; one leak (#56's first revision) |
-| A new track's first gate | red until `bun install` (three tracks here, one per adopter) |
-| Starting `/track` | only from the track's worktree |
-| `allowedPackages: [...]` | drops `effect` |
-| Beads checks in CI | skipped with a note |
+| Area | Today | After |
+|---|---|---|
+| Config | `shape.config.ts`, a TS module; 3 adopters + this repo | `shape.toml` + shipped schema |
+| Adopter rules | 3 `localRules` functions in 2 adopters | ast-grep rule files |
+| The gate | `bun run check` in 8 loop files and CIs | `./mshape gate` from config |
+| Running `mshape` | `bun run --silent mshape` (`D-run-mshape`), `bun` in 16 lines of loop text | `./mshape`, a verified binary |
+| Checks that read code | 4 of 10 TypeScript-only, `refs` comments TS-only | each through the repo's packs |
+| Packs | none; TypeScript fused into the core | typescript, rust, python |
+| Release | npm tarball | npm + 3 binaries + `SHA256SUMS` |
 
-## What changed since milestone 3, and why
+## What changed since milestone 4, and why
 
-- Milestone 3 shipped (0.4.0): the outcome contract, checks on real layouts, adopter rules,
-  declared commands and the `files` check, adoption as written, addresses for `main` and
-  reviews. Its plan is in `notes/2026-11-07-milestone-3.md`, with the two divergences that
-  never reached Amendments recorded there.
-- The maintainer decided: divergences go to `msg send main`, and the session that wrote the
-  plan stays open to receive them; a handoff is its own track's; `docs/workflow.md` is for
-  humans, and what agents follow is in PRIME.md, the skills, file headers and check messages;
-  review round counts are not a problem to solve; decisions stay in `DECISIONS.md`, with a
-  merit test, a lifecycle and a back-link.
-
-## Phase 0: the milestone-3 boundary (before the tracks start)
-
-1. Remove milestone 3's five tracks (all `done yes`, no unread mail).
-2. File the epic and the beads below; take `alg`, `07u`, `2s3`, `737` and `zdw` into it.
+- Milestone 4 shipped as 0.5.0 (#90); its retrospective was held with the maintainer. Its
+  adopter acceptance (`4sa.21`) is closed as it stands, by the maintainer's call, and `3q2`
+  (CI time) is deferred.
+- The maintainer decided, 2026-11-18: the core and both packs are one milestone; the Rust and
+  Python repos are two separate projects, a Cargo workspace and a uv project; Python's type
+  checker is **ty**, over basedpyright and mypy: native, fast, and with no Node in the
+  toolchain, standardising on uv, ruff and ty; pinned, with its coverage measured against
+  real agent-written code (acceptance), because it is young. A repo of several languages
+  will be needed eventually: designed for here, built when a consumer comes.
+- ast-grep, a new runtime dependency approved in principle in milestone 4's roadmap, is
+  delivered by `mshape` itself (goal 3's interfaces).
 
 ## Interfaces the tracks share
 
-- **Ownership of files:**
-  - `skills`: `skills/` (all five) and their synced copies; `template/.beads/PRIME.md` and
-    this repo's copy; `template/DECISIONS.md`, `template/AGENTS.md`; `docs/workflow.md`,
-    README, AGENTS.md; `src/core/conventions.ts`.
-  - `prs`: `src/{core,adapters}/trackPr.ts`, `src/adapters/reviews.ts`, a new denylist module
-    and its `mshape scan` command, `.github/workflows/pr.yml` and the template's copy.
-  - `env`: `src/{core,adapters}/tracks.ts`, `src/{core,adapters}/mail.ts`,
-    `src/{core,adapters}/notices.ts`, `src/core/layout.ts`, `src/core/hooks.ts`,
-    `src/adapters/workspace.ts`, `template/bunfig.toml`.
-  - `checks`: `src/schemas/config.ts`, `src/core/{arch,refs,ratchet,beads,decisions,coverage}.ts`,
-    `src/adapters/{baseline,commands}.ts`, `test/integration/init.test.ts`, and any file not
-    listed here (others send it changes).
-  - Shared tables, additions only: `KINDS` in `src/core/check.ts`, the command table in
-    `src/cli/main.ts`, `test/core/ruleCases.test.ts`.
-  - Text one track needs in another's file goes as a message with the exact wording.
-- **The PR size (owner `skills`):** stays in `conventions.ts`; the `track` skill states it,
-  and a test holds the skill's numbers to `conventions.ts`.
-- **The denylist (owner `prs`, consumers `skills` and every adopter).** One term per line,
-  `#` comments, matched case-insensitively as a substring, in
-  `~/.config/monkeyshape/denylist` (per machine: the names span every repo there) and, if it
-  exists, `<git common dir>/monkeyshape/denylist` (per clone). Neither is ever in a repo.
-  `mshape scan <file>` exits 1 on a match, printing the line and column and the matched
-  term. `track pr` scans what no remote ref has yet (`git log -p <tip> --not --remotes`:
-  the lines and file paths those commits add, and their messages), and the PR title and body.
-  `mshape review post <n> <file>` scans a review and only then posts it; the `review-pr`
-  skill posts through it. Cases, which `prs` turns into its test first:
+### Ownership of files
 
-  | Case | Result |
-  |---|---|
-  | no denylist file anywhere | passes, with a note that none is configured |
-  | a term in the PR body | refuses before pushing; names line and column |
-  | a term only in a commit message being pushed | refuses before pushing; names the commit |
-  | a term on a line this push adds | refuses before pushing; names the file and line |
-  | a term in a file path this push adds | refuses before pushing; names the path |
-  | a term in the PR title | refuses before pushing |
-  | a term in a review passed to `review post` | refuses; nothing is posted |
-  | a term in a commit or a line already on the remote | not scanned: only what this push adds, so a newly listed term doesn't fail old content |
-  | the first push of a new track branch | scans the commits no remote ref has, which are the ones `main` doesn't |
-  | the branch has merged `main` since its last push | `main`'s commits are on the remote, so not scanned; the merge's own changes are |
-  | a term differing in case | matches |
-  | a blank line or a `#` comment in the list | ignored |
-  | both lists exist | both apply |
+Ownership says who to tell, not who may edit (milestone 4's ruling, `jbq`): a track whose
+change needs another's file edits it, says so in its PR body and sends the owner one line.
 
-- **A review in progress (owner `prs`, consumer `env`'s registry).** A PR's review is in
-  progress when a live session is registered at `review-<n>` and no review on the PR has the
-  PR's head as its `commit_id` (no clock: commit dates are the author's). `track pr` reads
-  the tip of `track/<name>`, not `HEAD`. Cases, `prs`' test:
+- **`config`:** `src/schemas/config.ts`, `src/adapters/config.ts`, the shipped schema
+  `schema/shape.schema.json`, `mshape config migrate`, `mshape gate`, `src/core/conventions.ts`,
+  `src/{core,adapters}/trackPr.ts`, `.github/workflows/` and the template's CI, and this
+  repo's `shape.toml`.
+- **`binary`:** `src/{core,adapters,cli}/release.ts`, the bootstrap (`template/mshape` and
+  this repo's `./mshape`), `src/core/hooks.ts`, `src/{core,adapters}/sync.ts`, a new
+  `src/adapters/tools.ts` (fetching ast-grep), `test/integration/invoke.test.ts`,
+  `D-run-mshape`; and the loop's text: `template/.beads/PRIME.md` and this repo's copy,
+  `skills/`, `template/AGENTS.md`, AGENTS.md, README, `docs/adopting.md`.
+- **`packs`:** `src/packs/pack.ts` (the interface), `src/packs/typescript/`,
+  `src/core/{check,arch,sources,coverage,refs,parse,scope}.ts`, `src/core/rules/`,
+  `src/adapters/workspace.ts`, `src/{core,adapters}/init.ts` and `src/core/scaffold.ts`,
+  `template/` outside `template/packs/{rust,python}`, `docs/local-rules.md`, and any file not
+  listed here.
+- **`rust`:** `src/packs/rust/`, `template/packs/rust/`, `config/rust/`, `test/packs/rust/`.
+- **`python`:** `src/packs/python/`, `template/packs/python/`, `config/python/`,
+  `test/packs/python/` with the ty corpus.
+- **Shared tables, additions only:** `KINDS` in `src/core/check.ts`, the command table in
+  `src/cli/main.ts`, `test/core/ruleCases.test.ts`, the pack registry `src/packs/index.ts`.
 
-  | Case | `track pr` |
-  |---|---|
-  | no session at `review-<n>` | pushes |
-  | a live reviewer, no review on the current head | refuses, naming the session |
-  | a live reviewer, a review on the current head (findings to answer) | pushes |
-  | the reviewer's session ended without posting | pushes, with a note |
-  | the reviewer runs on another machine (not in this registry) | pushes; nothing here can see it, and the note says so |
-  | `HEAD` on another branch with the next bead's commits | gates and pushes `track/<name>`'s tip; the other branch's commits stay local |
-  | `track/<name>` checked out with commits the PR doesn't have yet | gates and pushes them (they answer the review) |
-  | `--body-only`, the tip unchanged since the last gate | edits the body, no push, no gate |
-  | `--body-only`, the tip moved | refuses: the Gate section would be false |
-  | the branch is behind `main`, or conflicts with it | pushes, with a warning naming which |
+### `shape.toml` (owner `config`; every track consumes it)
 
-- **Moving a session to a track (owner `env`, consumer `skills`' `track` skill).**
-  `mshape track enter <name>` moves the calling session's registration to `<name>` and prints
-  the worktree path; the skill then works there. Cases, `env`'s test, extending milestone 3's
-  address table:
+One file at the repo root. Keys mirror today's `ShapeConfig` (`sources`, `arch`, `rules`,
+`refs`, `budgets`, `files`, `coverage`, `tracks`, `beads`, `checks`, `layers`), plus:
 
-  | Case | Result |
-  |---|---|
-  | a session at `main` runs `track enter <name>` | moves to `<name>`; any other session at `main` is untouched |
-  | a session at `<a>` runs `track enter <b>` | moves to `<b>`; `<a>`'s unread mail stays at `<a>` |
-  | `track enter` a track that doesn't exist | refuses, listing the tracks |
-  | `track enter` with no session identity | refuses with a note: nothing to move |
-  | a session started in the worktree | registered at `<name>` as today; `track enter` is a no-op |
-  | `track rm <name>` with a moved session live | refuses, naming it (the session counts as in the track) |
-  | `/clear` or a restart of a moved session | registers by its directory again, until `track enter` reruns |
+```toml
+packs = ["rust"]                       # one or more, in the order their stages run
 
-- **The hooks' `bun` (owner `env`).** A hook command finds `bun` when it runs
-  (`command -v bun`, then `$HOME/.bun/bin/bun`), so `.claude/settings.json` stays the same on
-  every machine. Cases, `env`'s test:
+[mshape]
+version = "0.6.0"
+sums = "<sha256 of the release's SHA256SUMS>"
+# dev = ["bun", "src/cli/main.ts"]     # this repo only: run from source
 
-  | Case | Result |
-  |---|---|
-  | `bun` on the session's PATH | runs it |
-  | `bun` missing from PATH, in `~/.bun/bin` | runs that one |
-  | `bun` in neither place | a note naming both places, exit 0 (the hooks never fail a session) |
-  | another machine, `bun` installed elsewhere and on its PATH | runs it; the committed settings didn't change |
+[gate]                                 # the repo's stages, after its packs' defaults
+stages = [{ name = "native", run = ["make", "-C", "native", "check"], fast = false }]
 
-- **The decision back-link (owner `checks`).** For each decision, each path its `Enforced by`
-  names must contain the decision's slug (`D-<slug>`). Cases, `checks`' test:
+[arch.modules.core]                    # each module belongs to exactly one pack
+pack = "rust"                          # optional when the repo has one pack
+paths = ["crates/core"]
+may-import = ["schemas"]
+```
 
-  | Case | Result |
-  |---|---|
-  | a file that cites the slug | passes |
-  | a file that doesn't | fails, naming the decision and the file |
-  | a directory | passes when any file under it cites the slug |
-  | a path followed by a parenthetical note | the note is ignored; the path is checked |
-  | `policy` (no enforcement) | nothing to link; as today's `decision-unenforced` |
-  | a named path that doesn't exist | fails, as a missing path |
-  | one file enforcing two decisions | must cite both slugs |
+`localRules` is gone; adopter rules are files (below). Each pack owns one table,
+`[typescript]`, `[rust]` or `[python]`, for what only it reads; the schema says which. Keys
+are kebab-case; `config` publishes the schema with the release so editors validate it.
+`config` lands the loader and the schema first; other tracks add their keys to it.
 
-- **Beads from the export (owner `checks`).** A source is chosen and named in the outcome
-  line. Cases, `checks`' test:
+| Case | Result |
+|---|---|
+| `shape.toml` only | read; a value the schema rejects fails with its key path and the schema's reason |
+| `shape.config.ts` only | fails: "run `./mshape config migrate`" (0.6.0 reads no TS config) |
+| both | fails, naming both: one config |
+| neither | as today's missing config: `init` makes one |
+| an unknown key | fails, naming it (a typo must not pass silently) |
+| `packs` missing | fails, listing the packs whose files the repo has |
+| a pack listed with no file of its own | passes; its checks report not-applicable |
+| a module with no `pack` in a two-pack repo | fails, naming the module |
 
-  | Case | Source | Outcome |
-  |---|---|---|
-  | `bd` and a database | the database | as today |
-  | no `bd`, `.beads/issues.jsonl` committed | the export | as the check finds, its line saying "from the export" |
-  | no `bd`, no export | none | `unavailable`, as today (note unless `beads: required`) |
-  | `bd` present, no database, an export | the export | as above, with bootstrap's note |
-  | an export that doesn't decode | none | `failed`, naming the file |
+### `mshape config migrate` (owner `config`; consumers every adopter and this repo)
 
-- **Baseline over its count (owner `checks`).** Cases, its test:
+Runs under 0.6.0's npm package in a TypeScript repo (it must import the old config) and
+writes `shape.toml` beside it, with `packs = ["typescript"]` and the current pin, then
+deletes `shape.config.ts`. It changes nothing else.
 
-  | Case | Reported |
-  |---|---|
-  | one occurrence added on lines this branch changed | that one |
-  | the count rose, none on changed lines (moved code) | every occurrence, with a note that none is new by line |
-  | the count fell | nothing; `baseline --tighten` suggested as today |
-  | no merge base (a fresh repo) | every occurrence |
+| Case | Result |
+|---|---|
+| a config of plain values | `shape.toml` written; `./mshape check` gives the same outcomes |
+| `localRules` set, rules not yet ported | refuses, naming each rule and `docs/local-rules.md` |
+| `localRules` set, each id present under `shape-rules/` | writes the config without them |
+| values computed in code (a spread, an imported constant) | written as their resolved values, with a note per key |
+| an allowance's reason | kept verbatim |
+| `shape.toml` already present | refuses: already migrated |
+| run twice after success | refuses, as above |
+
+### `mshape gate` (owner `config`; consumers `binary`'s text, `track pr`, CI, every pack)
+
+A stage is `{ name, run: argv, fast }`. The gate is: the stages of each pack in `packs`
+order, `mshape check` (always, fast, between the packs' fast and full stages), then
+`[gate].stages`. `--fast` runs the fast ones; `track pr` runs `--fast`, CI runs all. Each
+stage's outcome is one line, as `mshape check`'s are; the first failure doesn't stop the rest.
+
+| Pack | Fast | Full |
+|---|---|---|
+| typescript | `tsc --noEmit`, `biome check` | `bun test` |
+| rust | `cargo fmt --check`, `cargo clippy --workspace --all-targets -- -D warnings` | `cargo test --workspace` |
+| python | `uv run ruff format --check`, `uv run ruff check`, `uv run ty check` | `uv run pytest` |
+
+| Case | Result |
+|---|---|
+| every stage passes | exit 0 |
+| a fast stage fails | the rest still run; exit 1; the failing stage's output kept in full in a log |
+| `--fast` | full stages are listed as skipped, not run |
+| a stage's program not on PATH | that stage fails, naming the program and its pack |
+| a repo stage named like a pack stage | fails at config load: names are unique |
+| two packs | each pack's stages in `packs` order, then `mshape check` once |
+| a repo whose CI doesn't run the gate | `track pr` runs it whole, as today |
+
+### The binary and the bootstrap (owner `binary`; consumers every track, every repo)
+
+`./mshape` is a committed POSIX sh script, the same in every repo and kept equal by the
+`sync` check. It reads `[mshape]` from `shape.toml`, finds or fetches
+`${XDG_CACHE_HOME:-$HOME/.cache}/monkeyshape/<version>/mshape-<os>-<arch>` from the release,
+verifies `SHA256SUMS` against `sums` and the binary against `SHA256SUMS` (curl or wget;
+sha256sum or shasum), and execs it with its arguments. ast-grep is pinned inside `mshape`
+(version and per-platform hashes compiled in) and fetched into the same cache on first use,
+verified; `shape.toml` pins only `mshape`. Cases, `binary`'s test:
+
+| Case | Result |
+|---|---|
+| cached and verified | runs it, no network |
+| not cached, online | fetches, verifies, caches, runs |
+| not cached, offline | exit 1 with a note naming the URL; a hook prints it and exits 0 |
+| a hash mismatch | refuses, deletes the download, names the file and both hashes; never runs it |
+| `dev` set (this repo) | runs `dev`'s argv, no fetch |
+| an unsupported platform | refuses, naming it and the three supported |
+| neither curl nor wget, or no sha tool | refuses, naming what's missing |
+| `shape.toml` missing or without `[mshape]` | refuses: "run from a repo with `shape.toml`" |
+| a track worktree | the committed `./mshape` there; the cache is per machine |
+| a TS repo whose npm `monkeyshape` differs from the pin | the `sync` check fails, naming both versions |
+| ast-grep not cached, offline | rules that need it are `unavailable`, required (they are adopter rules) |
+
+`D-run-mshape` is rewritten by the PR that switches the hooks, not before.
+
+### The pack interface (owner `packs`; consumers `rust`, `python`)
+
+`src/packs/pack.ts`, drafted by `packs` from the TypeScript refactor and reviewed by `rust`
+before either pack builds on it. A pack is a value with a pure part (core) and a loader
+(adapters, `D-pure-checks`):
+
+- `id`, and what it **claims**: its source globs, how it tells a test, its comment syntax
+  (for `refs` and `shape-ignore`).
+- **load**: runs its toolchain and returns its part of the `Snapshot`: which files its tools
+  cover (as tsc's and biome's lists do today), and an **import graph** over its files, mapped
+  to the module map's modules. `arch` runs over the graph, whatever the language.
+- **rules**: its `core`-layer rules (oxc for TypeScript; ast-grep rules or tool lints for
+  the others), reported through the one engine.
+- **base configs**: each with its delivery, `extends` (TypeScript's tsconfig and biome) or
+  `copy` (synced in, the `sync` check keeping it equal).
+- **template**: `template/packs/<id>/`, laid over `template/common/` by `init --pack <id>`.
+- **gate**: its stages (above), and its **prerequisites**, required or optional.
+
+| Case | Result |
+|---|---|
+| a file one listed pack claims | that pack's checks see it |
+| a file two listed packs claim | config fails, naming the file and both packs |
+| a file no listed pack claims | checked only by the neutral checks (budgets, files, refs over docs) |
+| a claimed language file of a pack not listed | `sources` reports it, naming the pack to list |
+| an import between modules of different packs | not an edge: graphs are per pack |
+| a required prerequisite missing | as today's tsc and biome: the check fails |
+| two packs listed (the core test's TypeScript + Python fixture) | both run; findings merge; nothing assumes one |
+
+**Freeze.** When the TypeScript refactor has merged and the Rust pack's first PR builds on
+the interface, `packs` sends `main` the frozen `pack.ts`; `main` records it here as an
+amendment, and `python` starts. After that, a change is a divergence, recorded with why.
+
+### Adopter rules through ast-grep (owner `packs`; consumers every pack and adopter)
+
+A repo's own rules are files `shape-rules/<id>.yml`: an ast-grep rule (`id`, `language`,
+`rule`, `message`) plus monkeyshape's `metadata.bugClass`, and its cases in
+`shape-rules/<id>.test.yml` (ast-grep's `valid`/`invalid`, at least one each). `mshape`
+runs `ast-grep scan --json` and turns each match into an offset; the engine applies scope,
+allowances, `shape-ignore` (in the file's comment syntax) and baselines as for every rule.
+Rules report as `local/<id>`, as today.
+
+| Case | Result |
+|---|---|
+| a match outside an allowance | `local/<id>` at its line, with the rule's message |
+| a match under `shape-ignore local/<id>: reason` | suppressed; an unused one is reported, as today |
+| a rule with no cases, or no `invalid` case | `local-rule` fails, naming the file |
+| a case that doesn't behave as labelled | `local-rule` fails, naming the case |
+| a rule YAML ast-grep rejects | `local-rule` fails with ast-grep's message |
+| an id that collides with a core rule | fails, naming both |
+| no `shape-rules/` | nothing to run; ast-grep isn't fetched |
+
+### Copied base configs (owner `packs` for the mechanism, `rust` and `python` for content)
+
+A `copy` base config lives at `.mshape/<file>` (for example `.mshape/ruff.toml`), written by
+`mshape sync` and held equal by the `sync` check; the repo's own config points at it
+(`extend = ".mshape/ruff.toml"`). Where a tool can't point at another file (Cargo's
+`[workspace.lints]`), the pack says what it does and its case joins this table.
+
+| Case | Result |
+|---|---|
+| the copy equals what the release ships | passes |
+| edited by hand | `sync` fails, naming the file; the repo overrides in its own config instead |
+| missing | `sync` fails: run `./mshape sync` |
+| the repo's config doesn't point at it | the pack's check fails, naming the key to add |
 
 ## Tracks
 
 | Track | Serves | Charter | Acceptance |
 |---|---|---|---|
-| `skills` | goals 2, 3 | First PR (P1, released as 0.4.1): the `track` skill's PR size and exceptions, one PR with a local branch, salient messages, the handoff as the track's own, divergences to `main`, starting with the gate and `mshape rules`; PRIME.md without "joins it" and with a safe `bd sync` line; the `milestone` skill's open session and amendments from mail; `docs/workflow.md`'s audience line. Then: AGENTS.md's private-names note once the denylist lands (`prs` sends the wording); `review-pr`'s real-data probes and its Fit on decisions; the `DECISIONS.md` merit test and lifecycle; memories promoted or deleted at the boundary; the size test | In each adopter, the next boundary's handoffs show no rule learned only from the human or a review; 0.4.1 ships the first PR |
-| `prs` | goals 1, 4 | The denylist, `mshape scan` and `mshape review post` (P1); `track pr` pushes the `track/<name>` tip and refuses during a review in progress (P1); the gate on a clean checkout of that tip, with failing tests and a kept log (P1); `--wait`, `--body-only`, the behind or conflicting warning (P2) | The maintainer's denylist run, including a review refused by `review post`; one mid-review `track pr` refused in an adopter; a PR merged there with no push mid-review |
-| `env` | goals 5, 6 | `track new` installs; tools found up to the main checkout; hooks that find `bun` when they run; `bunfig.toml` in the template (P1); `track enter`, `msg send --all`, `--body-file`; `track list`'s advice for an open bead (sent to `checks` as the wording it needs); a per-track temp directory (P2) | A new track's first gate green, after a restart too, in each adopter; the maintainer's `/track` from main and broadcast |
-| `checks` | goals 3, 7 | `allowedPackages` adds to `effect` (P1); the decision back-link check; `refs/*` per rule; the new occurrence over a baseline; beads from the export; declared commands receive their files; a module-map home for local rules; the `beads` check and `track list` agreeing on a deferred bead; `alg`, `07u`, `2s3`, `737` (P2) | The existing application's `main`: `effect` allowed with the list set, a new occurrence reported alone, CI's beads checks from the export |
+| `config` | goals 1, 2 | The `shape.toml` loader and shipped schema (first: others build on it); `config migrate` and its table; `mshape gate` and its table; `track pr` and CI on `--fast` and the full gate; the PR template's Gate wording; this repo migrated | The three adopters migrated by the command with the same outcomes; this repo's CI on `./mshape gate` |
+| `binary` | goal 3 | The compiled binaries and `SHA256SUMS` in `bun run release`; the bootstrap and its table; ast-grep pinned and fetched; hooks and every loop text on `./mshape` (`D-run-mshape` rewritten); `sync` replacing changed hooks (`iwf`) | A machine with no Bun runs a born repo's hooks and gate through `./mshape`; a tampered download is refused |
+| `packs` | goals 4, 5 | The interface, drafted with `rust` and frozen; TypeScript refactored into the first pack with no change in outcomes on this repo and the adopters; `arch` over a neutral graph; `refs` over every pack's comments (`sgy`); the ast-grep adopter rules and the three adopters' ports; `init --pack`; the two-pack test | This repo and the adopters: same outcomes as 0.5.0; each ported rule reports what its function did |
+| `rust` | goal 6 | The Rust pack: cargo metadata for sources and the crate graph, clippy and rustfmt, curated workspace lints and their delivery, the template (a Cargo workspace), its gate stages. Starts at once on a draft interface, and reviews it | The Rust repo born green and through its first track |
+| `python` | goal 6 | The Python pack: uv, ruff, ty (pinned), pytest, the import graph, curated ruff and ty rules, the template (a uv project), its stages; the ty corpus. Starts at the freeze | The Python repo born green and through its first track; ty's coverage reported; the interface unchanged |
 
-**Order:** `skills`' first PR goes first and is released as 0.4.1; nothing waits on it.
-`prs` lands the denylist before the in-progress refusal. `env` lands `track enter` before
-`skills` writes the `track` skill's step for it (by message). Nothing else waits.
+**Beads** (epic `monkeyshape-8il`; the roadmap's `070` and `gbx` close with it):
+`config`: `8il.1` shape.toml, `8il.2` migrate, `8il.3` gate. `binary`: `8il.4` binaries,
+`8il.5` bootstrap, `8il.6` ast-grep, `8il.7` hooks and text, `iwf`. `packs`: `8il.8` the
+interface, `8il.9` the TypeScript pack, `8il.10` ast-grep rules, `8il.11` the ports,
+`8il.12` `init --pack`, `8il.13` two packs, `sgy`. `rust`: `8il.14`, `8il.15`. `python`:
+`8il.16`, `8il.17`, `8il.18`. The acceptance and 0.6.0: `8il.19`.
 
-## Proposed beads (filed after approval)
-
-- **skills:** the `track` skill's rules and PRIME.md (P1, first PR); the `milestone` skill's
-  open session; `review-pr`'s probes and decision Fit; the `DECISIONS.md` header; memories at
-  the boundary; the PR-size test; `docs/workflow.md`'s audience line.
-- **prs:** the denylist, `scan` and `review post` (P1); pushing the branch tip and the
-  in-progress refusal (P1); the clean-checkout gate and
-  its log (P1); `--wait`; `--body-only`; the behind or conflicting warning.
-- **env:** install in `track new`, tool resolution, hooks that find `bun`, `bunfig.toml`
-  (P1); `track enter` (`zdw`); `msg send --all` and `--body-file`; the open-bead advice; the
-  temp directory.
-- **checks:** `allowedPackages` (P1); the back-link check; `refs/*` per rule; new occurrence;
-  beads from the export; commands receive files; local rules' home; deferred-bead agreement;
-  `alg`, `07u`, `2s3`, `737`.
-- **milestone:** the acceptance run, 0.4.1 and 0.5.0.
+**Order:** `config`'s loader first; `packs` and `rust` draft the interface together (by
+message), `packs` freezes it, then `python` starts. `binary` needs nothing until its hooks
+PR, which waits for `mshape gate`. The release waits for all five; the births wait for it.
 
 ## Decision points
 
-- **The denylist's place:** per machine (`~/.config`), with an optional per-clone list. If an
-  adopter needs a list shared by its contributors, that is a private file in a private place,
-  and the maintainer's call.
-- **`track enter` and the agent's directory:** the agent's working directory is set by its
-  launch; if Claude Code won't let a skill work reliably in another checkout, `env` reports
-  before building on it, and the maintainer decides.
-- **The decisions budget:** raising an adopter's is the maintainer's; the header says so.
+- **The interface freeze:** above. If `rust` and `packs` disagree on a shape, `main` decides
+  if it touches no goal; the maintainer otherwise.
+- **ty's gaps:** if the corpus shows a class of defect neither ruff nor ty catches and no
+  ast-grep rule can, the maintainer decides between living with it and a second checker.
+- **Cargo's lints:** Cargo has no `extends`; whether `sync` owns the `[workspace.lints]`
+  table in the root `Cargo.toml` or the template ships it once and a check compares it is
+  `rust`'s call, reported in its PR.
+- **Publishing 0.6.0** (npm and GitHub release assets) is the maintainer's.
 
 ## Deferred, with reasons
 
-- Frozen-document citations, an old-decisions log, prefix-less bead ids, `mshape lock`,
-  `track adopt`, stacked PRs, decisions next to their enforcement: see Non-goals.
-- `725` (decode-strict across files) and `ede` (`dep bump`'s no-op exit): deferred at
-  milestone 3's close with the maintainer's yes; unchanged.
-- `rrn` (Effect), `97o` (`validate`), `v56` (agentic layer), `hh2`, `8h4`, `nm9`: no adopter's
-  track hit them.
+- Several-language init, dependencies between packs, Windows, other languages, package
+  managers for the binary, `dlz`, `97o`, `v56`, `rrn`, `hh2`: see Non-goals.
+- `3q2` (CI under a minute): the maintainer's call, 2026-11-18.
+- `3a5` (a command for the amendments PR), `4sa.14` (per-track temp directory), `4sa.22`
+  (a bun test root for shared paths), `5iq` (pulled beads by hook), `725`, `ede`: no track
+  of this milestone needs them.
 
 ## Spend
 
-None: no model calls in this milestone's code.
+None beyond ordinary sessions: no paid runs in this milestone's code. The ty corpus is code
+already written by agents, not generated for it.
 
 ## Amendments
 
-- **2026-11-10, `bunfig.toml` ships as `template/bunfig` (#74), approved by the planning
-  session.** `bun pm pack` drops a `bunfig.toml` from the package, so the template stores it as
-  `template/bunfig` and `init` renames it, as it does `gitignore`. `env` owns `template/bunfig`
-  and the `bunfig` entry it adds to `RENAMED` in `src/core/scaffold.ts`; the rest of that file
-  stays `checks'`.
-- **2026-11-10, file ownership is who to tell, not a lock (#75, `jbq`), the maintainer's
-  ruling.** A track may edit a file another track owns when its change needs it (for example
-  in lockstep with code a test holds it to). It says so in its PR body and sends the owning
-  track one line naming the file and why; merge conflicts are settled as they come. This
-  replaces Interfaces' "Text one track needs in another's file goes as a message with the
-  exact wording", and the ownership lists above name who to tell.
-- **2026-11-10, the beads export doesn't satisfy `beads: "required"` (`checks`), approved by
-  the planning session.** In the beads-source table, a repo that requires beads needs the
-  database: with no `bd` or no database, it fails even when an export is committed. The
-  export serves only `optional`.
-- **2026-11-12, 0.4.1 tagged, not published (#76), the maintainer's call.** `v0.4.1` is tagged
-  and pushed, but never published; adopters get this milestone's changes in 0.5.0 at the end.
-  Acceptance's "0.4.1 as soon as goal 2's first PR merges" is replaced by 0.5.0.
-- **2026-11-17, reviewer addresses are `review-<track>` (`4sa.24`, #85), the maintainer's
-  decision.** A reviewer reviews one track's PRs in turn, and `review-<n>` changed with every
-  PR, so between reviews reviewers fell back to `main` (four sat there). `mshape review <n>`
-  registers the session at `review-<track>`, derived from the PR's `track/<name>` branch, and
-  holds it across that track's PRs; only a PR from no track uses `review-<n>`. The review-in-
-  progress table reads `review-<track>` wherever it says `review-<n>`.
-- **2026-11-17, `track pr` runs the gate's fast stages; the tests run in CI (`cnw`, #89), the
-  maintainer's decision.** Every push ran the gate twice (about 2 minutes blocking locally,
-  then CI). `track pr` now runs typecheck, biome and `mshape check` on a clean checkout of the
-  branch tip, pushes, and the Gate section reports CI's result for that commit; a repo whose
-  CI doesn't run the gate on every PR keeps the full local gate. Goal 1's "the gate runs on a
-  clean checkout of the tip" holds for those stages.
+None yet.
