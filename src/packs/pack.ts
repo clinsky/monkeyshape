@@ -209,6 +209,11 @@ export type BaseConfig =
       readonly tables: ReadonlyArray<string>;
       /** The tables' content, from the shipped config and the repo's own overrides. */
       readonly content: (config: ResolvedConfig) => string;
+      /**
+       * Where in shape.toml a change to one owned table goes, as a table path
+       * (`rust.lints.clippy` for `workspace.lints.clippy`), for the sync check's message.
+       */
+      readonly override?: (table: string) => string | undefined;
     };
 
 /** Where a repo's config must point at a base config: `extend` in `ruff.toml`. */

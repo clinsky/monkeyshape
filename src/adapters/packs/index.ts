@@ -2,9 +2,11 @@
 import type { PackLoader } from "../../packs/pack.ts";
 import type { PackId } from "../../schemas/config.ts";
 import { loadPython } from "./python.ts";
+import { loadRust } from "./rust.ts";
 import { loadTypescript } from "./typescript.ts";
 
 export const LOADERS: Readonly<Partial<Record<PackId, PackLoader>>> = {
   typescript: loadTypescript,
+  rust: loadRust,
   python: loadPython,
 };

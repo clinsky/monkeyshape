@@ -104,7 +104,11 @@ describe.skipIf(host === undefined)("the compiled mshape, with no Bun", () => {
 
   test("with no Bun on the PATH or in ~/.bun, a TypeScript repo's tools fail, naming both", () => {
     const checked = run(ROOT, ["check", "--only", "coverage"]);
-    expect(checked.out).toContain("bun is not on PATH or at ~/.bun/bin/bun");
+    expect(checked.out).toContain(
+      "coverage needs tsc, but bun is not on PATH or at ~/.bun/bin/bun. Install Bun (https://bun.sh)",
+    );
+    // Installing typescript wouldn't help: Bun is what's missing.
+    expect(checked.out).not.toContain("bun add -d");
     expect(checked.code).not.toBe(0);
   });
 

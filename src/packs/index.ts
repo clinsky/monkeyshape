@@ -2,6 +2,7 @@
 import type { PackId } from "../schemas/config.ts";
 import type { Pack } from "./pack.ts";
 import { python } from "./python/index.ts";
+import { rust } from "./rust/index.ts";
 import { typescript } from "./typescript/index.ts";
 
-export const PACKS: Readonly<Partial<Record<PackId, Pack>>> = { typescript, python };
+export const PACKS: Readonly<Partial<Record<PackId, Pack>>> = { typescript, rust, python };

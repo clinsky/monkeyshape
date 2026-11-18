@@ -186,10 +186,20 @@ export const ForbiddenPattern = Schema.Struct({
 /** argv, not a shell line: `["make", "-C", "native", "check"]`. */
 const Argv = Schema.Array(Schema.String).check(Schema.isMinLength(1));
 
+/** The gate's `mshape check` stage: always part of the gate, so no repo stage may take its name. */
+export const CHECK_STAGE = "mshape-check";
+
 /** One step of `mshape gate`: a pack's default, or the repo's own in `[gate].stages`. */
 export const GateStage = Schema.Struct({
-  /** A repo stage with a pack stage's name replaces it. */
-  name: Schema.String.check(Schema.isMinLength(1)),
+  /**
+   * A repo stage with a pack stage's name replaces it. Lowercase words joined by hyphens: it
+   * names the stage's log file, so no `/` or `..`.
+   */
+  name: Schema.String.check(
+    Schema.isPattern(/^[a-z0-9]+(?:-[a-z0-9]+)*$/u, {
+      message: "must be lowercase words joined by hyphens, such as `native-check`",
+    }),
+  ),
   run: Argv,
   /** Runs in the fast phase, the one `--fast` and `track pr` run. */
   fast: Schema.optionalKey(Schema.Boolean),
@@ -207,6 +217,31 @@ const MshapePin = Schema.Struct({
   dev: Schema.optionalKey(Argv),
 });
 
+const LintLevel = Schema.Literals(["allow", "warn", "deny", "forbid"]);
+
+/** One lint as Cargo's `[lints]` tables write it: a level, or a level with a priority. */
+const LintSetting = Schema.Union([
+  LintLevel,
+  Schema.Struct({ level: LintLevel, priority: Schema.Int }),
+]);
+
+/** Lints by name, as Cargo writes them (`dbg_macro`): Cargo's keys, not monkeyshape's. */
+const LintTable = Schema.Record(Schema.String, LintSetting);
+
+/** What only the Rust pack reads. */
+const RustTable = Schema.Struct({
+  /**
+   * Laid over the curated workspace lints, lint by lint, in the `[workspace.lints.*]` tables
+   * `mshape sync` writes into the root `Cargo.toml`.
+   */
+  lints: Schema.optionalKey(
+    Schema.Struct({
+      rust: Schema.optionalKey(LintTable),
+      clippy: Schema.optionalKey(LintTable),
+    }),
+  ),
+});
+
 /** What only the Python pack reads. */
 const PythonTable = Schema.Struct({
   /**
@@ -222,6 +257,7 @@ const configFields = {
   /** The packs, in the order their gate stages run. */
   packs: Schema.optionalKey(Schema.Array(Pack).check(Schema.isMinLength(1))),
   mshape: Schema.optionalKey(MshapePin),
+  rust: Schema.optionalKey(RustTable),
   python: Schema.optionalKey(PythonTable),
   /** The repo's own gate stages, after its packs' defaults. */
   gate: Schema.optionalKey(Schema.Struct({ stages: Schema.optionalKey(Schema.Array(GateStage)) })),
@@ -380,6 +416,10 @@ export const configProblems = (config: ShapeConfig): ReadonlyArray<string> => {
       );
   }
   const stages = (config.gate?.stages ?? []).map((stage) => stage.name);
+  if (stages.includes(CHECK_STAGE))
+    problems.push(
+      `gate.stages: \`${CHECK_STAGE}\` is the gate's own \`mshape check\`, which always runs and can't be replaced; give the stage another name`,
+    );
   for (const name of new Set(stages.filter((one, i) => stages.indexOf(one) !== i)))
     problems.push(
       `gate.stages: two stages are named \`${name}\`; give each its own name (one with a pack stage's name replaces that stage)`,
@@ -417,6 +457,8 @@ export interface ResolvedConfig {
   readonly mshape:
     | { readonly version: string; readonly sums?: string; readonly dev?: ReadonlyArray<string> }
     | undefined;
+  /** The `[rust]` table, as written; only the Rust pack reads it. */
+  readonly rust: typeof RustTable.Type | undefined;
   /** The `[python]` table, as written; only the Python pack reads it. */
   readonly python: typeof PythonTable.Type | undefined;
   readonly gate: { readonly stages: ReadonlyArray<GateStage> };
@@ -524,6 +566,7 @@ export const resolveConfig = (
   configFile: file,
   packs: config.packs ?? ["typescript"],
   mshape: config.mshape,
+  rust: config.rust,
   python: config.python,
   gate: { stages: config.gate?.stages ?? [] },
   configModules: modules,

@@ -38,7 +38,8 @@ describe("scaffold", () => {
       monkeyshape: "0.2.0",
       typescript: "7.0.2",
     });
-    expect(manifest.scripts.check).toContain("bun test --pass-with-no-tests");
+    // The typescript pack's test stage passes with no tests: test/core/gate.test.ts.
+    expect(manifest.scripts.check).toBe("mshape gate");
   });
 
   test("tsconfig and biome cover shape.config.ts, so coverage holds from the first commit", () => {

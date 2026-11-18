@@ -3,11 +3,15 @@ import { mkdir, readdir, stat } from "node:fs/promises";
 import { dirname } from "node:path";
 import * as Effect from "effect/Effect";
 import { PR_TEMPLATE_FILE, PRIME_FILE } from "../core/conventions.ts";
+import { type Delivery, deliveries, shippedFiles } from "../core/delivery.ts";
 import { SETTINGS_FILE } from "../core/hooks.ts";
 import { SKILLS_DIR, SKILLS_MANIFEST } from "../core/layout.ts";
 import { ownedFiles, parseManifest } from "../core/skills.ts";
 import { isPrTemplate, planSync, SYNCED_FILES, type SyncPlan } from "../core/sync.ts";
+import { PACKS } from "../packs/index.ts";
 import { WorkspaceError } from "../schemas/errors.ts";
+import { loadConfig } from "./config.ts";
+import { readPresent } from "./disk.ts";
 import { installSkills } from "./skills.ts";
 
 const text = (path: string): Promise<string | undefined> =>
@@ -42,12 +46,25 @@ const otherTemplates = async (repo: string): Promise<ReadonlyArray<string>> => {
   return out.sort();
 };
 
+/** Each delivered config with its file's text now, read one by one: a pack has a few. */
+const currentTexts = async (repo: string, delivered: ReadonlyArray<Delivery>) => {
+  const out: Array<{ delivery: Delivery; current: string | undefined }> = [];
+  for (const delivery of delivered)
+    out.push({ delivery, current: await text(`${repo}/${delivery.file}`) });
+  return out;
+};
+
 /**
  * Brings `repo`'s synced files up to the package at `packageRoot`, taking over the adopter's
  * own files in `replace`. Run it before the skills' install, which records `plan.owned`: an
  * unreadable manifest stops both before anything is written.
  */
-export const syncRepo = (repo: string, packageRoot: string, replace: ReadonlyArray<string> = []) =>
+export const syncRepo = (
+  repo: string,
+  packageRoot: string,
+  replace: ReadonlyArray<string> = [],
+  delivered: ReadonlyArray<Delivery> = [],
+) =>
   Effect.tryPromise({
     try: async (): Promise<SyncPlan> => {
       const shipped = await text(`${packageRoot}/template/${PRIME_FILE}`);
@@ -72,6 +89,7 @@ export const syncRepo = (repo: string, packageRoot: string, replace: ReadonlyArr
           owned: ownedFiles(manifest),
           replace,
           otherTemplates: await otherTemplates(repo),
+          deliveries: await currentTexts(repo, delivered),
         },
         shipped,
       );
@@ -97,6 +115,23 @@ export interface SyncReplace {
 }
 
 /** `mshape sync`: the files and hooks, then the skills and the manifest recording both. */
+/**
+ * The repo's listed packs' `copy` and `table` configs, from its config. A repo whose config
+ * doesn't load has none to deliver: sync still brings the loop's files up to date, and
+ * `mshape check` reports the config.
+ */
+export const packDeliveries = (repo: string, packageRoot: string) =>
+  Effect.gen(function* () {
+    const config = yield* Effect.option(loadConfig(repo));
+    if (config._tag === "None") return [];
+    const packs = config.value.packs.flatMap((id) => {
+      const pack = PACKS[id];
+      return pack === undefined ? [] : [pack];
+    });
+    const shipped = yield* readPresent(packageRoot, shippedFiles(packs));
+    return deliveries(config.value, packs, shipped);
+  });
+
 export const syncAll = (
   repo: string,
   packageRoot: string,
@@ -117,7 +152,12 @@ export const syncAll = (
           reason: `monkeyshape ships no skill of that name, so there is nothing to replace it with. It ships ${[...names].sort().join(", ")}`,
         }),
       );
-    const plan = yield* syncRepo(repo, packageRoot, replace.files);
+    const plan = yield* syncRepo(
+      repo,
+      packageRoot,
+      replace.files,
+      yield* packDeliveries(repo, packageRoot),
+    );
     const skills = yield* installSkills(`${packageRoot}/skills`, repo, {
       files: plan.owned,
       replace: replace.skills,

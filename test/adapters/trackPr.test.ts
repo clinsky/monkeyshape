@@ -152,16 +152,14 @@ useSavedDir(
     sh(repo, "config", "user.name", "Test");
     sh(repo, "config", "user.email", "test@example.com");
     sh(repo, "config", "commit.gpgsign", "false");
-    // The gate: passes unless the file `red` exists, and prints a summary to stderr.
+    // A stand-in for mshape, reached as track pr reaches it (the `mshape` script): its gate
+    // passes unless the file `red` exists, prints a summary to stderr, and runs the red test
+    // file only in the whole gate, never with --fast.
     await writeFile(
       join(repo, "package.json"),
-      JSON.stringify({
-        scripts: {
-          check:
-            'echo gate ran && echo \' 3 pass\' >&2 && { test ! -e red || { echo \'(fail) suite > the red test [0.50ms]\'; exit 1; }; } && { test -z "$NEED" || test -e "$NEED"; } && { test -z "$LATE" || git -C "$LATE" commit -q --allow-empty -m late-unreviewed; }',
-        },
-      }),
+      JSON.stringify({ scripts: { mshape: "sh fake-mshape.sh" } }),
     );
+    await writeFile(join(repo, "fake-mshape.sh"), FAKE_MSHAPE);
     await writeFile(join(repo, "shape.config.ts"), "export default {};\n");
     await writeFile(join(repo, ".gitignore"), ".agents/worktrees/\n.handoffs\nbody.md\nlate\n");
     sh(repo, "add", ".");
@@ -175,6 +173,14 @@ useSavedDir(
   },
 );
 
+const FAKE_MSHAPE = `echo "gate ran: $*"
+echo ' 3 pass' >&2
+test ! -e red || { echo '(fail) suite > the red test [0.50ms]'; exit 1; }
+test -z "$NEED" || test -e "$NEED" || exit 1
+test -z "$LATE" || git -C "$LATE" commit -q --allow-empty -m late-unreviewed
+test "$2" = "--fast" || test ! -e always.test.ts || { echo '(fail) always > red'; exit 1; }
+`;
+
 const remoteHas = () =>
   Bun.spawnSync(["git", "rev-parse", "--verify", "--quiet", "refs/heads/track/docs"], {
     cwd: join(base, "remote.git"),
@@ -185,7 +191,7 @@ describe("track pr", () => {
     await writeFile(`${wt()}/body.md`, body("Why this page."));
     const opened = mshape(wt(), "pr", "--title", "A page", "--body-file", "body.md");
     expect(opened.stderr).toContain("1 changed lines: below the batching default");
-    expect(opened.stderr).toContain("running the gate, `bun run check`");
+    expect(opened.stderr).toContain("running the gate, `mshape gate`");
     expect(opened.stderr).toContain(
       "note: `bd` is not on PATH, so the listed beads weren't checked",
     );
@@ -196,7 +202,7 @@ describe("track pr", () => {
     expect(created.title).toBe("A page");
     expect(created.body).toContain("## What changed and why\n\nWhy this page.\n");
     const head = sh(wt(), "rev-parse", "HEAD").slice(0, 12);
-    expect(created.body).toContain(`$ bun run check   # at ${head}, run by mshape track pr`);
+    expect(created.body).toContain(`$ mshape gate   # at ${head}, run by mshape track pr`);
     expect(created.body).toContain("gate ran");
     expect(created.body).toContain(" 3 pass");
   });
@@ -409,6 +415,27 @@ describe("track pr: the branch tip, and a review in progress", () => {
     // An earlier head's review doesn't count: the reviewer is on this one.
     await reviews([{ commit_id: "0".repeat(40), body: "## Fit\n\nround 1" }]);
     expect(mshape(wt(), "pr").code).toBe(1);
+  });
+
+  test("a live reviewer, the answer already pushed: a run that moves nothing goes ahead, and --body-only too", async () => {
+    // The review was on an earlier head; the author pushed the answer, and the reviewer's
+    // session is still live. Re-running track pr on that tip, or refreshing only the body,
+    // changes nothing under the reviewer.
+    await openThenCommit();
+    expect(mshape(wt(), "pr").code).toBe(0);
+    await reviewer(true);
+    await reviews([{ commit_id: "0".repeat(40), body: "## Fit\n\nround 1" }]);
+    const again = mshape(wt(), "pr");
+    expect(again.stderr).not.toContain("is in progress");
+    expect(again.code).toBe(0);
+    await writeFile(`${wt()}/body.md`, body("refreshed"));
+    const bodyOnly = mshape(wt(), "pr", "--body-only", "--body-file", "body.md");
+    expect(bodyOnly.stderr).not.toContain("is in progress");
+    expect(bodyOnly.code).toBe(0);
+    expect((await pr()).body).toContain("refreshed");
+    // A commit that would move the head is still refused while the reviewer is on it.
+    await commitFile("more.md", "more\n", "more");
+    expect(mshape(wt(), "pr").stderr).toContain("a review of #7 is in progress");
   });
 
   test("a thread reply on the head (an empty-bodied review) isn't the reviewer's review (#79's blocker)", async () => {
@@ -754,14 +781,8 @@ console.log(out);
 
 // monkeyshape's own loop: a repo whose CI runs the gate on pull requests.
 describe("track pr: the fast stages here, the tests in CI", () => {
-  /** The track's gate: a fast stage, then tests that fail here, so running them fails track pr. */
+  /** Tests that fail here, so running the whole gate fails track pr; CI runs the gate. */
   const withCi = async () => {
-    await writeFile(
-      `${wt()}/package.json`,
-      JSON.stringify({
-        scripts: { quick: "echo fast stage ran", check: "bun run quick && bun test" },
-      }),
-    );
     await writeFile(
       `${wt()}/always.test.ts`,
       'import { test, expect } from "bun:test";\ntest("red", () => expect(1).toBe(2));\n',
@@ -769,25 +790,25 @@ describe("track pr: the fast stages here, the tests in CI", () => {
     await mkdir(`${wt()}/.github/workflows`, { recursive: true });
     await writeFile(
       `${wt()}/.github/workflows/ci.yml`,
-      "on:\n  pull_request:\njobs:\n  check:\n    steps:\n      - run: bun run check\n",
+      "on:\n  pull_request:\njobs:\n  check:\n    steps:\n      - run: bun run --silent mshape gate\n",
     );
     sh(wt(), "add", ".");
     sh(wt(), "commit", "-qm", "a gate CI runs");
   };
 
-  test("with a pull_request workflow running the gate: only the fast stages run; the Gate section says CI runs the tests", async () => {
+  test("with a pull_request workflow running the gate: only its fast phase runs; the Gate section says CI runs the whole gate", async () => {
     await withCi();
     await writeFile(`${wt()}/body.md`, body("x"));
     const opened = mshape(wt(), "pr", "--title", "t", "--body-file", "body.md");
     expect(opened.code).toBe(0);
     expect(opened.stderr).toContain(
-      "running the gate's fast stages, `bun run quick`, on a clean checkout of",
+      "running the gate's fast phase, `mshape gate --fast`, on a clean checkout of",
     );
     const gate = (await pr()).body.split("## Gate")[1];
     const tip = remoteTip().slice(0, 12);
-    expect(gate).toContain(`$ bun run quick   # at ${tip}, run by mshape track pr`);
-    expect(gate).toContain("fast stage ran");
-    expect(gate).toContain(`CI: runs the tests on ${tip}, not track pr`);
+    expect(gate).toContain(`$ mshape gate --fast   # at ${tip}, run by mshape track pr`);
+    expect(gate).toContain("gate ran: gate --fast");
+    expect(gate).toContain(`CI: runs the whole gate on ${tip}, not track pr`);
     expect(gate).not.toContain("red");
   });
 
@@ -831,17 +852,9 @@ describe("track pr: the fast stages here, the tests in CI", () => {
     expect((await pr()).body).toContain("check: failure ([run](https://example.test/run/2))");
   });
 
-  test("an adopter's `mshape check` step runs through its bin in the clean checkout (#89's review)", async () => {
+  test("a repo with no `mshape` script runs the gate through mshape's bin in the clean checkout (#89's review)", async () => {
     await withCi();
-    await writeFile(
-      `${wt()}/package.json`,
-      JSON.stringify({
-        scripts: {
-          quick: "echo fast stage ran",
-          check: "bun run quick && mshape check && bun test",
-        },
-      }),
-    );
+    await writeFile(`${wt()}/package.json`, JSON.stringify({ scripts: {} }));
     // A stand-in for the installed CLI's bin, as node_modules/.bin holds it.
     await mkdir(`${wt()}/node_modules/.bin`, { recursive: true });
     await writeFile(
@@ -853,17 +866,16 @@ describe("track pr: the fast stages here, the tests in CI", () => {
     await writeFile(`${wt()}/body.md`, body("x"));
     const opened = mshape(wt(), "pr", "--title", "t", "--body-file", "body.md");
     expect(opened.code).toBe(0);
-    expect(opened.stderr).toContain("`bun run quick && mshape check`");
     const gate = (await pr()).body.split("## Gate")[1];
-    expect(gate).toContain("mshape ran: check");
+    expect(gate).toContain("mshape ran: gate --fast");
     expect(gate).not.toContain("red");
   });
 
   test("a gate with no CI workflow stays whole here", async () => {
     await writeFile(`${wt()}/body.md`, body("x"));
     const opened = mshape(wt(), "pr", "--title", "t", "--body-file", "body.md");
-    expect(opened.stderr).toContain("running the gate, `bun run check`");
-    expect((await pr()).body).not.toContain("CI: runs the tests");
+    expect(opened.stderr).toContain("running the gate, `mshape gate`");
+    expect((await pr()).body).not.toContain("CI: runs the whole gate");
   });
 });
 
