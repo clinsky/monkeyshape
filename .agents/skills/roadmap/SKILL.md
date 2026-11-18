@@ -63,7 +63,7 @@ each epic's id in the status table.
 
 Branch from `main`, commit, push, and open a PR whose body says what changed in the
 direction and why, which epics were created, rewritten or closed, and what the interview
-left open. Gate green first (`bun run check`). The human merges.
+left open. Gate green first (`mshape gate`). The human merges.
 
 Then tell the human the next step: `/milestone` in a fresh chat, with their priorities.
 

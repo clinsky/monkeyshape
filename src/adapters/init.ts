@@ -228,7 +228,7 @@ export const initRepo = (
       const synced = yield* run(target, [bun, "node_modules/.bin/mshape", "sync"]);
       if (synced.code !== 0)
         notes.push(
-          `the installed monkeyshape's sync failed, so the first gate may fail; run \`bun run --silent mshape sync\`:\n  ${tail(synced.output)}`,
+          `the installed monkeyshape's sync failed, so the first gate may fail; run \`mshape sync\`:\n  ${tail(synced.output)}`,
         );
       // The generated JSON is laid out by JSON.stringify; the repo's own biome has the last word.
       const format = yield* run(target, [bun, "node_modules/.bin/biome", "format", "--write", "."]);

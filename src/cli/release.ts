@@ -4,11 +4,15 @@
  * tarball packed from the commit its tag `v<version>` names; publishing it and pushing the tag
  * are the maintainer's.
  *
- *   pack [<dir>]       into <dir>, else .release/: the working tree, with a development version unless HEAD is the release:
- *                      the npm tarball, an `mshape` binary per platform and `SHA256SUMS`
+ *   pack [<dir>]       into <dir>, else .release/: the working tree, with a development
+ *                      version unless HEAD is the release: the npm tarball, an `mshape`
+ *                      binary per platform, install.sh and `SHA256SUMS`
+ *   install            this checkout's `mshape` for this machine, through install.sh as a
+ *                      release would be: the first one on a machine with no release to curl
  *   tag [<commit>]     tag a merged commit v<its version>, recording its tarball's sha256
  *   verify <version>   pack at v<version> and compare with the tarball npm has
  */
+import { rm } from "node:fs/promises";
 import { join } from "node:path";
 import * as Effect from "effect/Effect";
 import { run } from "../adapters/process.ts";
@@ -24,6 +28,8 @@ import {
 } from "../adapters/release.ts";
 import { MAIN_BRANCH } from "../core/layout.ts";
 import {
+  BINARY_TARGETS,
+  INSTALLER,
   packDestination,
   packVersion,
   RELEASE_DIR,
@@ -33,9 +39,37 @@ import {
   tarballDifferences,
   untaggedWarning,
 } from "../core/release.ts";
+import { platformOf, unsupportedPlatform } from "../core/tools.ts";
 import type { WorkspaceError } from "../schemas/errors.ts";
 
-const USAGE = `usage: bun run release pack [<dir>] | tag [<commit>] | verify <version>`;
+const USAGE = `usage: bun run release pack [<dir>] | install | tag [<commit>] | verify <version>`;
+
+/**
+ * Builds this checkout's binary for this machine, lays it out as release `version` under
+ * `.release/`, and runs install.sh against it (`file://`), so the install is verified exactly
+ * as `curl ... | sh` verifies one. In a repo pinning `dev`, as this one does, the installed
+ * `mshape` runs the checkout's source, so it never needs installing again.
+ */
+const install = (repo: string, scratch: string) =>
+  Effect.gen(function* () {
+    const target = BINARY_TARGETS.find(
+      (candidate) => candidate.platform === platformOf(process.platform, process.arch),
+    );
+    if (target === undefined) return refuse(unsupportedPlatform(process.platform, process.arch));
+    const version = packVersion(yield* packSource(repo));
+    const releases = join(scratch, `install-${process.pid}`);
+    const assets = join(releases, "download", `v${version}`);
+    return yield* Effect.gen(function* () {
+      yield* compileBinaries(repo, assets, version, [target]);
+      const child = Bun.spawn(["sh", join(assets, INSTALLER)], {
+        cwd: repo,
+        stdio: ["inherit", "inherit", "inherit"],
+        env: { ...process.env, MSHAPE_RELEASES_URL: `file://${releases}`, MSHAPE_VERSION: version },
+      });
+      const code = yield* Effect.promise(() => child.exited);
+      return { output: "", code } satisfies Outcome;
+    }).pipe(Effect.ensuring(Effect.promise(() => rm(releases, { recursive: true, force: true }))));
+  });
 
 interface Outcome {
   readonly output: string;
@@ -180,6 +214,7 @@ const main = (repo: string, args: ReadonlyArray<string>) =>
         code: 0,
       } satisfies Outcome;
     }
+    if (command === "install" && arg === undefined) return yield* install(repo, scratch);
     if (command === "tag") return yield* tag(repo, arg ?? "HEAD", scratch);
     if (command === "verify" && arg !== undefined) return yield* verify(repo, arg, scratch);
     return { output: USAGE, code: 2 } satisfies Outcome;
@@ -193,7 +228,8 @@ if (import.meta.main) {
       ),
     ),
   );
-  if (outcome.code === 0) console.log(outcome.output);
-  else console.error(outcome.output);
+  if (outcome.code === 0) {
+    if (outcome.output !== "") console.log(outcome.output);
+  } else console.error(outcome.output);
   process.exit(outcome.code);
 }

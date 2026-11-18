@@ -10,14 +10,18 @@ where the two differ.
 
 | Command | What |
 |---|---|
-| `bun install --frozen-lockfile` | Install (pinned toolchain) |
-| `bun run check` | The gate: typecheck, biome, `mshape check`, tests. Green in CI before review; `track pr` runs its fast stages before each push. |
-| `bun run fix` | Apply biome formatting and safe fixes |
+| `mshape gate` | The gate: each pack's stages, then this repo's own (`shape.toml`). Green in CI before review; `track pr` runs `mshape gate --fast` before each push. |
+| `mshape check` | monkeyshape's checks alone, which the gate runs too |
 | `bd ready` | Work that is ready to pick up |
+
+`mshape` is installed once per machine
+(`curl -fsSL https://github.com/clinsky/monkeyshape/releases/latest/download/install.sh | sh`)
+and runs the version `shape.toml` pins.
 
 ## Where to start
 
-- `shape.config.ts`: the module map. It is the layout; nothing else restates it.
+- `shape.toml`: the packs, the pinned `mshape` and the module map. It is the layout; nothing
+  else restates it.
 - `DECISIONS.md`: live decisions, each with the check that enforces it.
 - `docs/roadmap.md`: direction, with a status table first. Direction, not rules: never cite
   its sections from code or here.

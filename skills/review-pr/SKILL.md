@@ -33,7 +33,7 @@ N=<pr number>
 gh pr view $N --json title,body,files,commits
 gh api repos/{owner}/{repo}/pulls/$N -q .head.sha   # the head you review and anchor to
 mshape review $N         # detached worktree at that head, shared data and handoffs linked; prints its path
-cd <that path> && bun install --frozen-lockfile
+cd <that path>           # then install dependencies as its AGENTS.md says
 ```
 
 Never review in your own checkout. If the review's head and the API's differ, the author
@@ -158,18 +158,19 @@ you reviewed last is your previous review's `commit_id`
 worktree to the new head; it prints the previous one too.
 
 1. **"Fixed" is a claim.** For each code blocker, find its regression test and run it on
-   both heads. It must fail on the old one and pass on the new:
+   both heads, with the test command its pack uses (`bun test`, `cargo test`,
+   `uv run pytest`; AGENTS.md says). It must fail on the old one and pass on the new:
 
    ```bash
    git switch --detach <old head> && git checkout <new head> -- <test file> <files it needs>
-   bun test <test file>                                   # must fail
+   <the test command> <test file>                         # must fail
    git reset -q --hard && git switch --detach <new head>
-   bun test <test file>                                   # must pass
+   <the test command> <test file>                         # must pass
    ```
 
    The failure on the old head must be the test's own assertion, saying what the finding
    said: a load or import error means it never reached the bug, so check out the helpers
-   and fixtures it imports too, and rerun `bun install` if the dependencies changed. A test
+   and fixtures it imports too, and reinstall dependencies if they changed. A test
    that passes on the old head doesn't test the bug: that is a finding. For a prose
    blocker, read the fix. Rerun the real-data runs the findings rested on.
 2. Look for what the fix opened: a new unchecked field, the mirror case of a new check. If
