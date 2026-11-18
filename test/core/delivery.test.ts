@@ -144,6 +144,14 @@ describe("sync's plan", () => {
     );
   });
 
+  test("a pack that sets no override: the message points at its own table in general", () => {
+    const dotted = `${CARGO}\n[workspace.lints]\nclippy.todo = "allow"\n`;
+    const plan = planSync({ ...state({}), deliveries: [{ delivery: table, current: dotted }] }, "");
+    expect(plan.blocked[0]).toContain(
+      "move any value you meant to keep to this repo's own config, or the `[rust]` table in shape.toml where the pack reads one",
+    );
+  });
+
   test("current configs write nothing; a file that isn't TOML blocks with the fix", () => {
     const current = state({
       ".mshape/ruff.toml": copy.text,
