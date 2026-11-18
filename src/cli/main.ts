@@ -62,7 +62,7 @@ import { nextStep, REPO_NAME } from "../core/scaffold.ts";
 import { formatCollisions, formatSync, SKILL_NAME } from "../core/skills.ts";
 import { formatSyncPlan } from "../core/sync.ts";
 import { headingProblems } from "../core/trackPr.ts";
-import { shapeJsonSchema } from "../schemas/config.ts";
+import { PACK_IDS, shapeJsonSchema } from "../schemas/config.ts";
 import { type ConfigError, TrackError, WorkspaceError } from "../schemas/errors.ts";
 
 /** What a command returns: the text to print, and the exit code (0 prints to stdout). */
@@ -144,9 +144,15 @@ const init = (root: string, args: ReadonlyArray<string>) =>
         output: "mshape init: --from needs a value: a tarball path or a spec bun install accepts",
         code: 2,
       };
-    const positional = args.filter(
-      (_, i) => fromFlag === -1 || (i !== fromFlag && i !== fromFlag + 1),
-    );
+    const packFlag = args.indexOf("--pack");
+    const pack = packFlag === -1 ? "typescript" : args[packFlag + 1];
+    if (pack === undefined || !(PACK_IDS as ReadonlyArray<string>).includes(pack))
+      return {
+        output: `mshape init: --pack takes one of ${PACK_IDS.join(", ")}${pack === undefined ? "" : `, not '${pack}'`}`,
+        code: 2,
+      };
+    const flagged = new Set([fromFlag, packFlag].flatMap((at) => (at === -1 ? [] : [at, at + 1])));
+    const positional = args.filter((_, i) => !flagged.has(i));
     const [name, ...extra] = positional;
     if (name === undefined || !REPO_NAME.test(name) || extra.length > 0)
       return {
@@ -186,6 +192,7 @@ const init = (root: string, args: ReadonlyArray<string>) =>
         typesBun: dev["@types/bun"],
       },
       tarball,
+      pack,
     ).pipe(Effect.ensuring(checkout?.cleanup ?? Effect.void));
     return {
       output: [
@@ -802,9 +809,10 @@ const configCommand = (_root: string, args: ReadonlyArray<string>) =>
 export const COMMANDS: ReadonlyArray<Command> = [
   {
     name: "init",
-    usage: `  mshape init <name> [--from <spec>]
-      Create ./<name>: a new repo whose gate passes, with one starter test. --from installs
-      monkeyshape from <spec> (a tarball path) instead of the registry, to try a release first.`,
+    usage: `  mshape init <name> [--pack <pack>] [--from <spec>]
+      Create ./<name>: a new repo whose gate passes, with one starter test. --pack is its
+      language (typescript by default). --from installs monkeyshape from <spec> (a tarball
+      path) instead of the registry, to try a release first.`,
     run: init,
   },
   {

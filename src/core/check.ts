@@ -91,7 +91,21 @@ interface Prerequisite {
   readonly required: boolean;
   /** How to install it, when it is a pack's tool. */
   readonly install?: string;
+  /** Whether coverage can read the tool's config in its place, when it is optional. */
+  readonly approximates?: boolean;
 }
+
+/**
+ * How to make a tool optional, where the config can say so and coverage can then read the
+ * tool's config in its place; nothing where either is false, so the fix is only to install it.
+ */
+const optionalHint = (config: ResolvedConfig, name: string, approximates: boolean): string => {
+  if (!approximates || !Object.hasOwn(config.prerequisites, name)) return "";
+  const setting = config.configFile.endsWith(".toml")
+    ? `\`${name} = "optional"\` under \`[prerequisites]\``
+    : `\`prerequisites: { ${name}: "optional" }\``;
+  return `, or set ${setting} in ${config.configFile} to read its config instead`;
+};
 
 const NOT_LOADED: Integration = { state: "unavailable", reason: "its pack's loader didn't run it" };
 
@@ -112,6 +126,7 @@ const packTools = (config: ResolvedConfig, snapshot: Snapshot): ReadonlyArray<Pr
               loaded.load.tools.find((run) => run.tool === tool.name)?.integration ?? NOT_LOADED,
             required: setting === undefined ? (declared?.required ?? true) : setting === "required",
             ...(declared === undefined ? {} : { install: declared.install }),
+            approximates: tool.approximate !== undefined,
           };
         }),
   );
@@ -541,13 +556,13 @@ export const prerequisites = (
       ),
     );
   for (const check of only.filter((check) => config.checks[check] === undefined))
-    for (const { name, integration, required, install } of prerequisitesOf(
+    for (const { name, integration, required, install, approximates } of prerequisitesOf(
       check,
       config,
       snapshot,
     )) {
       if (name === "bd") continue;
-      const fix = `${install ?? `\`${name}\``}, or set \`prerequisites: { ${name}: "optional" }\` in shape.config.ts to read its config instead`;
+      const fix = `${install ?? `\`${name}\``}${optionalHint(config, name, approximates === true)}`;
       if (integration.state === "failed")
         out.push(
           prerequisite(
