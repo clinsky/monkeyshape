@@ -19,14 +19,20 @@ export { CHECK_STAGE };
 export type GatePacks = Readonly<Partial<Record<PackId, Pick<Pack, "stages" | "prerequisites">>>>;
 
 /**
- * The prerequisite a stage's program stands for: the one of its name, else the pack's first,
- * its toolchain (a Rust stage runs `cargo`, which `rustc`'s rustup install brings). `bun` has
- * none: Bun's own message (`BUN_MISSING`) says how to get it.
+ * The prerequisite a stage stands for: the one named as the stage (Rust's `clippy`, Python's
+ * `ruff` and `ty`), else as its program (`tsc`, `biome`), else the pack's first, its toolchain
+ * (a Rust stage runs `cargo`, which `rustc`'s rustup install brings). `bun` has none: Bun's own
+ * message (`BUN_MISSING`) says how to get it.
  */
-const prerequisiteOf = (pack: Pick<Pack, "prerequisites">, program: string | undefined) =>
-  program === "bun"
+export const prerequisiteOf = (
+  pack: Pick<Pack, "prerequisites">,
+  stage: { readonly name: string; readonly run: ReadonlyArray<string> },
+) =>
+  stage.run[0] === "bun"
     ? undefined
-    : (pack.prerequisites.find((one) => one.name === program) ?? pack.prerequisites[0]);
+    : (pack.prerequisites.find((one) => one.name === stage.name) ??
+      pack.prerequisites.find((one) => one.name === stage.run[0]) ??
+      pack.prerequisites[0]);
 
 /**
  * Whether a stage's missing program fails it: as the repo's `prerequisites` sets the tool it
@@ -34,10 +40,10 @@ const prerequisiteOf = (pack: Pick<Pack, "prerequisites">, program: string | und
  */
 const requiredHere = (
   config: Pick<ResolvedConfig, "prerequisites">,
-  program: string | undefined,
+  stage: { readonly name: string; readonly run: ReadonlyArray<string> },
   pack: Pick<Pack, "prerequisites">,
 ): boolean => {
-  const prerequisite = prerequisiteOf(pack, program);
+  const prerequisite = prerequisiteOf(pack, stage);
   if (prerequisite === undefined) return true;
   const setting = config.prerequisites[prerequisite.name];
   return setting === undefined ? prerequisite.required : setting === "required";
@@ -46,11 +52,11 @@ const requiredHere = (
 /** How to install a stage's missing program, from the prerequisite it stands for. */
 export const installHint = (
   packs: GatePacks,
-  stage: Pick<PlannedStage, "origin" | "run">,
+  stage: Pick<PlannedStage, "origin" | "run" | "name">,
 ): string | undefined => {
   if (stage.origin === "mshape" || stage.origin === "repo") return undefined;
   const pack = packs[stage.origin];
-  return pack === undefined ? undefined : prerequisiteOf(pack, stage.run[0])?.install;
+  return pack === undefined ? undefined : prerequisiteOf(pack, stage)?.install;
 };
 
 /** One stage as the gate runs it. */
@@ -98,7 +104,7 @@ export const gateStages = (
     if (pack === undefined) return [];
     return pack.stages.map((stage): PlannedStage => {
       const replacement = own.get(stage.name);
-      const required = requiredHere(config, stage.run[0], pack);
+      const required = requiredHere(config, stage, pack);
       const fast = stage.fast ?? false;
       if (replacement === undefined) return planned(stage, id, required, false, fast);
       own.delete(stage.name);

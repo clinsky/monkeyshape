@@ -332,7 +332,31 @@ describe("prerequisites", () => {
       'packs = ["typescript"]\n[prerequisites]\nrustc = "optional"\n',
     );
     expect((await Effect.runPromise(Effect.flip(loadConfig(dir)))).message).toContain(
-      "prerequisites.rustc: no listed pack (typescript) has a tool `rustc`; the ones they have are tsc, biome",
+      "prerequisites.rustc: no listed pack (typescript) has a tool `rustc`; the ones that can be set are tsc, biome",
     );
+  });
+});
+
+describe("prerequisites nothing reads", () => {
+  test("a tool its pack checks only for itself is refused, saying which can be set (#110's review)", async () => {
+    await Bun.write(
+      join(dir, "shape.toml"),
+      'packs = ["rust"]\n[prerequisites]\nrustfmt = "optional"\n',
+    );
+    const message = (await Effect.runPromise(Effect.flip(loadConfig(dir)))).message;
+    expect(message).toContain(
+      "prerequisites.rustfmt: `rustfmt` is a tool its pack checks for itself, and no check or gate stage reads a setting for it",
+    );
+    expect(message).toContain("the ones that can are rustc, clippy");
+  });
+
+  test("a tool a gate stage stands for loads", async () => {
+    await Bun.write(
+      join(dir, "shape.toml"),
+      'packs = ["rust"]\n[prerequisites]\nclippy = "optional"\n',
+    );
+    expect((await Effect.runPromise(loadConfig(dir))).prerequisites).toEqual({
+      clippy: "optional",
+    });
   });
 });

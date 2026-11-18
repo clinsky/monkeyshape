@@ -94,14 +94,20 @@ describe("gateStages", () => {
     expect(required).toEqual({ tsc: false, biome: true, [CHECK_STAGE]: true, "bun-test": true });
   });
 
-  test("any pack's tool can be made optional, not only tsc and biome", () => {
-    // Rust's stages run cargo, which stands for the pack's toolchain prerequisite, rustc.
-    const stages = gateStages(config(["rust"], [], { rustc: "optional" }), GATE_PACKS);
-    expect(
-      stages.filter((stage) => stage.origin === "rust").every((stage) => !stage.required),
-    ).toBe(true);
-    // Unset, it is as the pack declares it: rustc is required.
-    expect(gateStages(config(["rust"]), GATE_PACKS)[0]?.required).toBe(true);
+  test("any pack's tool can be made optional, each reaching the stage that stands for it (#110's review)", () => {
+    const required = (id: "rust" | "python", key?: string) =>
+      Object.fromEntries(
+        gateStages(config([id], [], key === undefined ? {} : { [key]: "optional" }), GATE_PACKS)
+          .filter((stage) => stage.origin === id)
+          .map((stage) => [stage.name, stage.required]),
+      );
+    expect(required("rust")).toEqual({ fmt: true, clippy: true, test: true });
+    // cargo stands for the toolchain, rustc; the clippy stage for clippy, by its name.
+    expect(required("rust", "rustc")).toEqual({ fmt: false, clippy: true, test: false });
+    expect(required("rust", "clippy")).toEqual({ fmt: true, clippy: false, test: true });
+    // ruff and ty reach their stages, as they reach mshape check.
+    expect(required("python", "ruff")).toMatchObject({ ruff: false, ty: true });
+    expect(required("python", "ty")).toMatchObject({ ruff: true, ty: false });
   });
 
   test("a fresh born repo with no tests yet is green in every pack", () => {

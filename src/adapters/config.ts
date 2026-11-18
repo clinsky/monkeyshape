@@ -7,6 +7,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { basename, dirname, join, relative, resolve } from "node:path";
 import * as Effect from "effect/Effect";
+import { prerequisiteOf } from "../core/gate.ts";
 import { decodeStrict } from "../helpers/decodeStrict.ts";
 import { PACKS } from "../packs/index.ts";
 import {
@@ -33,23 +34,31 @@ const unshipped = (config: { readonly packs?: ReadonlyArray<string> | undefined 
 };
 
 /**
- * A `prerequisites` entry no listed pack declares: a typo, or a tool of a pack the repo doesn't
- * list, would otherwise set nothing and say nothing. A config with no `packs` is the
- * TypeScript pack's, as the resolved config is.
+ * A `prerequisites` entry nothing would read: a typo, a tool of a pack the repo doesn't list,
+ * or one its pack checks only for itself would otherwise set nothing and say nothing. Read are
+ * the listed packs' `tools` (by `mshape check`) and the prerequisite each stage stands for
+ * (by `mshape gate`). A config with no `packs` is the TypeScript pack's, as resolved.
  */
 const undeclared = (config: {
   readonly packs?: ReadonlyArray<string> | undefined;
   readonly prerequisites?: Readonly<Record<string, unknown>> | undefined;
 }) => {
   const listed = config.packs ?? ["typescript"];
-  const declared = listed.flatMap(
-    (id) => PACKS[id as keyof typeof PACKS]?.prerequisites.map((one) => one.name) ?? [],
-  );
+  const packs = listed.flatMap((id) => PACKS[id as keyof typeof PACKS] ?? []);
+  const declared = packs.flatMap((pack) => pack.prerequisites.map((one) => one.name));
+  const read = new Set([
+    ...packs.flatMap((pack) => pack.tools.map((tool) => tool.name)),
+    ...packs.flatMap((pack) =>
+      pack.stages.flatMap((stage) => prerequisiteOf(pack, stage)?.name ?? []),
+    ),
+  ]);
+  const settable = declared.filter((name) => read.has(name));
   return Object.keys(config.prerequisites ?? {})
-    .filter((name) => !declared.includes(name))
-    .map(
-      (name) =>
-        `prerequisites.${name}: no listed pack (${listed.join(", ")}) has a tool \`${name}\`; ${declared.length > 0 ? `the ones they have are ${declared.join(", ")}` : "they declare none"}`,
+    .filter((name) => !read.has(name))
+    .map((name) =>
+      declared.includes(name)
+        ? `prerequisites.${name}: \`${name}\` is a tool its pack checks for itself, and no check or gate stage reads a setting for it, so it can't be made optional here; the ones that can are ${settable.join(", ")}`
+        : `prerequisites.${name}: no listed pack (${listed.join(", ")}) has a tool \`${name}\`; the ones that can be set are ${settable.length > 0 ? settable.join(", ") : "none"}`,
     );
 };
 
