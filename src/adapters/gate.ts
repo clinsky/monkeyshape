@@ -19,7 +19,7 @@ import {
 import { PACKS } from "../packs/index.ts";
 import type { ResolvedConfig } from "../schemas/config.ts";
 import { localBin } from "./packs/typescript.ts";
-import { BUN_MISSING, bunPath, runTool } from "./process.ts";
+import { BUN_MISSING, BUN_NOT_FOUND, bunPath, runTool } from "./process.ts";
 
 /**
  * Where a stage's output is kept: under the git common dir, which outlives any worktree (track
@@ -66,9 +66,11 @@ const command = (root: string, run: ReadonlyArray<string>, path: string | undefi
           ? { argv: run }
           : { why: undefined }
       ) as Command;
+    // An argv, or why not: the package isn't installed (then the PATH may have it), or no Bun.
     const bin = yield* localBin(root, program, program);
-    if (typeof bin !== "string") return { argv: [...bin, ...rest] } as Command;
-    if (bin === BUN_MISSING) return { why: BUN_MISSING } as Command;
+    if (Array.isArray(bin)) return { argv: [...bin, ...rest] } as Command;
+    if (bin.state === "unavailable" && bin.reason === BUN_NOT_FOUND)
+      return { why: BUN_MISSING } as Command;
     return (
       Bun.which(program, path === undefined ? {} : { PATH: path }) === null
         ? { why: undefined }

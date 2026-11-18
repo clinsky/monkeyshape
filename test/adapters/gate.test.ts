@@ -183,6 +183,18 @@ describe("runGate", () => {
     expect(python.output).toContain("uv sync");
   });
 
+  test("a tool in node_modules/.bin runs through Bun, though its shim would want node", async () => {
+    await Bun.write(
+      join(dir, "node_modules", ".bin", "hello-tool"),
+      '#!/usr/bin/env node\nconsole.log("hello from " + process.argv.slice(2).join(" "));\nprocess.exit(1);\n',
+    );
+    const ran = await gate(config([], [{ name: "hello", run: ["hello-tool", "the", "bin"] }]), {
+      path: empty,
+    });
+    expect(ran.output).toContain("hello from the bin");
+    expect(ran.output).toMatch(/^ {2}hello +failed/m);
+  });
+
   test("colour codes are gone from what is shown and kept", async () => {
     const ran = await gate(
       config([], [sh("red", "printf '\\033[31mred text\\033[0m\\n'; exit 1")]),
