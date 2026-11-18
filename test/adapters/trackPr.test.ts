@@ -724,6 +724,9 @@ console.log(out);
     };
   };
 
+  /** A GitHub Actions expression, written so it isn't read as a JS placeholder. */
+  const ACTIONS_EXPR = `$${"{{"} matrix.os }}`;
+
   test("awaitCi polls until every check has finished", async () => {
     await checks("checks-0.json", []);
     await checks("checks-1.json", [
@@ -817,6 +820,27 @@ console.log(out);
     expect(ran.code).toBe(1);
     expect(ran.stderr).toContain("but CI failed on 999999999999: check (failure)");
     expect(await Bun.file(`${gh}/polls`).text()).toBe("3");
+  });
+
+  test("awaitCi with a matrix gate whose name is an expression: green once its runs pass (#118's review)", async () => {
+    const { gateChecks } = await import("../../src/core/trackPr.ts");
+    const expected = gateChecks([
+      `on: [pull_request]\njobs:\n  gate:\n    name: gate ${ACTIONS_EXPR}\n    steps:\n      - run: mshape gate\n`,
+    ]);
+    await checks("checks.json", [
+      { id: 301, name: "gate a", status: "completed", conclusion: "success" },
+      { id: 302, name: "gate b", status: "completed", conclusion: "success" },
+    ]);
+    const ran = await awaitCiRun(
+      "8".repeat(40),
+      { pollMs: 5, startMs: 10_000, limitMs: 10_000 },
+      false,
+      [],
+      true,
+      expected,
+    );
+    expect(ran.code).toBe(0);
+    expect(ran.stdout).toContain("CI passed on 888888888888");
   });
 
   test("awaitCi with no check starting: says so, and stops waiting", async () => {

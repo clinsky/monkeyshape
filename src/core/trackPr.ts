@@ -148,13 +148,18 @@ export const gateChecks = (workflows: ReadonlyArray<string>): ReadonlyArray<stri
       if (key !== undefined) jobs.push({ key, lines: [] });
       else jobs.at(-1)?.lines.push(line);
     }
+    // Only what can be predicted: a job-level `if:` may keep the job off a PR entirely, and a
+    // name with an expression (`gate ${{ matrix.os }}`) is named on GitHub as it evaluates.
+    // Either is skipped, and --wait waits for any new run there, as with no gate job found.
     return jobs
       .filter((job) => runsGate.test(job.lines.join("\n")))
-      .map((job) => {
+      .filter((job) => !job.lines.some((line) => /^ {4}if\s*:/.test(line)))
+      .flatMap((job) => {
         const named = job.lines
           .map((line) => /^ {4}name\s*:\s*(.+?)\s*$/.exec(line)?.[1])
           .find((name) => name !== undefined);
-        return named === undefined ? job.key : named.replace(/^["']|["']$/g, "");
+        if (named === undefined) return [job.key];
+        return named.includes("${{") ? [] : [named.replace(/^["']|["']$/g, "")];
       });
   });
 

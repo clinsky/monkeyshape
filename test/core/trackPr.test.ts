@@ -21,6 +21,9 @@ import {
   workflowRunsGate,
 } from "../../src/core/trackPr.ts";
 
+/** A GitHub Actions expression, written so it isn't read as a JS placeholder. */
+const ACTIONS_EXPR = `$${"{{"} matrix.os }}`;
+
 const filled = prSkeleton({
   "What changed and why": "A hand-written narrative.\n\n    indented code stays",
   Evidence: "Ran it on the real handoffs.",
@@ -183,6 +186,22 @@ describe("gateChecks: the checks CI's gate makes on a PR", () => {
       'on: [pull_request]\njobs:\n  gate:\n    name: "The gate"\n    steps:\n      - run: mshape gate\n  other:\n    steps:\n      - run: echo\n';
     expect(gateChecks([named])).toEqual(["The gate"]);
     expect(gateChecks([named.replace("[pull_request]", "[push]")])).toEqual([]);
+  });
+
+  test("a job it can't predict is not expected: a name with an expression, or a job-level if (#118's review)", () => {
+    const job = (extra: string) =>
+      `on: [pull_request]\njobs:\n  gate:\n${extra}    steps:\n      - run: mshape gate\n`;
+    expect(gateChecks([job(`    name: gate ${ACTIONS_EXPR}\n`)])).toEqual([]);
+    expect(gateChecks([job("    if: github.event_name == 'push'\n")])).toEqual([]);
+    // A step-level if is no reason to skip the job.
+    expect(
+      gateChecks([
+        job("").replace(
+          "      - run: mshape gate",
+          "      - if: always()\n        run: mshape gate",
+        ),
+      ]),
+    ).toEqual(["gate"]);
   });
 
   test("ciState waits for an expected check with no run yet, matching a matrix job's runs too (#105's real run)", () => {
