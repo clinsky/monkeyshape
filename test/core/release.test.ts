@@ -6,6 +6,7 @@ import {
   lockedPackage,
   OXC_LOADER,
   oxcForBinary,
+  packDestination,
   packVersion,
   sha256Sums,
   tagMessage,
@@ -146,4 +147,9 @@ test("the tag records the tarball's digest and SHA256SUMS', the pin's sums", () 
   ).toBe(
     `monkeyshape 1.0.0\n\nsha256 ${"a".repeat(64)}  monkeyshape-1.0.0.tgz\nsha256 ${"b".repeat(64)}  SHA256SUMS\n`,
   );
+});
+
+test("pack writes into .release/, which git ignores, unless given a directory", () => {
+  expect(packDestination("/r", undefined)).toBe("/r/.release");
+  expect(packDestination("/r", "/out")).toBe("/out");
 });

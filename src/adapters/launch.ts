@@ -11,6 +11,10 @@ import * as Effect from "effect/Effect";
 import { unpackedDir } from "../core/launch.ts";
 import { WorkspaceError } from "../schemas/errors.ts";
 
+/** The way out when the cache can't be written, for an agent with nothing else to read. */
+const WRITABLE =
+  "set XDG_CACHE_HOME to a writable directory, where mshape unpacks the files it carries";
+
 /** Set by the compiled binary's entry before the CLI loads; undefined under Bun. */
 let unpackedRoot: string | undefined;
 
@@ -56,11 +60,11 @@ export const unpackOwnFiles = (
         return exists(root);
       },
       catch: (cause) =>
-        new WorkspaceError({ operation: "unpack", path: root, reason: String(cause) }),
+        new WorkspaceError({ operation: "unpack", path: root, reason: `${cause}; ${WRITABLE}` }),
     });
     if (!done)
       return yield* Effect.fail(
-        new WorkspaceError({ operation: "unpack", path: root, reason: "not written" }),
+        new WorkspaceError({ operation: "unpack", path: root, reason: `not written; ${WRITABLE}` }),
       );
     unpackedRoot = root;
     return root;

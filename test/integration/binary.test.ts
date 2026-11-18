@@ -9,7 +9,7 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import * as Effect from "effect/Effect";
 import { compileBinaries, packSource } from "../../src/adapters/release.ts";
-import { BINARY_TARGETS, packVersion } from "../../src/core/release.ts";
+import { BINARY_TARGETS, packVersion, RELEASE_DIR } from "../../src/core/release.ts";
 import { ROOT } from "./harness.ts";
 
 const host = BINARY_TARGETS.find(
@@ -20,6 +20,7 @@ let work = "";
 let binary = "";
 let sums = "";
 let version = "";
+let out = "";
 
 /** The binary with a PATH holding neither Bun nor this checkout's tools, unless `path` adds one. */
 const run = (cwd: string, args: ReadonlyArray<string>, path: ReadonlyArray<string> = []) => {
@@ -39,15 +40,16 @@ beforeAll(async () => {
   if (host === undefined) return;
   work = await mkdtemp(join(tmpdir(), "mshape-binary-"));
   version = packVersion(await Effect.runPromise(packSource(ROOT)));
-  const written = await Effect.runPromise(
-    compileBinaries(ROOT, join(work, "out"), version, [host]),
-  );
+  // Where `release pack` writes by default: the gate's check below runs over it.
+  out = join(ROOT, RELEASE_DIR, `test-${process.pid}`);
+  const written = await Effect.runPromise(compileBinaries(ROOT, out, version, [host]));
   binary = written[0] ?? "";
   sums = await Bun.file(written.at(-1) ?? "").text();
 }, 120_000);
 
 afterAll(async () => {
   if (work !== "") await rm(work, { recursive: true, force: true });
+  if (out !== "") await rm(out, { recursive: true, force: true });
 });
 
 describe.skipIf(host === undefined)("the compiled mshape, with no Bun", () => {
@@ -104,5 +106,23 @@ describe.skipIf(host === undefined)("the compiled mshape, with no Bun", () => {
     const checked = run(ROOT, ["check", "--only", "coverage"]);
     expect(checked.out).toContain("bun is not on PATH or at ~/.bun/bin/bun");
     expect(checked.code).not.toBe(0);
+  });
+
+  test("binaries where pack writes by default leave this repo's gate green: none over the cap or uncovered", () => {
+    const checked = Bun.spawnSync(
+      [process.execPath, join(ROOT, "src/cli/main.ts"), "check", "--only", "files,coverage"],
+      { cwd: ROOT, env: { ...process.env, CLAUDE_CODE_SESSION_ID: "", CLAUDE_PID: "" } },
+    );
+    expect(`${checked.stdout}${checked.stderr}`).toContain("mshape check passed");
+    expect(checked.exitCode).toBe(0);
+  });
+
+  test("a cache it can't write fails, saying to set XDG_CACHE_HOME", () => {
+    const ran = Bun.spawnSync([binary, "--version"], {
+      cwd: work,
+      env: { PATH: "/usr/bin:/bin", HOME: "/proc", CLAUDE_CODE_SESSION_ID: "", CLAUDE_PID: "" },
+    });
+    expect(`${ran.stdout}${ran.stderr}`).toContain("set XDG_CACHE_HOME to a writable directory");
+    expect(ran.exitCode).toBe(1);
   });
 });

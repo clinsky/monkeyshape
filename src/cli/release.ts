@@ -4,11 +4,12 @@
  * tarball packed from the commit its tag `v<version>` names; publishing it and pushing the tag
  * are the maintainer's.
  *
- *   pack [<dir>]       the working tree, with a development version unless HEAD is the release:
+ *   pack [<dir>]       into <dir>, else .release/: the working tree, with a development version unless HEAD is the release:
  *                      the npm tarball, an `mshape` binary per platform and `SHA256SUMS`
  *   tag [<commit>]     tag a merged commit v<its version>, recording its tarball's sha256
  *   verify <version>   pack at v<version> and compare with the tarball npm has
  */
+import { join } from "node:path";
 import * as Effect from "effect/Effect";
 import { run } from "../adapters/process.ts";
 import {
@@ -23,7 +24,9 @@ import {
 } from "../adapters/release.ts";
 import { MAIN_BRANCH } from "../core/layout.ts";
 import {
+  packDestination,
   packVersion,
+  RELEASE_DIR,
   releaseTag,
   SUMS_FILE,
   tagMessage,
@@ -162,11 +165,11 @@ const main = (repo: string, args: ReadonlyArray<string>) =>
   Effect.gen(function* () {
     const [command, arg, ...rest] = args;
     if (rest.length > 0) return { output: USAGE, code: 2 };
-    const scratch = `${repo}/.release`;
+    const scratch = join(repo, RELEASE_DIR);
     if (command === "pack") {
       const source = yield* packSource(repo);
       const warning = untaggedWarning(source);
-      const destination = arg ?? repo;
+      const destination = packDestination(repo, arg);
       const binaries = yield* compileBinaries(repo, destination, packVersion(source));
       const path = yield* packWorkingTree(repo, destination);
       // The tarball's path last, for a script that reads it.

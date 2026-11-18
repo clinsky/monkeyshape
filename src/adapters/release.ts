@@ -18,6 +18,7 @@ import {
   oxcForBinary,
   type PackSource,
   packVersion,
+  RELEASE_DIR,
   releaseTag,
   SUMS_FILE,
   sha256Sums,
@@ -340,7 +341,7 @@ export const compileBinaries = (
     const repo = resolve(repoPath);
     // Inside the repo, at a fixed path: the bundle names its modules by their path from the
     // directory holding them all, so a build of one commit doesn't depend on where it ran.
-    const stage = join(repo, ".release", "binary");
+    const stage = join(repo, RELEASE_DIR, "binary");
     yield* remove(stage);
     yield* Effect.promise(() => mkdir(stage, { recursive: true }));
     return yield* Effect.gen(function* () {

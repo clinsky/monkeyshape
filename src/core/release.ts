@@ -6,6 +6,17 @@
 
 export const releaseTag = (version: string): string => `v${version}`;
 
+/**
+ * Where a release writes, inside the repo and ignored by git: what `pack` and `tag` build, and
+ * the binaries' staging directory. Never the repo root, where 230 MB of binaries would fail
+ * the gate's `files` and `coverage` checks and a `git add -A` would stage them.
+ */
+export const RELEASE_DIR = ".release";
+
+/** Where `pack` writes: the directory given, else `RELEASE_DIR` in the repo. */
+export const packDestination = (repo: string, given: string | undefined): string =>
+  given ?? `${repo}/${RELEASE_DIR}`;
+
 /** What the version of a pack depends on. */
 export interface PackSource {
   /** `package.json`'s version. */
