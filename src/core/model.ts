@@ -83,6 +83,8 @@ export interface Snapshot {
   readonly skills: SkillsSnapshot;
   /** The `.beads/PRIME.md` the running monkeyshape ships, when it has one. */
   readonly shippedPrime: string | undefined;
+  /** The version of the `monkeyshape` npm package in the repo's `node_modules`, if any. */
+  readonly installedMonkeyshape?: string | undefined;
   /** Files `mshape sync` manages that are on disk but not in `files`: git ignores them. */
   readonly unlisted: ReadonlySet<string>;
   /** The files in `files` that aren't plain: git's mode when tracked, the disk's otherwise. */

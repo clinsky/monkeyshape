@@ -891,6 +891,17 @@ const syncCases: Record<string, Cases> = {
     // The repo's own hooks and keys beside monkeyshape's are its business.
     pass: syncCase({ [SETTINGS_FILE]: JSON.stringify({ ...ownHook, permissions: { allow: [] } }) }),
   },
+  "sync/pin-npm-differs": {
+    fail: {
+      config: { mshape: { version: "0.6.0" } },
+      options: { installedMonkeyshape: "0.5.0" },
+    },
+    // The same version, or this repo's own source (dev), which has no npm copy to match.
+    pass: {
+      config: { mshape: { version: "0.6.0", dev: ["bun", "src/cli/main.ts"] } },
+      options: { installedMonkeyshape: "0.5.0" },
+    },
+  },
   "sync/ignored": {
     // On disk but not listed by git: the snapshot has no text for it.
     fail: syncCase({ [SETTINGS_FILE]: undefined }, [SETTINGS_FILE]),

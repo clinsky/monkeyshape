@@ -338,6 +338,15 @@ export const loadSnapshot = (
         .text()
         .catch(() => undefined),
     );
+    // What a TypeScript repo's configs and imports resolve: it must be the pinned mshape's.
+    const installedMonkeyshape = yield* Effect.promise(() =>
+      Bun.file(`${root}/node_modules/monkeyshape/package.json`)
+        .json()
+        .then((pkg: { version?: unknown }) =>
+          typeof pkg.version === "string" ? pkg.version : undefined,
+        )
+        .catch(() => undefined),
+    );
     const listedNow = new Set(present);
     const unlisted = new Set<string>();
     for (const file of SYNCED_FILES)
@@ -358,6 +367,7 @@ export const loadSnapshot = (
       ),
       skills,
       shippedPrime,
+      installedMonkeyshape,
       unlisted,
       modes,
       commands,

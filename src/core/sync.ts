@@ -30,6 +30,7 @@ export const SYNC_RULES = [
   "hook-missing",
   "settings-invalid",
   "ignored",
+  "pin-npm-differs",
 ] as const;
 
 const violation = (
@@ -182,10 +183,31 @@ const describe = (hook: Hook): string => `${hook.event}: \`${hook.command}\``;
  * A synced repo's PRIME.md and PR template match what this monkeyshape ships, and its
  * settings.json runs every monkeyshape hook. Its own hooks and settings are its business.
  */
-export const checkSync = (
-  _config: ResolvedConfig,
-  snapshot: Snapshot,
-): ReadonlyArray<Violation> => {
+/**
+ * The npm package against the pin: `mshape` runs the pinned version, while a TypeScript repo's
+ * configs (`extends`) and imports resolve the package in `node_modules`. Both must be one
+ * monkeyshape, or the gate runs one version's checks over the other's configs.
+ */
+const pinAgainstNpm = (config: ResolvedConfig, snapshot: Snapshot): ReadonlyArray<Violation> => {
+  const pin = config.mshape;
+  const npm = snapshot.installedMonkeyshape;
+  if (pin === undefined || pin.dev !== undefined || npm === undefined || npm === pin.version)
+    return [];
+  return [
+    violation(
+      "pin-npm-differs",
+      "shape.toml",
+      `pins mshape ${pin.version}, but node_modules has the monkeyshape npm package ${npm}, which this repo's configs and imports resolve: one monkeyshape must do both. Set the monkeyshape dependency in package.json to ${pin.version} and run \`bun install\`, or pin [mshape] version ${npm} with that release's sums.`,
+    ),
+  ];
+};
+
+export const checkSync = (config: ResolvedConfig, snapshot: Snapshot): ReadonlyArray<Violation> => [
+  ...pinAgainstNpm(config, snapshot),
+  ...syncedFiles(snapshot),
+];
+
+const syncedFiles = (snapshot: Snapshot): ReadonlyArray<Violation> => {
   if (!snapshot.skills.installed.has(SKILLS_MANIFEST)) return [];
   const out: Array<Violation> = [...snapshot.unlisted]
     .filter((file) => SYNCED_FILES.includes(file))

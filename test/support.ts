@@ -47,6 +47,8 @@ export const repo = (
     readonly otherPacks?: ReadonlyArray<Pack>;
     readonly skills?: SkillsSnapshot;
     readonly shippedPrime?: string;
+    /** The monkeyshape npm package's version in node_modules. */
+    readonly installedMonkeyshape?: string;
     readonly unlisted?: ReadonlyArray<string>;
     /** Files that aren't plain, by path. */
     readonly modes?: Readonly<Record<string, FileMode>>;
@@ -105,6 +107,7 @@ export const repo = (
       shipped: new Map(),
     },
     shippedPrime: options.shippedPrime,
+    installedMonkeyshape: options.installedMonkeyshape,
     unlisted: new Set(options.unlisted ?? []),
     modes: new Map(Object.entries(options.modes ?? {})),
     sizes: new Map(

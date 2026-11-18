@@ -3,6 +3,11 @@
 
 packs = ["typescript"]
 
+# The mshape this repo runs: its own source, never a fetched binary.
+[mshape]
+version = "0.5.0"
+dev = ["bun", "src/cli/main.ts"]
+
 [sources]
 exempt = [
   { path = "template/**", reason = "scaffold data that `mshape init` copies; each born repo's own gate checks it" },
@@ -66,3 +71,9 @@ docs = [
 [[gate.stages]]
 name = "bun-test"
 run = ["bun", "test", "--parallel", "--timeout=30000"]
+
+# install.sh is POSIX sh: `sh -n` parses it as dash does on Linux, stricter than bash;
+# test/integration/install.test.ts runs it.
+[[coverage.commands]]
+files = ["install.sh"]
+run = ["sh", "-n", "{files}"]

@@ -3,7 +3,7 @@
  * tag names, in a worktree of its own, so the working tree can't leak in; any other pack is of
  * the working tree as it stands, with the development version `packVersion` gives it.
  */
-import { cp, mkdir, mkdtemp, readdir, rm, stat } from "node:fs/promises";
+import { chmod, cp, mkdir, mkdtemp, readdir, rm, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import * as Effect from "effect/Effect";
@@ -13,6 +13,7 @@ import {
   binaryAsset,
   binaryEntry,
   type EmbeddedFile,
+  INSTALLER,
   lockedPackage,
   OXC_LOADER,
   oxcForBinary,
@@ -24,6 +25,7 @@ import {
   sha256Sums,
   type Tarball,
 } from "../core/release.ts";
+import type { Platform } from "../core/tools.ts";
 import { WorkspaceError } from "../schemas/errors.ts";
 import { bunPath, run } from "./process.ts";
 
@@ -276,36 +278,47 @@ const oxcBinding = (repo: string, target: BinaryTarget, lock: string, scratchDir
 /** oxc-parser's own files, which `oxcForBinary` rewrites for the bundle. */
 const OXC_SOURCE = /oxc-parser[\\/]src-js[\\/].*\.js$/;
 
-const compile = (
-  entry: string,
-  target: BinaryTarget,
-  binding: string,
-  pkgPath: string,
-  pkgText: string,
-  outfile: string,
-) =>
+/** One binary to build: what `src/cli/compile.ts` reads from its job file. */
+export interface CompileJob {
+  readonly entry: string;
+  readonly platform: Platform;
+  readonly binding: string;
+  readonly pkgPath: string;
+  readonly pkgText: string;
+  readonly outfile: string;
+}
+
+/**
+ * Bundles and compiles one binary. Bun writes its compile's scratch file into the current
+ * directory, so `compileBinaries` runs this in a process of its own (`src/cli/compile.ts`)
+ * whose directory is the stage: never the repo root, where a 76 MB scratch file would fail the
+ * gate's `files` check while it lasts, or stay there if the build dies.
+ */
+export const bundleBinary = (job: CompileJob) =>
   Effect.tryPromise({
     try: async () => {
+      const target = BINARY_TARGETS.find((candidate) => candidate.platform === job.platform);
+      if (target === undefined) throw new Error(`no binary target for ${job.platform}`);
       let unloadable: string | undefined;
       const built = await Bun.build({
-        entrypoints: [entry],
+        entrypoints: [job.entry],
         // Without whitespace, the bundle has no comments naming each module by its path from
         // the directory the build ran in, so a commit's build is the same wherever it runs.
         minify: { whitespace: true },
-        compile: { target: target.bunTarget as Bun.Build.CompileTarget, outfile },
+        compile: { target: target.bunTarget as Bun.Build.CompileTarget, outfile: job.outfile },
         plugins: [
           {
             name: "mshape-binary",
             setup: (build) => {
               build.onLoad({ filter: OXC_SOURCE }, async ({ path }) => {
                 const text = await Bun.file(path).text();
-                const contents = oxcForBinary(path, text, binding);
+                const contents = oxcForBinary(path, text, job.binding);
                 if (contents === undefined) unloadable = path;
                 return { loader: "js", contents: contents ?? text };
               });
               // The CLI's version is the pack's, as in the embedded package.json.
               build.onLoad({ filter: /package\.json$/ }, ({ path }) =>
-                path === pkgPath ? { loader: "json", contents: pkgText } : undefined,
+                path === job.pkgPath ? { loader: "json", contents: job.pkgText } : undefined,
               );
             },
           },
@@ -319,8 +332,8 @@ const compile = (
     },
     catch: (cause) =>
       fail(
-        `compile for ${target.platform}`,
-        entry,
+        `compile for ${job.platform}`,
+        job.entry,
         // A failed bundle throws every message it has, together.
         cause instanceof AggregateError ? cause.errors.map(String).join("\n") : String(cause),
       ),
@@ -328,7 +341,8 @@ const compile = (
 
 /**
  * Compiles `repo`'s working tree into one `mshape` per target in `destination`, with the
- * version `version` and the package's other files embedded, and `SHA256SUMS` beside them.
+ * version `version` and the package's other files embedded, then copies `install.sh` beside
+ * them and lists them all in `SHA256SUMS`.
  * Returns the paths written, `SHA256SUMS` last.
  */
 export const compileBinaries = (
@@ -339,9 +353,10 @@ export const compileBinaries = (
 ) =>
   Effect.gen(function* () {
     const repo = resolve(repoPath);
-    // Inside the repo, at a fixed path: the bundle names its modules by their path from the
-    // directory holding them all, so a build of one commit doesn't depend on where it ran.
-    const stage = join(repo, RELEASE_DIR, "binary");
+    // Inside the repo: the bundle names its modules by their path from the directory holding
+    // them all, so a commit builds the same wherever it runs. One per process, so two builds
+    // (the gate's test files run in parallel) never share it; its name isn't in the binary.
+    const stage = join(repo, RELEASE_DIR, `binary-${process.pid}`);
     yield* remove(stage);
     yield* Effect.promise(() => mkdir(stage, { recursive: true }));
     return yield* Effect.gen(function* () {
@@ -370,9 +385,30 @@ export const compileBinaries = (
       for (const target of targets) {
         const binding = yield* oxcBinding(repo, target, lock, stage);
         const outfile = join(destination, binaryAsset(target));
-        yield* compile(entry, target, binding, join(repo, "package.json"), pkgText, outfile);
+        const job = join(stage, `job-${target.platform}.json`);
+        yield* Effect.promise(() =>
+          Bun.write(
+            job,
+            JSON.stringify({
+              entry,
+              platform: target.platform,
+              binding,
+              pkgPath: join(repo, "package.json"),
+              pkgText,
+              outfile,
+            } satisfies CompileJob),
+          ),
+        );
+        yield* must(stage, [bun(), join(repo, "src", "cli", "compile.ts"), job]);
         digests.set(binaryAsset(target), yield* fileDigest(outfile));
       }
+      // The installer is a release asset too, listed so it can be checked like the rest.
+      const installer = join(destination, INSTALLER);
+      yield* Effect.promise(async () => {
+        await Bun.write(installer, Bun.file(join(repo, INSTALLER)));
+        await chmod(installer, 0o755);
+      });
+      digests.set(INSTALLER, yield* fileDigest(installer));
       const sums = join(destination, SUMS_FILE);
       yield* Effect.promise(() => Bun.write(sums, sha256Sums(digests)));
       return [...[...digests.keys()].map((file) => join(destination, file)), sums];

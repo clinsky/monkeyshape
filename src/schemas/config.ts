@@ -209,7 +209,7 @@ export const GateStage = Schema.Struct({
 export type GateStage = typeof GateStage.Type;
 
 /** The `mshape` a repo runs: the launcher fetches and verifies this version. */
-const MshapePin = Schema.Struct({
+export const MshapePin = Schema.Struct({
   version: Schema.String.check(Schema.isPattern(/^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/u)),
   /** The sha256 of the release's `SHA256SUMS`, lowercase hex. */
   sums: Schema.optionalKey(Schema.String.check(Schema.isPattern(/^[0-9a-f]{64}$/u))),
