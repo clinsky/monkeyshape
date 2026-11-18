@@ -9,7 +9,7 @@ import { dirname, join } from "node:path";
 import * as Effect from "effect/Effect";
 import { loadSnapshot, noDatabaseNote } from "../../src/adapters/workspace.ts";
 import { checkCoverage } from "../../src/core/coverage.ts";
-import { config } from "../support.ts";
+import { config, toolRun } from "../support.ts";
 
 const ROOT = join(import.meta.dir, "..", "..");
 let repo = "";
@@ -54,8 +54,8 @@ describe("typecheck coverage through project references", () => {
   test("files in referenced projects are covered; a file in no project is not", async () => {
     const shape = config();
     const snapshot = await Effect.runPromise(loadSnapshot(repo, shape, `${repo}/no-package`));
-    expect(snapshot.integrations.tsc).toEqual({ state: "ok" });
-    expect([...(snapshot.typechecked ?? [])].sort()).toEqual([
+    expect(toolRun(snapshot, "tsc").integration).toEqual({ state: "ok" });
+    expect([...(toolRun(snapshot, "tsc").files ?? [])].sort()).toEqual([
       "packages/api/src/a.ts",
       "packages/core/src/c.ts",
     ]);
@@ -77,14 +77,14 @@ describe("tsc and biome for a worktree with no install of its own", () => {
       await git(repo, "worktree", "add", "-q", "-b", "track/x", worktree);
       const shape = config();
       const found = await Effect.runPromise(loadSnapshot(worktree, shape, `${repo}/no-package`));
-      expect(found.integrations.tsc).toEqual({ state: "ok" });
-      expect(found.integrations.biome).toEqual({ state: "ok" });
-      expect(found.typechecked?.has("packages/core/src/c.ts")).toBe(true);
+      expect(toolRun(found, "tsc").integration).toEqual({ state: "ok" });
+      expect(toolRun(found, "biome").integration).toEqual({ state: "ok" });
+      expect(toolRun(found, "tsc").files?.has("packages/core/src/c.ts")).toBe(true);
       // No install anywhere: the main checkout's link removed, and the worktree has none.
       await rm(join(repo, "node_modules"));
       const missing = await Effect.runPromise(loadSnapshot(worktree, shape, `${repo}/no-package`));
-      expect(missing.integrations.tsc.state).toBe("unavailable");
-      expect(missing.integrations.biome.state).toBe("unavailable");
+      expect(toolRun(missing, "tsc").integration.state).toBe("unavailable");
+      expect(toolRun(missing, "biome").integration.state).toBe("unavailable");
     } finally {
       await symlink(join(ROOT, "node_modules"), join(repo, "node_modules")).catch(() => undefined);
       await Bun.$`git worktree remove --force ${worktree}`.cwd(repo).quiet().nothrow();

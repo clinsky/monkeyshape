@@ -2,7 +2,7 @@
 import * as Effect from "effect/Effect";
 import { BEADS_EXPORT, parseBeadsExport } from "../core/beads.ts";
 import type { Snapshot } from "../core/model.ts";
-import { readText } from "./workspace.ts";
+import { readText } from "./disk.ts";
 
 /**
  * `snapshot` with its beads read from `.beads/issues.jsonl` when bd is unavailable and the

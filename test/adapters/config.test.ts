@@ -224,8 +224,16 @@ describe("shape.toml", () => {
   });
 
   test("a pack listed with no file of its own: passes", async () => {
-    await write('packs = ["typescript", "rust"]\n');
-    expect((await Effect.runPromise(loadConfig(dir))).packs).toEqual(["typescript", "rust"]);
+    // The directory has no TypeScript. (A shipped pack: an unshipped one fails, below.)
+    await write('packs = ["typescript"]\n');
+    expect((await Effect.runPromise(loadConfig(dir))).packs).toEqual(["typescript"]);
+  });
+
+  test("a pack this mshape doesn't ship fails, naming it and the shipped ones", async () => {
+    await write('packs = ["typescript", "python"]\n');
+    expect(await fails()).toContain(
+      "packs: lists `python`, which this mshape doesn't ship (it ships typescript)",
+    );
   });
 
   test("a module with no pack in a two-pack repo: fails, naming the module", async () => {
@@ -255,9 +263,9 @@ describe("shape.toml", () => {
   });
 
   test("--config with a .toml path reads it as shape.toml", async () => {
-    await Bun.write(join(dir, "trial", "try.toml"), 'packs = ["python"]\n');
+    await Bun.write(join(dir, "trial", "try.toml"), 'packs = ["typescript"]\nbeads = "required"\n');
     const config = await Effect.runPromise(loadConfig(dir, join(dir, "trial", "try.toml")));
     expect(config.configFile).toBe("trial/try.toml");
-    expect(config.packs).toEqual(["python"]);
+    expect(config.beads).toBe("required");
   });
 });

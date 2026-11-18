@@ -12,7 +12,14 @@ import type {
 import { lineAt } from "../src/core/model.ts";
 import { parse } from "../src/core/parse.ts";
 import { type Rule, runRule } from "../src/core/rules/engine.ts";
-import { type ResolvedConfig, resolveConfig, type ShapeConfig } from "../src/schemas/config.ts";
+import type { LoadedPack, Pack } from "../src/packs/pack.ts";
+import { typescript } from "../src/packs/typescript/index.ts";
+import {
+  type PackId,
+  type ResolvedConfig,
+  resolveConfig,
+  type ShapeConfig,
+} from "../src/schemas/config.ts";
 
 /**
  * Beads is ok when memories or bead ids are given, else absent; `beads` overrides that.
@@ -34,6 +41,10 @@ export const repo = (
     /** Overrides the state the lists above imply, e.g. a tool that ran and failed. */
     readonly tsc?: Integration;
     readonly biome?: Integration;
+    /** The listed packs as loaded; the TypeScript pack with the tool runs above by default. */
+    readonly packs?: ReadonlyArray<LoadedPack>;
+    /** Packs shipped but not listed; none by default. */
+    readonly otherPacks?: ReadonlyArray<Pack>;
     readonly skills?: SkillsSnapshot;
     readonly shippedPrime?: string;
     readonly unlisted?: ReadonlyArray<string>;
@@ -65,13 +76,28 @@ export const repo = (
       : undefined,
     beadRows: beadsOk ? (options.beadRows ?? []) : undefined,
     ...(options.beadsExport === undefined ? {} : { beadsExport: options.beadsExport }),
-    typechecked: options.typechecked === undefined ? undefined : new Set(options.typechecked),
-    linted: options.linted === undefined ? undefined : new Set(options.linted),
-    integrations: {
-      beads: options.beads ?? (beadsOk ? { state: "ok" } : { state: "absent" }),
-      tsc: options.tsc ?? tool(options.typechecked),
-      biome: options.biome ?? tool(options.linted),
-    },
+    otherPacks: options.otherPacks ?? [],
+    integrations: { beads: options.beads ?? (beadsOk ? { state: "ok" } : { state: "absent" }) },
+    packs: options.packs ?? [
+      {
+        pack: typescript,
+        load: {
+          tools: [
+            {
+              tool: "tsc",
+              integration: options.tsc ?? tool(options.typechecked),
+              files: options.typechecked === undefined ? undefined : new Set(options.typechecked),
+            },
+            {
+              tool: "biome",
+              integration: options.biome ?? tool(options.linted),
+              files: options.linted === undefined ? undefined : new Set(options.linted),
+            },
+          ],
+          outputs: new Map(),
+        },
+      },
+    ],
     skills: options.skills ?? {
       link: { kind: "missing" },
       installed: new Map(),
@@ -102,3 +128,41 @@ export const ruleLines = (rule: Rule, source: string): ReadonlyArray<number> => 
   const parsed = parse(`fixture-${counter++}.ts`, source);
   return runRule(rule, parsed).map((finding) => lineAt(source, finding.offset));
 };
+
+/** A tool's run, as the snapshot's packs hold it: `tsc`, `biome`. */
+export const toolRun = (snapshot: Snapshot, tool: string) => {
+  const run = snapshot.packs.flatMap(({ load }) => load.tools).find((one) => one.tool === tool);
+  if (run === undefined) throw new Error(`no ${tool} run in the snapshot`);
+  return run;
+};
+
+/**
+ * A pack that claims files by extension and has no tools, rules or edges: enough for the core
+ * to see a second language. `kindOf` says `test` under a `tests/` directory.
+ */
+export const fakePack = (id: PackId, language: string, extension: string): Pack => ({
+  id,
+  language,
+  kindOf: (file) =>
+    file.endsWith(`.${extension}`) ? (file.includes("tests/") ? "test" : "source") : undefined,
+  comments: () => [],
+  syntaxErrors: () => [],
+  defaultSources: { include: [`**/*.${extension}`] },
+  hostSpecifiers: [],
+  graph: () => ({ edges: [], hostUses: [] }),
+  tools: [],
+  findings: () => [],
+  findingKinds: [],
+  rules: [],
+  baseConfigs: [],
+  template: `template/packs/${id}`,
+  stages: [],
+  prerequisites: [],
+  loadFor: [],
+});
+
+/** A pack as listed and loaded, with nothing found by its loader. */
+export const listed = (pack: Pack): LoadedPack => ({
+  pack,
+  load: { tools: [], outputs: new Map() },
+});

@@ -16,8 +16,7 @@ import { dataFormat, parseError } from "./data.ts";
 import { matchesPathOrBelow } from "./glob.ts";
 import { stripJsonc } from "./jsonc.ts";
 import { classify, type Outcome, type Snapshot, type Violation } from "./model.ts";
-import { dirname } from "./paths.ts";
-import { tsToCover } from "./sources.ts";
+import { claimOf, toCover } from "./sources.ts";
 
 /** Every rule this check reports, as `coverage/<kind>`; test/core/ruleCases.test.ts covers each. */
 export const COVERAGE_RULES = [
@@ -25,6 +24,8 @@ export const COVERAGE_RULES = [
   "typecheck",
   "lint",
   "uncovered",
+  /** A pack's compiler reaches no such file: Rust's, from no target's `mod` tree. */
+  "compile",
   "command-failed",
   "command-unavailable",
   "command-unmatched",
@@ -51,95 +52,32 @@ export const parseJsonc = (text: string): unknown => {
   }
 };
 
-const field = (value: unknown, key: string): unknown =>
-  typeof value === "object" && value !== null && key in value
-    ? (value as Record<string, unknown>)[key]
-    : undefined;
-
-const strings = (value: unknown): ReadonlyArray<string> | undefined =>
-  Array.isArray(value)
-    ? value.filter((item): item is string => typeof item === "string")
-    : undefined;
-
-/** Whether one tsconfig's program includes `file` (repo-relative). */
-export const tsconfigCovers = (tsconfigPath: string, tsconfig: unknown, file: string): boolean => {
-  const base = dirname(tsconfigPath);
-  const relative =
-    base === "" ? file : file.startsWith(`${base}/`) ? file.slice(base.length + 1) : undefined;
-  if (relative === undefined) return false;
-  const files = strings(field(tsconfig, "files"));
-  if (files?.some((entry) => entry.replace(/^\.\//, "") === relative)) return true;
-  // Absent `include` defaults to everything only when `files` is absent too; `files: []`
-  // (a solution-style config) includes nothing.
-  const include = strings(field(tsconfig, "include")) ?? (files === undefined ? ["**/*"] : []);
-  const exclude = strings(field(tsconfig, "exclude")) ?? [];
-  return (
-    include.some((pattern) => matchesPathOrBelow(relative, pattern)) &&
-    !exclude.some((pattern) => matchesPathOrBelow(relative, pattern))
-  );
-};
-
-/** Biome `files.includes`, in order: a later pattern overrides an earlier one. */
-export const biomeCovers = (biome: unknown, file: string): boolean => {
-  const includes = strings(field(field(biome, "files"), "includes"));
-  if (includes === undefined) return true;
-  let included = false;
-  for (const pattern of includes) {
-    const negated = pattern.startsWith("!");
-    if (matchesPathOrBelow(file, pattern.replace(/^!+/, ""))) included = !negated;
-  }
-  return included;
-};
-
 export const checkCoverage = (
   config: ResolvedConfig,
   snapshot: Snapshot,
 ): ReadonlyArray<Violation> => {
   const violations: Array<Violation> = [];
-  const tsconfigs: Array<{ path: string; value: unknown }> = [];
-  const typescript = tsToCover(config, snapshot);
-  const others = withoutTools(config, snapshot);
-  // No TypeScript to cover: tsc's and biome's configs answer for nothing, so none is needed.
-  if (typescript.length === 0) return others;
-  const typechecked = snapshot.typechecked;
-  const linted = snapshot.linted;
-  for (const path of typechecked === undefined ? config.coverage.tsconfigs : []) {
-    const text = snapshot.texts.get(path);
-    const value = text === undefined ? undefined : parseJsonc(text);
-    if (value === undefined)
-      violations.push(violation("config", path, "is missing or not valid JSON"));
-    else tsconfigs.push({ path, value });
+  for (const loaded of snapshot.packs) {
+    const files = toCover(config, snapshot, loaded);
+    // Nothing of this pack's to cover: its tools' configs answer for nothing, so none is needed.
+    if (files.length === 0) continue;
+    const judges = loaded.pack.tools.flatMap((tool) => {
+      const ran = loaded.load.tools.find((run) => run.tool === tool.name)?.files;
+      const approximated = ran === undefined ? tool.approximate?.(config, snapshot) : undefined;
+      for (const problem of approximated?.problems ?? [])
+        violations.push(violation("config", problem.file, problem.message));
+      const covers = ran !== undefined ? (file: string) => ran.has(file) : approximated?.covers;
+      return covers === undefined ? [] : [{ tool, covers }];
+    });
+    // File by file, each tool in the pack's order: a file's findings sit together.
+    for (const file of files)
+      for (const { tool, covers } of judges)
+        if (!covers(file))
+          violations.push(
+            violation(tool.rule as (typeof COVERAGE_RULES)[number], file, tool.uncovered(config)),
+          );
   }
-  const biomeText = snapshot.texts.get(config.coverage.biome);
-  const biome = biomeText === undefined ? undefined : parseJsonc(biomeText);
-  if (linted === undefined && biome === undefined)
-    violations.push(violation("config", config.coverage.biome, "is missing or not valid JSON"));
-  const isTypechecked = (file: string) =>
-    typechecked !== undefined
-      ? typechecked.has(file)
-      : tsconfigs.length === 0 || tsconfigs.some((t) => tsconfigCovers(t.path, t.value, file));
-  const isLinted = (file: string) =>
-    linted !== undefined ? linted.has(file) : biome === undefined || biomeCovers(biome, file);
-
-  for (const file of typescript) {
-    if (!isTypechecked(file))
-      violations.push(
-        violation(
-          "typecheck",
-          file,
-          `is not in the program of any tsconfig in \`coverage.tsconfigs\` (now ${config.coverage.tsconfigs.join(", ")}). Include it; if another tsconfig checks it, list that tsconfig in \`coverage.tsconfigs\`; or, if it is generated or vendored code, keep it under a directory named in \`coverage.exempt\` in shape.config.ts (by default ${config.coverage.exempt.join(", ")}). To hold it out on purpose for now, \`mshape baseline --init\` grandfathers it, and the ratchet keeps the count from growing.`,
-        ),
-      );
-    if (!isLinted(file))
-      violations.push(
-        violation(
-          "lint",
-          file,
-          `is not in biome's files.includes. Include it; or, if it is generated or vendored code, keep it under a directory named in \`coverage.exempt\` in shape.config.ts (by default ${config.coverage.exempt.join(", ")}). To hold it out on purpose for now, \`mshape baseline --init\` grandfathers it, and the ratchet keeps the count from growing.`,
-        ),
-      );
-  }
-  return [...violations, ...others];
+  return [...violations, ...withoutTools(config, snapshot)];
 };
 
 /** The command as a reader types it, for messages and the per-command line. */
@@ -266,13 +204,17 @@ const commandViolations = (config: ResolvedConfig, snapshot: Snapshot): Readonly
     ];
   });
 
-/** Executable source outside `coverage.exempt` segments: what the declared commands answer for. */
+/**
+ * Executable source outside `coverage.exempt` segments that no listed pack claims: what the
+ * declared commands answer for. A listed pack's files are held to its own tools instead.
+ */
 export const executableSources = (config: ResolvedConfig, snapshot: Snapshot) => {
   const segments = new Set(config.coverage.exempt);
   return snapshot.files.filter(
     (file) =>
       classify(file, snapshot.modes.get(file)) === "executable" &&
-      !file.split("/").some((segment) => segments.has(segment)),
+      !file.split("/").some((segment) => segments.has(segment)) &&
+      claimOf(snapshot, file) === undefined,
   );
 };
 
@@ -328,7 +270,7 @@ export const dataFiles = (config: ResolvedConfig, snapshot: Snapshot): ReadonlyA
  */
 const unparsable = (config: ResolvedConfig, snapshot: Snapshot): ReadonlyArray<Violation> => {
   const judged = new Set(
-    tsToCover(config, snapshot).length === 0
+    toCover(config, snapshot).length === 0
       ? []
       : [...config.coverage.tsconfigs, config.coverage.biome],
   );
