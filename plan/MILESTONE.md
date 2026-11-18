@@ -462,3 +462,17 @@ already written by agents, not generated for it.
   | an import into another listed pack's file | dropped: graphs are per pack |
   | a module sets `paths` | its files are those paths |
   | a pack reports a finding kind it didn't declare | `packs/undeclared-kind` |
+- **2026-11-18, ty's curated rules are a table `mshape sync` owns in `pyproject.toml`
+  (`python`), approved by the planning session.** ty (0.0.106) has no `extends`, so a
+  `.mshape/` copy has nothing to point at it. As Cargo's lints: sync owns `[tool.ty.rules]` in
+  the root `pyproject.toml`, the curated levels with `shape.toml`'s `[python.ty-rules]` laid
+  over them rule by rule, through the frozen `table` delivery. ruff stays a copy,
+  `.mshape/ruff.toml`, with `[tool.ruff] extend` pointing at it, checked as
+  `packs/python/ruff-extend`. `shape.toml` gains a `[python]` table. `pack.ts` unchanged.
+- **2026-11-18, `pack.ts` gains an optional `override` on `table` deliveries (`packs`, #105),
+  approved by the planning session.** The first change after the freeze, from `packs` for
+  `rust`, not from `python`. `override?: (table) => string | undefined` names the
+  `shape.toml` key that a change to an owned table belongs in (`workspace.lints.clippy` to
+  `rust.lints.clippy`), so `sync/base-diverged` tells an agent what to edit. TypeScript and
+  Rust missed it because the generic message was only seen on `rust`'s probe. Additive and
+  optional; `python`'s ty table sets it too.
