@@ -26,22 +26,12 @@ import type {
 import { RULES } from "../../src/core/rules/registry.ts";
 import { PACKS } from "../../src/packs/index.ts";
 import type { Pack } from "../../src/packs/pack.ts";
-import { python } from "../../src/packs/python/index.ts";
-import { CARGO_METADATA, rust } from "../../src/packs/rust/index.ts";
 import { typescript } from "../../src/packs/typescript/index.ts";
 import type { ShapeConfig } from "../../src/schemas/config.ts";
+import { pythonCases } from "../packs/python/ruleCases.ts";
+import { rustCases } from "../packs/rust/ruleCases.ts";
 import { config, fakePack, listed, repo } from "../support.ts";
-
-interface Case {
-  readonly files?: Readonly<Record<string, string>>;
-  readonly config?: ShapeConfig;
-  readonly options?: Parameters<typeof repo>[1];
-}
-
-interface Cases {
-  readonly fail: Case;
-  readonly pass: Case;
-}
+import type { Case, Cases } from "./ruleCase.ts";
 
 const lines = (n: number): string =>
   `${Array.from({ length: n }, (_, i) => `line ${i}`).join("\n")}\n`;
@@ -377,12 +367,6 @@ const reporting = (declared: ReadonlyArray<string>, kind: string): Pack => ({
       .filter((file) => file.endsWith(".py"))
       .map((file) => ({ kind, file, message: "a finding" })),
 });
-
-/** The Python pack, listed alone, its sources in `app/`. */
-const PYTHON: ShapeConfig = { packs: ["python"], sources: { include: ["app/**/*.py"] } };
-
-/** A pyproject whose ruff config extends the curated copy. */
-const PYPROJECT = '[project]\nname = "x"\n\n[tool.ruff]\nextend = ".mshape/ruff.toml"\n';
 
 /** A Rust-like pack whose compiler reached only `crates/a/lib.rs`. */
 const RUST: ShapeConfig = { packs: ["rust"], sources: { include: ["crates/**/*.rs"] } };
@@ -1058,51 +1042,6 @@ const sourcesCases: Record<string, Cases> = {
       options: { packs: [listed(reporting(["declared"], "undeclared"))] },
     },
   },
-  "packs/python/ruff-extend": {
-    fail: {
-      config: PYTHON,
-      files: { "pyproject.toml": '[project]\nname = "x"\n', "app/a.py": "" },
-      options: { packs: [listed(python)] },
-    },
-    pass: {
-      config: PYTHON,
-      files: {
-        "pyproject.toml": '[project]\nname = "x"\n\n[tool.ruff]\nextend = ".mshape/ruff.toml"\n',
-        "app/a.py": "",
-      },
-      options: { packs: [listed(python)] },
-    },
-  },
-  "packs/python/ruff-exclude": {
-    fail: {
-      config: PYTHON,
-      files: { "pyproject.toml": `${PYPROJECT}\n[tool.ruff.lint]\nexclude = ["app/b.py"]\n` },
-      options: { packs: [listed(python)] },
-    },
-    // A top-level exclude: ruff's file list leaves the file out, so coverage reports it.
-    pass: {
-      config: PYTHON,
-      files: {
-        "pyproject.toml": PYPROJECT.replace(
-          "[tool.ruff]\n",
-          '[tool.ruff]\nexclude = ["app/b.py"]\n',
-        ),
-      },
-      options: { packs: [listed(python)] },
-    },
-  },
-  "packs/python/ty-config": {
-    fail: {
-      config: PYTHON,
-      files: { "pyproject.toml": PYPROJECT, "ty.toml": "[rules]\n", "app/a.py": "" },
-      options: { packs: [listed(python)] },
-    },
-    pass: {
-      config: PYTHON,
-      files: { "pyproject.toml": `${PYPROJECT}\n[tool.ty.rules]\n`, "app/a.py": "" },
-      options: { packs: [listed(python)] },
-    },
-  },
   "sources/unclaimed": {
     // A repo that checks its JavaScript its own way, with JavaScript in the rules' scope.
     fail: {
@@ -1179,41 +1118,11 @@ const prerequisitesCases: Record<string, Cases> = {
   },
 };
 
-// the Rust pack's findings
-
-/** `cargo metadata` for one member, `crates/a`, as the Rust loader records it. */
-const METADATA = `{"workspace_root":"/repo","workspace_members":["a"],"packages":[{"id":"a","name":"a",
-"manifest_path":"/repo/crates/a/Cargo.toml","targets":[],"dependencies":[]}]}`;
-
-/** A one-crate Rust repo: `root` is its Cargo.toml, `member` crates/a's. */
-const rustRepo = (root: string, member: string): Case => ({
-  config: { packs: ["rust"] },
-  files: { "Cargo.toml": root, "crates/a/Cargo.toml": member },
-  options: {
-    packs: [{ pack: rust, load: { tools: [], outputs: new Map([[CARGO_METADATA, METADATA]]) } }],
-  },
-});
-
-const BARE_ROOT = '[workspace]\nmembers = ["crates/*"]\n';
-/** A root that defines both owned tables, so members are judged. */
-const LINTED_ROOT = `${BARE_ROOT}\n[workspace.lints.rust]\nunsafe_code = "deny"\n\n[workspace.lints.clippy]\ntodo = "warn"\n`;
-const OPTED_IN = '[package]\nname = "a"\n\n[lints]\nworkspace = true\n';
-
-const rustCases: Record<string, Cases> = {
-  "packs/rust/workspace-lints": {
-    fail: rustRepo(BARE_ROOT, ""),
-    pass: rustRepo(LINTED_ROOT, OPTED_IN),
-  },
-  "packs/rust/member-lints": {
-    fail: rustRepo(LINTED_ROOT, '[package]\nname = "a"\n'),
-    pass: rustRepo(LINTED_ROOT, OPTED_IN),
-  },
-};
-
 const CASES: Record<string, Cases> = {
   ...arch,
   ...sourcesCases,
   ...rustCases,
+  ...pythonCases,
   ...refs,
   ...budgets,
   ...coverage,
