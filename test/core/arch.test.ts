@@ -491,6 +491,84 @@ describe("module paths", () => {
     ]);
   });
 
+  test("a new crate outside arch.root, modules mapped by paths: map it in the config's syntax", () => {
+    const toml = resolveConfig(
+      {
+        sources: { include: ["crates/**/*.ts", "src/**/*.ts", "build.ts"] },
+        arch: { modules: { core: { description: "logic", paths: ["crates/core"] } } },
+      },
+      "shape.toml",
+    );
+    const files = repo({
+      "crates/core/a.ts": "",
+      "crates/api/src/lib.ts": "",
+      "crates/core-extra/x.ts": "",
+      "build.ts": "",
+    });
+    const messages = (shape: typeof toml) =>
+      checkArch(shape, files)
+        .filter((v) => v.rule === "arch/unknown-module")
+        .map((v) => `${v.file}: ${v.message}`);
+    expect(messages(toml)).toEqual([
+      'crates/api/src/lib.ts: is in `sources`, but no module in shape.toml maps it. Add a module for it: `[arch.modules.api]` with `paths = ["crates/api"]` and a `description`, or add "crates/api" to an existing module\'s `paths`.',
+      'crates/core-extra/x.ts: is in `sources`, but no module in shape.toml maps it. Add a module for it: `[arch.modules.core-extra]` with `paths = ["crates/core-extra"]` and a `description`, or add "crates/core-extra" to an existing module\'s `paths`.',
+      'build.ts: is in `sources`, but no module in shape.toml maps it. Add a module for it: `[arch.modules.build]` with `paths = ["build.ts"]` and a `description`, or add "build.ts" to an existing module\'s `paths`.',
+    ]);
+    // A key another module holds: the path is the key, quoted.
+    const taken = resolveConfig(
+      {
+        sources: { include: ["crates/**/*.ts", "src/**/*.ts"] },
+        arch: {
+          modules: {
+            api: { description: "logic", paths: ["crates/core"] },
+          },
+        },
+      },
+      "shape.toml",
+    );
+    expect(messages(taken)[0]).toContain('`[arch.modules."crates/api"]`');
+  });
+
+  test("crates at the repo root: the advice is the crate beside them, never a directory in it", () => {
+    const advice = (
+      modules: Record<string, { description: string; paths: Array<string> }>,
+      file: string,
+    ) =>
+      checkArch(
+        resolveConfig({ sources: { include: ["**/*.ts"] }, arch: { modules } }, "shape.toml"),
+        repo({ "core/a.ts": "", "crates/io/b.ts": "", [file]: "" }),
+      ).find((v) => v.rule === "arch/unknown-module" && v.file === file)?.message;
+    const root = { core: { description: "logic", paths: ["core"] } };
+    // The crate's whole directory, so its manifest (Cargo.toml) is in the module too.
+    expect(advice(root, "api/src/lib.ts")).toContain('`[arch.modules.api]` with `paths = ["api"]`');
+    // Both layouts: the nearest parent decides.
+    const both = { ...root, io: { description: "io", paths: ["crates/io"] } };
+    expect(advice(both, "crates/api/src/lib.ts")).toContain(
+      '`[arch.modules.api]` with `paths = ["crates/api"]`',
+    );
+    expect(advice(both, "api/src/lib.ts")).toContain('`paths = ["api"]`');
+    // Under no module's parent but the root's: its top directory.
+    const nested = { core: { description: "logic", paths: ["crates/core"] } };
+    expect(advice(nested, "tools/gen/main.ts")).toContain(
+      '`[arch.modules.tools]` with `paths = ["tools"]`',
+    );
+  });
+
+  test("outside arch.root with modules keyed under it: the root's advice, in the config's syntax", () => {
+    const shape = {
+      sources: { include: ["src/**/*.ts", "tools/**/*.ts"] },
+      arch: { modules: { core: { description: "logic" } } },
+    };
+    const files = repo({ "src/core/a.ts": "", "tools/gen.ts": "" });
+    const message = (file: string) =>
+      checkArch(resolveConfig(shape, file), files).find((v) => v.rule === "arch/unknown-module")
+        ?.message;
+    expect(message("shape.config.ts")).toBe(
+      "is in `sources` but outside `arch.root` ('src'), so no module owns it. Set `arch.root: \".\"` and map its directory as a module, or move it under src/.",
+    );
+    expect(message("shape.toml")).toContain('Set `root = "."` under `[arch]`');
+  });
+
   test("a module whose paths match no file is empty, named by its paths", () => {
     const found = checkArch(mapped, repo({ "crates/core/a.ts": "", "src/cli/main.ts": "" }));
     expect(found.map((v) => v.message)).toEqual([

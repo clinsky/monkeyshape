@@ -78,6 +78,46 @@ const suggestModule = (arch: Arch, file: string, rest: string): string => {
     : `Add a module for its directory (a key is a path below \`arch.root\`, e.g. '${directory}').`;
 };
 
+/** Whether the repo places its modules by `paths`, as a Cargo workspace's crates are. */
+const mapsByPaths = (arch: Arch): boolean =>
+  Object.values(arch.modules).some((module) => module.paths !== undefined);
+
+/**
+ * Where a new module for `file` would sit, as a sibling of the modules already mapped by
+ * `paths`: the file's directory at the depth of a module path whose parent holds the file
+ * (`crates/api` beside `crates/core`, `api` beside a root-level `core`), the nearest parent
+ * first. With no such module, the file's top directory, or the file itself at the root. A
+ * module must own the whole unit (a crate's `Cargo.toml` too), so never a directory below it.
+ */
+const siblingPath = (arch: Arch, file: string): string => {
+  const parts = file.split("/");
+  const depths = Object.keys(arch.modules)
+    .filter((name) => arch.modules[name]?.paths !== undefined)
+    .flatMap((name) => directoriesOf(arch, name))
+    .map((path) => path.split("/").filter((part) => part !== "" && part !== "."))
+    .filter((path) => path.length > 0 && within(file, path.slice(0, -1).join("/")))
+    .map((path) => path.length)
+    .sort((a, b) => b - a);
+  const depth = Math.min(depths[0] ?? 1, parts.length);
+  return parts.slice(0, depth).join("/");
+};
+
+/**
+ * A module for an unowned file in a repo that maps modules by `paths`, in the config's own
+ * syntax (`siblingPath`), keyed by that path's last name, or by the path when a module has
+ * that key already.
+ */
+const suggestPaths = (arch: Arch, file: string, configFile: string): string => {
+  const at = siblingPath(arch, file);
+  const last = at.split("/").at(-1) ?? at;
+  const short = last.replace(/\.[^.]*$/u, "") || last;
+  const key = arch.modules[short] === undefined ? short : at;
+  const bare = /^[A-Za-z0-9_-]+$/u.test(key);
+  return configFile.endsWith(".toml")
+    ? `Add a module for it: \`[arch.modules.${bare ? key : JSON.stringify(key)}]\` with \`paths = [${JSON.stringify(at)}]\` and a \`description\`, or add ${JSON.stringify(at)} to an existing module's \`paths\`.`
+    : `Add a module for it: \`${bare ? key : JSON.stringify(key)}: { description: "...", paths: [${JSON.stringify(at)}] }\` under \`arch.modules\`, or add ${JSON.stringify(at)} to an existing module's \`paths\`.`;
+};
+
 /** The module owning `path`: the one whose directory holds it most closely. */
 export const moduleOf = (arch: Arch, path: string): string | undefined => {
   let best: { name: string; length: number } | undefined;
@@ -213,9 +253,11 @@ const judge = (
       violation(
         "unknown-module",
         file,
-        underRoot(arch, file) === undefined
-          ? `is in \`sources\` but outside \`arch.root\` ('${arch.root}'), so no module owns it. Set \`arch.root: "."\` and map its directory as a module, or move it under ${arch.root}/.`
-          : `is not inside any module in \`arch.modules\` (${config.configFile}). ${suggestModule(arch, file, underRoot(arch, file) ?? file)}`,
+        underRoot(arch, file) === undefined && mapsByPaths(arch)
+          ? `is in \`sources\`, but no module in ${config.configFile} maps it. ${suggestPaths(arch, file, config.configFile)}`
+          : underRoot(arch, file) === undefined
+            ? `is in \`sources\` but outside \`arch.root\` ('${arch.root}'), so no module owns it. Set ${config.configFile.endsWith(".toml") ? '`root = "."` under `[arch]`' : '`arch.root: "."`'} and map its directory as a module, or move it under ${arch.root}/.`
+            : `is not inside any module in \`arch.modules\` (${config.configFile}). ${suggestModule(arch, file, underRoot(arch, file) ?? file)}`,
       ),
     );
   }
