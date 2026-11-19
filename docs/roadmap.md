@@ -65,8 +65,8 @@ Rules come in two **layers** (the `layers` config value): `core`, for any repo o
 pack's rule set; it is not the language-neutral core above.
 
 Each adopter keeps its local facts in one config file: the module map, budget overrides,
-allowlists that each carry a reason, and shared paths for tracks. Today that is
-`shape.config.ts`; milestone 5 makes it data.
+allowlists that each carry a reason, and shared paths for tracks: `shape.toml`, data
+validated by a schema.
 
 **Not in scope** until a consumer asks: Windows, languages other than TypeScript, Rust and
 Python, and harnesses other than Claude Code, Codex and pi.

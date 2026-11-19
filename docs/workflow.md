@@ -68,7 +68,7 @@ Everything else has one home too:
 | Short term | chat in the track's worktree (`/track`) or the main checkout (`/track <name>`) | Read the handoff and the track's queue; work; open PRs. |
 | Hand off | you, near 75% of a chat's context: `/handoff` | The handoff is rewritten so a fresh chat can continue; open one in the same worktree and run `/track` (or `/track <name>` from the main checkout). |
 | Review | chat: `/review-pr <number>` | Review against real data in a scratch worktree (`mshape review <n>`); findings go on the PR; you merge. |
-| Bump | you: update `monkeyshape`, then `bun run --silent mshape sync` | Brings what the package ships up to date: the shared skills, `.beads/PRIME.md`, the PR template and monkeyshape's hooks. `mshape check` fails until it has run. |
+| Bump | you: set shape.toml's `[mshape]` `version` and `sums` (the sha256 of that release's `SHA256SUMS`; in TypeScript, the `monkeyshape` package to the same version), then `mshape sync` | Brings what the package ships up to date: the shared skills, `.beads/PRIME.md`, the PR template and monkeyshape's hooks. `mshape check` fails until it has run. |
 
 Every session starts with `.beads/PRIME.md`, which bd's SessionStart hook prints: what
 monkeyshape decides for every repo (beads, tracks, PRs, who decides by default). AGENTS.md is
@@ -121,7 +121,8 @@ was already sent with `mshape msg`.
 - The PR body says what changed and why, the evidence on real data, the gate output, the bug
   class a new check closes, what is not done, and the beads it works on: the sections of the
   repo's `.github/pull_request_template.md`, which `mshape init` writes from `PR_SECTIONS`.
-- `bun run check` is the gate, the same locally and in CI. It is green in CI before review;
+- `mshape gate` is the gate, the same locally and in CI: each pack's stages, `mshape check`,
+  then the repo's own `[gate]` stages in shape.toml. It is green in CI before review;
   `track pr` runs its fast stages before each push and leaves the tests to CI.
 - `/review-pr` runs in its own chat, in a detached worktree at the PR's head that
   `mshape review <n>` makes and `mshape review rm <n>` removes. One reviewer chat can take a

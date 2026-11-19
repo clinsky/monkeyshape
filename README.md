@@ -1,7 +1,7 @@
 # monkeyshape
 
 Opinionated checks, configs and a working loop for humans and coding agents building
-software together on **Bun**, **TypeScript**, **Effect** and **beads**.
+software together, in **Rust**, **Python** or **TypeScript**, with work tracked in **beads**.
 
 Agents write a lot of prose and forget most of it. The prose goes stale, and the next agent
 builds on it anyway.
@@ -28,10 +28,10 @@ src/core/client.ts:1  arch/host-access
   imports readFile from 'node:fs/promises', but module 'core' has no host-access. Reach the host through a service in an adapter module, or use a pure operation.
 
   arch      failed          3 files in 2 modules
-  sources   passed          4 TypeScript files: 3 in sources, 1 exempt
+  sources   passed          3 TypeScript files: 3 in sources
   refs      passed          1 doc, and comments in TypeScript
-  budgets   passed          lengths of the loaded docs, decisions, memories, 4 TypeScript files
-  coverage  passed          4 TypeScript files against tsc's and biome's own file lists; 3 data files parsed
+  budgets   passed          lengths of the loaded docs, decisions, memories, 3 TypeScript files
+  coverage  passed          3 TypeScript files against tsc's and biome's own file lists; 4 data files parsed
   files     passed          9 files against the 1.0 MiB cap
   rules     failed          3 files in sources
   packs     not-applicable  typescript has no checks of its own
@@ -48,12 +48,18 @@ mshape check failed: 2 problems
 ## Quick start
 
 ```sh
-bunx --package monkeyshape mshape init my-app
-cd my-app && bun run check
+curl -fsSL https://github.com/clinsky/monkeyshape/releases/latest/download/install.sh | sh
+mshape init my-app --pack rust    # or python, or typescript
+cd my-app && mshape gate
 ```
 
-`init` installs and commits a repo whose gate passes, with the five skills the table runs. It
-needs Bun 1.4.2 or later, git, beads' `bd`, and `gh` for the loop. An existing repo: [docs/adopting.md](docs/adopting.md).
+`install.sh` puts one `mshape` binary in `~/.local/bin`, once per machine, and refuses a
+download that doesn't match the release's `SHA256SUMS`. Inside a repo, `mshape` runs the
+version its `shape.toml` pins. `init` commits a repo whose gate passes, with the five skills
+the table runs. Each pack needs its own toolchain: Rust through rustup, Python through `uv`,
+and TypeScript through Bun 1.4.2 or later, where the repo also depends on the `monkeyshape`
+package and Effect. The loop needs git, beads' `bd` and `gh`. An existing repo:
+[docs/adopting.md](docs/adopting.md).
 
 Start each step in a fresh agent in the main checkout:
 
@@ -71,13 +77,14 @@ track is done (`mshape track list`), run `/milestone` again. In full: [docs/work
 
 | Check | Catches |
 |---|---|
-| `arch` | Layering drift, host access from pure code (common paths, statically; not a sandbox), unvetted packages, import cycles |
-| `rules` | Silent decoding, hidden clocks/env/timers, thrown errors, nested runtimes, spread errors |
+| `arch` | Layering drift between modules (crates, in Rust), host access from pure code (TypeScript's common paths, statically; not a sandbox), unvetted packages, import cycles |
+| `rules` | In TypeScript: silent decoding, hidden clocks/env/timers, thrown errors, nested runtimes, spread errors |
+| `packs` | A pack's config that hides files from its tools, such as ruff's per-section `exclude`, or a `ty.toml` that drops the curated rules |
 | `refs` | Docs and comments that point at paths, scripts or decisions that don't exist |
 | `budgets` | Bloated `AGENTS.md`, README, decision logs and memories; oversized files |
-| `coverage`, `sources` | Files the typechecker, linter or rules skip, other languages with no command checking them, data files that don't parse |
+| `coverage`, `sources` | Files the compiler, typechecker, linter or rules skip, other languages with no command checking them, data files that don't parse |
 | `files` | Files over the size cap, `.env` files, vendored tarballs that don't match their record |
-| `skills`, `sync` | Skills agents can't see (a broken `.claude/skills` link), and skills, `.beads/PRIME.md`, the PR template or hooks out of step with the installed package |
+| `skills`, `sync` | Skills agents can't see (a broken `.claude/skills` link), and skills, `.beads/PRIME.md`, the PR template, hooks or Rust's workspace lint tables out of step with the installed package |
 | `beads` | Open beads no track owns, deferred beads still in a track, `TODO`s naming a closed bead |
 
 Existing violations can be grandfathered with `mshape baseline --init`; counts may then only

@@ -73,7 +73,7 @@ export const adoptingFiles = async (): Promise<Record<string, string>> => {
   const files: Record<string, string> = {};
   for (const block of await blocks("docs/adopting.md")) {
     const [first = "", ...rest] = block.split("\n");
-    const name = /^(?:\/\/|<!--)\s*([\w.-]+\.\w+)\s*(?:-->)?$/.exec(first.trim())?.[1];
+    const name = /^(?:\/\/|<!--|#)\s*([\w.-]+\.\w+)\s*(?:-->)?$/.exec(first.trim())?.[1];
     if (name !== undefined) files[name] = rest.join("\n");
   }
   return files;
