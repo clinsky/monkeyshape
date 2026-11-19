@@ -164,7 +164,7 @@ useSavedDir(
     ] as const)
       sh(repo, "config", key, value);
     sh(repo, "remote", "add", "origin", join(base, "origin.git"));
-    await writeFile(join(repo, "shape.config.ts"), "export default {};\n");
+    await writeFile(join(repo, "shape.toml"), 'packs = ["typescript"]\n');
     await writeFile(join(repo, ".gitignore"), ".agents/worktrees/\n.agents/handoffs\n.handoffs\n");
     sh(repo, "add", ".");
     sh(repo, "commit", "-qm", "init");

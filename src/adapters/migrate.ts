@@ -10,7 +10,15 @@ import * as Effect from "effect/Effect";
 import { planMigration } from "../core/migrate.ts";
 import { SHAPE_RULES_DIR } from "../core/rules/shapeRules.ts";
 import type { BornPin } from "../core/scaffold.ts";
-import { CONFIG_FILE, importTsConfig, loadConfig, TS_CONFIG_FILE } from "./config.ts";
+import {
+  CONFIG_FILE,
+  importTsConfig,
+  loadConfig,
+  MIGRATE_STEPS,
+  TS_CONFIG_FILE,
+  tsConfigProblems,
+} from "./config.ts";
+import { runningCompiled } from "./launch.ts";
 
 const exists = (path: string) => Effect.promise(() => Bun.file(path).exists());
 
@@ -46,6 +54,10 @@ const docsNaming = (root: string) =>
     return found.sort();
   });
 
+/** Whether an import failed for want of the `monkeyshape` package, not for the config itself. */
+export const npmPackageMissing = (message: string): boolean =>
+  /Cannot find (?:package|module) ['"]monkeyshape['"]/u.test(message);
+
 /** A local rule's id, as `defineRule` gives it; a rule with none is named by its place. */
 const ruleId = (rule: unknown, index: number): string =>
   typeof rule === "object" && rule !== null && "id" in rule && typeof rule.id === "string"
@@ -62,7 +74,13 @@ export interface MigrateResult {
  * Migrates `root`'s `shape.config.ts` to `shape.toml`, pinning `pin`. `load` reads a config as
  * `mshape` will, `loadConfig` but for tests that need it to fail.
  */
-export const migrateConfig = (root: string, pin: BornPin, load: typeof loadConfig = loadConfig) =>
+export const migrateConfig = (
+  root: string,
+  pin: BornPin,
+  load: typeof loadConfig = loadConfig,
+  /** Whether this is the compiled mshape, which can't import a TypeScript config. */
+  compiled: boolean = runningCompiled(),
+) =>
   Effect.gen(function* () {
     const refuse = (line: string): MigrateResult => ({ lines: [line], code: 1 });
     if (yield* exists(join(root, CONFIG_FILE)))
@@ -74,14 +92,28 @@ export const migrateConfig = (root: string, pin: BornPin, load: typeof loadConfi
       return refuse(
         `there is no ${TS_CONFIG_FILE} here to migrate. Run mshape config migrate at the root of a repo that has one; a new repo gets ${CONFIG_FILE} from mshape init`,
       );
-    // The old config as mshape loads it today: one that doesn't is fixed first, in the language
-    // its author wrote, rather than carried into shape.toml.
-    const today = yield* Effect.result(load(root, path));
-    if (today._tag === "Failure")
+    // shape.config.ts imports `monkeyshape`, which resolves only under the npm package. Only
+    // here, where there is one to import: a repo already on shape.toml, or one of another
+    // language, is told as much above, with no Bun to run anything with.
+    if (compiled)
       return refuse(
-        `${TS_CONFIG_FILE} doesn't load today (${today.failure.message}), so nothing was changed. Fix it until mshape check loads it, then run mshape config migrate again`,
+        `config migrate imports ${TS_CONFIG_FILE}, whose imports resolve only under monkeyshape's npm package, not an installed mshape: ${MIGRATE_STEPS}. Nothing was changed`,
       );
-    const config = yield* importTsConfig(root, path, TS_CONFIG_FILE);
+    // The old config as mshape loaded it: one it refused is fixed first, in the language its
+    // author wrote, rather than carried into shape.toml.
+    const imported = yield* Effect.result(importTsConfig(root, path, TS_CONFIG_FILE));
+    if (imported._tag === "Failure")
+      return refuse(
+        npmPackageMissing(imported.failure.message)
+          ? `${TS_CONFIG_FILE} imports monkeyshape, which this repo doesn't install: ${MIGRATE_STEPS}. Nothing was changed`
+          : `${imported.failure.message}; nothing was changed. Fix it, then run mshape config migrate again`,
+      );
+    const config = imported.success;
+    const problems = tsConfigProblems(config);
+    if (problems.length > 0)
+      return refuse(
+        `${TS_CONFIG_FILE} doesn't load today (${TS_CONFIG_FILE}: ${problems.join("; ")}), so nothing was changed. Fix it, then run mshape config migrate again`,
+      );
     const source = yield* Effect.promise(() => Bun.file(path).text());
     const ruleIds = (config.localRules ?? []).map(ruleId);
     const ported = new Set<string>();

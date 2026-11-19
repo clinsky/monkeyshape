@@ -822,10 +822,11 @@ const gardenCommand = (root: string, args: ReadonlyArray<string>) =>
  */
 const rules = (root: string, args: ReadonlyArray<string>) =>
   Effect.gen(function* () {
+    // Loaded for its errors only: the repo's own rules are shape-rules/'s files.
     const path = configFlag(root, args) ?? (yield* findConfig(root));
-    const config = path === undefined ? undefined : yield* loadConfig(root, path);
+    if (path !== undefined) yield* loadConfig(root, path);
     const shape = yield* listShapeRules(root);
-    return { output: formatRules(RULES, config?.localRules, shape), code: 0 };
+    return { output: formatRules(RULES, shape), code: 0 };
   });
 
 /**

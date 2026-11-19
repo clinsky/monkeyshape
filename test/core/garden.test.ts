@@ -1,6 +1,5 @@
 /** Garden over any text source: line budgets beyond TypeScript, every allowance, local rules. */
 import { describe, expect, test } from "bun:test";
-import { defineRule } from "../../src/api/monkeyshape.ts";
 import { checkBudgets } from "../../src/core/budgets.ts";
 import { report as checkReport } from "../../src/core/check.ts";
 import { garden } from "../../src/core/garden.ts";
@@ -60,22 +59,15 @@ describe("garden and line budgets over any text source", () => {
 });
 
 describe("garden's local rules", () => {
-  const rule = (id: string) =>
-    defineRule({
-      id,
-      bugClass: "a class of bug",
-      message: "do it the other way",
-      check: () => [],
-      cases: { fail: [], pass: [""] },
-    });
-
   test("one line per local rule, under the escape hatches, only when there are any", () => {
     const shape = config({
-      localRules: [rule("no-save"), rule("other")],
       rules: { "local/no-save": { allow: [{ path: "src/merge.ts", reason: "the merge itself" }] } },
     });
+    // The repo's own rules are shape-rules/'s files, named by their ids.
     const snapshot = repo({
       "src/a.ts": "// shape-ignore local/no-save: generated, reviewed\nsave(x);\n",
+      "shape-rules/no-save.yml": "id: no-save\n",
+      "shape-rules/other.yml": "id: other\n",
     });
     const text = formatGarden(garden(shape, snapshot, {}));
     expect(text).toContain(
@@ -102,18 +94,17 @@ describe("review of #63", () => {
   });
 
   test("a long local-rule id keeps its counts apart, and every count starts in one column", () => {
-    const rule = (id: string) =>
-      defineRule({
-        id,
-        bugClass: "a class of bug",
-        message: "do it the other way",
-        check: () => [],
-        cases: { fail: [], pass: [""] },
-      });
-    const shape = config({
-      localRules: [rule("no-save"), rule("no-direct-network-fetch-in-workflows")],
-    });
-    const text = formatGarden(garden(shape, repo({}), {}));
+    const text = formatGarden(
+      garden(
+        config(),
+        repo({
+          "shape-rules/no-save.yml": "id: no-save\n",
+          "shape-rules/no-direct-network-fetch-in-workflows.yml":
+            "id: no-direct-network-fetch-in-workflows\n",
+        }),
+        {},
+      ),
+    );
     const block = text.split("\n").filter((l) => l.startsWith("    rules/local/"));
     expect(block).toHaveLength(2);
     expect(block[1]).toMatch(/workflows {2,}0 ignores/);

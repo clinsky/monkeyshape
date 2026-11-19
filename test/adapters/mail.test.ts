@@ -50,7 +50,7 @@ useSavedDir(
     sh(repo, "config", "user.name", "Test");
     sh(repo, "config", "user.email", "test@example.com");
     sh(repo, "config", "commit.gpgsign", "false");
-    await writeFile(join(repo, "shape.config.ts"), "export default {};\n");
+    await writeFile(join(repo, "shape.toml"), 'packs = ["typescript"]\n');
     await writeFile(join(repo, ".gitignore"), ".agents/worktrees/\n.agents/handoffs\n.handoffs\n");
     sh(repo, "add", ".");
     sh(repo, "commit", "-qm", "init");

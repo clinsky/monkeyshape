@@ -115,7 +115,7 @@ const ROWS: ReadonlyArray<Row> = [
       "test/support.ts": "throw x;\n",
       "types/x.d.ts": "declare const x: number;\n",
       "template/t.ts": "throw x;\n",
-      "shape.config.ts": "export default {};\n",
+      "shape.toml": 'packs = ["typescript"]\n',
     },
     config: { sources: { exempt: [{ path: "template/**", reason: REASON }] } },
     only: ["sources", "rules"],
@@ -126,7 +126,7 @@ const ROWS: ReadonlyArray<Row> = [
       expect(examined).toContain("1 in sources");
       expect(examined).toContain("2 tests");
       expect(examined).toContain("1 declaration");
-      expect(examined).toContain("2 exempt");
+      expect(examined).toContain("1 exempt");
       expect(outcomeOf(run, "rules")).toMatchObject({
         examined: expect.stringContaining("1 file"),
       });
