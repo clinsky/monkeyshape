@@ -60,7 +60,7 @@ may-import = ["schemas", "helpers", "core"]
 
 [arch.modules.cli]
 description = "The mshape executable and composition root."
-may-import = ["schemas", "core", "adapters"]
+may-import = ["schemas", "core", "adapters", "harnesses/harness.ts"]
 host-access = true
 manifest = true
 

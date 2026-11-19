@@ -33,11 +33,15 @@ import { WorkspaceError } from "../schemas/errors.ts";
 import { type Caller, sessionAddress } from "./notices.ts";
 import { fs, locate, refuse, registeredAddresses, reviewTracks, worktrees } from "./tracks.ts";
 
-/** A caller Claude Code said nothing about: a terminal, or `track migrate`. */
-const nobody = (now: Date): Caller => ({ identity: {}, claudeDir: "", now });
+/** A caller no harness said anything about: a terminal, or `track migrate`. */
+const nobody = (now: Date): Caller => ({
+  identity: undefined,
+  harnesses: { list: [], io: () => undefined },
+  now,
+});
 
 /** `run`, with one expected error code (`ENOENT`, `EEXIST`) as `fallback`, not a failure. */
-const fsUnless = <A, B>(
+export const fsUnless = <A, B>(
   operation: string,
   path: string,
   expected: string,
@@ -53,7 +57,7 @@ const fsUnless = <A, B>(
   );
 
 /** A directory's entries; a directory that doesn't exist yet is empty. */
-const entries = (path: string) =>
+export const entries = (path: string) =>
   fsUnless("list", path, "ENOENT", [] as Array<string>, () => readdir(path));
 
 /** Hard links never replace a file, so an id taken by another sender is retried, not lost. */
@@ -88,18 +92,28 @@ export const mailSend = (
         refuse(`${error.reason}. Send from a track's worktree, the main checkout or a review`),
       ),
     );
+    return yield* storeMessage(common, sender.address, to, subject, body, now, random);
+  });
+
+/**
+ * Writes one message into `to`'s mailbox, with no check on who sends it or to whom: `mailSend`
+ * checks a session's mail, and a watch sends from `WATCH_SENDER` to the address that watches.
+ */
+export const storeMessage = (
+  common: string,
+  from: string,
+  to: string,
+  subject: string,
+  body: string,
+  now: Date,
+  random: () => string,
+) =>
+  Effect.gen(function* () {
     const dir = mailboxDir(common, to);
     yield* fs("create", dir, () => mkdir(dir, { recursive: true }));
     for (let attempt = 0; attempt < ATTEMPTS; attempt++) {
       const id = messageId(now, random());
-      const message: Message = {
-        id,
-        from: sender.address,
-        to,
-        subject,
-        body,
-        created: now.toISOString(),
-      };
+      const message: Message = { id, from, to, subject, body, created: now.toISOString() };
       const temporary = `${dir}/.${id}.${process.pid}.tmp`;
       const final = messagePath(common, to, id);
       yield* fs("write", temporary, () => writeFile(temporary, encodeMessage(message)));

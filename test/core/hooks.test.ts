@@ -66,6 +66,22 @@ describe("hooks", () => {
     expect(settings.hooks).toEqual(settingsHooks(HOOKS));
   });
 
+  test("0.6's three SessionStart hooks and its prompt hook become 0.7's two; the repo's own stay", async () => {
+    // This repo's .claude/settings.json as 0.6 wrote it, plus a hook of the repo's own.
+    const old = await Bun.file(join(import.meta.dir, "..", "fixtures", "settings-0.6.json")).json();
+    const own = { matcher: "", hooks: [{ type: "command", command: "echo mine" }] };
+    old.hooks.SessionStart.push(own);
+    const synced = JSON.parse(addHooks(old, HOOKS));
+    expect(synced.hooks.SessionStart).toEqual([
+      own,
+      { matcher: "", hooks: [{ type: "command", command: HOOKS[0]?.command }] },
+    ]);
+    expect(synced.hooks.UserPromptSubmit).toEqual([
+      { matcher: "", hooks: [{ type: "command", command: HOOKS[1]?.command }] },
+    ]);
+    expect(missingHooks(synced, HOOKS)).toEqual([]);
+  });
+
   test("init writes the rendered settings.json, whatever the template carries", async () => {
     expect(await Bun.file(join(ROOT, "template", SETTINGS_FILE)).exists()).toBe(false);
     const files = scaffold("my-app", new Map([[SETTINGS_FILE, "{}"]]), toolchain);
@@ -117,8 +133,8 @@ describe("hooks", () => {
     await fakeMshape(onPath);
     await fakeMshape(join(home, ".local", "bin"));
     await fakeMshape(broken, true);
-    const hook = HOOKS.find((candidate) => candidate.command.includes("msg register"));
-    if (hook === undefined) throw new Error("no msg register hook");
+    const hook = HOOKS.find((candidate) => candidate.command.includes(" prime"));
+    if (hook === undefined) throw new Error("no prime hook");
     const runHook = (PATH: string, HOME: string) => {
       const ran = Bun.spawnSync(["/bin/sh", "-c", hook.command], { cwd: dir, env: { PATH, HOME } });
       return { code: ran.exitCode, out: ran.stdout.toString().trim() };

@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { PRIME_FALLBACK } from "../../src/core/hooks.ts";
 import { codex, codexCommand, mergeHooks, missingHooks } from "../../src/harnesses/codex/index.ts";
 import type { JsonObject, LoopHook } from "../../src/harnesses/harness.ts";
 
@@ -32,6 +33,11 @@ describe("codex hooks.json", () => {
     expect(command).not.toMatch(/\d+\.\d+\.\d+/);
     expect(command).not.toContain("/home/");
     expect(command).toContain("$HOME/.local/bin");
+  });
+
+  test("prime falls back to bd's primer where mshape can't run; the inbox doesn't", () => {
+    expect(codexCommand(["prime"])).toContain(PRIME_FALLBACK);
+    expect(codexCommand(["msg", "inbox", "--quiet"])).not.toContain(PRIME_FALLBACK);
   });
 
   test("the repo's hooks and keys are kept, and ours are appended after theirs", () => {
@@ -133,17 +139,12 @@ describe("codex identify", () => {
     });
   });
 
-  test("a hook without the flag: claimed only by Codex's rollout transcript", () => {
+  test("a hook without the flag: never claimed, even with Codex's transcript (0.6's are Claude Code's)", () => {
     const transcript = `/h/.codex/sessions/2026/11/19/rollout-2026-11-19T13-57-46-${SESSION}.jsonl`;
     expect(
-      codex.identify({ env: {}, hookInput: hookInput({ transcript_path: transcript }) })?.session,
-    ).toBe(SESSION);
-    expect(
-      codex.identify({
-        env: {},
-        hookInput: hookInput({ transcript_path: "/h/.claude/projects/x/abc.jsonl" }),
-      }),
+      codex.identify({ env: {}, hookInput: hookInput({ transcript_path: transcript }) }),
     ).toBeUndefined();
+    expect(codex.identify({ env: {}, hookInput: hookInput({}) })).toBeUndefined();
   });
 
   test("another harness named: never Codex's, whatever leaked into the environment", () => {

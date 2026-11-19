@@ -19,6 +19,7 @@ import {
 } from "./layout.ts";
 import type { Integration } from "./model.ts";
 import { listedBeads } from "./trackPr.ts";
+import { WATCH_SENDER } from "./watch.ts";
 
 /** A worktree as `git worktree list --porcelain` reports it. */
 export interface Worktree {
@@ -52,6 +53,8 @@ export const nameProblem = (track: string): string | undefined => {
     return `\`${track}\` is not a track name: use lowercase words joined by hyphens, like \`docs\` or \`cross-module\``;
   if (track === MAIN_ADDRESS || track.startsWith("review-"))
     return `\`${track}\` is a session address (the main checkout's, or a review's: \`review-<n>\` and \`review-<track>\`), never a track's name: its mail and sessions belong to that address. Name the track something else`;
+  if (track === WATCH_SENDER)
+    return `\`${track}\` is the sender of \`mshape msg watch\`'s mail, which takes none: name the track something else`;
   return undefined;
 };
 

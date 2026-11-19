@@ -10,6 +10,7 @@ import { createServer, type Server } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import * as Effect from "effect/Effect";
+import { harnesses } from "../../src/adapters/harnesses/index.ts";
 import { liveSessions, removeSessions } from "../../src/adapters/notices.ts";
 
 const CLI = join(import.meta.dir, "..", "..", "src", "cli", "main.ts");
@@ -38,6 +39,7 @@ const mshape = async (
       CLAUDE_CONFIG_DIR: claude,
       CLAUDE_CODE_SESSION_ID: "",
       CLAUDE_PID: "",
+      CODEX_THREAD_ID: "",
       ...env,
     },
     stdin: new Blob([stdin]),
@@ -180,7 +182,9 @@ describe("live notices", () => {
     await claudeSession(1, { listen: false });
     await claudeSession(2);
     await claudeSession(4);
-    for (const n of [1, 2, 4]) await mshape(wt("tracks"), ["msg", "register"], hookInput(n));
+    for (const n of [1, 2]) await mshape(wt("tracks"), ["msg", "register"], hookInput(n));
+    // The pid, as Claude Code's environment gives it: what tells a /clear from an end.
+    await mshape(wt("tracks"), ["msg", "register"], hookInput(4), { CLAUDE_PID: "1004" });
     await age("tracks");
     await rm(`${claude}/sessions/1002.json`);
     await writeFile(
@@ -226,7 +230,7 @@ describe("live notices", () => {
       CLAUDE_PID: "1001",
     });
     expect(registered).toEqual({ code: 0, stdout: "", stderr: "" });
-    expect(await readdir(registry("tracks"))).toEqual([`${uuid(1)}.json`]);
+    expect(await readdir(registry("tracks"))).toEqual([`claude-code.${uuid(1)}.json`]);
     // By send time the record exists, and the session is notified.
     const received = await claudeSession(1);
     const sent = await mshape(wt("docs"), ["msg", "send", "tracks", "--subject", "s"]);
@@ -237,7 +241,7 @@ describe("live notices", () => {
   test("a send between the hook registering and Claude Code's record catching up keeps the registration", async () => {
     // The /clear order: the record still names the session before it; then a send lands.
     await claudeSession(1);
-    await mshape(wt("tracks"), ["msg", "register"], hookInput(1));
+    await mshape(wt("tracks"), ["msg", "register"], hookInput(1), { CLAUDE_PID: "1001" });
     await age("tracks");
     await mshape(wt("tracks"), ["msg", "register"], hookInput(2), { CLAUDE_PID: "1001" });
     const sent = await mshape(wt("docs"), ["msg", "send", "tracks", "--subject", "in the window"]);
@@ -248,8 +252,8 @@ describe("live notices", () => {
     // Until the record catches up, the process is still reached through the old session id.
     expect(sent.stdout).toContain("Notified 1 live session of tracks.");
     expect((await readdir(registry("tracks"))).sort()).toEqual([
-      `${uuid(1)}.json`,
-      `${uuid(2)}.json`,
+      `claude-code.${uuid(1)}.json`,
+      `claude-code.${uuid(2)}.json`,
     ]);
     // Then the record names the new session: the old registration goes, the new one is told.
     const record = `${claude}/sessions/1001.json`;
@@ -260,7 +264,7 @@ describe("live notices", () => {
     const after = await mshape(wt("docs"), ["msg", "send", "tracks", "--subject", "after"]);
     expect(after.stdout).toContain("Notified 1 live session of tracks.");
     expect(after.stdout).toContain(`session ${uuid(1)}: its process now runs another session`);
-    expect(await readdir(registry("tracks"))).toEqual([`${uuid(2)}.json`]);
+    expect(await readdir(registry("tracks"))).toEqual([`claude-code.${uuid(2)}.json`]);
   });
 
   test("a session on another protocol is skipped with a note and kept", async () => {
@@ -269,7 +273,7 @@ describe("live notices", () => {
     const sent = await mshape(wt("docs"), ["msg", "send", "tracks", "--subject", "s"]);
     expect(sent.stdout).toContain("speaks messaging protocol 2; this mshape knows 1");
     expect(received).toEqual([]);
-    expect(await readdir(registry("tracks"))).toEqual([`${uuid(1)}.json`]);
+    expect(await readdir(registry("tracks"))).toEqual([`claude-code.${uuid(1)}.json`]);
   });
 
   test("register: silent outside every address; a note, never a failure, when it can't", async () => {
@@ -279,13 +283,14 @@ describe("live notices", () => {
       stdout: "",
       stderr: "",
     });
-    const unknown = await mshape(wt("tracks"), ["msg", "register"], hookInput(9));
-    expect(unknown.code).toBe(0);
-    expect(unknown.stdout).toContain(`no record of session ${uuid(9)}`);
     const bad = await mshape(wt("tracks"), ["msg", "register"], '{"session_id":"../x"}');
     expect(bad.code).toBe(0);
-    expect(bad.stdout).toContain("is not a Claude Code session id");
+    expect(bad.stdout).toContain("no session identity: nothing identified the session");
     expect(await readdir(registry("tracks")).catch(() => [])).toEqual([]);
+    // No pid and no record yet: registered by its id alone; its harness says later if it runs.
+    const unknown = await mshape(wt("tracks"), ["msg", "register"], hookInput(9));
+    expect(unknown).toEqual({ code: 0, stdout: "", stderr: "" });
+    expect(await readdir(registry("tracks"))).toEqual([`claude-code.${uuid(9)}.json`]);
   });
 
   describe("for track rm", () => {
@@ -299,17 +304,21 @@ describe("live notices", () => {
       await mshape(wt("tracks"), ["msg", "register"], hookInput(3), { CLAUDE_PID: "1003" });
       await writeFile(`${registry("tracks")}/junk.json`, "{");
       const live = await Effect.runPromise(
-        liveSessions(wt("tracks"), "tracks", claude, new Date()),
+        liveSessions(wt("tracks"), "tracks", harnesses({ CLAUDE_CONFIG_DIR: claude }), new Date()),
       );
       expect(live).toEqual([uuid(1), uuid(3)]);
       expect((await readdir(registry("tracks"))).sort()).toEqual([
-        `${uuid(1)}.json`,
-        `${uuid(2)}.json`,
-        `${uuid(3)}.json`,
+        `claude-code.${uuid(1)}.json`,
+        `claude-code.${uuid(2)}.json`,
+        `claude-code.${uuid(3)}.json`,
         "junk.json",
       ]);
       // From any checkout, and for a track with no registry at all.
-      expect(await Effect.runPromise(liveSessions(repo, "docs", claude, new Date()))).toEqual([]);
+      expect(
+        await Effect.runPromise(
+          liveSessions(repo, "docs", harnesses({ CLAUDE_CONFIG_DIR: claude }), new Date()),
+        ),
+      ).toEqual([]);
     });
 
     test("liveSessions: a running session inside the worktree counts even if it never registered", async () => {
@@ -331,7 +340,9 @@ describe("live notices", () => {
       await record(8, 2 ** 22 + 1, wt("tracks")); // above Linux's pid_max: never a live process
       await record(9, process.ppid, wt("docs")); // a second live pid: one record file per pid
       const live = (track: string) =>
-        Effect.runPromise(liveSessions(repo, track, claude, new Date()));
+        Effect.runPromise(
+          liveSessions(repo, track, harnesses({ CLAUDE_CONFIG_DIR: claude }), new Date()),
+        );
       expect(await live("tracks")).toEqual([uuid(7)]);
       expect(await live("docs")).toEqual([uuid(9)]);
     });
@@ -343,11 +354,13 @@ describe("live notices", () => {
         const removed = await Effect.runPromise(Effect.result(removeSessions(repo, bad)));
         expect(removed._tag).toBe("Failure");
         const listed = await Effect.runPromise(
-          Effect.result(liveSessions(repo, bad, claude, new Date())),
+          Effect.result(
+            liveSessions(repo, bad, harnesses({ CLAUDE_CONFIG_DIR: claude }), new Date()),
+          ),
         );
         expect(listed._tag).toBe("Failure");
       }
-      expect(await readdir(registry("tracks"))).toEqual([`${uuid(1)}.json`]);
+      expect(await readdir(registry("tracks"))).toEqual([`claude-code.${uuid(1)}.json`]);
     });
 
     test("removeSessions empties the track's registry and says how many it held", async () => {

@@ -5,13 +5,12 @@
  * - Codex reads `.codex/hooks.json` (Claude Code's shape) only once the human trusts the
  *   project, then each hook, by its file, event, position and a hash of its text; a changed
  *   or moved hook is asked about again. In a git worktree it runs the main checkout's file.
- * - Hook stdin carries `session_id`, the id `codex queue --thread` takes, and a
- *   `transcript_path` ending in `rollout-<...>.jsonl`. Hooks don't get `CODEX_THREAD_ID`;
- *   the agent's tool shells do.
+ * - Hook stdin carries `session_id`, the id `codex queue --thread` takes. Hooks don't get
+ *   `CODEX_THREAD_ID`; the agent's tool shells do.
  * - Skills are read from `.agents/skills`; a human names one as `$<skill>`.
  */
 
-import { hookCommand } from "../../core/hooks.ts";
+import { hookCommand, PRIME_FALLBACK } from "../../core/hooks.ts";
 import type {
   Harness,
   HarnessFile,
@@ -34,9 +33,12 @@ const EVENTS: Readonly<Record<Moment, string>> = {
 /** The flag every command this adapter renders carries, so the core asks only Codex. */
 const FLAG = ["--harness", "codex"] as const;
 
-/** A hook command as delivered: byte-stable across versions, so trust survives an upgrade. */
+/**
+ * A hook command as delivered: byte-stable across versions, so trust survives an upgrade.
+ * `prime` falls back to bd's primer where mshape can't run, as Claude Code's does.
+ */
 export const codexCommand = (args: ReadonlyArray<string>): string =>
-  hookCommand([...FLAG, ...args]);
+  hookCommand([...FLAG, ...args], args[0] === "prime" ? PRIME_FALLBACK : undefined);
 
 /**
  * Whether `command` is one monkeyshape wrote for Codex, in any version: every one runs
@@ -143,20 +145,22 @@ export const missingHooks = (
   return lacks;
 };
 
-/** A hook's stdin, when it is Codex's: a session id, and Codex's transcript or the flag. */
+/**
+ * A hook's `session_id`, only when the hook said it is Codex's (`--harness codex`): hook
+ * inputs look alike across harnesses, and an unflagged one (Claude Code's 0.6 hooks) is
+ * Claude Code's to claim, so claiming it too would make it ambiguous.
+ */
 const fromHook = (invocation: Invocation): string | undefined => {
-  if (invocation.hookInput === undefined) return undefined;
+  if (invocation.harness !== "codex" || invocation.hookInput === undefined) return undefined;
   let input: unknown;
   try {
     input = JSON.parse(invocation.hookInput);
   } catch {
     return undefined;
   }
-  if (!isObject(input) || typeof input["session_id"] !== "string") return undefined;
-  const transcript = input["transcript_path"];
-  const codexTranscript =
-    typeof transcript === "string" && /[/\\]rollout-[^/\\]+\.jsonl$/.test(transcript);
-  return invocation.harness === "codex" || codexTranscript ? input["session_id"] : undefined;
+  return isObject(input) && typeof input["session_id"] === "string"
+    ? input["session_id"]
+    : undefined;
 };
 
 /**

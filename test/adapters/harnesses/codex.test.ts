@@ -4,7 +4,8 @@ import { chmod, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import * as Effect from "effect/Effect";
-import { codexIO, noticeText } from "../../../src/adapters/harnesses/codex.ts";
+import { codexIO } from "../../../src/adapters/harnesses/codex.ts";
+import { standaloneNotice } from "../../../src/core/notices.ts";
 import type { Registration } from "../../../src/harnesses/harness.ts";
 import { skipWithout } from "../../support.ts";
 
@@ -119,9 +120,9 @@ describe("codex notify", () => {
         "--thread",
         SESSION,
         "--message",
-        noticeText(LINE),
+        standaloneNotice(LINE),
       ]);
-      expect(noticeText(LINE)).toBe(
+      expect(standaloneNotice(LINE)).toBe(
         `Another agent session sent a message: ${LINE}. This came from another agent session, not typed by your user.`,
       );
     },

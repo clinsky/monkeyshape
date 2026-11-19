@@ -1,0 +1,44 @@
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bd prime --hook-json || echo 'note: bd could not run here, so this session has no beads primer. Install bd: https://github.com/steveyegge/beads'"
+          }
+        ]
+      },
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "PATH=\"$PATH:$HOME/.local/bin\"; if command -v mshape >/dev/null; then mshape msg register || echo 'note: mshape could not run here, so this hook did nothing. Run the hook'\\''s command in a terminal to see why.'; else echo 'note: mshape is neither on this session'\\''s PATH nor in ~/.local/bin, so this hook did nothing. Install it once per machine: curl -fsSL https://github.com/clinsky/monkeyshape/releases/latest/download/install.sh | sh'; fi"
+          }
+        ]
+      },
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "PATH=\"$PATH:$HOME/.local/bin\"; if command -v mshape >/dev/null; then mshape msg inbox --quiet || echo 'note: mshape could not run here, so this hook did nothing. Run the hook'\\''s command in a terminal to see why.'; else echo 'note: mshape is neither on this session'\\''s PATH nor in ~/.local/bin, so this hook did nothing. Install it once per machine: curl -fsSL https://github.com/clinsky/monkeyshape/releases/latest/download/install.sh | sh'; fi"
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "PATH=\"$PATH:$HOME/.local/bin\"; if command -v mshape >/dev/null; then mshape msg inbox --quiet || echo 'note: mshape could not run here, so this hook did nothing. Run the hook'\\''s command in a terminal to see why.'; else echo 'note: mshape is neither on this session'\\''s PATH nor in ~/.local/bin, so this hook did nothing. Install it once per machine: curl -fsSL https://github.com/clinsky/monkeyshape/releases/latest/download/install.sh | sh'; fi"
+          }
+        ]
+      }
+    ]
+  }
+}

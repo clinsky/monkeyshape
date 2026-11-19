@@ -395,4 +395,27 @@ needs a model to start.
 
 ## Amendments
 
-None yet.
+- **2026-11-19, the harness interface is frozen (`harness`, `z1u.1`), recorded by the
+  planning session.** The frozen file is `src/harnesses/harness.ts` at 0ad0eb5 on
+  `track/harness`, reviewed by `codex` against codex-cli 0.170.0. From the plan's sketch:
+  delivery kinds are `whole` and `owned-entries` (the sketch's `owned-key`): in a JSON file
+  the repo also edits, monkeyshape's entries are exactly the shipped ones and the repo's are
+  kept, so removing a hook (`iwf`) and removing a harness are one operation. Every rendered
+  hook command passes `--harness <id>`, since Codex's and Claude Code's hook inputs look alike
+  and env vars leak across a nested launch; with no flag and two claims nothing is guessed.
+  An optional `afterDelivery` names a human step no check can see (Codex's project and hook
+  trust). A registration is `harness`, `session`, `pid?`, `endpoint?`, `registered`, keyed by
+  harness and session; a session's status gains `unknown`, which never prunes. The I/O half
+  is `status`, `notify` and `runningIn` (for `track rm`). `pi` starts now; from here a change
+  to `harness.ts` is a divergence sent to `main` with why.
+- **2026-11-19, Codex's live notices go through `codex queue`, naming sender and subject
+  (`codex`, `z1u.5`), the maintainer's decision.** Tested on codex-cli 0.170.0: `codex queue`
+  wakes an idle interactive session (a turn about 5s later), reaches a busy one after its
+  turn, and lands as user-role input. A notice goes only to a session seen running (never
+  `--resume`). Where monkeyshape writes a notice's whole text (Codex, pi), it is framed as
+  Claude Code frames a peer's message, naming no harness: "Another agent session sent a
+  message: [mshape] Message from <sender>: <subject> (mshape msg read <id>). This came from
+  another agent session, not typed by your user." Never the body. Claude Code keeps its own
+  wrapper around monkeyshape's line ("Another Claude session ..."), which monkeyshape can't
+  change. This replaces the Notices paragraph's "the line says it is mail from another
+  session"; the acceptance's "live while idle" stands for Codex.

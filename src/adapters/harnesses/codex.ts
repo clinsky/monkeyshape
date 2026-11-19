@@ -14,6 +14,7 @@ import { closeSync, existsSync, openSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import * as Effect from "effect/Effect";
+import { standaloneNotice } from "../../core/notices.ts";
 import type { HarnessIO, Registration, Sent, SessionStatus } from "../../harnesses/harness.ts";
 import { runTool } from "../process.ts";
 
@@ -24,15 +25,6 @@ export const codexHome = (env: Env): string => env["CODEX_HOME"] || join(homedir
 
 const LOCKS = "thread-writer-locks";
 const STATE_DB = "state_5.sqlite";
-
-/**
- * What a notice says around `line` (sender, one-line subject, the read command; never the
- * body). `codex queue` can only add user-role input, so it says, as Claude Code frames a peer
- * message, that no user typed it (the maintainer's wording, 2026-11-19).
- * TODO: use `standaloneNotice` from src/core/notices.ts once harness's first PR lands it.
- */
-export const noticeText = (line: string): string =>
-  `Another agent session sent a message: ${line}. This came from another agent session, not typed by your user.`;
 
 type Flock = (fd: number, operation: number) => number;
 
@@ -152,7 +144,7 @@ export const codexIO = (env: Env): HarnessIO => {
             return Effect.succeed({ ok: false, gone: false, reason: "codex isn't on PATH" });
           return runTool(
             home,
-            [codex, "queue", "--thread", registration.session, "--message", noticeText(line)],
+            [codex, "queue", "--thread", registration.session, "--message", standaloneNotice(line)],
             undefined,
             env,
           ).pipe(

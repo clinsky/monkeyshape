@@ -59,8 +59,9 @@ where the two differ.
   `.beads/PRIME.md` must equal it. Edit the template, then `bun src/cli/main.ts sync`.
 - A command that talks to GitHub is done once it has run on a real PR: a fake `gh` passed
   two bugs that the first real run of `track pr` found (colour codes, gh 2.4's `pr edit`).
-- A test that spawns the CLI sets `CLAUDE_CODE_SESSION_ID` and `CLAUDE_PID` to `""`: run inside
-  a Claude Code session, the real ids leak in and register that session in the temp repo.
+- A test that spawns the CLI sets each harness's identity variables to `""` (Claude Code's
+  `CLAUDE_CODE_SESSION_ID` and `CLAUDE_PID`, Codex's `CODEX_THREAD_ID`): run inside a session,
+  the real ids leak in and register that session in the temp repo.
 - The gate runs test files in parallel, so a test's time depends on the machine's load: CI's
   4-core runner is several times slower than a laptop. The gate's `--timeout=30000` is a hang
   guard sized for that; give a test its own timeout only above it.
