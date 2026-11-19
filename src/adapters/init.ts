@@ -7,6 +7,7 @@ import { deliver, deliveries, shippedFiles } from "../core/delivery.ts";
 import { VENDOR_DIR, vendoredSpecOf } from "../core/dep.ts";
 import { HANDOFFS_LINK, handoffsLink, handoffsStore } from "../core/layout.ts";
 import {
+  afterDelivery,
   type BornPin,
   CONFIG,
   PACKS_DIR,
@@ -198,7 +199,7 @@ export const initRepo = (
       catch: (cause) => partial(`cannot write the template: ${String(cause)}`),
     });
     const done = [`wrote ${files.size} files`];
-    const notes: Array<string> = [];
+    const notes: Array<string> = [...afterDelivery(harnesses)];
     // The pack's copied and table-owned base configs, as `mshape sync` delivers them: a repo
     // whose pack needs no Bun runs no sync at init, and its first gate holds it to them.
     const delivered = yield* deliverBaseConfigs(target, packageRoot, pack, files);

@@ -38,6 +38,7 @@ const EXTENSION = { path: ".other/extension.ts", text: "// monkeyshape's extensi
 const other: Harness = {
   id: "pi",
   name: "Other",
+  afterDelivery: "trust it at the next start",
   moments: ["session-start"],
   files: (hooks) => (hooks.length === 0 ? [] : [{ kind: "whole", ...EXTENSION }]),
   skills: { kind: "native" },
@@ -143,6 +144,11 @@ describe("Harness selection: the plan's table", () => {
 
   test("two harnesses listed: both delivered", async () => {
     const plan = await sync(["claude-code", "pi"]);
+    // The step only a human can take is said once, when that harness's files changed.
+    const trust = (notes: ReadonlyArray<string>) =>
+      notes.filter((note) => note.startsWith("Other:"));
+    expect(trust(plan.notes)).toEqual(["Other: trust it at the next start"]);
+    expect(trust((await sync(["claude-code", "pi"])).notes)).toEqual([]);
     expect([...plan.write.keys()].sort()).toEqual(
       [EXTENSION.path, SETTINGS_FILE, ".beads/PRIME.md", ".github/pull_request_template.md"]
         .filter((path) => path !== ".beads/PRIME.md")

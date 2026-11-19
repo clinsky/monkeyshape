@@ -100,6 +100,12 @@ const common = (harnesses: ReadonlyArray<Harness>): Record<string, string> => ({
   [PR_TEMPLATE_FILE]: prTemplate(),
 });
 
+/** What the human must do before a born repo's harnesses run its hooks, one line each. */
+export const afterDelivery = (harnesses: ReadonlyArray<Harness>): ReadonlyArray<string> =>
+  harnesses.flatMap((harness) =>
+    harness.afterDelivery === undefined ? [] : [`${harness.name}: ${harness.afterDelivery}`],
+  );
+
 /**
  * A config with `harnesses` recorded, after its `packs` line, unless they are the default,
  * which a born repo leaves unsaid as every repo before `harnesses` did.

@@ -262,6 +262,10 @@ export const planSync = (state: SyncState, shippedPrime: string): SyncPlan => {
     if (need.kind === "write") {
       write.set(path, need.text);
       if (delivery.current === undefined) created.push(path);
+      // A step no check can see (Codex's trust), said once per harness whose files changed.
+      const after = delivery.harness.afterDelivery;
+      const said = `${delivery.harness.name}: ${after}`;
+      if (delivery.listed && after !== undefined && !notes.includes(said)) notes.push(said);
     } else if (need.kind === "remove") remove.push(path);
     else if (need.kind === "invalid" && delivery.listed)
       blocked.push(`${path}: left alone, since it isn't a JSON object; fix it, then sync again`);
