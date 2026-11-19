@@ -6,6 +6,7 @@ import * as Effect from "effect/Effect";
 import { importTsConfig, loadConfig } from "../../src/adapters/config.ts";
 import { migrateConfig } from "../../src/adapters/migrate.ts";
 import { DEFAULT_DOCS, resolveConfig } from "../../src/schemas/config.ts";
+import { ConfigError } from "../../src/schemas/errors.ts";
 
 let dir = "";
 
@@ -163,6 +164,31 @@ export default {
     expect(again.code).toBe(1);
     expect(again.lines[0]).toContain("already here, so this repo is migrated");
     expect(await Bun.file(join(dir, "shape.toml")).text()).toBe(written);
+  });
+
+  test("an old config that doesn't load today: refused with its reason, nothing changed", async () => {
+    // It decodes, but names a tool no listed pack has: the loader refuses it today.
+    await old('export default { prerequisites: { rustc: "optional" } };\n');
+    const result = await migrate();
+    expect(result.code).toBe(1);
+    expect(result.lines[0]).toContain("shape.config.ts doesn't load today (");
+    expect(result.lines[0]).toContain("prerequisites.rustc");
+    expect(await has("shape.config.ts")).toBe(true);
+    expect(await has("shape.toml")).toBe(false);
+  });
+
+  test("the shape.toml it wrote doesn't load: shape.config.ts stays, and no shape.toml is left", async () => {
+    await old(PLAIN);
+    // A loader that takes the old config and refuses the new one, as a bug in migrate would.
+    const load: typeof loadConfig = (root, given) =>
+      given?.endsWith(".toml")
+        ? Effect.fail(new ConfigError({ path: "shape.toml", reason: "refused for the test" }))
+        : loadConfig(root, given);
+    const result = await Effect.runPromise(migrateConfig(dir, PIN, load));
+    expect(result.code).toBe(1);
+    expect(result.lines[0]).toContain("doesn't load (shape.toml: refused for the test)");
+    expect(await Bun.file(join(dir, "shape.config.ts")).text()).toBe(PLAIN);
+    expect(await has("shape.toml")).toBe(false);
   });
 
   test("no shape.config.ts: refuses, saying where a config comes from", async () => {

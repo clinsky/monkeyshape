@@ -26,8 +26,11 @@ export interface MigrateResult {
   readonly code: number;
 }
 
-/** Migrates `root`'s `shape.config.ts` to `shape.toml`, pinning `pin`. */
-export const migrateConfig = (root: string, pin: BornPin) =>
+/**
+ * Migrates `root`'s `shape.config.ts` to `shape.toml`, pinning `pin`. `load` reads a config as
+ * `mshape` will, `loadConfig` but for tests that need it to fail.
+ */
+export const migrateConfig = (root: string, pin: BornPin, load: typeof loadConfig = loadConfig) =>
   Effect.gen(function* () {
     const refuse = (line: string): MigrateResult => ({ lines: [line], code: 1 });
     if (yield* exists(join(root, CONFIG_FILE)))
@@ -39,6 +42,13 @@ export const migrateConfig = (root: string, pin: BornPin) =>
       return refuse(
         `there is no ${TS_CONFIG_FILE} here to migrate. Run mshape config migrate at the root of a repo that has one; a new repo gets ${CONFIG_FILE} from mshape init`,
       );
+    // The old config as mshape loads it today: one that doesn't is fixed first, in the language
+    // its author wrote, rather than carried into shape.toml.
+    const today = yield* Effect.result(load(root, path));
+    if (today._tag === "Failure")
+      return refuse(
+        `${TS_CONFIG_FILE} doesn't load today (${today.failure.message}), so nothing was changed. Fix it until mshape check loads it, then run mshape config migrate again`,
+      );
     const config = yield* importTsConfig(root, path, TS_CONFIG_FILE);
     const source = yield* Effect.promise(() => Bun.file(path).text());
     const ruleIds = (config.localRules ?? []).map(ruleId);
@@ -47,12 +57,13 @@ export const migrateConfig = (root: string, pin: BornPin) =>
       if (yield* exists(join(root, SHAPE_RULES_DIR, `${id}.yml`))) ported.add(id);
     const plan = planMigration({ config, source, ruleIds, ported, pin });
     if ("refused" in plan) return { lines: plan.refused, code: 1 } satisfies MigrateResult;
-    // Loaded as mshape will load it, from beside the repo, before it replaces anything.
+    // Loaded as mshape will load it, from beside the repo, before it replaces anything: a
+    // failure leaves shape.config.ts as it was and writes no shape.toml into the repo.
     const dir = yield* Effect.promise(() => mkdtemp(join(tmpdir(), "mshape-migrate-")));
     const loaded = yield* Effect.gen(function* () {
       const trial = join(dir, CONFIG_FILE);
       yield* Effect.promise(() => writeFile(trial, plan.toml));
-      return yield* Effect.result(loadConfig(root, trial));
+      return yield* Effect.result(load(root, trial));
     }).pipe(Effect.ensuring(Effect.promise(() => rm(dir, { recursive: true, force: true }))));
     if (loaded._tag === "Failure")
       return refuse(
