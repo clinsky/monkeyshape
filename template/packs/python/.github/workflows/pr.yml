@@ -13,9 +13,12 @@ jobs:
     timeout-minutes: 5
     steps:
       - uses: actions/checkout@v4
+      # mshape at shape.toml's pin ([mshape] version; the latest release when unpinned), verified
+      # by install.sh against the release's SHA256SUMS. Inside the repo, it runs the pinned version.
       - name: Install mshape
         run: |
-          curl -fsSL https://github.com/clinsky/monkeyshape/releases/latest/download/install.sh | sh
+          version=$(awk '/^\[/ { t = ($0 == "[mshape]") } t && /^version *=/ { gsub(/^version *= *"|".*$/, ""); print; exit }' shape.toml)
+          curl -fsSL https://github.com/clinsky/monkeyshape/releases/latest/download/install.sh | MSHAPE_VERSION="$version" sh
           echo "$HOME/.local/bin" >> "$GITHUB_PATH"
       - name: The PR body has every required section
         env:
