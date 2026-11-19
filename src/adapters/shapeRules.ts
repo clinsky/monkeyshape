@@ -107,8 +107,13 @@ interface Case {
   readonly path?: string;
 }
 
-/** A repo-relative path a case may name: no `..`, not absolute. */
-const SAFE_PATH = /^(?!\/)(?!.*(?:^|\/)\.\.(?:\/|$))[^\0]+$/u;
+/**
+ * A repo-relative file path a case may name: segments joined by `/`, none empty, `.` or
+ * `..`, so it is neither absolute, outside the repo, nor a directory.
+ */
+const isFilePath = (path: string): boolean =>
+  !path.includes("\0") &&
+  path.split("/").every((segment) => segment !== "" && segment !== "." && segment !== "..");
 
 /** Why `entry` isn't a case: a snippet, or `{ path, code }`. */
 const caseOf = (
@@ -125,8 +130,8 @@ const caseOf = (
         .join(", ")}: a case is \`{ path, code }\``,
     };
   if (typeof code !== "string") return { reason: "has no `code`, the source to run the rule on" };
-  if (typeof path !== "string" || !SAFE_PATH.test(path))
-    return { reason: `has \`path: ${JSON.stringify(path)}\`, not a path inside the repo` };
+  if (typeof path !== "string" || !isFilePath(path))
+    return { reason: `has \`path: ${JSON.stringify(path)}\`, not a file path inside the repo` };
   return { code, path };
 };
 
@@ -140,10 +145,18 @@ const scanAt = (sg: string, rule: string, path: string, code: string) =>
     Effect.promise(() => mkdtemp(join(tmpdir(), "mshape-shape-case-"))),
     (dir) =>
       Effect.gen(function* () {
-        yield* Effect.promise(async () => {
+        // Whatever the disk refuses is this case's error, never the whole check's.
+        const written = yield* Effect.tryPromise(async () => {
           await mkdir(dirname(join(dir, path)), { recursive: true });
           await Bun.write(join(dir, path), code);
-        });
+        }).pipe(
+          Effect.match({
+            onFailure: (cause) =>
+              `it could not be written to ${path}: ${String(cause.cause ?? cause)}`,
+            onSuccess: () => undefined,
+          }),
+        );
+        if (written !== undefined) return { matches: [], error: written } satisfies Scanned;
         return yield* scan(sg, dir, rule);
       }),
     (dir) => Effect.promise(() => rm(dir, { recursive: true, force: true })),

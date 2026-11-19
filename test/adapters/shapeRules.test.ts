@@ -216,7 +216,37 @@ valid:
     expect(byFile.get("shape-rules/bad-cases.yml")?.cases).toEqual({
       state: "invalid",
       file: "shape-rules/bad-cases.test.yml",
-      reason: 'its invalid case 1 has `path: "../outside.rs"`, not a path inside the repo',
+      reason: 'its invalid case 1 has `path: "../outside.rs"`, not a file path inside the repo',
     });
+    // A file path the disk refuses (a name past 255 bytes): that case's error, the rest run.
+    const long = join(work, "long-name");
+    const longFiles = await write(long, {
+      "shape-rules/long.yml": RULE.replace("no-unwrap", "long"),
+      "shape-rules/long.test.yml": `invalid:\n  - path: src/${"a".repeat(300)}.rs\n    code: "y.unwrap()"\n  - "y.unwrap()"\n`,
+    });
+    const longRun = (await Effect.runPromise(loadShapeRules(long, longFiles, cache)))?.rules[0]
+      ?.cases;
+    expect(longRun).toMatchObject({
+      state: "ran",
+      runs: [
+        { index: 1, matches: 0 },
+        { index: 2, matches: 1 },
+      ],
+    });
+    expect(JSON.stringify(longRun)).toContain("could not be written to src/aaa");
+    // A directory, however written, is no file a case can be: refused, never a crash.
+    for (const path of ["src/core/", ".", "src/core/x.rs/", "src//x.rs", "/abs.rs"]) {
+      const dir = join(work, `bad-path-${files.length}-${path.replace(/\W/gu, "_")}`);
+      const listed = await write(dir, {
+        "shape-rules/bad-cases.yml": RULE.replace("no-unwrap", "bad-cases"),
+        "shape-rules/bad-cases.test.yml": `invalid:\n  - path: ${JSON.stringify(path)}\n    code: "y.unwrap()"\n`,
+      });
+      const refused = await Effect.runPromise(loadShapeRules(dir, listed, cache));
+      expect(refused?.rules[0]?.cases).toEqual({
+        state: "invalid",
+        file: "shape-rules/bad-cases.test.yml",
+        reason: `its invalid case 1 has \`path: ${JSON.stringify(path)}\`, not a file path inside the repo`,
+      });
+    }
   }, 120_000);
 });
