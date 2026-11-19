@@ -50,7 +50,7 @@ export const biomeCovers = (biome: unknown, file: string): boolean => {
 };
 
 const exemptHint = (config: ResolvedConfig): string =>
-  `keep it under a directory named in \`coverage.exempt\` in shape.config.ts (by default ${config.coverage.exempt.join(", ")}). To hold it out on purpose for now, \`mshape baseline --init\` grandfathers it, and the ratchet keeps the count from growing.`;
+  `keep it under a directory named in \`coverage.exempt\` in ${config.configFile} (by default ${config.coverage.exempt.join(", ")}). To hold it out on purpose for now, \`mshape baseline --init\` grandfathers it, and the ratchet keeps the count from growing.`;
 
 const MISSING = "is missing or not valid JSON";
 

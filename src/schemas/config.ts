@@ -550,6 +550,23 @@ export interface ResolvedConfig {
   };
 }
 
+/** `refs.narrative-docs` when unset: docs that may link into notes, plans and handoffs. */
+export const DEFAULT_NARRATIVE_DOCS: ReadonlyArray<string> = ["README.md"];
+
+/** `refs.form-only-docs` when unset: docs held to form only. */
+export const DEFAULT_FORM_ONLY_DOCS: ReadonlyArray<string> = ["plan/**/*.md", "notes/**/*.md"];
+
+/** `coverage.exempt` when unset: path segments of generated or vendored code. */
+export const DEFAULT_COVERAGE_EXEMPT: ReadonlyArray<string> = [
+  "node_modules",
+  "dist",
+  "out",
+  "build",
+  "coverage",
+  "vendor",
+  "generated",
+];
+
 export const DEFAULT_DOCS: ReadonlyArray<string> = [
   "AGENTS.md",
   "CLAUDE.md",
@@ -630,8 +647,8 @@ export const resolveConfig = (
   localRules: config.localRules ?? [],
   refs: {
     docs: extended(config.refs?.docs, DEFAULT_DOCS),
-    narrativeDocs: extended(config.refs?.narrativeDocs, ["README.md"]),
-    formOnlyDocs: extended(config.refs?.formOnlyDocs, ["plan/**/*.md", "notes/**/*.md"]),
+    narrativeDocs: extended(config.refs?.narrativeDocs, DEFAULT_NARRATIVE_DOCS),
+    formOnlyDocs: extended(config.refs?.formOnlyDocs, DEFAULT_FORM_ONLY_DOCS),
     forbidden: config.refs?.forbidden ?? [],
     rules: config.refs?.rules ?? {},
   },
@@ -649,15 +666,7 @@ export const resolveConfig = (
   coverage: {
     tsconfigs: config.coverage?.tsconfigs ?? ["tsconfig.json"],
     biome: config.coverage?.biome ?? "biome.json",
-    exempt: extended(config.coverage?.exempt, [
-      "node_modules",
-      "dist",
-      "out",
-      "build",
-      "coverage",
-      "vendor",
-      "generated",
-    ]),
+    exempt: extended(config.coverage?.exempt, DEFAULT_COVERAGE_EXEMPT),
     commands: config.coverage?.commands ?? [],
     exemptFiles: config.coverage?.exemptFiles ?? [],
   },

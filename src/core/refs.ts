@@ -3,7 +3,7 @@
  * Docs: backticked paths, `bun run` scripts, decision slugs and relative links must exist, and
  * each backticked span sits on one line, where it can be checked;
  * normative docs may not link into notes/, plan/ or handoffs. Plans and notes are held to form
- * only (`refs.formOnlyDocs`): one-line spans, no `§N`, no forbidden text, never whether a
+ * only (`refs.form-only-docs`): one-line spans, no `§N`, no forbidden text, never whether a
  * path still exists. Code comments, in every listed pack's language: no links into
  * those either, no `§N` citations, decision slugs must exist, bead ids only in `TODO(id)`.
  */

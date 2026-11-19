@@ -1,6 +1,6 @@
 /**
  * Console output belongs to entry files: library code that prints decides, on behalf of every
- * caller, where text goes and that it goes at all. Entry files are `entry` in shape.config.ts,
+ * caller, where text goes and that it goes at all. Entry files are `entry` in shape.toml,
  * so this follows the config wherever entries live; biome's own noConsole, which can't read
  * the config, stays on only for JavaScript (config/biome.base.json).
  *
@@ -18,7 +18,7 @@ export const noConsole: Rule = {
   bugClass:
     "Library code writing to the console, which every caller then inherits and no test sees.",
   message:
-    "writes to the console outside an entry file. Return the text to the caller, or log through Effect (Effect.log) so the entry decides where it goes; if this file is a composition root, add it to `entry` in shape.config.ts.",
+    "writes to the console outside an entry file. Return the text to the caller, or log through Effect (Effect.log) so the entry decides where it goes; if this file is a composition root, add it to `entry` in shape.toml.",
   entryExempt: true,
   visit: (parsed, report) => {
     const local = scopes(parsed.program);

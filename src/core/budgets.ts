@@ -230,7 +230,7 @@ export const checkBudgets = (
         violation(
           "file-lines",
           file,
-          `has ${lines} lines (budget ${budgets.fileFailLines}). Split it, or allow it in budgets.largeFiles with a reason.`,
+          `has ${lines} lines (budget ${budgets.fileFailLines}). Split it, or allow it in budgets.large-files with a reason.`,
         ),
       );
   for (const allowance of allowed)
@@ -243,7 +243,7 @@ export const checkBudgets = (
         violation(
           "unused-allowance",
           config.configFile,
-          `budgets.largeFiles '${allowance.path}' allows nothing; delete it`,
+          `budgets.large-files '${allowance.path}' allows nothing; delete it`,
         ),
       );
   return violations;
