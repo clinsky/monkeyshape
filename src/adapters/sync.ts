@@ -11,6 +11,7 @@ import { SKILLS_DIR, SKILLS_MANIFEST } from "../core/layout.ts";
 import { ownedFiles, parseManifest, skillsLinkOf } from "../core/skills.ts";
 import {
   harnessDeliveries,
+  harnessPaths,
   isPrTemplate,
   planSync,
   SYNCED_FILES,
@@ -101,9 +102,8 @@ export const syncRepo = (
           `${SKILLS_DIR}/${SKILLS_MANIFEST} is not the list sync writes, so nothing was changed. Restore it with \`git checkout -- ${SKILLS_DIR}/${SKILLS_MANIFEST}\``,
         );
       const texts = new Map<string, string | undefined>();
-      for (const harness of harnesses?.shipped ?? [])
-        for (const file of harness.files([]))
-          texts.set(file.path, await text(`${repo}/${file.path}`));
+      for (const path of harnessPaths(harnesses?.shipped ?? []))
+        texts.set(path, await text(`${repo}/${path}`));
       const harnessFiles =
         harnesses === undefined
           ? []

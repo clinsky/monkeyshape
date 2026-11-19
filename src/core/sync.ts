@@ -76,7 +76,9 @@ const ignoredMessage = (file: string, harness?: string): string => {
 
 /**
  * A harness's file as sync sees it: listed harnesses deliver the loop's hooks; a shipped harness
- * the repo doesn't list delivers none, so what monkeyshape wrote for it goes.
+ * the repo doesn't list delivers none, so what monkeyshape wrote for it goes. For that, a whole
+ * file is the one it writes when listed (removed only while unchanged), and an owned-entries
+ * file merges with no hooks, which removes monkeyshape's entries alone.
  */
 export interface HarnessDelivery {
   readonly harness: Harness;
@@ -93,9 +95,14 @@ export const harnessDeliveries = (
 ): ReadonlyArray<HarnessDelivery> =>
   shipped.flatMap((harness) => {
     const on = listed.includes(harness.id);
-    return harness
-      .files(on ? LOOP_HOOKS : [])
-      .map((file) => ({ harness, listed: on, file, current: text(file.path) }));
+    const none = on ? [] : harness.files([]);
+    return harness.files(LOOP_HOOKS).map((written) => {
+      const file =
+        on || written.kind === "whole"
+          ? written
+          : (none.find((one) => one.path === written.path) ?? written);
+      return { harness, listed: on, file, current: text(file.path) };
+    });
   });
 
 /** Whether two JSON texts hold the same value, whatever their formatting. */

@@ -2,7 +2,7 @@
  * Who runs a command: the harness a hook names, the hook's input, and what each harness this
  * mshape ships makes of them. The composition root's, beside `main.ts`.
  */
-import { type Harnesses, harnesses } from "../adapters/harnesses/index.ts";
+import { type Harnesses, harnesses, listedHarnesses } from "../adapters/harnesses/index.ts";
 import type { Caller } from "../adapters/notices.ts";
 import { identifySession } from "../core/notices.ts";
 import type { Invocation } from "../harnesses/harness.ts";
@@ -21,7 +21,12 @@ export const setInvokedBy = (harness: Invocation["harness"]): void => {
 /** The caller, as its harness tells it: `hookInput` is a hook's stdin, when there is one. */
 const callerFrom = (hookInput?: string): Caller => {
   const shipped: Harnesses = harnesses(process.env);
-  const found = identifySession(shipped.list, {
+  // A hook names its harness, which is asked whatever the repo lists.
+  const listed = invokedBy === undefined ? listedHarnesses(process.cwd()) : undefined;
+  const asked = shipped.list.filter(
+    (harness) => listed === undefined || listed.includes(harness.id),
+  );
+  const found = identifySession(asked.length === 0 ? shipped.list : asked, {
     env: process.env,
     ...(hookInput === undefined ? {} : { hookInput }),
     ...(invokedBy === undefined ? {} : { harness: invokedBy }),
