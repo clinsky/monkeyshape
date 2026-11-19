@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { checkRules } from "../../src/core/rules/engine.ts";
 import { noConsole } from "../../src/core/rules/noConsole.ts";
 import type { ShapeConfig } from "../../src/schemas/config.ts";
-import { config, repo, ruleLines } from "../support.ts";
+import { config, repo, ruled, ruleLines } from "../support.ts";
 
 describe("no-console", () => {
   test("fails: a call, globalThis.console, destructuring, and passing console whole", () => {
@@ -36,8 +36,10 @@ describe("no-console", () => {
     const run = (shape: ShapeConfig) =>
       checkRules(
         config(shape),
-        repo({ "app/main.ts": 'console.log("x");\n', "app/lib/a.ts": 'console.log("x");\n' }),
-        [noConsole],
+        ruled(
+          repo({ "app/main.ts": 'console.log("x");\n', "app/lib/a.ts": 'console.log("x");\n' }),
+          [noConsole],
+        ),
       ).map((v) => `${v.rule} ${v.file}`);
     const shape = { sources: { include: ["app/**/*.ts"] } };
     expect(run({ ...shape, entry: ["app/main.ts"] })).toEqual(["rules/no-console app/lib/a.ts"]);
@@ -47,11 +49,12 @@ describe("no-console", () => {
 
   test("tests are out of sources by default; a test put in sources is held to it, as intended", () => {
     const files = { "src/a.test.ts": 'console.log("x");\n' };
-    expect(checkRules(config({}), repo(files), [noConsole])).toEqual([]);
+    expect(checkRules(config({}), ruled(repo(files), [noConsole]))).toEqual([]);
     expect(
-      checkRules(config({ sources: { include: ["src/**/*.ts"], exclude: [] } }), repo(files), [
-        noConsole,
-      ]).map((v) => v.rule),
+      checkRules(
+        config({ sources: { include: ["src/**/*.ts"], exclude: [] } }),
+        ruled(repo(files), [noConsole]),
+      ).map((v) => v.rule),
     ).toEqual(["rules/no-console"]);
   });
 });

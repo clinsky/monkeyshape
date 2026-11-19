@@ -96,19 +96,24 @@ export const runRule = (rule: Rule, parsed: Parsed): ReadonlyArray<Finding> => {
   return "broken" in found ? [] : found;
 };
 
+/**
+ * Each file's claiming pack's own rules, the repo's `localRules` and its `shape-rules/`, with
+ * the engine's scope, allowances and `shape-ignore` around them all.
+ */
 export const checkRules = (
   config: ResolvedConfig,
   snapshot: Snapshot,
-  rules: ReadonlyArray<Rule>,
 ): ReadonlyArray<Violation> => {
   const violations: Array<Violation> = [];
   const local = localRules(config.localRules);
   for (const reason of local.broken)
     violations.push(violation("local-rule", config.configFile, 1, reason));
-  const all = [...rules, ...local.rules];
-  const active = all.filter(
-    (rule) => config.layers.includes(rule.layer) && config.rules[rule.id]?.off === undefined,
-  );
+  const on = (rule: { readonly id: string; readonly layer: string }) =>
+    (config.layers as ReadonlyArray<string>).includes(rule.layer) &&
+    config.rules[rule.id]?.off === undefined;
+  const packRules = snapshot.packs.flatMap(({ pack }) => pack.rules);
+  const all = [...packRules, ...local.rules];
+  const active = local.rules.filter(on);
   for (const rule of active)
     for (const problem of local.cases.get(rule.id)?.(
       (config.rules[rule.id]?.allow ?? []).map((allowance) => allowance.path),
@@ -191,10 +196,16 @@ export const checkRules = (
         report(rule.id, match.line, match.message ?? rule.message);
 
     const entry = matchesAny(file, config.entry);
-    const context = contextFor(snapshot, file);
-    // The registry's rules and `localRules` read oxc's tree: TypeScript's alone, until the
-    // engine runs each pack's own rules (with ast-grep's for the repo's).
+    // The claiming pack's own rules, each over the file's text, in the pack's language.
+    for (const rule of pack.rules) {
+      if (!on(rule) || (rule.entryExempt && entry)) continue;
+      for (const finding of rule.run(source, snapshot.texts))
+        report(rule.id, lineAt(text, finding.offset), finding.message ?? rule.message);
+    }
+    // TODO(monkeyshape-8il.2): `localRules` read oxc's tree, TypeScript's alone; they go
+    // with shape.config.ts, and this with them.
     const parsed = pack.id === "typescript" ? parse(file, text) : undefined;
+    const context = contextFor(snapshot, file);
     for (const rule of active) {
       if (parsed === undefined) break;
       if (rule.entryExempt && entry) continue;

@@ -7,9 +7,8 @@ import { describe, expect, test } from "bun:test";
 import { report } from "../../src/core/check.ts";
 import type { ShapeRuleRun, ShapeRules, Snapshot } from "../../src/core/model.ts";
 import { checkRules, formatRules, localRuleHatches } from "../../src/core/rules/engine.ts";
-import { RULES } from "../../src/core/rules/registry.ts";
 import type { ShapeConfig } from "../../src/schemas/config.ts";
-import { config, repo } from "../support.ts";
+import { config, repo, ruled } from "../support.ts";
 
 const SOURCE = [
   "export const a = (y: number | undefined) => {",
@@ -52,7 +51,9 @@ const withRules = (
 ): Snapshot => ({ ...repo(files), shapeRules: { integration, rules } });
 
 const found = (snapshot: Snapshot, shape: ShapeConfig = {}) =>
-  checkRules(config(shape), snapshot, []).map((v) => `${v.rule} ${v.file}:${v.line} ${v.message}`);
+  checkRules(config(shape), ruled(snapshot, [])).map(
+    (v) => `${v.rule} ${v.file}:${v.line} ${v.message}`,
+  );
 
 describe("adopter rules through ast-grep", () => {
   test("a match outside an allowance is local/<id> at its line, with the rule's message", () => {
@@ -154,7 +155,7 @@ describe("adopter rules through ast-grep", () => {
 
   test("an id that collides with a core rule fails, naming both", () => {
     const throwing = rule({ file: "shape-rules/no-throw.yml", id: "no-throw" });
-    const problems = checkRules(config(), withRules([throwing]), RULES).filter(
+    const problems = checkRules(config(), withRules([throwing])).filter(
       (v) => v.rule === "rules/local-rule",
     );
     expect(problems.map((v) => `${v.file}: ${v.message}`)).toEqual([

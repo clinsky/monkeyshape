@@ -13,7 +13,7 @@ import { lineAt } from "../src/core/model.ts";
 import { parse } from "../src/core/parse.ts";
 import { type Rule, runRule } from "../src/core/rules/engine.ts";
 import type { LoadedPack, Pack } from "../src/packs/pack.ts";
-import { typescript } from "../src/packs/typescript/index.ts";
+import { onText, typescript } from "../src/packs/typescript/index.ts";
 import {
   type PackId,
   type ResolvedConfig,
@@ -165,6 +165,19 @@ export const fakePack = (id: PackId, language: string, extension: string): Pack 
   stages: [],
   prerequisites: [],
   loadFor: [],
+});
+
+/**
+ * `snapshot` with `rules` as the TypeScript pack's rules in place of the registry's: a test of
+ * one rule, or of the engine with none.
+ */
+export const ruled = (snapshot: Snapshot, rules: ReadonlyArray<Rule>): Snapshot => ({
+  ...snapshot,
+  packs: snapshot.packs.map((loaded) =>
+    loaded.pack.id === "typescript"
+      ? { ...loaded, pack: { ...loaded.pack, rules: rules.map(onText) } }
+      : loaded,
+  ),
 });
 
 /** A pack as listed and loaded, with nothing found by its loader. */

@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { parse } from "../../src/core/parse.ts";
 import { decodeStrict } from "../../src/core/rules/decodeStrict.ts";
 import { checkRules, runRule } from "../../src/core/rules/engine.ts";
-import { config, repo, ruleLines } from "../support.ts";
+import { config, repo, ruled, ruleLines } from "../support.ts";
 
 describe("decode-strict", () => {
   test("fails: default decoders, however Schema is imported", () => {
@@ -197,11 +197,13 @@ describe("decode-strict: schemas imported from another file", () => {
   const decodeFindings = (source: string) =>
     checkRules(
       config({}),
-      repo({
-        ...SCHEMAS,
-        "src/flow/a.ts": ['import { Schema } from "effect";', source].join("\n"),
-      }),
-      [decodeStrict],
+      ruled(
+        repo({
+          ...SCHEMAS,
+          "src/flow/a.ts": ['import { Schema } from "effect";', source].join("\n"),
+        }),
+        [decodeStrict],
+      ),
     )
       .filter((v) => v.file === "src/flow/a.ts")
       .map((v) => v.line);
