@@ -18,8 +18,8 @@ Goals not yet shipped are listed in the order they would be taken.
 | The loop at scale: a PR as one reviewed unit, rules where agents act, the denylist, tracks that start working | **Shipped** (milestone 4, 0.5.0) | `monkeyshape-4sa` |
 | A language-neutral core: config as data, a configurable gate, a pinned binary, the pack interface | **Shipped** (milestone 5, 0.6.0) | `monkeyshape-070` |
 | Language packs: Rust and Python | **Shipped** (milestone 5, 0.6.0) | `monkeyshape-gbx` |
-| Harness adapters: Codex and pi | Next: milestone 6 | `monkeyshape-dlz` |
-| The loop between tracks: what milestone 5 taught | Next: milestone 6 | `monkeyshape-jhz` |
+| Harness adapters: Codex and pi | **In progress** (milestone 6, `monkeyshape-z1u`) | `monkeyshape-dlz` |
+| The loop between tracks: what milestone 5 taught | **In progress** (milestone 6, `monkeyshape-z1u`) | `monkeyshape-jhz` |
 | `mshape validate`: the real-data loop (core) | Later | `monkeyshape-97o` |
 | The remaining starter rules (TypeScript pack) | Later | `monkeyshape-hh2` |
 | The agentic layer: spend ledger (core), model-output decoding (per pack) | Later | `monkeyshape-v56` |
@@ -28,7 +28,7 @@ Goals not yet shipped are listed in the order they would be taken.
 | Dependencies between repos: releases that smoke-test their consumers | Idea: when the adopter probe by hand stops being enough | `monkeyshape-a09` |
 | Selectable policy bundles | Idea: when an outside adopter needs it | `monkeyshape-8h4` |
 
-"Shipped" means on `main`; the plans of milestones 1 to 4 are in `notes/`, milestone 5's in
+"Shipped" means on `main`; the plans of milestones 1 to 5 are in `notes/`, milestone 6's in
 `plan/MILESTONE.md`. A PR that ships a goal updates its row.
 
 ## 0. Scope
@@ -42,8 +42,9 @@ of it applies to any repo.
 What stays fixed for every repo, whatever its language or harness: beads and the working
 loop. What varies: the toolchain, the module boundaries, the rules and the gate (the pack),
 and how a session loads the loop and receives mail (the adapter). Bun is a build detail of
-the `mshape` binary; Effect is the TypeScript pack's opinion. Today only the TypeScript pack
-and the Claude Code adapter exist, fused into the core; milestones 5 and 6 separate them.
+the `mshape` binary; Effect is the TypeScript pack's opinion. Milestone 5 separated the
+packs (TypeScript, Rust, Python); the Claude Code adapter is still fused into the core, and
+milestone 6 separates it.
 
 It encodes a few beliefs:
 
@@ -124,7 +125,7 @@ their tracks report precisely when asked. What agents follow must be where they 
 
 Milestone 5 ran five tracks and five reviewers in parallel on this repo, and shipped 0.6.0.
 Its retrospective asked every track and reviewer how working together went
-(`plan/MILESTONE.md`, Retrospective): what they agreed on is the next goal below, taken
+(`notes/2026-11-19-milestone-5.md`, Retrospective): what they agreed on is the next goal below, taken
 with the harness adapters. Messages sent before a PR shaped designs; messages after it were
 mostly noise; two green PRs merged a minute apart turned `main` red three times.
 
@@ -213,8 +214,9 @@ one.
 
 **Consumer.** Agents running in Codex and pi on the maintainer's repos.
 
-**Done looks like:** a track worked end to end in Codex and in pi (session start loads the
-loop, mail arrives, a PR opens through `track pr`), with Claude Code behaving as on 0.6.0.
+**Done looks like:** the Rust repo's first track worked end to end in Codex (session start
+loads the loop, mail arrives, a PR opens through `track pr`), with Claude Code behaving as on
+0.6.0. pi's adapter is built on the same interface; its real-repo run waits for a pi user.
 
 **Why now.** The packs shipped in 0.6.0, and the maintainer chose this for milestone 6
 (2026-11-19), with the loop between tracks: both change the skills, the hooks and the
@@ -232,9 +234,10 @@ Skills already live in `.agents/skills`, which Codex reads.
 **Intent.** Tracks and reviewers coordinate through mechanism, not relays by the human: only
 messages that need a decision are written by hand.
 
-- **A green PR means a green `main`:** the maintainer's merge-queue or up-to-date setting
-  (`7kw`); meanwhile an LGTM only on a head merged with `main`, with CI on it, and shared
-  files a pack adds to split into one file per pack.
+- **`main` red now and then is accepted, and said at once:** a merge queue or required
+  up-to-date branches don't fit many agent PRs (the maintainer, 2026-11-19; `7kw` deferred).
+  A watch on `main` tells tracks when it goes red; shared files are split before two PRs
+  can both overflow them.
 - **Track and reviewer talk directly, as the skills say:** the reviewer messages the track
   after posting; the track answers with its head, its CI run and each finding's test; a
   review starts on the human's `/review-pr`; one push per review round.
@@ -251,7 +254,7 @@ Skill text generalizes to adopters; what only monkeyshape needs goes in its AGEN
 milestones.
 
 **Done looks like:** a milestone's tracks run without the human relaying a merge, a review
-or a CI result, and `main` stays green through parallel merges.
+or a CI result, and a red `main` is known to every track within minutes.
 
 **Why now.** Every track and reviewer of milestone 5 named the same few frictions, and the
 harness adapters rewrite the same skills, hooks and mailbox.
