@@ -1,0 +1,21 @@
+invalid:
+  - 'Bun.spawn([process.execPath, "test"]);'
+  - "const bun = process.execPath;"
+  - "const bun = process?.execPath;"
+  - "const bun = globalThis.process.execPath;"
+  - 'spawnSync(process["execPath"], ["install"]);'
+  - "const { execPath } = process;"
+  - "const { execPath: bin } = process;"
+  - "const { execPath } = globalThis.process;"
+  - 'import { execPath } from "node:process";'
+  - 'import { execPath as bin } from "process";'
+  - 'import * as proc from "node:process";'
+  - 'import proc from "node:process";'
+valid:
+  - 'Bun.spawn([bunPath(), "test"]);'
+  - "const path = process.argv[0];"
+  - "const { argv } = process;"
+  - "const execPath = options.execPath;"
+  - "const { execPath } = job;"
+  - "const bin = runner.process.execPath;"
+  - 'import { argv } from "node:process";'

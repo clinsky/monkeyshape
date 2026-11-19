@@ -9,33 +9,37 @@ tests build a repo from exactly the file blocks below and run its gate.
 
 ## 1. Install, pinned
 
-In a fresh clone, run `bun install` first. Then add only the packages you don't already
-have, at exact versions:
+Install `mshape` once per machine. The hooks and skills run it from the PATH, and inside a
+repo it runs the version the repo pins:
 
 ```sh
-bun add -d --exact monkeyshape effect @biomejs/biome typescript @types/bun
+curl -fsSL https://github.com/clinsky/monkeyshape/releases/latest/download/install.sh | sh
+```
+
+In a fresh clone, run `bun install` first. Then add only the packages you don't already
+have, at exact versions, with `monkeyshape` at the version `mshape --version` prints:
+
+```sh
+bun add -d --exact monkeyshape@<version> effect @biomejs/biome typescript @types/bun
 ```
 
 Leave out any you already depend on. Re-adding a package rewrites its pinned version as a
-range. monkeyshape runs on Bun. It asks your `tsc` and `biome` which files they cover, and
-`effect` is its peer dependency.
+range. The package carries the configs step 4 extends, `mshape` asks your `tsc` and `biome`
+which files they cover, and `effect` is its peer dependency.
 
 To install monkeyshape from a release tarball rather than npm, copy the tarball into
 `vendor/` and run `bun add -d --exact ./vendor/<tarball>`. Then record it as step 3 shows.
-
-Add the script that hooks and skills run, to `package.json`'s `scripts`:
-`"mshape": "mshape"`. Every command below is `bun run --silent mshape <command>`.
 
 ## 2. Try it first
 
 Before changing the repo, write a config somewhere else and point at it:
 
 ```sh
-bun run --silent mshape check --config ../trial/shape.toml
+mshape check --config ../trial/shape.toml
 ```
 
-Start from `packs = ["typescript"]`. The report names each check, says what it examined,
-and explains every finding.
+Start from `packs = ["typescript"]`. The report names each check, says what it examined, and
+explains every finding.
 
 In a clone with `.beads/` but no beads database, the trial skips the rules that need beads,
 and a `note:` names them. One of them, `refs/bead-in-code`, can be the largest count of all.
@@ -60,8 +64,13 @@ host-access = true
 optional = true
 ```
 
-Each check reads its own part of the config. `mshape config schema` prints the JSON Schema an
-editor can check the file against.
+Then pin the `mshape` the repo runs, so every machine and CI run the same one: an `[mshape]`
+table with `version`, as `mshape --version` prints it, and `sums`, the sha256 of that
+release's `SHA256SUMS` (`curl -fsSL https://github.com/clinsky/monkeyshape/releases/download/v<version>/SHA256SUMS | sha256sum`).
+`mshape config schema` prints the JSON Schema an editor can check the file against.
+
+Each check reads its own part of the config. Top-level keys such as `entry` go before the
+first table.
 
 - **`sources`** lists the TypeScript the rules analyze. The default is `src/**` and `tools/**`.
   Every other TypeScript file must be a test, a `.d.ts`, or under `sources.exempt` with a
@@ -102,16 +111,15 @@ editor can check the file against.
   The digest is the one its publisher states, on the release page or in your own notes. For
   a tarball with no stated digest, one you built or were handed, use the `sha256sum` of the
   file once you trust where it came from. The `files` check verifies each one. Move one to a new release with
-  `bun run --silent mshape dep bump <name> <tarball> --sha256 <digest>`.
+  `mshape dep bump <name> <tarball> --sha256 <digest>`.
 - **Invariants of your own** become adopter rules, `shape-rules/<id>.yml`:
   `docs/local-rules.md` shows how.
 - **A rule that misfits some files** takes `allow = [{ path = "…", reason = "…" }]`, or
   `off = "<reason>"` to stop it everywhere: under `[rules.no-throw]` for a rule, and under
   `[refs.rules.section-citation]` for a `refs/` kind. An allowance that silences nothing
   fails, so delete it once its files are fixed.
-- **A repo with a shape.config.ts**, from before 0.6.0, runs `mshape config migrate` once
-  instead (`bun run --silent mshape config migrate`): it writes `shape.toml` with the same
-  values and deletes the old file.
+- **A repo with a shape.config.ts**, from before 0.6.0, follows Upgrading's 0.6.0 entry
+  instead: `mshape config migrate` writes `shape.toml` with the same values.
 
 ## 4. tsc and biome
 
@@ -153,19 +161,28 @@ Commit the reformatting on its own.
 
 ## 5. The gate
 
-Make it one script, the same locally and in CI:
-`tsc && biome ci --error-on-warnings && mshape check && bun test`. Keep the scripts you have
-and chain them: `bun run typecheck && biome ci --error-on-warnings && mshape check && bun test`.
-Use `biome ci`, not `biome check`, so the gate fails rather than writes.
+`mshape gate` is the gate, the same locally and in CI. The TypeScript pack's stages run
+`tsc -p .` and `biome ci --error-on-warnings .`, then `mshape check`, then `bun test`. A
+stage of your own in shape.toml runs after them, and one with a pack stage's name replaces it:
+
+```toml
+[[gate.stages]]
+name = "tsc"
+run = ["bun", "run", "typecheck"]
+fast = true
+```
 
 - **Fix biome's warnings first.** `biome ci --error-on-warnings` fails on warnings that your
   old `biome check` let pass, and the baseline can't grandfather them. Before you switch, run
   `bunx biome ci --error-on-warnings` and fix what it reports, as for a new directory in
   step 4.
-- **Your old `lint` script.** If it runs `biome check`, point it at
-  `biome ci --error-on-warnings` too, or delete it, so `bun run lint` agrees with the gate.
+- **Your old `lint` and `check` scripts.** Point them at `mshape gate`, or delete them, so
+  they agree with the gate.
 - **Your own architecture checks.** A script that checks imports between directories can
-  stay in the chain beside `mshape check`. Drop it once the module map says the same.
+  stay, as a stage of its own. Drop it once the module map says the same.
+- **CI** installs `mshape` at the pin with `install.sh` (`MSHAPE_VERSION=<version>`), runs
+  `bun install --frozen-lockfile`, then `mshape gate`.
+
 `tsc` and `biome` are required. If either can't run, `mshape check` fails rather than skip
 it.
 
@@ -191,7 +208,7 @@ records that remote for `bd dolt push`, which you run only when you mean to shar
 Where bd can't run, as in CI, `mshape check` reads the beads from bd's export, if you commit
 one as `issues.jsonl` in `.beads/` (`bd export -o <file>`), and its `beads` line says so.
 
-Then run `bun run --silent mshape sync`. It installs:
+Then run `mshape sync`. It installs:
 
 - the shared skills, in `.agents/skills`, linked from `.claude/skills`;
 - `.beads/PRIME.md`;
@@ -214,7 +231,7 @@ you run `sync` again.
 
 ## 7. Grandfather the rest
 
-After `sync`, never before, run `bun run --silent mshape baseline --init`. It records every
+After `sync`, never before, run `mshape baseline --init`. It records every
 current violation per file in .shape/baseline.json, and prints the counts by rule. Review it
 by rule, not line by line: a large count of one rule is usually one habit of the codebase, and
 each rule's message says what it costs. As you fix
@@ -224,10 +241,28 @@ your branch changed since `main`, or every one when none is, as after moving cod
 
 ## Upgrading
 
-Take a new release with `bun add -d --exact monkeyshape@<version>`, then
-`bun run --silent mshape sync`, then the gate. What a release asks of a repo that already
+Take a new release by moving the pin: shape.toml's `[mshape]` `version` and `sums` (the sha256
+of that release's `SHA256SUMS`), and `bun add -d --exact monkeyshape@<version>` to match. Then
+`mshape sync`, then the gate. What a release asks of a repo that already
 adopted:
 
+- **0.6.0.** The config is `shape.toml`, data rather than code, and `mshape` is one binary per
+  machine that runs the version the repo pins. From 0.5.0, in order:
+  1. Install `mshape` as step 1 shows, and take the package:
+     `bun add -d --exact monkeyshape@0.6.0`.
+  2. Write each rule in `localRules` as `shape-rules/<id>.yml`, with its cases
+     ([docs/local-rules.md](local-rules.md) says how). Until each has its file, migrate
+     refuses, naming the rules left.
+  3. Run `bun run --silent mshape config migrate`. It runs under the package, since it imports
+     the old config, which the installed binary can't. It writes `shape.toml` with the same
+     values, `packs = ["typescript"]` and `[mshape]` pinning 0.6.0, then deletes
+     shape.config.ts, and notes each doc that still names it. Add `sums` to the pin as step 3
+     shows.
+  4. Delete the old rule modules and every place that listed them or shape.config.ts:
+     `sources`, `tsconfig.json`'s `include`, biome's `includes`, and those docs.
+  5. Run `mshape sync`, then `mshape gate`. Point your `check` script and CI at `mshape gate`,
+     as step 5 shows. The `"mshape"` package script is no longer needed: hooks and skills run
+     the installed `mshape`.
 - **0.5.0.** The `budgets` check gains `decision-unlinked`: each file a decision's
   `Enforced by` names must cite the decision's slug (`D-<slug>`) in a comment, so whoever edits
   it is told why it must stay. Add the citations (each message names the slug and the file), or

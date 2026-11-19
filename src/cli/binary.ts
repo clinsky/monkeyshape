@@ -45,6 +45,7 @@ export const start = async (
   const found = await Effect.runPromise(readPin(process.cwd()));
   const plan = launchPlan(
     found?.pin,
+    // shape-ignore local/bun-through-bunpath: reads the running binary's recorded sums, never spawns it
     { version, recordedSums: await Effect.runPromise(recordedSums(process.execPath)) },
     launchedHere(process.env[LAUNCHED_ENV], version),
   );

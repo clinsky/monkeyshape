@@ -198,6 +198,7 @@ const init = (root: string, args: ReadonlyArray<string>) =>
     // launcher verified it against; any other build by its version alone.
     const pin = {
       version: dev ?? pkg.version,
+      // shape-ignore local/bun-through-bunpath: reads the running binary's recorded sums, never spawns it
       sums: runningCompiled() ? yield* recordedSums(process.execPath) : undefined,
     };
     const tarball = given ?? checkout?.tarball;
