@@ -228,7 +228,6 @@ describe("adopter rules through ast-grep", () => {
     expect(
       formatRules(
         [],
-        [],
         [{ id: "local/no-bang", bugClass: "Crashes on values the types said were there." }],
       ),
     ).toBe("local/no-bang         local    Crashes on values the types said were there.");

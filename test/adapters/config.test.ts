@@ -18,112 +18,27 @@ afterEach(async () => {
 });
 
 describe("loadConfig", () => {
-  test("a module the config imports that doesn't parse is named, with its line", async () => {
-    // An adopter rule, imported and listed by the config, with a syntax error.
-    await Bun.write(join(dir, "rules", "broken.ts"), "export default { a: ;\n");
-    await Bun.write(
-      join(dir, "shape.config.ts"),
-      'import broken from "./rules/broken.ts";\nexport default { localRules: [broken] };\n',
-    );
-    const error = await Effect.runPromise(Effect.flip(loadConfig(dir)));
-    expect(error.message).toContain(`${join(dir, "rules", "broken.ts")}:1:`);
-    expect(error.message).toContain("Unexpected");
-  });
-
-  test("the loaded config is named as the reader named it", async () => {
-    await Bun.write(join(dir, "shape.config.ts"), "export default {};\n");
-    await Bun.write(join(dir, "trial", "try.ts"), "export default {};\n");
-    expect((await Effect.runPromise(loadConfig(dir))).configFile).toBe("shape.config.ts");
-    expect(
-      (await Effect.runPromise(loadConfig(dir, join(dir, "trial", "try.ts")))).configFile,
-    ).toBe("trial/try.ts");
-  });
-
-  test("the repo files the config reaches by relative import are its own; packages aren't", async () => {
-    await Bun.write(join(dir, "rules", "helper.ts"), "export const x = 1;\n");
-    await Bun.write(
-      join(dir, "rules", "a.ts"),
-      'import { x } from "./helper.ts";\nexport default { x };\n',
-    );
-    await Bun.write(
-      join(dir, "shape.config.ts"),
-      'import a from "./rules/a.ts";\nexport default { sources: { include: [String(Boolean(a))] } };\n',
-    );
-    expect((await Effect.runPromise(loadConfig(dir))).configModules).toEqual([
-      "rules/a.ts",
-      "rules/helper.ts",
-    ]);
-  });
-
-  test("names the file it tried: --config's path, not shape.config.ts", async () => {
-    const given = await Effect.runPromise(Effect.flip(loadConfig(dir, join(dir, "nope.ts"))));
-    expect(given.message).toBe("nope.ts: not found");
+  test("names the file it tried: --config's path, or shape.toml", async () => {
+    const given = await Effect.runPromise(Effect.flip(loadConfig(dir, join(dir, "nope.toml"))));
+    expect(given.message).toBe("nope.toml: not found");
     const own = await Effect.runPromise(Effect.flip(loadConfig(dir)));
     expect(own.message).toBe("shape.toml: not found; every adopting repo has one");
-    const outside = await Effect.runPromise(Effect.flip(loadConfig(dir, "/nowhere/x.ts")));
-    expect(outside.message).toBe("/nowhere/x.ts: not found");
+    const outside = await Effect.runPromise(Effect.flip(loadConfig(dir, "/nowhere/x.toml")));
+    expect(outside.message).toBe("/nowhere/x.toml: not found");
   });
 
-  test("a config outside the repo resolves monkeyshape from the repo, and its own files beside it", async () => {
-    const outside = await mkdtemp(join(tmpdir(), "mshape-outside-"));
-    try {
-      await Bun.write(join(outside, "shared.ts"), 'export const docs = ["AGENTS.md"];\n');
-      await Bun.write(
-        join(outside, "try.config.ts"),
-        'import { defineConfig } from "monkeyshape";\nimport { docs } from "./shared.ts";\nexport default defineConfig({ refs: { docs }, files: { vendored: [{ path: "vendor/m.tgz", package: "monkeyshape", sha256: "' +
-          "a".repeat(64) +
-          '" }] } });\n',
-      );
-      const config = await Effect.runPromise(loadConfig(dir, join(outside, "try.config.ts")));
-      expect(config.refs.docs).toEqual(["AGENTS.md"]);
-      // Findings about the config point at the file loaded, not the repo's shape.config.ts.
-      expect(config.configFile).toBe(join(outside, "try.config.ts"));
-      // A string equal to an import's specifier, outside an import, is data: left as written.
-      expect(config.files.vendored[0]?.package).toBe("monkeyshape");
-      // An error names the file given, not the copy loaded.
-      await Bun.write(join(outside, "bad.config.ts"), "export default { a: ;\n");
-      const error = await Effect.runPromise(
-        Effect.flip(loadConfig(dir, join(outside, "bad.config.ts"))),
-      );
-      expect(error.message).toContain(`${join(outside, "bad.config.ts")}:1:`);
-      expect(error.message).not.toContain("mshape-config-");
-    } finally {
-      await rm(outside, { recursive: true, force: true });
-    }
-  });
-
-  test("modules an outside config reaches by relative import resolve monkeyshape from the repo too", async () => {
-    // As with an adopter rule beside a trial config: the rule module imports monkeyshape.
-    const outside = await mkdtemp(join(tmpdir(), "mshape-outside-"));
-    try {
-      await Bun.write(
-        join(outside, "rules", "deep.ts"),
-        'import { decodeStrict } from "monkeyshape";\nexport const deep = typeof decodeStrict;\n',
-      );
-      await Bun.write(
-        join(outside, "rules", "docs.ts"),
-        'import { defineConfig } from "monkeyshape";\nimport { deep } from "./deep";\nexport const docs = [typeof defineConfig + "-" + deep + ".md"];\n',
-      );
-      await Bun.write(
-        join(outside, "try.config.ts"),
-        'import { defineConfig } from "monkeyshape";\nimport { docs } from "./rules/docs.ts";\nexport default defineConfig({ refs: { docs } });\n',
-      );
-      const config = await Effect.runPromise(loadConfig(dir, join(outside, "try.config.ts")));
-      expect(config.refs.docs).toEqual(["function-function.md"]);
-      // An error in a reached module names that module, not its copy.
-      await Bun.write(join(outside, "rules", "deep.ts"), "export const deep = ;\n");
-      const error = await Effect.runPromise(
-        Effect.flip(loadConfig(dir, join(outside, "try.config.ts"))),
-      );
-      expect(error.message).toContain(join(outside, "rules", "deep.ts"));
-      expect(error.message).not.toContain("mshape-config-");
-    } finally {
-      await rm(outside, { recursive: true, force: true });
-    }
+  test("a TypeScript config given by --config is refused, as a repo's own one is", async () => {
+    await Bun.write(join(dir, "trial", "try.config.ts"), "export default {};\n");
+    const message = (
+      await Effect.runPromise(Effect.flip(loadConfig(dir, join(dir, "trial", "try.config.ts"))))
+    ).message;
+    expect(message).toStartWith(
+      "trial/try.config.ts: this mshape reads shape.toml only, not a config as code",
+    );
+    expect(message).toContain("mshape config migrate");
   });
 });
 
-/** The plan's `shape.toml` case table, one test per row. */
 describe("shape.toml", () => {
   const write = (text: string) => Bun.write(join(dir, "shape.toml"), text);
   const fails = async () => (await Effect.runPromise(Effect.flip(loadConfig(dir)))).message;
@@ -175,12 +90,12 @@ describe("shape.toml", () => {
     expect(await fails()).toStartWith("shape.toml: isn't valid TOML:");
   });
 
-  test("shape.config.ts only: still loads, as the typescript pack, until `config migrate` lands", async () => {
+  test("shape.config.ts only: fails, saying to run mshape config migrate", async () => {
     await Bun.write(join(dir, "shape.config.ts"), "export default { beads: 'required' };\n");
-    const config = await Effect.runPromise(loadConfig(dir));
-    expect(config.configFile).toBe("shape.config.ts");
-    expect(config.packs).toEqual(["typescript"]);
-    expect(config.beads).toBe("required");
+    const message = await fails();
+    expect(message).toStartWith(
+      "shape.config.ts: this mshape reads shape.toml only, not a config as code: run `mshape config migrate`",
+    );
   });
 
   test("both: fails, naming both", async () => {

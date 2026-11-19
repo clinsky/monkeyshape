@@ -516,8 +516,6 @@ export interface ResolvedConfig {
   readonly rules: Readonly<
     Record<string, { readonly off?: string; readonly allow?: ReadonlyArray<Allowance> }>
   >;
-  /** Validated by the rules check, not here, so a misshaped one fails the gate with a reason. */
-  readonly localRules: ReadonlyArray<unknown>;
   readonly refs: {
     readonly docs: ReadonlyArray<string>;
     readonly narrativeDocs: ReadonlyArray<string>;
@@ -644,7 +642,6 @@ export const resolveConfig = (
           hostSpecifiers: config.arch.hostSpecifiers,
         },
   rules: config.rules ?? {},
-  localRules: config.localRules ?? [],
   refs: {
     docs: extended(config.refs?.docs, DEFAULT_DOCS),
     narrativeDocs: extended(config.refs?.narrativeDocs, DEFAULT_NARRATIVE_DOCS),

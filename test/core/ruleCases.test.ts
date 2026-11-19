@@ -31,6 +31,7 @@ import type { ShapeConfig } from "../../src/schemas/config.ts";
 import { pythonCases } from "../packs/python/ruleCases.ts";
 import { rustCases } from "../packs/rust/ruleCases.ts";
 import { config, fakePack, listed, repo } from "../support.ts";
+import { localRuleCases } from "./localRuleCases.ts";
 import type { Case, Cases } from "./ruleCase.ts";
 
 const lines = (n: number): string =>
@@ -630,16 +631,6 @@ const ALLOW_LEGACY: ShapeConfig = {
   rules: { "no-throw": { allow: [{ path: "src/legacy/**", reason: REASON }] } },
 };
 
-/** A local rule as an adopter writes one: it reports nothing on the cases above. */
-const LOCAL = {
-  id: "no-save",
-  bugClass: "Writes that skip the merge function.",
-  message: "calls save directly; write through saveMerged.",
-  check: (file: { readonly text: string }) =>
-    [...file.text.matchAll(/\bsave\(/g)].map((match) => match.index),
-  cases: { fail: ["save(x);\n"], pass: ["saveMerged(x);\n"] },
-};
-
 const rules: Record<string, Cases> = {
   "rules/config": {
     fail: { config: { rules: { "no-such-rule": {} } } },
@@ -702,14 +693,7 @@ const rules: Record<string, Cases> = {
       files: { "src/cli/main.ts": 'import { Effect } from "effect";\nEffect.runPromise(p);\n' },
     },
   },
-  "rules/local-rule": {
-    fail: { config: { localRules: [{ ...LOCAL, check: undefined }] } },
-    pass: { config: { localRules: [LOCAL] }, files: { "src/a.ts": "saveMerged(x);\n" } },
-  },
-  "rules/local-cases": {
-    fail: { config: { localRules: [{ ...LOCAL, cases: { fail: ["save(x);\n"], pass: [] } }] } },
-    pass: { config: { localRules: [LOCAL] } },
-  },
+  ...localRuleCases,
   "rules/no-error-spread": {
     fail: { files: { "src/a.ts": "const copy = { ...err, extra: 1 };\n" } },
     pass: { files: { "src/a.ts": "const copy = { ...defaults, cause: err };\n" } },
@@ -1156,7 +1140,14 @@ const DEFAULT_CONFIG: Partial<Record<string, ShapeConfig>> = {
 const evaluate = (id: string, input: Case): ReadonlyArray<Violation> => {
   const check = id.slice(0, id.indexOf("/"));
   const resolved = config(input.config ?? DEFAULT_CONFIG[check] ?? {});
-  const snapshot = repo(input.files ?? {}, input.options);
+  const files = repo(input.files ?? {}, input.options);
+  const snapshot =
+    input.shapeRules === undefined
+      ? files
+      : {
+          ...files,
+          shapeRules: { integration: { state: "ok" } as const, rules: input.shapeRules },
+        };
   return check === "prerequisites"
     ? prerequisites(resolved, snapshot)
     : runChecks(resolved, snapshot, [check as CheckName]);

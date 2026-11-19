@@ -160,7 +160,7 @@ useSavedDir(
       JSON.stringify({ scripts: { mshape: "sh fake-mshape.sh" } }),
     );
     await writeFile(join(repo, "fake-mshape.sh"), FAKE_MSHAPE);
-    await writeFile(join(repo, "shape.config.ts"), "export default {};\n");
+    await writeFile(join(repo, "shape.toml"), 'packs = ["typescript"]\n');
     await writeFile(join(repo, ".gitignore"), ".agents/worktrees/\n.handoffs\nbody.md\nlate\n");
     sh(repo, "add", ".");
     sh(repo, "commit", "-qm", "init");
@@ -955,8 +955,8 @@ describe("track pr: the fast stages here, the tests in CI", () => {
   });
 
   test("the main checkout's config doesn't load: track pr still gates and pushes the tip, reading the tip's", async () => {
-    // As on #123: the main checkout two commits behind a fix to its config.
-    await writeFile(join(repo, "shape.config.ts"), "export default { bogus: 1 };\n");
+    // As on #123: the main checkout two commits behind a fix to its config, uncommitted here.
+    await writeFile(join(repo, "shape.toml"), 'packs = ["typescript"]\nbogus = 1\n');
     await writeFile(`${wt()}/body.md`, body("x"));
     const opened = mshape(wt(), "pr", "--title", "t", "--body-file", "body.md");
     expect(opened.stderr).not.toContain("bogus");

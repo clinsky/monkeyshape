@@ -37,8 +37,8 @@ beforeEach(async () => {
     }),
   );
   await Bun.write(
-    join(repo(), "shape.config.ts"),
-    `export default { files: { vendored: [{ path: "vendor/app-1.0.0.tgz", package: "app", sha256: "${old.sha256}" }] } };\n`,
+    join(repo(), "shape.toml"),
+    `packs = ["typescript"]\n\n[files]\nvendored = [\n  { path = "vendor/app-1.0.0.tgz", package = "app", sha256 = "${old.sha256}" },\n]\n`,
   );
   // The dependency as an adopter adds it, so bump meets the spec bun writes.
   Bun.spawnSync([process.execPath, "add", "./vendor/app-1.0.0.tgz"], { cwd: repo() });
@@ -53,13 +53,13 @@ const installed = () => Bun.file(join(repo(), "node_modules", "app", "package.js
 describe("depBump on a born repo's vendored dependency", () => {
   test("a wrong digest is refused, and nothing changes", async () => {
     const next = await release("app", "1.1.0");
-    const before = await Bun.file(join(repo(), "shape.config.ts")).text();
+    const before = await Bun.file(join(repo(), "shape.toml")).text();
     const result = await Effect.runPromise(
-      depBump(repo(), "shape.config.ts", record(), "app", next.path, "0".repeat(64)),
+      depBump(repo(), "shape.toml", record(), "app", next.path, "0".repeat(64)),
     );
     expect(result.code).toBe(1);
     expect(result.lines.join("\n")).toContain("not that release");
-    expect(await Bun.file(join(repo(), "shape.config.ts")).text()).toBe(before);
+    expect(await Bun.file(join(repo(), "shape.toml")).text()).toBe(before);
     expect(await Bun.file(join(repo(), "vendor", "app-1.1.0.tgz")).exists()).toBe(false);
     expect((await installed()).version).toBe("1.0.0");
   });
@@ -67,7 +67,7 @@ describe("depBump on a born repo's vendored dependency", () => {
   test("the right digest moves the tarball, package.json, lockfile and record, and runs the gate", async () => {
     const next = await release("app", "1.1.0");
     const result = await Effect.runPromise(
-      depBump(repo(), "shape.config.ts", record(), "app", next.path, next.sha256),
+      depBump(repo(), "shape.toml", record(), "app", next.path, next.sha256),
     );
     expect(result.lines.join("\n")).toContain("gate passed");
     expect(result.code).toBe(0);
@@ -76,8 +76,8 @@ describe("depBump on a born repo's vendored dependency", () => {
     const pkg = await Bun.file(join(repo(), "package.json")).json();
     // In the form bun add wrote it.
     expect(pkg.dependencies.app).toBe("./vendor/app-1.1.0.tgz");
-    const config = await Bun.file(join(repo(), "shape.config.ts")).text();
-    expect(config).toContain(`path: "vendor/app-1.1.0.tgz"`);
+    const config = await Bun.file(join(repo(), "shape.toml")).text();
+    expect(config).toContain(`path = "vendor/app-1.1.0.tgz"`);
     expect(config).toContain(next.sha256);
     expect(await Bun.file(join(repo(), "bun.lock")).text()).toContain("app-1.1.0.tgz");
     expect((await installed()).version).toBe("1.1.0");
@@ -86,7 +86,7 @@ describe("depBump on a born repo's vendored dependency", () => {
   test("a release of another package is refused, even with its own right digest", async () => {
     const other = await release("other", "1.1.0");
     const result = await Effect.runPromise(
-      depBump(repo(), "shape.config.ts", record(), "app", other.path, other.sha256),
+      depBump(repo(), "shape.toml", record(), "app", other.path, other.sha256),
     );
     expect(result.code).toBe(1);
     expect(result.lines.join("\n")).toContain("is the package other, not app");

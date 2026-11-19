@@ -28,10 +28,10 @@ src/core/client.ts:1  arch/host-access
   imports readFile from 'node:fs/promises', but module 'core' has no host-access. Reach the host through a service in an adapter module, or use a pure operation.
 
   arch      failed          3 files in 2 modules
-  sources   passed          4 TypeScript files: 3 in sources, 1 exempt
+  sources   passed          3 TypeScript files: 3 in sources
   refs      passed          1 doc, and comments in TypeScript
-  budgets   passed          lengths of the loaded docs, decisions, memories, 4 TypeScript files
-  coverage  passed          4 TypeScript files against tsc's and biome's own file lists; 3 data files parsed
+  budgets   passed          lengths of the loaded docs, decisions, memories, 3 TypeScript files
+  coverage  passed          3 TypeScript files against tsc's and biome's own file lists; 4 data files parsed
   files     passed          9 files against the 1.0 MiB cap
   rules     failed          3 files in sources
   packs     not-applicable  typescript has no checks of its own

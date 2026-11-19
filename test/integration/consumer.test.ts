@@ -85,7 +85,7 @@ describe("an adopter following docs/adopting.md", () => {
     expect(Object.keys(await adoptingFiles()).sort()).toEqual([
       "AGENTS.md",
       "biome.json",
-      "shape.config.ts",
+      "shape.toml",
       "tsconfig.json",
     ]);
   });
@@ -175,13 +175,10 @@ describe("an adopter following docs/adopting.md", () => {
     expect(optional.output).toContain("bd is not on PATH");
     expect(optional.code).toBe(0);
 
-    const config = await Bun.file(join(repo, "shape.config.ts")).text();
+    const config = await Bun.file(join(repo, "shape.toml")).text();
     await write(
-      "shape.config.ts",
-      config.replace(
-        "export default defineConfig({",
-        'export default defineConfig({\n  beads: "required",',
-      ),
+      "shape.toml",
+      config.replace('packs = ["typescript"]\n', 'packs = ["typescript"]\nbeads = "required"\n'),
     );
     const required = await mshape(["check"], env);
     expect(required.output).toContain("prerequisites/beads-required");
@@ -200,8 +197,8 @@ describe("an adopter following docs/adopting.md", () => {
   });
 
   test("baseline --init without bd keeps the bead rules' entries it couldn't count (#90)", async () => {
-    const config = await Bun.file(join(repo, "shape.config.ts")).text();
-    await write("shape.config.ts", config.replace('\n  beads: "required",', ""));
+    const config = await Bun.file(join(repo, "shape.toml")).text();
+    await write("shape.toml", config.replace('beads = "required"\n', ""));
     const path = await mkdtemp(join(tmpdir(), "mshape-path-"));
     await symlink(process.execPath, join(path, "bun"));
     await symlink(Bun.which("git") ?? "/usr/bin/git", join(path, "git"));

@@ -15,7 +15,6 @@ import { lineAt, type Snapshot, type Violation } from "../model.ts";
 import { type Parsed, parse } from "../parse.ts";
 import { dirname, join } from "../paths.ts";
 import { claimOf } from "../sources.ts";
-import { localRules } from "./local.ts";
 import type { Finding, Rule, RuleContext } from "./rule.ts";
 import { isShapeRuleFile, shapeRuleSet } from "./shapeRules.ts";
 
@@ -97,7 +96,7 @@ export const runRule = (rule: Rule, parsed: Parsed): ReadonlyArray<Finding> => {
 };
 
 /**
- * Each file's claiming pack's own rules, the repo's `localRules` and its `shape-rules/`, with
+ * Each file's claiming pack's own rules and the repo's `shape-rules/`, with
  * the engine's scope, allowances and `shape-ignore` around them all.
  */
 export const checkRules = (
@@ -105,24 +104,15 @@ export const checkRules = (
   snapshot: Snapshot,
 ): ReadonlyArray<Violation> => {
   const violations: Array<Violation> = [];
-  const local = localRules(config.localRules);
-  for (const reason of local.broken)
-    violations.push(violation("local-rule", config.configFile, 1, reason));
   const on = (rule: { readonly id: string; readonly layer: string }) =>
     (config.layers as ReadonlyArray<string>).includes(rule.layer) &&
     config.rules[rule.id]?.off === undefined;
   const packRules = snapshot.packs.flatMap(({ pack }) => pack.rules);
-  const all = [...packRules, ...local.rules];
-  const active = local.rules.filter(on);
-  for (const rule of active)
-    for (const problem of local.cases.get(rule.id)?.(
-      (config.rules[rule.id]?.allow ?? []).map((allowance) => allowance.path),
-    ) ?? [])
-      violations.push(violation("local-cases", config.configFile, 1, problem));
+  const all = packRules;
   // The repo's shape-rules/, run by ast-grep: problems, then rules by their matches.
   const shape = shapeRuleSet(
     snapshot.shapeRules,
-    new Set([...all.map((rule) => rule.id), ...local.brokenIds]),
+    new Set(all.map((rule) => rule.id)),
     snapshot.packs.map(({ pack }) => ({ id: pack.id, language: pack.language })),
   );
   for (const problem of shape.problems)
@@ -132,12 +122,9 @@ export const checkRules = (
   const usedAllowances = new Set<string>();
   const known = new Set([
     ...all.map((rule) => rule.id),
-    ...local.brokenIds,
     ...shape.rules.map((rule) => rule.id),
     ...shape.unrun,
   ]);
-  /** A local rule that broke: reported once, at the first file, with how many it broke on. */
-  const brokeOn = new Map<string, { file: string; reason: string; files: number }>();
 
   for (const id of Object.keys(config.rules))
     if (!known.has(id))
@@ -202,27 +189,6 @@ export const checkRules = (
       for (const finding of rule.run(source, snapshot.texts))
         report(rule.id, lineAt(text, finding.offset), finding.message ?? rule.message);
     }
-    // TODO(monkeyshape-8il.2): `localRules` read oxc's tree, TypeScript's alone; they go
-    // with shape.config.ts, and this with them.
-    const parsed = pack.id === "typescript" ? parse(file, text) : undefined;
-    const context = contextFor(snapshot, file);
-    for (const rule of active) {
-      if (parsed === undefined) break;
-      if (rule.entryExempt && entry) continue;
-      const allowance = allowanceOf(rule.id);
-      const found = results(rule, parsed, context);
-      if ("broken" in found) {
-        // Its escape hatches here may be right: unchecked, they aren't unused.
-        if (allowance !== undefined) usedAllowances.add(`${rule.id}\0${allowance.path}`);
-        for (const ignore of ignores) if (ignore.rule === rule.id) ignore.used = true;
-        const first = brokeOn.get(rule.id);
-        if (first === undefined) brokeOn.set(rule.id, { file, reason: found.broken, files: 1 });
-        else first.files++;
-        continue;
-      }
-      for (const finding of found)
-        report(rule.id, lineAt(text, finding.offset), finding.message ?? rule.message);
-    }
     for (const ignore of ignores)
       if (!ignore.used)
         violations.push(
@@ -235,19 +201,9 @@ export const checkRules = (
         );
   }
 
-  for (const [id, { file, reason, files }] of brokeOn)
-    violations.push(
-      violation(
-        "local-rule",
-        file,
-        1,
-        `the rule ${id} broke on ${files === 1 ? "this file" : `${files} files, this one first`}: ${reason}. Fix the rule's check in its module; the files may be fine.`,
-      ),
-    );
-
   // A misshaped local rule never ran, so its allowances weren't tested, not unused. A rule
   // whose layer is off is different: `layers` is config, so its allowance is dead everywhere.
-  const unrun = new Set([...local.brokenIds, ...shape.unrun]);
+  const unrun = new Set(shape.unrun);
   for (const [id, setting] of Object.entries(config.rules))
     for (const allowance of unrun.has(id) ? [] : (setting.allow ?? []))
       if (!usedAllowances.has(`${id}\0${allowance.path}`))
@@ -263,29 +219,18 @@ export const checkRules = (
 };
 
 /**
- * `mshape rules`: each rule with its layer (`local` for the repo's own, in `localRules` or
- * `shape-rules/`) and the bug class it removes, then a line for any `localRules` entry that isn't a rule, which `check` explains.
+ * `mshape rules`: each rule with its layer (`local` for the repo's own, in `shape-rules/`) and
+ * the bug class it removes.
  */
 export const formatRules = (
-  rules: ReadonlyArray<Rule>,
-  localEntries: ReadonlyArray<unknown> = [],
+  rules: ReadonlyArray<{ readonly id: string; readonly layer: string; readonly bugClass: string }>,
   shapeRules: ReadonlyArray<{ readonly id: string; readonly bugClass: string }> = [],
 ): string => {
-  const local = localRules(localEntries);
-  const own = [...local.rules, ...shapeRules];
-  const width = Math.max(22, ...own.map((rule) => rule.id.length + 2));
-  const rows = [
+  const width = Math.max(22, ...shapeRules.map((rule) => rule.id.length + 2));
+  return [
     ...rules.map((rule) => `${rule.id.padEnd(width)}${rule.layer.padEnd(9)}${rule.bugClass}`),
-    ...own.map((rule) => `${rule.id.padEnd(width)}${"local".padEnd(9)}${rule.bugClass}`),
-  ];
-  const broken = local.broken.length;
-  return broken === 0
-    ? rows.join("\n")
-    : [
-        ...rows,
-        "",
-        `${broken} localRules ${broken === 1 ? "entry is" : "entries are"} not a rule: \`mshape check --only rules\` says why`,
-      ].join("\n");
+    ...shapeRules.map((rule) => `${rule.id.padEnd(width)}${"local".padEnd(9)}${rule.bugClass}`),
+  ].join("\n");
 };
 
 export interface RuleHatches {
@@ -307,7 +252,6 @@ export const localRuleHatches = (
 ): ReadonlyArray<RuleHatches> => {
   const ids = [
     ...new Set([
-      ...localRules(config.localRules).rules.map((rule) => rule.id),
       ...snapshot.files
         .filter(isShapeRuleFile)
         .map((file) => `local/${(file.split("/").at(-1) ?? "").replace(/\.ya?ml$/u, "")}`),

@@ -10,7 +10,13 @@ import * as Effect from "effect/Effect";
 import { planMigration } from "../core/migrate.ts";
 import { SHAPE_RULES_DIR } from "../core/rules/shapeRules.ts";
 import type { BornPin } from "../core/scaffold.ts";
-import { CONFIG_FILE, importTsConfig, loadConfig, TS_CONFIG_FILE } from "./config.ts";
+import {
+  CONFIG_FILE,
+  importTsConfig,
+  loadConfig,
+  TS_CONFIG_FILE,
+  tsConfigProblems,
+} from "./config.ts";
 
 const exists = (path: string) => Effect.promise(() => Bun.file(path).exists());
 
@@ -74,14 +80,19 @@ export const migrateConfig = (root: string, pin: BornPin, load: typeof loadConfi
       return refuse(
         `there is no ${TS_CONFIG_FILE} here to migrate. Run mshape config migrate at the root of a repo that has one; a new repo gets ${CONFIG_FILE} from mshape init`,
       );
-    // The old config as mshape loads it today: one that doesn't is fixed first, in the language
-    // its author wrote, rather than carried into shape.toml.
-    const today = yield* Effect.result(load(root, path));
-    if (today._tag === "Failure")
+    // The old config as mshape loaded it: one it refused is fixed first, in the language its
+    // author wrote, rather than carried into shape.toml.
+    const imported = yield* Effect.result(importTsConfig(root, path, TS_CONFIG_FILE));
+    if (imported._tag === "Failure")
       return refuse(
-        `${TS_CONFIG_FILE} doesn't load today (${today.failure.message}), so nothing was changed. Fix it until mshape check loads it, then run mshape config migrate again`,
+        `${imported.failure.message}; nothing was changed. Fix it, then run mshape config migrate again`,
       );
-    const config = yield* importTsConfig(root, path, TS_CONFIG_FILE);
+    const config = imported.success;
+    const problems = tsConfigProblems(config);
+    if (problems.length > 0)
+      return refuse(
+        `${TS_CONFIG_FILE} doesn't load today (${TS_CONFIG_FILE}: ${problems.join("; ")}), so nothing was changed. Fix it, then run mshape config migrate again`,
+      );
     const source = yield* Effect.promise(() => Bun.file(path).text());
     const ruleIds = (config.localRules ?? []).map(ruleId);
     const ported = new Set<string>();
