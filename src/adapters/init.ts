@@ -19,7 +19,7 @@ import { skillsLinkOf } from "../core/skills.ts";
 import type { Harness } from "../harnesses/harness.ts";
 import { HARNESSES } from "../harnesses/index.ts";
 import { PACKS } from "../packs/index.ts";
-import { PACK_IDS, type PackId, resolveConfig } from "../schemas/config.ts";
+import { DEFAULT_HARNESSES, PACK_IDS, type PackId, resolveConfig } from "../schemas/config.ts";
 import { WorkspaceError } from "../schemas/errors.ts";
 import { readPresent } from "./disk.ts";
 import { BUN_MISSING, bunPath, runTool } from "./process.ts";
@@ -151,7 +151,7 @@ export const initRepo = (
   given?: string,
   pack = "typescript",
   pin?: BornPin,
-  harnesses: ReadonlyArray<Harness> = HARNESSES.filter((one) => one.id === "claude-code"),
+  harnesses: ReadonlyArray<Harness> = HARNESSES.filter((one) => DEFAULT_HARNESSES.includes(one.id)),
 ) =>
   Effect.gen(function* () {
     const tarball = pack === "typescript" ? given : undefined;

@@ -30,7 +30,7 @@ export interface Hook {
 }
 
 /** POSIX single quotes, only when needed: hook commands stay readable. */
-const quote = (arg: string): string =>
+export const quote = (arg: string): string =>
   /^[\w@%+=:,./-]+$/.test(arg) ? arg : `'${arg.replaceAll("'", `'\\''`)}'`;
 
 /**
@@ -75,28 +75,6 @@ export const withMshape = (command: string, otherwise?: string): string =>
   `PATH="$PATH:${MSHAPE_FALLBACK}"; if command -v mshape >/dev/null; then ${command}; else echo ${quote(`note: ${MSHAPE_NOT_INSTALLED}`)}${otherwise === undefined ? "" : `; ${otherwise}`}; fi`;
 
 /**
- * What hooks before 0.6 ran: `mshape` through the package script, with bun found on the PATH or
- * in ~/.bun/bin. Kept only so sync knows them as monkeyshape's and replaces them.
- */
-export const legacy = (args: ReadonlyArray<string>): ReadonlyArray<string> => {
-  const script = ["bun", "run", "--silent", "mshape", ...args.map(quote)].join(" ");
-  const missing04 =
-    'mshape could not run here, so this hook did nothing. Either bun is not on this session\'s PATH (run `command -v bun`; add bun\'s bin directory, often ~/.bun/bin, to the PATH Claude Code starts with), or monkeyshape is not installed (run `bun install`; package.json needs the script `"mshape": "mshape"`).';
-  const missing =
-    'mshape could not run here, so this hook did nothing. Run `bun install`; package.json needs the script `"mshape": "mshape"`.';
-  const noBun =
-    "bun is neither on this session's PATH nor in ~/.bun/bin, so this hook did nothing. Install bun (https://bun.sh), or add the directory holding it to the PATH Claude Code starts with.";
-  const withBun = (command: string) =>
-    `PATH="$PATH:$HOME/.bun/bin"; if command -v bun >/dev/null; then ${command}; else echo ${quote(`note: ${noBun}`)}; fi`;
-  return [
-    script,
-    withNote(script, missing),
-    withNote(script, missing04),
-    withBun(withNote(script, missing)),
-  ];
-};
-
-/**
  * `mshape <args>` as a hook runs it: found where it is installed, degrading to a note, and
  * then to `otherwise` when mshape can't run.
  */
@@ -109,12 +87,6 @@ export const hookCommand = (args: ReadonlyArray<string>, otherwise?: string): st
  * hook before 0.7 did. Silent when bd can't run either: mshape's note already said why.
  */
 export const PRIME_FALLBACK = "bd prime 2>/dev/null || true";
-
-/** What 0.6's hooks ran for `args`, and what hooks before 0.6 did: sync replaces them all. */
-export const before07 = (args: ReadonlyArray<string>): ReadonlyArray<string> => [
-  hookCommand(args),
-  ...legacy(args),
-];
 
 /** A hook config's `hooks` key: each hook under its event, in list order. */
 export const settingsHooks = (hooks: ReadonlyArray<Hook>): Record<string, Array<unknown>> => {

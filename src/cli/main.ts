@@ -73,7 +73,7 @@ import { nextStep, REPO_NAME } from "../core/scaffold.ts";
 import { formatCollisions, formatSync, SKILL_NAME } from "../core/skills.ts";
 import { formatSyncPlan } from "../core/sync.ts";
 import { headingProblems } from "../core/trackPr.ts";
-import { HARNESS_IDS, PACK_IDS, shapeJsonSchema } from "../schemas/config.ts";
+import { DEFAULT_HARNESSES, HARNESS_IDS, PACK_IDS, shapeJsonSchema } from "../schemas/config.ts";
 import { type ConfigError, TrackError, WorkspaceError } from "../schemas/errors.ts";
 import { caller, hookCaller, setInvokedBy } from "./session.ts";
 
@@ -189,7 +189,7 @@ const init = (root: string, args: ReadonlyArray<string>) =>
         code: 2,
       };
     const chosen = shipped.filter((harness) =>
-      named.length === 0 ? harness.id === "claude-code" : named.includes(harness.id),
+      named.length === 0 ? DEFAULT_HARNESSES.includes(harness.id) : named.includes(harness.id),
     );
     const flagged = new Set(
       [fromFlag, packFlag, ...harnessAt].flatMap((at) => (at === -1 ? [] : [at, at + 1])),

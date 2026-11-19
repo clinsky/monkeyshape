@@ -4,11 +4,14 @@ import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   addHooks,
+  mergeHooks,
   missingHooks,
   mshapeCommand,
+  ownCommands,
   renderSettings,
   SYNC_COMMAND,
   settingsHooks,
+  staleHooks,
 } from "../../src/core/hooks.ts";
 import { INSTALL_URL } from "../../src/core/launch.ts";
 import { scaffold } from "../../src/core/scaffold.ts";
@@ -80,6 +83,24 @@ describe("hooks", () => {
       { matcher: "", hooks: [{ type: "command", command: HOOKS[1]?.command }] },
     ]);
     expect(missingHooks(synced, HOOKS)).toEqual([]);
+  });
+
+  test("a hook monkeyshape stops shipping is removed by sync, the repo's own kept (iwf)", () => {
+    const [start, prompt] = HOOKS;
+    if (start === undefined || prompt === undefined) throw new Error("two hooks expected");
+    const own = { matcher: "", hooks: [{ type: "command", command: "echo mine" }] };
+    const settings = JSON.parse(renderSettings(HOOKS));
+    settings.hooks.UserPromptSubmit.push(own);
+    // Ours are both hooks' commands; only the session-start one still ships.
+    const ours = ownCommands(HOOKS);
+    expect(staleHooks(settings, [start], ours)).toEqual([
+      { event: "UserPromptSubmit", command: prompt.command },
+    ]);
+    const merged = JSON.parse(mergeHooks(settings, [start], ours));
+    expect(merged.hooks.UserPromptSubmit).toEqual([own]);
+    expect(merged.hooks.SessionStart).toEqual(settings.hooks.SessionStart);
+    // With nothing of the repo's left under an event, the event goes too.
+    expect(JSON.parse(mergeHooks(settings, [], ours)).hooks).toEqual({ UserPromptSubmit: [own] });
   });
 
   test("init writes the rendered settings.json, whatever the template carries", async () => {

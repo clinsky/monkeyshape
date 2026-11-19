@@ -12,10 +12,11 @@ import {
   syncSkills,
 } from "../core/skills.ts";
 import { HARNESSES } from "../harnesses/index.ts";
+import { DEFAULT_HARNESSES } from "../schemas/config.ts";
 import { WorkspaceError } from "../schemas/errors.ts";
 
-/** Where a repo that lists no `harnesses`, so Claude Code alone, has its link. */
-const CLAUDE_CODE_LINK = skillsLinkOf(HARNESSES, ["claude-code"]);
+/** Where a repo that lists no `harnesses` has its link. */
+const DEFAULT_LINK = skillsLinkOf(HARNESSES, DEFAULT_HARNESSES);
 
 /** Whether anything is at `path`, a dangling link included. */
 const present = (path: string): Promise<boolean> =>
@@ -56,7 +57,7 @@ export const installSkills = (
   shippedDir: string,
   repo: string,
   options: SkillSyncOptions = {},
-  at: SkillsSnapshot["linkAt"] = CLAUDE_CODE_LINK,
+  at: SkillsSnapshot["linkAt"] = DEFAULT_LINK,
 ) =>
   Effect.gen(function* () {
     const installedDir = `${repo}/${SKILLS_DIR}`;
@@ -114,7 +115,7 @@ const linkAt = (path: string): Promise<SkillsLink> =>
 export const loadSkills = (
   shippedDir: string,
   repo: string,
-  at: SkillsSnapshot["linkAt"] = CLAUDE_CODE_LINK,
+  at: SkillsSnapshot["linkAt"] = DEFAULT_LINK,
 ) =>
   Effect.gen(function* () {
     const link: SkillsLink =

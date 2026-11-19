@@ -84,7 +84,7 @@ track is done (`mshape track list`), run `/milestone` again. In full: [docs/work
 | `budgets` | Bloated `AGENTS.md`, README, decision logs and memories; oversized files |
 | `coverage`, `sources` | Files the compiler, typechecker, linter or rules skip, other languages with no command checking them, data files that don't parse |
 | `files` | Files over the size cap, `.env` files, vendored tarballs that don't match their record |
-| `skills`, `sync` | Skills agents can't see (a broken `.claude/skills` link), and skills, `.beads/PRIME.md`, the PR template, hooks or Rust's workspace lint tables out of step with the installed package |
+| `skills`, `sync` | Skills agents can't see (a broken `.claude/skills` link, for Claude Code), and skills, `.beads/PRIME.md`, the PR template, each listed harness's hooks (`harnesses` in `shape.toml`) or Rust's workspace lint tables out of step with the installed package |
 | `beads` | Open beads no track owns, deferred beads still in a track, `TODO`s naming a closed bead |
 
 Existing violations can be grandfathered with `mshape baseline --init`; counts may then only
