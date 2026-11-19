@@ -1,11 +1,9 @@
 /**
- * Loads the repo's config, `shape.toml`, and decodes it strictly. `shape.config.ts` still
- * loads, by importing it, until `mshape config migrate` replaces it.
+ * Loads the repo's config, `shape.toml`, and decodes it strictly. `shape.config.ts` is refused,
+ * to be migrated; `importTsConfig` reads one for `mshape config migrate` alone.
  */
 
-import { mkdtemp, rm } from "node:fs/promises";
-import { tmpdir } from "node:os";
-import { basename, dirname, join, relative, resolve } from "node:path";
+import { join, relative } from "node:path";
 import * as Effect from "effect/Effect";
 import { settablePrerequisites } from "../core/gate.ts";
 import { decodeStrict } from "../helpers/decodeStrict.ts";
@@ -65,7 +63,6 @@ const PACK_SOURCES = Object.fromEntries(
 );
 
 import { ConfigError } from "../schemas/errors.ts";
-import { ownRoot } from "./launch.ts";
 
 export const CONFIG_FILE = "shape.toml";
 /** The config as code, which 0.6.0 replaces with `shape.toml`. */
@@ -102,109 +99,16 @@ export const loadFailure = (cause: unknown): string => {
     .join("; ");
 };
 
-/** Where `specifier`, imported by a file in `dir`, resolves as if that file sat in `root`. */
-const SOURCE = /\.(?:[cm]?[jt]sx?)$/;
-
-/** Bare specifiers as if imported from `root`, falling back to the running monkeyshape. */
-const resolveBare = (specifier: string, root: string): string | undefined => {
-  for (const from of [root, ownRoot()])
-    try {
-      return Bun.resolveSync(specifier, from);
-    } catch {
-      // Not there: the running monkeyshape next, then Bun's own resolution.
-    }
-  return undefined;
-};
-
-const escapeRegExp = (text: string): string => text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-
+/** What a repo with only `shape.config.ts` is told: mshape reads `shape.toml` alone. */
 /**
- * A config outside the repo (`--config`, for trying monkeyshape before adopting), as copies
- * in `dir` of it and every module it reaches by relative import outside the repo, with their
- * imports made absolute: bare ones resolved from the repo, relative ones to the copies (or,
- * inside the repo, to the files themselves). Imported where they are, Bun would resolve
- * `monkeyshape` from their directory upward and fall back to its global cache, where it may
- * be another version that can't see the repo's `effect`; runtime plugins never see those
- * imports. Returns each original's copy, the config's first.
+ * How to migrate, as commands that run: `config migrate` imports `shape.config.ts`, whose
+ * imports resolve only under the npm package, so it runs through that, not an installed mshape.
  */
-const outsideCopies = async (
-  path: string,
-  root: string,
-  dir: string,
-  copies: Map<string, string> = new Map(),
-): Promise<Map<string, string>> => {
-  const copy = join(dir, `${copies.size}-${basename(path)}`);
-  copies.set(path, copy);
-  const text = await Bun.file(path).text();
-  let imports: ReturnType<Bun.Transpiler["scanImports"]> = [];
-  try {
-    imports = new Bun.Transpiler({ loader: "tsx" }).scanImports(text);
-  } catch {
-    // It doesn't parse: copied as it is, so importing it reports why; the error is renamed.
-  }
-  let rewritten = text;
-  for (const specifier of new Set(imports.map((found) => found.path))) {
-    if (specifier.includes(":")) continue;
-    let target: string | undefined;
-    if (specifier.startsWith(".") || specifier.startsWith("/")) {
-      let file: string;
-      try {
-        file = Bun.resolveSync(specifier, dirname(path));
-      } catch {
-        file = resolve(dirname(path), specifier);
-      }
-      const outside = relative(root, file).startsWith("..");
-      if (outside && SOURCE.test(file))
-        target = copies.get(file) ?? (await outsideCopies(file, root, dir, copies)).get(file);
-      else target = file;
-    } else target = resolveBare(specifier, root);
-    if (target === undefined) continue;
-    // Only where it is imported: `from "x"`, `import "x"`, `import("x")`. The same text
-    // elsewhere is data, such as a vendored record's `package: "monkeyshape"`.
-    rewritten = rewritten.replace(
-      new RegExp(`(\\bfrom\\s*|\\bimport\\s*\\(?\\s*)(["'])${escapeRegExp(specifier)}\\2`, "g"),
-      (_, keyword: string) => `${keyword}${JSON.stringify(target)}`,
-    );
-  }
-  await Bun.write(copy, rewritten);
-  return copies;
-};
+export const MIGRATE_STEPS = `run \`bun add -d --exact monkeyshape\` (a release with \`config migrate\`), then \`bun run --silent mshape config migrate\`, which writes ${CONFIG_FILE} with the same values and deletes ${TS_CONFIG_FILE}`;
 
-/**
- * The repo's files the config reaches by relative import, directly or through other files it
- * imports, wherever the config is: its local rules and their helpers, repo-relative.
- */
-const reachedFrom = async (config: string, root: string): Promise<ReadonlyArray<string>> => {
-  const seen = new Set<string>([config]);
-  const queue = [config];
-  for (let file = queue.shift(); file !== undefined; file = queue.shift()) {
-    let imports: ReturnType<Bun.Transpiler["scanImports"]> = [];
-    try {
-      imports = new Bun.Transpiler({ loader: "tsx" }).scanImports(await Bun.file(file).text());
-    } catch {
-      // Unreadable or unparseable: loading the config reports it, if it matters.
-    }
-    for (const { path } of imports) {
-      if (!path.startsWith(".")) continue;
-      let target: string;
-      try {
-        target = Bun.resolveSync(path, dirname(file));
-      } catch {
-        continue;
-      }
-      if (seen.has(target) || !SOURCE.test(target)) continue;
-      seen.add(target);
-      queue.push(target);
-    }
-  }
-  seen.delete(config);
-  return [...seen]
-    .map((file) => relative(root, file))
-    .filter((file) => !file.startsWith(".."))
-    .sort();
-};
+const MIGRATE = `this mshape reads ${CONFIG_FILE} only, not a config as code: ${MIGRATE_STEPS}`;
 
-/** The repo's own config: `shape.toml`, or `shape.config.ts` until it is migrated. */
+/** The repo's own config, `shape.toml`; `shape.config.ts` is refused, to be migrated. */
 export const findConfig = (root: string) =>
   Effect.gen(function* () {
     const toml = yield* exists(join(root, CONFIG_FILE));
@@ -216,7 +120,7 @@ export const findConfig = (root: string) =>
           reason: `${TS_CONFIG_FILE} is here too, and a repo has one config: keep ${CONFIG_FILE}, move into it anything only ${TS_CONFIG_FILE} says, and delete ${TS_CONFIG_FILE}`,
         }),
       );
-    if (ts) return join(root, TS_CONFIG_FILE);
+    if (ts) return yield* Effect.fail(new ConfigError({ path: TS_CONFIG_FILE, reason: MIGRATE }));
     return toml ? join(root, CONFIG_FILE) : undefined;
   });
 
@@ -259,27 +163,10 @@ const loadToml = (root: string, path: string, shown: string) =>
  * `shape.config.ts` (or a `--config` module) imported and decoded strictly, before any of the
  * checks across keys: what `config migrate` turns into `shape.toml`. `shown` names it in errors.
  */
-export const importTsConfig = (root: string, path: string, shown: string) =>
+export const importTsConfig = (_root: string, path: string, shown: string) =>
   Effect.gen(function* () {
-    const outside = relative(root, path).startsWith("..");
     const module = yield* Effect.tryPromise({
-      try: async () => {
-        if (!outside) return (await import(path)) as { readonly default?: unknown };
-        const dir = await mkdtemp(join(tmpdir(), "mshape-config-"));
-        try {
-          const copies = await outsideCopies(path, root, dir);
-          try {
-            return (await import(copies.get(path) ?? path)) as { readonly default?: unknown };
-          } catch (cause) {
-            // Errors in a copy name the file the user wrote.
-            let message = loadFailure(cause);
-            for (const [original, copy] of copies) message = message.replaceAll(copy, original);
-            throw new Error(message);
-          }
-        } finally {
-          await rm(dir, { recursive: true, force: true });
-        }
-      },
+      try: async () => (await import(path)) as { readonly default?: unknown },
       catch: (cause) =>
         new ConfigError({
           path: shown,
@@ -290,6 +177,16 @@ export const importTsConfig = (root: string, path: string, shown: string) =>
       Effect.mapError((error) => new ConfigError({ path: shown, reason: error.message })),
     );
   });
+
+/**
+ * What a decoded `shape.config.ts` would have been refused for when mshape still read one:
+ * migrate refuses such a config before writing anything, to be fixed where it was written.
+ */
+export const tsConfigProblems = (config: ShapeConfig): ReadonlyArray<string> => [
+  ...configProblems(config),
+  ...unshipped(config),
+  ...undeclared(config),
+];
 
 /**
  * `path` overrides the repo's own config, e.g. to try monkeyshape on a repo before adopting
@@ -309,10 +206,6 @@ export const loadConfig = (root: string, given?: string) =>
         }),
       );
     if (path.endsWith(".toml")) return yield* loadToml(root, path, shown);
-    const config = yield* importTsConfig(root, path, shown);
-    const problems = [...configProblems(config), ...unshipped(config), ...undeclared(config)];
-    if (problems.length > 0)
-      return yield* Effect.fail(new ConfigError({ path: shown, reason: problems.join("; ") }));
-    const reached = yield* Effect.promise(() => reachedFrom(path, root));
-    return resolveConfig(config, shown, reached, PACK_SOURCES);
+    // shape.toml alone: a TypeScript config is refused wherever it is, --config's included.
+    return yield* Effect.fail(new ConfigError({ path: shown, reason: MIGRATE }));
   });

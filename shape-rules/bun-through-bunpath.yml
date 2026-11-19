@@ -6,12 +6,26 @@ metadata:
   bugClass: A command meant for Bun that forks the compiled mshape, because process.execPath is the binary itself.
 rule:
   any:
-    - pattern: process.execPath
-    - pattern: process["execPath"]
-    # `const { execPath } = process` and `import { execPath } from "node:process"`.
-    - kind: shorthand_property_identifier_pattern
-      regex: ^execPath$
-    - kind: import_specifier
-      has:
-        field: name
-        regex: ^execPath$
+    # process.execPath, process?.execPath, globalThis.process.execPath
+    - kind: member_expression
+      all:
+        - has: { field: property, regex: '^execPath$' }
+        - has: { field: object, regex: '^(globalThis\s*\??\.\s*)?process$' }
+    # process["execPath"]
+    - kind: subscript_expression
+      all:
+        - has: { field: object, regex: '^(globalThis\s*\??\.\s*)?process$' }
+        - has: { field: index, regex: '^["''`]execPath["''`]$' }
+    # const { execPath } = process, const { execPath: bin } = globalThis.process
+    - kind: variable_declarator
+      all:
+        - has: { field: value, regex: '^(globalThis\s*\??\.\s*)?process$' }
+        - has: { field: name, regex: '\bexecPath\b' }
+    # Any import of node:process that could reach execPath: by name, as a namespace or default.
+    - kind: import_statement
+      all:
+        - has: { field: source, regex: '^["''](node:)?process["'']$' }
+        - any:
+            - regex: '\bexecPath\b'
+            - has: { stopBy: end, kind: namespace_import }
+            - has: { kind: import_clause, has: { kind: identifier } }

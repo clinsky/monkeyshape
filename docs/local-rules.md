@@ -250,5 +250,6 @@ What these can't do, and why it is left so:
   `message` or `metadata.bugClass`. A problem with its cases fails as `rules/local-cases`.
 - Without ast-grep (offline, nothing cached), the rules check is unavailable, and the gate
   fails until it can be fetched.
-- A repo whose shape.config.ts still lists TypeScript rule modules in `localRules` keeps
-  running them, as `local/<id>` too, until they are ported to `shape-rules/`.
+- A repo from before 0.6.0 whose shape.config.ts lists TypeScript rule modules in
+  `localRules` ports each to `shape-rules/<id>.yml`, keeping its id, then runs
+  `mshape config migrate`, which refuses until every one is ported. mshape runs no `localRules`.

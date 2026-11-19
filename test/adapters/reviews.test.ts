@@ -78,8 +78,8 @@ beforeEach(async () => {
     sh(repo, "config", key ?? "", value ?? "");
   sh(repo, "remote", "add", "origin", join(base, "origin.git"));
   await writeFile(
-    join(repo, "shape.config.ts"),
-    `export default ${JSON.stringify({ tracks: { sharedPaths: ["data"] } })};\n`,
+    join(repo, "shape.toml"),
+    'packs = ["typescript"]\n[tracks]\nshared-paths = ["data"]\n',
   );
   await writeFile(join(repo, ".gitignore"), ".agents/worktrees/\n.handoffs\ndata\n");
   sh(repo, "add", ".");
@@ -141,19 +141,19 @@ describe("review", () => {
   test("a move discards edits to tracked files, saying so, and keeps untracked probes", async () => {
     await publish(7, "src/a.ts", "export const a = 1;\n");
     mshape(repo, "review", "7");
-    await writeFile(join(wt(7), "shape.config.ts"), "// mutated by a probe\n");
+    await writeFile(join(wt(7), "shape.toml"), "# mutated by a probe\n");
     await writeFile(join(wt(7), "probe.ts"), "scratch\n");
     const same = mshape(repo, "review", "7");
     expect(same.stderr).toContain("discarding in");
-    expect(same.stderr).toContain("shape.config.ts");
+    expect(same.stderr).toContain("shape.toml");
     expect(sh(wt(7), "status", "--porcelain", "--untracked-files=no")).toBe("");
 
-    await writeFile(join(wt(7), "shape.config.ts"), "// mutated again\n");
+    await writeFile(join(wt(7), "shape.toml"), "# mutated again\n");
     await writeFile(join(wt(7), "src", "a.ts"), "export const a = 99;\n");
     const head = await publish(7, "src/a.ts", "export const a = 2;\n");
     const moved = mshape(repo, "review", "7");
     expect(moved.code).toBe(0);
-    expect(moved.stderr).toContain("shape.config.ts");
+    expect(moved.stderr).toContain("shape.toml");
     expect(moved.stderr).toContain("src/a.ts");
     expect(sh(wt(7), "rev-parse", "HEAD")).toBe(head);
     expect(sh(wt(7), "status", "--porcelain", "--untracked-files=no")).toBe("");

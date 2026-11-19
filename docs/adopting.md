@@ -65,9 +65,9 @@ optional = true
 ```
 
 Then pin the `mshape` the repo runs, so every machine and CI run the same one: an `[mshape]`
-table with `version`, as `mshape --version` prints it, and `sums`, the digest `install.sh`
-recorded in `~/.local/bin/mshape.sums`. Point an editor's TOML support at the schema
-`mshape config schema` prints to validate the file as you type.
+table with `version`, as `mshape --version` prints it, and `sums`, the sha256 of that
+release's `SHA256SUMS` (`curl -fsSL https://github.com/clinsky/monkeyshape/releases/download/v<version>/SHA256SUMS | sha256sum`).
+`mshape config schema` prints the JSON Schema an editor can check the file against.
 
 Each check reads its own part of the config. Top-level keys such as `entry` go before the
 first table.
@@ -75,21 +75,23 @@ first table.
 - **`sources`** lists the TypeScript the rules analyze. The default is `src/**` and `tools/**`.
   Every other TypeScript file must be a test, a `.d.ts`, or under `sources.exempt` with a
   reason, or the `sources` check fails. Code spread over top-level directories is listed in
-  `[sources]` as `include = ["*.ts", "lib/**/*.ts", "scripts/**/*.ts"]`. That list replaces the
-  default, so list `src/**/*.ts` too if you have code there.
+  `include = ["*.ts", "lib/**/*.ts", "scripts/**/*.ts"]` under `[sources]`. That list replaces
+  the default, so list `src/**/*.ts` too if you have code there.
 - **`arch`** is the module map. Every file in `sources` must belong to a module. With code
   outside `src/`, set `root = "."` under `[arch]`. A module's key is then its directory (`lib`)
-  or a single file (`"main.ts"`). A directory such as `tools/` that matches no module fails as
-  `arch/unknown-module`: give it a module, or narrow `sources`.
+  or a single file (`main.ts`, quoted: `[arch.modules."main.ts"]`). A directory such as `tools/`
+  that matches no module fails as `arch/unknown-module`: give it a module, or narrow `sources`.
 - **Packages.** A module may import `effect` and the packages in `arch.allowed-packages`. One
   module's own extra packages go in its `packages`. `host-access = true` lets a module use
   `node:*`, `Bun` and the like.
-- **`entry`** lists, as globs, the files that run things, such as `entry = ["main.ts", "scripts/**/*.ts"]`.
-  The clock, the environment and console output are allowed there.
+- **`entry`** lists, as globs, the files that run things, such as
+  `entry = ["main.ts", "scripts/**/*.ts"]`. The clock, the environment and console output are
+  allowed there.
 - **Other languages are covered, never analyzed.**
   - Executable source that isn't TypeScript needs a command that checks it. That includes C,
     Python, shell, Java and Go, or any file with git's executable bit.
-  - Declare it under `[coverage]` as `commands = [{ files = ["native/**"], run = ["make", "-C", "native", "check"] }]`.
+  - Declare it under `[coverage]` as
+    `commands = [{ files = ["native/**"], run = ["make", "-C", "native", "check"] }]`.
     `files` says which files the command covers. `run` is argv, not a shell line. An argument
     `"{files}"` becomes exactly the files `files` matched, so the glob can't claim more than
     the command checks; without it, nothing is passed, and `run` names what it checks.
@@ -97,30 +99,33 @@ first table.
     `["python3", "-c", "import ast, sys; [ast.parse(open(f).read(), f) for f in sys.argv[1:]]", "{files}"]`,
     not `py_compile`. For shell scripts, loop, since `bash -n` reads only its first file:
     `["sh", "-c", 'for f; do bash -n "$f" || exit; done', "sh", "{files}"]`.
-  - `optional = true` turns a missing program into a note. A program that runs and fails is red.
-    So is exit 127, which is also how `bash` reports a file it can't find.
+  - `optional = true` turns a missing program into a note. A program that runs and fails is
+    red. So is exit 127, which is also how `bash` reports a file it can't find.
   - A file no command can check here, such as a test fixture or a plugin compiled by another
-    tool, goes in `coverage.exempt-files` as `{ path, reason }`.
+    tool, goes in `coverage.exempt-files` as `{ path = "…", reason = "…" }`.
   - The executable bit is only a heuristic. A script with an unusual extension and no bit
     still needs a command or an exemption.
 - **Vendored tarballs.** Record every tarball under `vendor/`, including ones from before you
-  adopted, under `[files]`: `vendored = [{ path = "vendor/<tarball>", package = "<npm name>", sha256 = "<sha256sum>" }]`.
+  adopted, under `[files]`:
+  `vendored = [{ path = "vendor/<tarball>", package = "<npm name>", sha256 = "<sha256sum>" }]`.
   The digest is the one its publisher states, on the release page or in your own notes. For
   a tarball with no stated digest, one you built or were handed, use the `sha256sum` of the
   file once you trust where it came from. The `files` check verifies each one. Move one to a new release with
   `mshape dep bump <name> <tarball> --sha256 <digest>`.
-- **Invariants of your own** become rules in `shape-rules/`, ast-grep rules with their cases:
+- **Invariants of your own** become adopter rules, `shape-rules/<id>.yml`:
   `docs/local-rules.md` shows how.
-- **A rule that misfits some files** takes `allow = [{ path = "...", reason = "..." }]`, or
-  `off = "<reason>"` to stop it everywhere: in `[rules.no-throw]` for a rule, and in
+- **A rule that misfits some files** takes `allow = [{ path = "…", reason = "…" }]`, or
+  `off = "<reason>"` to stop it everywhere: under `[rules.no-throw]` for a rule, and under
   `[refs.rules.section-citation]` for a `refs/` kind. An allowance that silences nothing
   fails, so delete it once its files are fixed.
+- **A repo with a shape.config.ts**, from before 0.6.0, follows Upgrading's 0.6.0 entry
+  instead: `mshape config migrate` writes `shape.toml` with the same values.
 
 ## 4. tsc and biome
 
-Every TypeScript file must be in both tools' file lists. A
-file typechecked by another tsconfig, such as a sub-app's, counts once you list that tsconfig
-too: `tsconfigs = ["tsconfig.json", "app/tsconfig.json"]` under `[coverage]`. Keep your
+Every TypeScript file must be in both tools' file lists. A file typechecked by another
+tsconfig, such as a sub-app's, counts once you list that tsconfig too:
+`tsconfigs = ["tsconfig.json", "app/tsconfig.json"]` under `[coverage]`. Keep your
 own configs and add what's missing. Extending monkeyshape's bases, as the blocks below do, is optional: they are its opinions on strictness and lint, which you can
 take later. Without configs of your own, start from these:
 

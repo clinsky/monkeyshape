@@ -62,8 +62,8 @@ export const handoff = (track: string) => `${repo}/.git/monkeyshape/handoffs/${t
 
 export const setup = async (sharedPaths: ReadonlyArray<string> = []) => {
   await writeFile(
-    join(repo, "shape.config.ts"),
-    `export default ${JSON.stringify({ tracks: { sharedPaths } })};\n`,
+    join(repo, "shape.toml"),
+    `packs = ["typescript"]\n[tracks]\nshared-paths = ${JSON.stringify(sharedPaths)}\n`,
   );
   await writeFile(
     join(repo, ".gitignore"),

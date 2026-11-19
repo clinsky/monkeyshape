@@ -68,12 +68,12 @@ export const blocks = async (doc: string): Promise<ReadonlyArray<string>> => {
   return [...text.matchAll(/```\w*\n([\s\S]*?)```/g)].map((block) => block[1] ?? "");
 };
 
-/** `// <file>` or `<!-- <file> -->` on the first line of a code block in docs/adopting.md names the file. */
+/** `// <file>`, `# <file>` or `<!-- <file> -->` on a code block's first line in docs/adopting.md names the file. */
 export const adoptingFiles = async (): Promise<Record<string, string>> => {
   const files: Record<string, string> = {};
   for (const block of await blocks("docs/adopting.md")) {
     const [first = "", ...rest] = block.split("\n");
-    const name = /^(?:\/\/|<!--|#)\s*([\w.-]+\.\w+)\s*(?:-->)?$/.exec(first.trim())?.[1];
+    const name = /^(?:\/\/|#|<!--)\s*([\w.-]+\.\w+)\s*(?:-->)?$/.exec(first.trim())?.[1];
     if (name !== undefined) files[name] = rest.join("\n");
   }
   return files;

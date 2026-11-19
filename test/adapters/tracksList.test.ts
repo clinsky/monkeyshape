@@ -430,14 +430,14 @@ describe("track rm and list with beads", () => {
     await symlink(Bun.which("git") ?? "git", `${base}/git-only/git`);
     const noBd = { PATH: `${base}/git-only` };
 
-    await writeFile(join(repo, "shape.config.ts"), `export default { beads: "required" };\n`);
+    await writeFile(join(repo, "shape.toml"), 'packs = ["typescript"]\nbeads = "required"\n');
     const refused = mshapeWith(noBd, repo, "rm", "docs");
     expect(refused.code).toBe(1);
     expect(refused.stderr).toContain("requires beads, but bd is not on PATH");
     expect(await exists(wt("docs"))).toBe(true);
 
     // Optional too: check would only note it, but rm can't be undone, so it refuses.
-    await writeFile(join(repo, "shape.config.ts"), "export default {};\n");
+    await writeFile(join(repo, "shape.toml"), 'packs = ["typescript"]\n');
     const optional = mshapeWith(noBd, repo, "rm", "docs");
     expect(optional.code).toBe(1);
     expect(optional.stderr).toContain(
