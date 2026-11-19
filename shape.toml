@@ -29,7 +29,7 @@ description = "Runtime helpers adopters import, e.g. decodeStrict."
 [arch.modules.core]
 description = "Every check, as pure functions over a Snapshot. No host I/O."
 # No host-access: only adapters touch disk, git or bd (D-pure-checks).
-may-import = ["schemas", "packs/pack.ts"]
+may-import = ["schemas", "packs/pack.ts", "harnesses/harness.ts"]
 packages = ["oxc-parser"]
 
 [arch.modules."packs/pack.ts"]
@@ -41,9 +41,17 @@ description = "Each language pack's pure part. No host I/O."
 may-import = ["schemas", "core", "packs/pack.ts"]
 packages = ["oxc-parser"]
 
+[arch.modules."harnesses/harness.ts"]
+description = "The harness interface: types only, which the core and every harness adapter share."
+may-import = ["schemas"]
+
+[arch.modules.harnesses]
+description = "Each harness adapter's pure part: the files it delivers, identity, skills. No host I/O."
+may-import = ["schemas", "core", "harnesses/harness.ts"]
+
 [arch.modules.adapters]
 description = "Loads the repo, the config and the baseline from disk and git."
-may-import = ["schemas", "helpers", "core", "packs", "packs/pack.ts"]
+may-import = ["schemas", "helpers", "core", "packs", "packs/pack.ts", "harnesses", "harnesses/harness.ts"]
 host-access = true
 
 [arch.modules.api]
