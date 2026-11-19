@@ -109,7 +109,8 @@ first table.
   a tarball with no stated digest, one you built or were handed, use the `sha256sum` of the
   file once you trust where it came from. The `files` check verifies each one. Move one to a new release with
   `mshape dep bump <name> <tarball> --sha256 <digest>`.
-- **Invariants of your own** become adopter rules: `docs/local-rules.md` shows how.
+- **Invariants of your own** become rules in `shape-rules/`, ast-grep rules with their cases:
+  `docs/local-rules.md` shows how.
 - **A rule that misfits some files** takes `allow = [{ path = "...", reason = "..." }]`, or
   `off = "<reason>"` to stop it everywhere: in `[rules.no-throw]` for a rule, and in
   `[refs.rules.section-citation]` for a `refs/` kind. An allowance that silences nothing
@@ -240,6 +241,23 @@ of that release's `SHA256SUMS`), and `bun add -d --exact monkeyshape@<version>` 
 `mshape sync`, then the gate. What a release asks of a repo that already
 adopted:
 
+- **0.6.0.** The config is `shape.toml`, data rather than code, and `mshape` is one binary per
+  machine that runs the version the repo pins. From 0.5.0, in order:
+  1. Install `mshape` as step 1 shows, and take the package:
+     `bun add -d --exact monkeyshape@0.6.0`.
+  2. Write each rule in `localRules` as `shape-rules/<id>.yml`, with its cases
+     ([docs/local-rules.md](local-rules.md) says how). Until each has its file, migrate
+     refuses, naming the rules left.
+  3. Run `bun run --silent mshape config migrate`. It runs under the package, since it imports
+     the old config, which the installed binary can't. It writes `shape.toml` with the same
+     values, `packs = ["typescript"]` and `[mshape]` pinning 0.6.0, then deletes
+     shape.config.ts, and notes each doc that still names it. Add `sums` to the pin as step 3
+     shows.
+  4. Delete the old rule modules and every place that listed them or shape.config.ts:
+     `sources`, `tsconfig.json`'s `include`, biome's `includes`, and those docs.
+  5. Run `mshape sync`, then `mshape gate`. Point your `check` script and CI at `mshape gate`,
+     as step 5 shows. The `"mshape"` package script is no longer needed: hooks and skills run
+     the installed `mshape`.
 - **0.5.0.** The `budgets` check gains `decision-unlinked`: each file a decision's
   `Enforced by` names must cite the decision's slug (`D-<slug>`) in a comment, so whoever edits
   it is told why it must stay. Add the citations (each message names the slug and the file), or

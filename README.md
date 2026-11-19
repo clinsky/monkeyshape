@@ -78,7 +78,7 @@ track is done (`mshape track list`), run `/milestone` again. In full: [docs/work
 | Check | Catches |
 |---|---|
 | `arch` | Layering drift between modules (crates, in Rust), host access from pure code (TypeScript's common paths, statically; not a sandbox), unvetted packages, import cycles |
-| `rules` | In TypeScript: silent decoding, hidden clocks/env/timers, thrown errors, nested runtimes, spread errors |
+| `rules` | In TypeScript: silent decoding, hidden clocks/env/timers, thrown errors, nested runtimes, spread errors. In any pack: your own rules in `shape-rules/` |
 | `packs` | A pack's config that hides files from its tools, such as ruff's per-section `exclude`, or a `ty.toml` that drops the curated rules |
 | `refs` | Docs and comments that point at paths, scripts or decisions that don't exist |
 | `budgets` | Bloated `AGENTS.md`, README, decision logs and memories; oversized files |
