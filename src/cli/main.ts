@@ -281,6 +281,25 @@ const trackPrCommand = (root: string, args: ReadonlyArray<string>) =>
         claudeDir: claudeDir(),
         bodyOnly: args.includes("--body-only"),
         ...(args.includes("--wait") ? { wait: CI_TIMING } : {}),
+        notify: (to, subject, text) =>
+          Effect.gen(function* () {
+            const message = yield* mailSend(root, to, subject, text, new Date(), randomHex);
+            const delivery = yield* notifyRecipient(
+              root,
+              message,
+              claudeCodeNotifier,
+              claudeDir(),
+              new Date(),
+            ).pipe(
+              Effect.catchTags({
+                TrackError: (error) =>
+                  Effect.succeed({ notified: 0, pruned: [], skipped: [error.reason] }),
+                WorkspaceError: (error) =>
+                  Effect.succeed({ notified: 0, pruned: [], skipped: [error.message] }),
+              }),
+            );
+            return `${formatSent(message)}\n${formatDelivery(to, delivery)}`;
+          }),
       },
       (line) => Effect.sync(() => console.error(line)),
     );
