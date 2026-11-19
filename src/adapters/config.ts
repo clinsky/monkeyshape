@@ -100,7 +100,13 @@ export const loadFailure = (cause: unknown): string => {
 };
 
 /** What a repo with only `shape.config.ts` is told: mshape reads `shape.toml` alone. */
-const MIGRATE = `this mshape reads ${CONFIG_FILE} only, not a config as code: run \`mshape config migrate\` (under this repo's npm monkeyshape), which writes ${CONFIG_FILE} with the same values and deletes ${TS_CONFIG_FILE}`;
+/**
+ * How to migrate, as commands that run: `config migrate` imports `shape.config.ts`, whose
+ * imports resolve only under the npm package, so it runs through that, not an installed mshape.
+ */
+export const MIGRATE_STEPS = `run \`bun add -d --exact monkeyshape\` (a release with \`config migrate\`), then \`bun run --silent mshape config migrate\`, which writes ${CONFIG_FILE} with the same values and deletes ${TS_CONFIG_FILE}`;
+
+const MIGRATE = `this mshape reads ${CONFIG_FILE} only, not a config as code: ${MIGRATE_STEPS}`;
 
 /** The repo's own config, `shape.toml`; `shape.config.ts` is refused, to be migrated. */
 export const findConfig = (root: string) =>

@@ -94,7 +94,7 @@ describe("shape.toml", () => {
     await Bun.write(join(dir, "shape.config.ts"), "export default { beads: 'required' };\n");
     const message = await fails();
     expect(message).toStartWith(
-      "shape.config.ts: this mshape reads shape.toml only, not a config as code: run `mshape config migrate`",
+      "shape.config.ts: this mshape reads shape.toml only, not a config as code: run `bun add -d --exact monkeyshape` (a release with `config migrate`), then `bun run --silent mshape config migrate`",
     );
   });
 

@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import * as Effect from "effect/Effect";
 import { importTsConfig, loadConfig } from "../../src/adapters/config.ts";
-import { migrateConfig } from "../../src/adapters/migrate.ts";
+import { migrateConfig, npmPackageMissing } from "../../src/adapters/migrate.ts";
 import { DEFAULT_DOCS, resolveConfig } from "../../src/schemas/config.ts";
 import { ConfigError } from "../../src/schemas/errors.ts";
 
@@ -209,6 +209,28 @@ export default {
     expect(result.lines).toContain(
       "note: AGENTS.md names shape.config.ts, which is gone: say shape.toml there (refs/missing-path flags each until then)",
     );
+  });
+
+  test("run as the compiled mshape: refuses with commands that run, changing nothing (#137's review)", async () => {
+    await old(PLAIN);
+    const result = await Effect.runPromise(migrateConfig(dir, PIN, loadConfig, true));
+    expect(result.code).toBe(1);
+    const said = result.lines.join("\n");
+    expect(said).toContain("`bun add -d --exact monkeyshape`");
+    expect(said).toContain("`bun run --silent mshape config migrate`");
+    expect(said).not.toContain("Fix it");
+    expect(await Bun.file(join(dir, "shape.config.ts")).text()).toBe(PLAIN);
+    expect(await has("shape.toml")).toBe(false);
+  });
+
+  test("an import that fails for want of monkeyshape is told to install it, not to fix the config", () => {
+    // As the compiled mshape and a repo without the package both report it.
+    expect(
+      npmPackageMissing(
+        "shape.config.ts: could not load: ResolveMessage: Cannot find package 'monkeyshape' imported from /x/shape.config.ts",
+      ),
+    ).toBe(true);
+    expect(npmPackageMissing("shape.config.ts: could not load: Unexpected token")).toBe(false);
   });
 
   test("no shape.config.ts: refuses, saying where a config comes from", async () => {
