@@ -134,9 +134,9 @@ outcome, not a spec. Show the human the charter and the beads; start once they a
   the detail in the body (`--body-file <path>` for anything with quotes in it). No acknowledgements, thanks or status: your status lives in your
   handoff and your PR. Never edit another track's handoff.
 - **Another track's file:** the plan's ownership says who to tell, not who may edit. When
-  your change needs a file another track owns (to stay in step with your code), edit it,
-  say so in your PR body, and send the owner one line naming the file and why. That line
-  is worth sending: the owner's next merge may conflict with it.
+  your change needs a file another track owns (to stay in step with your code), edit it
+  and say why in your PR body. `track pr` reads the plan's File owners table, names each
+  such file in the Gate section and mails its owner once; don't send that message yourself.
 - **Mail arriving:** a live notice, `[mshape] Message from <track>: <subject>`, or a line at
   your next prompt. Neither marks it read. Finish the step you are on if it can wait, then
   `mshape msg read <id>`, and act on it; answer only if the sender must act on your answer.
