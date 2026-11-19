@@ -84,11 +84,18 @@ const legacy = (args: ReadonlyArray<string>): ReadonlyArray<string> => {
   ];
 };
 
+/**
+ * `mshape <args>` as a hook runs it, in any harness: `mshape` found as `withMshape` finds it,
+ * degrading to a note when it can't run.
+ */
+export const hookCommand = (args: ReadonlyArray<string>): string =>
+  withMshape(withNote(mshapeCommand(args), MSHAPE_FAILED));
+
 /** A hook running `mshape <args>`, degrading to a note, replacing what earlier versions ran. */
 const mshapeHook = (event: HookEvent, args: ReadonlyArray<string>): Hook => ({
   event,
   matcher: "",
-  command: withMshape(withNote(mshapeCommand(args), MSHAPE_FAILED)),
+  command: hookCommand(args),
   retired: legacy(args),
 });
 
