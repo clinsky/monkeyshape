@@ -41,9 +41,11 @@ pushed meanwhile: run `mshape review $N` again.
 
 Start the review in a chat of its own in the main checkout. `mshape review $N` then moves
 this session from `main` to the reviewer's address (it prints the move): `review-<track>`
-when the PR's head is a track's branch, held across that track's PRs, else `review-$N`. The
-mail and notices for the main checkout stay with the other sessions there, and the author
-reaches you with `mshape msg send review-<track>` (or `review-$N`). Review the track's next
+when the PR is a track's (its head is `track/<name>`, a track's worktree has its branch or
+head, or its beads carry the track's label), held across that track's PRs, else `review-$N`. The
+mail and notices for the main checkout stay with the other sessions there. The author's
+`track pr` mails you at `review-<track>` each push that answers your review: the head and,
+once CI is in, its outcome. Anything else reaches you with `mshape msg send review-<track>`. Review the track's next
 PR from the same chat: it keeps the address. Run from a track's chat, it moves nothing: that
 session keeps its track's mail. A `/clear` registers the new session by the directory the
 chat is in: the reviewer's address in the review worktree, `main` again in the main checkout
@@ -146,12 +148,14 @@ acceptance, the plan's row or non-goal, the file it duplicates):
 
 Then what was run and what came out, the blockers, the nits with no line, and what looked
 good. Use `COMMENT`: GitHub refuses approve and request-changes on your own
-account's PR. Then tell the human in a few lines: what you ran, each finding and its
-severity, the review link. **Stop and wait** for the author.
+account's PR. `mshape review post` mails the track the link and one line per finding (a
+PR from no track learns of it from the PR): don't message it yourself. Then tell the human
+in a few lines: what you ran, each finding and its severity, the review link. **Stop and
+wait** for the author: its push reaches you as mail.
 
 ## 6. Re-review
 
-When told the author responded, read the thread: every reply, the new commits and the fix
+When the author's push reaches you (`#N pushed <head>: CI ...`), read the thread: every reply, the new commits and the fix
 diff (`gh pr view $N --comments`, `gh api repos/{owner}/{repo}/pulls/$N/comments`). The head
 you reviewed last is your previous review's `commit_id`
 (`gh api repos/{owner}/{repo}/pulls/$N/reviews`). Run `mshape review $N` to move the
@@ -183,10 +187,10 @@ worktree to the new head; it prints the previous one too.
 
 **When nothing is open, say "LGTM"** explicitly, on the PR and to the human: every blocker
 resolved and verified, every nit settled. Never while a finding is open or unverified.
-Merging is the human's call. When the review is over, `mshape review rm $N`: it lists what
-it discards, which in a review worktree is only scratch, then removes the worktree. For a
-track's PR the session keeps `review-<track>` and its mail for the track's next PR, so keep
-the chat when you will review that one. A PR from no track also loses `review-$N`, after its
-unread mail is listed; then close the chat.
+Merging is the human's call. Posting an LGTM through `mshape review post` removes the
+review's worktree for a track's PR, and the session keeps `review-<track>` and its mail for
+the track's next PR: keep the chat when you will review that one. For a PR from no track,
+`mshape review rm $N` when the review is over: it lists what it discards (only scratch),
+removes the worktree, and ends `review-$N` after listing its unread mail; then close the chat.
 
 Review this skill when a blocker it should have caught reaches `main`.

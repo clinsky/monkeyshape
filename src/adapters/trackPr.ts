@@ -14,6 +14,7 @@ import { dirname, join } from "node:path";
 import * as Clock from "effect/Clock";
 import * as Effect from "effect/Effect";
 import { GATE_COMMAND, parsePrBody, prSizeNote, setPrSections } from "../core/conventions.ts";
+import { pushMessage } from "../core/handshake.ts";
 import {
   MAIN_BRANCH,
   reviewAddress,
@@ -61,6 +62,7 @@ import {
   pushedPath,
   type ReviewFacts,
   reviewDecision,
+  reviewPosted,
   withCiLine,
 } from "../core/trackPr.ts";
 import { type TrackError, WorkspaceError } from "../schemas/errors.ts";
@@ -202,16 +204,8 @@ const reviewFacts = (
       );
       registered ||= recorded.some((file) => file.endsWith(".json") && !file.startsWith("."));
     }
-    if (live.length === 0 && !registered)
-      return {
-        pr: pr.number,
-        address,
-        live,
-        registered,
-        reviewedHead: false,
-        moves: true,
-      } satisfies ReviewFacts;
-    // REST, not `pr list --json headRefOid`, which gh 2.4 doesn't know.
+    // REST, not `pr list --json headRefOid`, which gh 2.4 doesn't know. Read even with no
+    // reviewer here: a posted review means a push answers it, and its reviewer gets mail.
     const head = yield* spawn(cwd, [
       "gh",
       "api",
@@ -239,16 +233,25 @@ const reviewFacts = (
             catch: () => undefined,
           }).pipe(Effect.orElseSucceed(() => undefined))
         : undefined;
-    if (posted === undefined)
+    if (posted === undefined && (live.length > 0 || registered))
       return yield* refuse(
         `a session is registered at \`${address}\`, and the PR's head and reviews couldn't be read to tell whether its review is posted (${unreadable?.stderr || "no head, or reviews that aren't JSON"}), so nothing was pushed or posted`,
       );
-    const reviewedHead = isReviewed(posted, head.stdout.trim());
-    const moves = head.stdout.trim() !== tip;
-    return { pr: pr.number, address, live, registered, reviewedHead, moves } satisfies ReviewFacts;
+    return {
+      pr: pr.number,
+      address,
+      live,
+      registered,
+      reviewedHead: posted !== undefined && isReviewed(posted, head.stdout.trim()),
+      reviewed: posted !== undefined && reviewPosted(posted),
+      moves: head.stdout.trim() !== tip,
+    } satisfies ReviewFacts;
   });
 
-/** Refuses while a review of `pr` is in progress; otherwise its note, if any. */
+/**
+ * Refuses while the first review of `pr` is in progress; otherwise says its note, if any, and
+ * whether a review is posted, so the push answers it.
+ */
 const waitOutReview = (
   cwd: string,
   common: string,
@@ -260,13 +263,13 @@ const waitOutReview = (
   say: (line: string) => Effect.Effect<void>,
 ) =>
   Effect.gen(function* () {
-    if (pr === undefined) return;
+    if (pr === undefined) return { reviewed: false };
     const now = new Date(yield* Clock.currentTimeMillis);
-    const decision = reviewDecision(
-      yield* reviewFacts(cwd, common, repo, track, pr, tip, claudeDir, now),
-    );
+    const facts = yield* reviewFacts(cwd, common, repo, track, pr, tip, claudeDir, now);
+    const decision = reviewDecision(facts);
     if ("refuse" in decision) return yield* refuse(decision.refuse);
     if (decision.note !== undefined) yield* say(decision.note);
+    return { reviewed: facts.reviewed };
   });
 
 /**
@@ -735,6 +738,26 @@ const refuseReverts = (
       );
   });
 
+/** Mails the track's reviewer, at `review-<track>`; a failure to is a note, never a refusal. */
+const mailReviewer = (
+  track: string,
+  message: { readonly subject: string; readonly body: string },
+  notify: TrackPrNotify | undefined,
+  say: (line: string) => Effect.Effect<void>,
+) =>
+  Effect.gen(function* () {
+    if (notify === undefined) return;
+    const to = reviewerAddress(track);
+    yield* say(
+      yield* notify(to, message.subject, message.body).pipe(
+        Effect.catchTags({
+          TrackError: (error) => Effect.succeed(`note: ${to} wasn't mailed: ${error.reason}`),
+          WorkspaceError: (error) => Effect.succeed(`note: mailing ${to} failed: ${error.message}`),
+        }),
+      ),
+    );
+  });
+
 /** Mails each owner `notices` names, once; an owner with no mailbox is named in the body only. */
 const mailOwners = (
   pr: { readonly number: number; readonly url: string },
@@ -973,8 +996,8 @@ export const trackPr = (
     );
     yield* checkBeads(repo, plan.beads, say);
 
-    // Again: a review can start while the gate runs.
-    yield* waitOutReview(
+    // Again: a review can start, or be posted, while the gate runs.
+    const { reviewed } = yield* waitOutReview(
       top,
       common,
       repo,
@@ -1010,6 +1033,11 @@ export const trackPr = (
 
     const before = yield* runsBefore(top, tip, options.wait);
     const url = yield* publish(top, branch, existing, options.title, plan.body);
+    // An answer to a posted review: its reviewer hears of each push, once CI is in if waited for.
+    const tellReviewer = (runs?: ReadonlyArray<CheckRun>) =>
+      existing === undefined || !reviewed
+        ? Effect.void
+        : mailReviewer(track, pushMessage(existing.number, url, tip, runs), options.notify, say);
     const done = existing
       ? `updated ${url}: the Gate section is from this run; every other section is ${options.body === undefined ? "as it was" : "from --body-file"}`
       : `opened ${url}`;
@@ -1020,8 +1048,12 @@ export const trackPr = (
       options.notify,
       say,
     );
-    if (options.wait === undefined) return done;
-    const recordCi = recordCiResult(top, branch, plan.body, gateText);
+    if (options.wait === undefined) {
+      yield* tellReviewer();
+      return done;
+    }
+    const recordCi = (runs: ReadonlyArray<CheckRun>) =>
+      Effect.andThen(recordCiResult(top, branch, plan.body, gateText)(runs), tellReviewer(runs));
     return yield* awaitCi(
       top,
       tip,

@@ -14,6 +14,7 @@ import {
   mailboxReadDir,
   mailDir,
   messagePath,
+  reviewerTrackOf,
   TRACK_NAME,
 } from "../core/layout.ts";
 import {
@@ -21,6 +22,7 @@ import {
   decodeMessage,
   encodeMessage,
   knownAddresses,
+  knownTracks,
   type Mailbox,
   MESSAGE_ID,
   type Message,
@@ -67,20 +69,24 @@ export const mailSend = (
   now: Date,
   random: () => string,
   caller: Caller = nobody(now),
+  /**
+   * A track's reviewer address takes mail before any reviewer registers there, which then
+   * waits for the session that does: `track pr` answering a posted review sends this way.
+   */
+  toReviewer = false,
 ) =>
   Effect.gen(function* () {
     const problem = subjectProblem(subject);
     if (problem !== undefined) return yield* refuse(`${problem}`);
     const { common, repo } = yield* locate(cwd);
     const tracks = yield* reviewTracks(common);
-    const known = knownAddresses(
-      repo,
-      yield* worktrees(repo),
-      yield* entries(handoffsStore(common)),
-      tracks,
-      yield* registeredAddresses(common),
-    );
-    const unknown = recipientProblem(to, known, tracks);
+    const all = yield* worktrees(repo);
+    const handoffs = yield* entries(handoffsStore(common));
+    const known = knownAddresses(repo, all, handoffs, tracks, yield* registeredAddresses(common));
+    const reviewed = reviewerTrackOf(to);
+    const held =
+      toReviewer && reviewed !== undefined && knownTracks(repo, all, handoffs).includes(reviewed);
+    const unknown = held ? undefined : recipientProblem(to, known, tracks);
     if (unknown !== undefined) return yield* refuse(`${unknown}`);
     // From the sender's address, so a reply reaches it: a review's, once a session moved there.
     const sender = yield* sessionAddress(cwd, caller).pipe(

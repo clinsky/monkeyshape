@@ -12,21 +12,27 @@
 import { mkdir, rm, writeFile } from "node:fs/promises";
 import { posix } from "node:path";
 import * as Effect from "effect/Effect";
+import { isLgtm, type ReviewInput, reviewMessage } from "../core/handshake.ts";
 import {
   HANDOFFS_LINK,
   handoffsStore,
+  mainCheckout,
   PR_NUMBER,
   reviewAddress,
   reviewerAddress,
+  reviewerTrackOf,
   reviewPath,
   reviewRef,
   reviewsDir,
   reviewTrackPath,
   TRACK_NAME,
   trackBranch,
+  trackOf,
 } from "../core/layout.ts";
 import { formatInbox } from "../core/mail.ts";
+import { listedBeads } from "../core/trackPr.ts";
 import { sharedPathProblems } from "../core/tracks.ts";
+import type { TrackError, WorkspaceError } from "../schemas/errors.ts";
 import { loadConfig } from "./config.ts";
 import { addressInbox } from "./mail.ts";
 import { type Caller, planReviewMove, removeSessions } from "./notices.ts";
@@ -84,6 +90,68 @@ const trackOfHead = (repo: string, head: string) =>
       return sha === head && TRACK_NAME.test(name) ? [name] : [];
     });
     return tracks.length === 1 ? tracks[0] : undefined;
+  });
+
+/**
+ * The track a PR comes from when its head isn't a track's branch (`3lo`): a track's worktree
+ * that has the PR's branch checked out, or its head commit; else the one track the beads its
+ * body lists are labelled with. Undefined when nothing says, or the evidence disagrees.
+ */
+const trackOfPr = (repo: string, pr: string, head: string) =>
+  Effect.gen(function* () {
+    const fields = (yield* jsonOf(repo, [
+      "gh",
+      "api",
+      `repos/{owner}/{repo}/pulls/${pr}`,
+      "-q",
+      "{ref: .head.ref, body: .body} | @json",
+    ])) as { ref?: unknown; body?: unknown } | undefined;
+    const ref = typeof fields?.ref === "string" ? fields.ref : undefined;
+    for (const worktree of yield* worktrees(repo)) {
+      const track = trackOf(repo, worktree.path);
+      if (track === undefined || worktree.prunable) continue;
+      if (ref !== undefined && worktree.branch === ref) return track;
+      if ((yield* git(worktree.path, ["rev-parse", "HEAD"])).stdout.trim() === head) return track;
+    }
+    const body = typeof fields?.body === "string" ? fields.body : "";
+    const labelled = new Set<string>();
+    for (const id of listedBeads(body)) {
+      const shown = yield* jsonOf(repo, ["bd", "show", id, "--json"]);
+      for (const label of JSON.stringify(shown ?? "").match(/track:[a-z0-9-]+/g) ?? [])
+        labelled.add(label.slice("track:".length));
+    }
+    const named = [...labelled].filter((name) => TRACK_NAME.test(name));
+    return named.length === 1 ? named[0] : undefined;
+  });
+
+/** A command's JSON output, or nothing when it isn't there or fails. */
+const jsonOf = (repo: string, command: ReadonlyArray<string>) =>
+  Effect.gen(function* () {
+    const ran = yield* Effect.try({
+      try: () => Bun.spawnSync([...command], { cwd: repo, stdout: "pipe", stderr: "pipe" }),
+      catch: () => undefined,
+    }).pipe(Effect.orElseSucceed(() => undefined));
+    if (ran === undefined || ran.exitCode !== 0) return undefined;
+    return yield* Effect.try({
+      try: (): unknown => JSON.parse(ran.stdout.toString()),
+      catch: () => undefined,
+    }).pipe(Effect.orElseSucceed(() => undefined));
+  });
+
+/**
+ * The move's lines, and a note when it took a session off a track's reviewer address to a
+ * PR's own: that track's next message to its reviewer would reach no one there.
+ */
+const movedOff = (lines: ReadonlyArray<string>, pr: string): ReadonlyArray<string> =>
+  lines.flatMap((line) => {
+    const from = / (review-[a-z][a-z0-9-]*) -> review-\d+\b/.exec(line)?.[1];
+    const track = from === undefined ? undefined : reviewerTrackOf(from);
+    return track === undefined
+      ? [line]
+      : [
+          line,
+          `note: this session left \`${from}\`: nothing says #${pr} is track ${track}'s (its head isn't \`track/${track}\`, no worktree of ${track} has it, and its beads aren't labelled \`track:${track}\`). If it is, \`mshape review <n>\` on ${track}'s PR moves back`,
+        ];
   });
 
 /** Records the track a review's PR comes from, for its address after a restart; none clears it. */
@@ -175,13 +243,25 @@ export const reviewNew = (
     // The head first: the address depends on the track it is the tip of. Fetching only
     // writes the review's own ref, so a refusal below still leaves nothing changed.
     const head = yield* fetchHead(repo, pr);
-    const track = yield* trackOfHead(repo, head);
+    const track = (yield* trackOfHead(repo, head)) ?? (yield* trackOfPr(repo, pr, head));
     const move = yield* planReviewMove(
       cwd,
       caller,
       track === undefined ? reviewAddress(pr) : reviewerAddress(track),
     );
-    const shared = (yield* loadConfig(repo)).tracks.sharedPaths;
+    // The main checkout's config may be what the PR fixes (`zw9`): review it all the same.
+    const notes: Array<string> = [];
+    const shared = yield* loadConfig(repo).pipe(
+      Effect.map((config) => config.tracks.sharedPaths),
+      Effect.catch((error) =>
+        Effect.sync((): ReadonlyArray<string> => {
+          notes.push(
+            `note: the main checkout's config doesn't load (${error.message}), so no shared paths are linked; the review goes on`,
+          );
+          return [];
+        }),
+      ),
+    );
     const problems = sharedPathProblems(shared);
     if (problems.length > 0) return yield* refuse(problems.join("\n"));
     const path = reviewPath(repo, pr);
@@ -205,16 +285,16 @@ export const reviewNew = (
         ...(yield* linkHandoffs(common, repo, path)),
       ];
       return [
+        ...notes,
         ...(before === head
           ? [`${path} is at the head of #${pr}: ${head}`]
           : [`moved ${path} to the head of #${pr}: ${head}`, `previous head: ${before}`]),
         ...linked,
-        ...(yield* move.apply),
+        ...movedOff(yield* move.apply, pr),
         `next: cd ${path}`,
       ].join("\n");
     }
 
-    const notes: Array<string> = [];
     if (!(yield* ignored(repo, posix.relative(repo, path))))
       notes.push(
         `note: the worktrees directory (\`${posix.relative(repo, path)}\`) is not gitignored; add it to .gitignore`,
@@ -238,7 +318,13 @@ export const reviewNew = (
         ),
       ),
     );
-    return [...notes, created, ...linked, ...(yield* move.apply), `next: cd ${path}`].join("\n");
+    return [
+      ...notes,
+      created,
+      ...linked,
+      ...movedOff(yield* move.apply, pr),
+      `next: cd ${path}`,
+    ].join("\n");
   });
 
 /**
@@ -295,4 +381,48 @@ export const reviewRm = (cwd: string, pr: string, say: (line: string) => Effect.
     }
     yield* gitOk(repo, ["worktree", "prune"]);
     return removed.length > 0 ? removed.join("\n") : `no review of #${pr} here; nothing removed`;
+  });
+
+/** Mails a track; what it says of the delivery. As `track pr`'s `notify`. */
+export type ReviewNotify = (
+  to: string,
+  subject: string,
+  body: string,
+) => Effect.Effect<string, TrackError | WorkspaceError>;
+
+/**
+ * After `review post`: mails the track the review is of (its link, one line per finding),
+ * and on LGTM removes the review's worktree, as `review rm` does: the reviewer keeps
+ * `review-<track>` and its mail for the track's next PR. A PR from no track mails no one and
+ * keeps its worktree, since `review rm` would end its address too: the PR tells its author.
+ */
+export const reviewHandshake = (
+  cwd: string,
+  pr: string,
+  url: string,
+  review: ReviewInput,
+  notify: ReviewNotify,
+  say: (line: string) => Effect.Effect<void>,
+) =>
+  Effect.gen(function* () {
+    const { common } = yield* locate(cwd);
+    const track = (yield* reviewTracks(common)).get(pr);
+    if (track === undefined) {
+      yield* say(
+        `note: #${pr} is from no track (or \`mshape review ${pr}\` didn't run here), so no track was mailed: its author learns of the review from the PR`,
+      );
+      return [];
+    }
+    const message = reviewMessage(pr, url, review, reviewerAddress(track));
+    const sent = yield* notify(track, message.subject, message.body).pipe(
+      Effect.catchTags({
+        TrackError: (error) =>
+          Effect.succeed(`note: track ${track} wasn't mailed: ${error.reason}`),
+        WorkspaceError: (error) =>
+          Effect.succeed(`note: mailing track ${track} failed: ${error.message}`),
+      }),
+    );
+    if (!isLgtm(review)) return [sent];
+    const removed = yield* reviewRm(cwd, pr, say);
+    return [sent, removed, `next: cd ${mainCheckout(common)}`];
   });

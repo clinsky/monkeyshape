@@ -32,10 +32,10 @@ import {
 } from "../adapters/notices.ts";
 import { runTool } from "../adapters/process.ts";
 import { packSource, packWorkingTree } from "../adapters/release.ts";
-import { reviewNew, reviewRm } from "../adapters/reviews.ts";
+import { reviewHandshake, reviewNew, reviewRm } from "../adapters/reviews.ts";
 import { listShapeRules } from "../adapters/shapeRules.ts";
 import { syncAll } from "../adapters/sync.ts";
-import { CI_TIMING, trackPr } from "../adapters/trackPr.ts";
+import { CI_TIMING, type TrackPrNotify, trackPr } from "../adapters/trackPr.ts";
 import {
   type CarryMessages,
   currentTrackOf,
@@ -53,7 +53,12 @@ import { assess, CHECKS, evaluate, prerequisites } from "../core/check.ts";
 import { OWNABLE_FILES } from "../core/conventions.ts";
 import { garden } from "../core/garden.ts";
 import { cacheRoot } from "../core/launch.ts";
-import { CLAUDE_SKILLS_LINK, isReviewAddress, SKILLS_DIR } from "../core/layout.ts";
+import {
+  CLAUDE_SKILLS_LINK,
+  isReviewAddress,
+  reviewerTrackOf,
+  SKILLS_DIR,
+} from "../core/layout.ts";
 import {
   formatAllInboxes,
   formatInbox,
@@ -288,30 +293,48 @@ const trackPrCommand = (root: string, args: ReadonlyArray<string>) =>
         claudeDir: claudeDir(),
         bodyOnly: args.includes("--body-only"),
         ...(args.includes("--wait") ? { wait: CI_TIMING } : {}),
-        notify: (to, subject, text) =>
-          Effect.gen(function* () {
-            const message = yield* mailSend(root, to, subject, text, new Date(), randomHex);
-            const delivery = yield* notifyRecipient(
-              root,
-              message,
-              claudeCodeNotifier,
-              claudeDir(),
-              new Date(),
-            ).pipe(
-              Effect.catchTags({
-                TrackError: (error) =>
-                  Effect.succeed({ notified: 0, pruned: [], skipped: [error.reason] }),
-                WorkspaceError: (error) =>
-                  Effect.succeed({ notified: 0, pruned: [], skipped: [error.message] }),
-              }),
-            );
-            return `${formatSent(message)}\n${formatDelivery(to, delivery)}`;
-          }),
+        notify: mailAndNotify(root),
       },
       (line) => Effect.sync(() => console.error(line)),
     );
     return { output, code: 0 };
   });
+
+/**
+ * Mail sent by a command for its caller (track pr, review post): stored, then a live notice
+ * to each session at the address. A track's reviewer address takes it before any reviewer
+ * registers there, so it waits for one.
+ */
+const mailAndNotify =
+  (root: string): TrackPrNotify =>
+  (to, subject, text) =>
+    Effect.gen(function* () {
+      const message = yield* mailSend(
+        root,
+        to,
+        subject,
+        text,
+        new Date(),
+        randomHex,
+        caller(),
+        reviewerTrackOf(to) !== undefined,
+      );
+      const delivery = yield* notifyRecipient(
+        root,
+        message,
+        claudeCodeNotifier,
+        claudeDir(),
+        new Date(),
+      ).pipe(
+        Effect.catchTags({
+          TrackError: (error) =>
+            Effect.succeed({ notified: 0, pruned: [], skipped: [error.reason] }),
+          WorkspaceError: (error) =>
+            Effect.succeed({ notified: 0, pruned: [], skipped: [error.message] }),
+        }),
+      );
+      return `${formatSent(message)}\n${formatDelivery(to, delivery)}`;
+    });
 
 const track = (root: string, args: ReadonlyArray<string>) =>
   Effect.gen(function* () {
@@ -678,13 +701,20 @@ const review = (root: string, args: ReadonlyArray<string>) =>
         ),
         code: 0,
       };
-    if (args.length === 3 && args[0] === "post")
-      return {
-        output: yield* reviewPost(root, configDir(), args[1] ?? "", args[2] ?? "", (line) =>
-          Effect.sync(() => console.error(line)),
-        ),
-        code: 0,
-      };
+    if (args.length === 3 && args[0] === "post") {
+      const say = (line: string) => Effect.sync(() => console.error(line));
+      const pr = args[1] ?? "";
+      const posted = yield* reviewPost(root, configDir(), pr, args[2] ?? "", say);
+      const after = yield* reviewHandshake(
+        root,
+        pr,
+        posted.url,
+        posted.review,
+        mailAndNotify(root),
+        say,
+      );
+      return { output: [`posted ${posted.url}`, ...after].join("\n"), code: 0 };
+    }
     if (args.length === 2 && args[0] === "rm")
       return {
         output: yield* reviewRm(root, args[1] ?? "", (line) =>
