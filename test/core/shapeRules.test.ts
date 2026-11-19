@@ -7,9 +7,8 @@ import { describe, expect, test } from "bun:test";
 import { report } from "../../src/core/check.ts";
 import type { ShapeRuleRun, ShapeRules, Snapshot } from "../../src/core/model.ts";
 import { checkRules, formatRules, localRuleHatches } from "../../src/core/rules/engine.ts";
-import { RULES } from "../../src/core/rules/registry.ts";
 import type { ShapeConfig } from "../../src/schemas/config.ts";
-import { config, repo } from "../support.ts";
+import { config, repo, ruled } from "../support.ts";
 
 const SOURCE = [
   "export const a = (y: number | undefined) => {",
@@ -52,12 +51,25 @@ const withRules = (
 ): Snapshot => ({ ...repo(files), shapeRules: { integration, rules } });
 
 const found = (snapshot: Snapshot, shape: ShapeConfig = {}) =>
-  checkRules(config(shape), snapshot, []).map((v) => `${v.rule} ${v.file}:${v.line} ${v.message}`);
+  checkRules(config(shape), ruled(snapshot, [])).map(
+    (v) => `${v.rule} ${v.file}:${v.line} ${v.message}`,
+  );
 
 describe("adopter rules through ast-grep", () => {
   test("a match outside an allowance is local/<id> at its line, with the rule's message", () => {
     expect(found(withRules([rule()]))).toEqual([
       "rules/local/no-bang src/a.ts:2 A non-null assertion hides undefined; narrow the type instead.",
+    ]);
+  });
+
+  test("a match's own message, with the rule's metavariables filled in, is the one reported", () => {
+    const named = rule({
+      message: "reads $W.root; lend a directory instead.",
+      matches: [{ file: "src/a.ts", line: 2, message: "reads st.root; lend a directory instead." }],
+    });
+    expect(found(withRules([named]))).toEqual([
+      "rules/local/no-bang src/a.ts:2 reads st.root; lend a directory instead.",
+      "rules/unused-ignore src/a.ts:3 shape-ignore local/no-bang suppresses nothing; delete it",
     ]);
   });
 
@@ -143,7 +155,7 @@ describe("adopter rules through ast-grep", () => {
 
   test("an id that collides with a core rule fails, naming both", () => {
     const throwing = rule({ file: "shape-rules/no-throw.yml", id: "no-throw" });
-    const problems = checkRules(config(), withRules([throwing]), RULES).filter(
+    const problems = checkRules(config(), withRules([throwing])).filter(
       (v) => v.rule === "rules/local-rule",
     );
     expect(problems.map((v) => `${v.file}: ${v.message}`)).toEqual([

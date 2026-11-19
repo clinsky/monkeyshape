@@ -6,7 +6,7 @@ import { defineConfig, defineRule, type Node, walk } from "../../src/api/monkeys
 import { checkRules, localRuleHatches } from "../../src/core/rules/engine.ts";
 import type { ShapeConfig } from "../../src/schemas/config.ts";
 import { run as spawn } from "../integration/harness.ts";
-import { config, repo } from "../support.ts";
+import { config, repo, ruled } from "../support.ts";
 
 /** Bans `save(...)` everywhere: the example shape of an enforcement-point rule. */
 const noSave = defineRule({
@@ -30,7 +30,7 @@ const noSave = defineRule({
 });
 
 const all = (files: Record<string, string>, input: ShapeConfig = {}) =>
-  checkRules(config({ localRules: [noSave], ...input }), repo(files), []).map(
+  checkRules(config({ localRules: [noSave], ...input }), ruled(repo(files), [])).map(
     (v) => `${v.rule} ${v.file}:${v.line} ${v.message}`,
   );
 
@@ -142,7 +142,7 @@ describe("local rules", () => {
         return [];
       },
     });
-    checkRules(config({ localRules: [rule] }), repo({ "src/a.ts": "f(g());\n" }), []);
+    checkRules(config({ localRules: [rule] }), ruled(repo({ "src/a.ts": "f(g());\n" }), []));
     expect(seen).toEqual(["call f(g())", "id f", "call g()", "id g"]);
   });
 

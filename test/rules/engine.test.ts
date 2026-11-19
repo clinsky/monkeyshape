@@ -3,10 +3,10 @@ import { checkRules, type Rule } from "../../src/core/rules/engine.ts";
 import { RULES } from "../../src/core/rules/registry.ts";
 import type { Pack } from "../../src/packs/pack.ts";
 import type { ShapeConfig } from "../../src/schemas/config.ts";
-import { config, fakePack, listed, repo } from "../support.ts";
+import { config, fakePack, listed, repo, ruled } from "../support.ts";
 
 const run = (files: Record<string, string>, input: ShapeConfig = {}) =>
-  checkRules(config(input), repo(files), RULES).map(
+  checkRules(config(input), repo(files)).map(
     (v) => `${v.rule} ${v.file}${v.line === undefined ? "" : `:${v.line}`}`,
   );
 
@@ -61,9 +61,10 @@ describe("rule engine", () => {
       },
     };
     const found = (layers: ReadonlyArray<"core" | "agentic">) =>
-      checkRules(config({ ...allow, layers }), repo({ "src/legacy/a.ts": "throw x;" }), [
-        agentic,
-      ]).map((v) => v.rule);
+      checkRules(
+        config({ ...allow, layers }),
+        ruled(repo({ "src/legacy/a.ts": "throw x;" }), [agentic]),
+      ).map((v) => v.rule);
     expect(found(["core", "agentic"])).toEqual([]);
     expect(found(["core"])).toEqual(["rules/unused-allowance"]);
   });
@@ -108,12 +109,14 @@ describe("a rule's context", () => {
     ].join("\n");
     checkRules(
       config(),
-      repo({
-        "src/core/a.ts": source,
-        "src/core/y.ts": "",
-        "src/schemas/case.ts": "export const X = 1;\n",
-      }),
-      [probe],
+      ruled(
+        repo({
+          "src/core/a.ts": source,
+          "src/core/y.ts": "",
+          "src/schemas/case.ts": "export const X = 1;\n",
+        }),
+        [probe],
+      ),
     );
     expect(seen.filter((line) => line.startsWith("src/core/a.ts"))).toEqual([
       "src/core/a.ts ../schemas/case.ts -> src/schemas/case.ts",
@@ -141,14 +144,14 @@ describe("each file through the pack that claims it", () => {
 
   test("another language's source isn't parsed as TypeScript, nor held to its rules", () => {
     const files = { "crates/a/src/lib.rs": "pub fn add(a: u64, b: u64) -> u64 { a + b }\n" };
-    expect(checkRules(rustRepo, repo(files, { packs: [listed(rust)] }), RULES)).toEqual([]);
+    expect(checkRules(rustRepo, repo(files, { packs: [listed(rust)] }))).toEqual([]);
   });
 
   test("shape-ignore is read in the pack's comment syntax", () => {
     const files = { "crates/a/src/lib.rs": "// shape-ignore no-throw\nfn a() {}\n" };
-    expect(
-      checkRules(rustRepo, repo(files, { packs: [listed(rust)] }), RULES).map((v) => v.rule),
-    ).toEqual(["rules/ignore-without-reason"]);
+    expect(checkRules(rustRepo, repo(files, { packs: [listed(rust)] })).map((v) => v.rule)).toEqual(
+      ["rules/ignore-without-reason"],
+    );
   });
 
   test("a file in sources no listed pack claims is not parsed", () => {

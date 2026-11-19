@@ -103,7 +103,13 @@ describe("shape-rules through ast-grep", () => {
       language: "rust",
       message: "unwrap panics on None; return the error to the caller instead",
       bugClass: "Panics in library code",
-      matches: [{ file: "src/lib.rs", line: 3 }],
+      matches: [
+        {
+          file: "src/lib.rs",
+          line: 3,
+          message: "unwrap panics on None; return the error to the caller instead",
+        },
+      ],
       cases: {
         state: "ran",
         file: "shape-rules/no-unwrap.test.yml",
@@ -147,7 +153,100 @@ describe("shape-rules through ast-grep", () => {
     expect(loaded?.rules[0]?.cases).toEqual({
       state: "invalid",
       file: "shape-rules/no-unwrap.test.yml",
-      reason: "`valid` is not a list of source snippets",
+      reason: "`valid` is not a list of cases (source snippets, or `{ path, code }`)",
     });
+  }, 120_000);
+
+  test("a case at a path runs as a scan of that file: the rule's files scope applies", async () => {
+    const repo = join(work, "scoped");
+    const scoped = `id: no-vendor
+language: typescript
+message: '"$N" names a vendor; keep vendors out of the engine'
+metadata:
+  bugClass: A vendor's name in the engine, which binds it to one product
+files: ["src/core/**"]
+rule:
+  pattern: $N
+  any: [{ kind: identifier }, { kind: comment }, { kind: string_fragment }]
+  regex: "(^|[^a-z])(?i:acme)([^a-z]|$)"
+`;
+    const files = await write(repo, {
+      "src/core/a.ts": "export const acmeRoot = 1;\n",
+      "src/cli/b.ts": 'export const vendor = "acme";\n',
+      "shape-rules/no-vendor.yml": scoped,
+      "shape-rules/no-vendor.test.yml": `invalid:
+  - path: src/core/x.ts
+    code: "export const acmeRoot = 1;"
+  # A snippet has no path, so the scope doesn't apply to it.
+  - "// The Acme layout."
+valid:
+  - path: src/cli/x.ts
+    code: 'export const vendor = "acme";'
+  - path: src/core/x.ts
+    code: "export const taxis = 1;"
+`,
+      "shape-rules/bad-cases.yml": RULE.replace("no-unwrap", "bad-cases"),
+      "shape-rules/bad-cases.test.yml":
+        'invalid:\n  - path: ../outside.rs\n    code: "y.unwrap()"\n',
+    });
+    const cache = cacheRoot(
+      { XDG_CACHE_HOME: process.env["XDG_CACHE_HOME"], HOME: process.env["HOME"] },
+      tmpdir(),
+    );
+    const loaded = await Effect.runPromise(loadShapeRules(repo, files, cache));
+    const byFile = new Map(loaded?.rules.map((rule) => [rule.file, rule]));
+    // The message names the match: ast-grep fills in the rule's metavariables.
+    expect(byFile.get("shape-rules/no-vendor.yml")?.matches).toEqual([
+      {
+        file: "src/core/a.ts",
+        line: 1,
+        message: '"acmeRoot" names a vendor; keep vendors out of the engine',
+      },
+    ]);
+    expect(byFile.get("shape-rules/no-vendor.yml")?.cases).toEqual({
+      state: "ran",
+      file: "shape-rules/no-vendor.test.yml",
+      runs: [
+        { kind: "invalid", index: 1, matches: 1 },
+        { kind: "invalid", index: 2, matches: 1 },
+        { kind: "valid", index: 1, matches: 0 },
+        { kind: "valid", index: 2, matches: 0 },
+      ],
+    });
+    expect(byFile.get("shape-rules/bad-cases.yml")?.cases).toEqual({
+      state: "invalid",
+      file: "shape-rules/bad-cases.test.yml",
+      reason: 'its invalid case 1 has `path: "../outside.rs"`, not a file path inside the repo',
+    });
+    // A file path the disk refuses (a name past 255 bytes): that case's error, the rest run.
+    const long = join(work, "long-name");
+    const longFiles = await write(long, {
+      "shape-rules/long.yml": RULE.replace("no-unwrap", "long"),
+      "shape-rules/long.test.yml": `invalid:\n  - path: src/${"a".repeat(300)}.rs\n    code: "y.unwrap()"\n  - "y.unwrap()"\n`,
+    });
+    const longRun = (await Effect.runPromise(loadShapeRules(long, longFiles, cache)))?.rules[0]
+      ?.cases;
+    expect(longRun).toMatchObject({
+      state: "ran",
+      runs: [
+        { index: 1, matches: 0 },
+        { index: 2, matches: 1 },
+      ],
+    });
+    expect(JSON.stringify(longRun)).toContain("could not be written to src/aaa");
+    // A directory, however written, is no file a case can be: refused, never a crash.
+    for (const path of ["src/core/", ".", "src/core/x.rs/", "src//x.rs", "/abs.rs"]) {
+      const dir = join(work, `bad-path-${files.length}-${path.replace(/\W/gu, "_")}`);
+      const listed = await write(dir, {
+        "shape-rules/bad-cases.yml": RULE.replace("no-unwrap", "bad-cases"),
+        "shape-rules/bad-cases.test.yml": `invalid:\n  - path: ${JSON.stringify(path)}\n    code: "y.unwrap()"\n`,
+      });
+      const refused = await Effect.runPromise(loadShapeRules(dir, listed, cache));
+      expect(refused?.rules[0]?.cases).toEqual({
+        state: "invalid",
+        file: "shape-rules/bad-cases.test.yml",
+        reason: `its invalid case 1 has \`path: ${JSON.stringify(path)}\`, not a file path inside the repo`,
+      });
+    }
   }, 120_000);
 });
