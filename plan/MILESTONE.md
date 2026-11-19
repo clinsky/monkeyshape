@@ -519,3 +519,9 @@ already written by agents, not generated for it.
   `8il.11`, then `localRules` removed and the `shape.config.ts`-only row flipped (`8il.2`'s
   second PR), then 0.6.0: `migrate` is the one command that still reads the old config, and
   it refuses until each rule id has a `shape-rules` file.
+- **2026-11-19, two adopters, not three (the planning session's error), confirmed by the
+  maintainer.** The plan counted three adopters from a stale note; two exist, the existing
+  application and the repo born on 0.4.0. A third application will adopt later, outside this
+  milestone. Every "three adopters" above reads "two": `config` migrated both on scratch
+  clones (#137), every outcome as on 0.5.0 but one `refs/missing-path` each, for the
+  `shape.config.ts` their AGENTS.md still names, which migrate's note points to.
