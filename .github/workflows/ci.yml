@@ -32,6 +32,17 @@ jobs:
           install -D "$(find "$RUNNER_TEMP/bd" -type f -name bd | head -n 1)" "$HOME/.local/bin/bd"
           echo "$HOME/.local/bin" >> "$GITHUB_PATH"
           "$HOME/.local/bin/bd" version
+      # The Python pack's toolchain tests run uv, ruff, ty and pytest for real; with CI set, they
+      # fail rather than skip when uv is missing. The cache holds the pinned wheels between runs.
+      - uses: astral-sh/setup-uv@v6
+        with:
+          version: "0.8.22"
+          enable-cache: true
+          cache-dependency-glob: "template/packs/python/uv.lock"
+      # The Rust pack's toolchain tests run cargo, clippy and rustfmt, which the runner image
+      # ships: fail here, by name, if an image ever drops one, rather than in the tests.
+      - name: cargo, clippy and rustfmt are on the PATH
+        run: cargo --version && cargo clippy --version && cargo fmt --version
       - run: bun install --frozen-lockfile
       - run: bun run --silent mshape gate
 

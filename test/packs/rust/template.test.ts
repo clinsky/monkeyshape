@@ -9,6 +9,7 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { CURATED } from "../../../src/packs/rust/lints.ts";
 import { initFromSource, ROOT, run } from "../../integration/harness.ts";
+import { skipWithout } from "../../support.ts";
 
 const TEMPLATE = join(ROOT, "template", "packs", "rust");
 const read = (path: string) => Bun.file(join(TEMPLATE, path)).text();
@@ -86,8 +87,10 @@ describe("mshape init my-repo --pack rust", () => {
 // The bead's acceptance on a real toolchain: born, then the gate with Bun off the PATH.
 const cargo = Bun.which("cargo");
 const toolchain = cargo !== null && Bun.spawnSync([cargo, "clippy", "--version"]).exitCode === 0;
+/** Skipped without the toolchain, except in CI, where it fails instead. */
+const noToolchain = skipWithout(toolchain);
 
-describe.skipIf(!toolchain)("mshape init --pack rust, then its gate without Bun", () => {
+describe.skipIf(noToolchain)("mshape init --pack rust, then its gate without Bun", () => {
   let work = "";
   let born = "";
   const NO_SESSION = { CLAUDE_CODE_SESSION_ID: "", CLAUDE_PID: "" };

@@ -5,6 +5,7 @@ import { join } from "node:path";
 import * as Effect from "effect/Effect";
 import { loadRust } from "../../../src/adapters/packs/rust.ts";
 import { CARGO_METADATA, RUSTC } from "../../../src/packs/rust/index.ts";
+import { skipWithout } from "../../support.ts";
 
 const scratch = () => mkdtemp(join(tmpdir(), "rust-loader-"));
 
@@ -49,7 +50,7 @@ describe("loadRust without cargo's help", () => {
   });
 });
 
-describe.skipIf(Bun.which("cargo") === null)("loadRust with cargo", () => {
+describe.skipIf(skipWithout(Bun.which("cargo") !== null))("loadRust with cargo", () => {
   test("a workspace: rustc covers the mod tree and each target, not an orphan", async () => {
     const root = await scratch();
     try {

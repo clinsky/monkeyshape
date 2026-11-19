@@ -8,6 +8,7 @@ import {
   memberFindings,
   renderLints,
 } from "../../../src/packs/rust/lints.ts";
+import { skipWithout } from "../../support.ts";
 
 const parse = (text: string): unknown => {
   try {
@@ -58,7 +59,7 @@ describe("memberFindings", () => {
 const cargo = Bun.which("cargo");
 const clippy = cargo !== null && Bun.spawnSync([cargo, "clippy", "--version"]).exitCode === 0;
 
-describe.skipIf(!clippy)("the curated lints on a real workspace", () => {
+describe.skipIf(skipWithout(clippy))("the curated lints on a real workspace", () => {
   test("a fresh member is green, and a dbg! fails clippy's stage", async () => {
     const root = await mkdtemp(join(tmpdir(), "rust-lints-"));
     try {
