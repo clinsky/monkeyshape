@@ -119,8 +119,13 @@ const NOT_LOADED: Integration = { state: "unavailable", reason: "its pack's load
  * Each tool of a pack with files to cover, how its run fared, and whether it is required: as
  * `prerequisites` in the config says, else as its pack does.
  */
-const packTools = (config: ResolvedConfig, snapshot: Snapshot): ReadonlyArray<Prerequisite> =>
+const packTools = (
+  config: ResolvedConfig,
+  snapshot: Snapshot,
+  check: CheckName = "coverage",
+): ReadonlyArray<Prerequisite> =>
   snapshot.packs.flatMap((loaded) =>
+    (check === "arch" && !loaded.pack.loadFor.includes("arch")) ||
     toCover(config, snapshot, loaded).length === 0
       ? []
       : loaded.pack.tools.map((tool) => {
@@ -150,6 +155,9 @@ const prerequisitesOf = (
   const { beads } = snapshot.integrations;
   // A pack's tools cover its files: a pack with none to cover doesn't need them.
   if (check === "coverage") return packTools(config, snapshot);
+  // A pack whose loader runs for arch builds its graph from its tools' output (Rust's from
+  // `cargo metadata`): without it, arch has no edges to judge, and must not say it passed.
+  if (check === "arch") return packTools(config, snapshot, "arch");
   // The export stands in for an unavailable bd, unless the config requires bd itself.
   if (check === "beads" && snapshot.beadsExport !== undefined && config.beads === "optional")
     return beads.state === "unavailable"

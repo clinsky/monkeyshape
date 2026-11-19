@@ -5,7 +5,7 @@ import { evaluate, prerequisites, ruleIds } from "../../src/core/check.ts";
 import { checkCoverage } from "../../src/core/coverage.ts";
 import { checkPacks } from "../../src/core/packs.ts";
 import { checkSources } from "../../src/core/sources.ts";
-import type { Pack } from "../../src/packs/pack.ts";
+import type { Integration, LoadedPack, Pack } from "../../src/packs/pack.ts";
 import { typescript } from "../../src/packs/typescript/index.ts";
 import { config, fakePack, listed, repo } from "../support.ts";
 
@@ -150,6 +150,52 @@ test("a file in sources no listed pack reads fails sources, and rules doesn't co
   ]);
   expect(reports[1]?.outcome).toEqual({ state: "passed", examined: "1 file in sources" });
   expect(reports[0]?.violations[0]?.message).toContain("'src/**/*.{ts,tsx}'");
+});
+
+describe("arch over a graph its pack builds from a tool", () => {
+  // A Rust-like pack: its loader runs for arch, and its graph reads the tool's output.
+  const graphed: Pack = {
+    ...fakePack("rust", "Rust", "rs"),
+    tools: [{ name: "rustc", rule: "compile", uncovered: () => "is not in a crate" }],
+    loadFor: ["arch", "coverage"],
+  };
+  const shape = config({
+    packs: ["rust"],
+    sources: { include: ["**/*.rs"] },
+    arch: { modules: { api: { description: "api", paths: ["api"] } } },
+  });
+  const loaded = (integration: Integration): LoadedPack => ({
+    pack: graphed,
+    load: { tools: [{ tool: "rustc", integration, files: undefined }], outputs: new Map() },
+  });
+
+  test("the tool failed: arch is unavailable naming it, never passed over no edges", () => {
+    const failed = repo(
+      { "api/src/lib.rs": "" },
+      {
+        packs: [
+          loaded({
+            state: "failed",
+            reason: "`cargo metadata` exited 101: failed to load manifest",
+          }),
+        ],
+      },
+    );
+    expect(evaluate(shape, failed, ["arch"]).reports[0]?.outcome).toEqual({
+      state: "unavailable",
+      prerequisite: "rustc",
+      reason: "`cargo metadata` exited 101: failed to load manifest",
+      required: true,
+    });
+  });
+
+  test("the tool ran: arch runs; and a pack whose graph needs no tool never waits on one", () => {
+    const ran = repo({ "api/src/lib.rs": "" }, { packs: [loaded({ state: "ok" })] });
+    expect(evaluate(shape, ran, ["arch"]).reports[0]?.outcome.state).toBe("passed");
+    // TypeScript's graph is its own reading of the files: tsc failing doesn't block arch.
+    const ts = repo({ "src/core/a.ts": "" }, { tsc: { state: "failed", reason: "tsc crashed" } });
+    expect(evaluate(config(), ts, ["arch"]).reports[0]?.outcome.state).not.toBe("unavailable");
+  });
 });
 
 describe("the packs check", () => {
