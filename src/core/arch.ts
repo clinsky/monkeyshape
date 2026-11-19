@@ -83,16 +83,35 @@ const mapsByPaths = (arch: Arch): boolean =>
   Object.values(arch.modules).some((module) => module.paths !== undefined);
 
 /**
+ * Where a new module for `file` would sit, as a sibling of the modules already mapped by
+ * `paths`: the file's directory at the depth of a module path whose parent holds the file
+ * (`crates/api` beside `crates/core`, `api` beside a root-level `core`), the nearest parent
+ * first. With no such module, the file's top directory, or the file itself at the root. A
+ * module must own the whole unit (a crate's `Cargo.toml` too), so never a directory below it.
+ */
+const siblingPath = (arch: Arch, file: string): string => {
+  const parts = file.split("/");
+  const depths = Object.keys(arch.modules)
+    .filter((name) => arch.modules[name]?.paths !== undefined)
+    .flatMap((name) => directoriesOf(arch, name))
+    .map((path) => path.split("/").filter((part) => part !== "" && part !== "."))
+    .filter((path) => path.length > 0 && within(file, path.slice(0, -1).join("/")))
+    .map((path) => path.length)
+    .sort((a, b) => b - a);
+  const depth = Math.min(depths[0] ?? 1, parts.length);
+  return parts.slice(0, depth).join("/");
+};
+
+/**
  * A module for an unowned file in a repo that maps modules by `paths`, in the config's own
- * syntax: its top two directories (`crates/api` for `crates/api/src/lib.rs`), or its one
- * directory, or the file itself at the root, keyed by that path's last name.
+ * syntax (`siblingPath`), keyed by that path's last name, or by the path when a module has
+ * that key already.
  */
 const suggestPaths = (arch: Arch, file: string, configFile: string): string => {
-  const parts = file.split("/");
-  const at = parts.length >= 3 ? parts.slice(0, 2).join("/") : parts.length === 2 ? parts[0] : file;
-  const last = (at ?? file).split("/").at(-1) ?? file;
+  const at = siblingPath(arch, file);
+  const last = at.split("/").at(-1) ?? at;
   const short = last.replace(/\.[^.]*$/u, "") || last;
-  const key = arch.modules[short] === undefined ? short : (at ?? file);
+  const key = arch.modules[short] === undefined ? short : at;
   const bare = /^[A-Za-z0-9_-]+$/u.test(key);
   return configFile.endsWith(".toml")
     ? `Add a module for it: \`[arch.modules.${bare ? key : JSON.stringify(key)}]\` with \`paths = [${JSON.stringify(at)}]\` and a \`description\`, or add ${JSON.stringify(at)} to an existing module's \`paths\`.`

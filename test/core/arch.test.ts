@@ -529,6 +529,31 @@ describe("module paths", () => {
     expect(messages(taken)[0]).toContain('`[arch.modules."crates/api"]`');
   });
 
+  test("crates at the repo root: the advice is the crate beside them, never a directory in it", () => {
+    const advice = (
+      modules: Record<string, { description: string; paths: Array<string> }>,
+      file: string,
+    ) =>
+      checkArch(
+        resolveConfig({ sources: { include: ["**/*.ts"] }, arch: { modules } }, "shape.toml"),
+        repo({ "core/a.ts": "", "crates/io/b.ts": "", [file]: "" }),
+      ).find((v) => v.rule === "arch/unknown-module" && v.file === file)?.message;
+    const root = { core: { description: "logic", paths: ["core"] } };
+    // The crate's whole directory, so its manifest (Cargo.toml) is in the module too.
+    expect(advice(root, "api/src/lib.ts")).toContain('`[arch.modules.api]` with `paths = ["api"]`');
+    // Both layouts: the nearest parent decides.
+    const both = { ...root, io: { description: "io", paths: ["crates/io"] } };
+    expect(advice(both, "crates/api/src/lib.ts")).toContain(
+      '`[arch.modules.api]` with `paths = ["crates/api"]`',
+    );
+    expect(advice(both, "api/src/lib.ts")).toContain('`paths = ["api"]`');
+    // Under no module's parent but the root's: its top directory.
+    const nested = { core: { description: "logic", paths: ["crates/core"] } };
+    expect(advice(nested, "tools/gen/main.ts")).toContain(
+      '`[arch.modules.tools]` with `paths = ["tools"]`',
+    );
+  });
+
   test("outside arch.root with modules keyed under it: the root's advice, in the config's syntax", () => {
     const shape = {
       sources: { include: ["src/**/*.ts", "tools/**/*.ts"] },
