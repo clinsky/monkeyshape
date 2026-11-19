@@ -504,3 +504,18 @@ already written by agents, not generated for it.
   and required, oxc rules included, since a check has one outcome: it fails closed, and only
   a repo with `shape-rules/` fetches ast-grep. Moving the engine onto each pack's own rules is
   split out as `q0z`, under the epic, and the acceptance waits on it.
+- **2026-11-19, no one ports the adopters' rules; `shape-rules` is proven on their kinds
+  (`packs`, `8il.11`), the maintainer's decision.** Porting an adopter's own rules is neither
+  this milestone's job nor the adopters'. `8il.11` instead shows that `shape-rules` expresses
+  the three kinds of rule they are (tokens banned in comments; going around an enforcement
+  point; a vocabulary banned from a layer) on generic examples in this repo's tests, closing
+  each gap or recording it as a limit in `docs/local-rules.md`. The acceptance line "their
+  ported ast-grep rules report what their `localRules` reported" is dropped. The adopters'
+  migration stays checked by the tracks, on scratch clones only, nothing committed to them:
+  `config` migrates each (the repo with no local rules migrates fully); for the two with
+  local rules, `packs` writes them as `shape-rules` in a clone and compares findings, as
+  `8il.11`'s real-data probe, only if it judges that a small job; if it would be significant
+  work, it isn't worth it, and `packs` records migrate's refusal naming the rules. Order:
+  `8il.11`, then `localRules` removed and the `shape.config.ts`-only row flipped (`8il.2`'s
+  second PR), then 0.6.0: `migrate` is the one command that still reads the old config, and
+  it refuses until each rule id has a `shape-rules` file.
