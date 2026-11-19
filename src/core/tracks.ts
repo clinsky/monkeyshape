@@ -4,7 +4,7 @@
  * are read by `src/adapters/tracks.ts`, which hands the facts here.
  */
 import type { ResolvedConfig } from "../schemas/config.ts";
-import { ownedWithoutTrack, setAside } from "./beads.ts";
+import { ownedWithoutTrack, setAside, todoClause } from "./beads.ts";
 import { beadsBlocker } from "./check.ts";
 import { NONE_YET } from "./handoff.ts";
 import {
@@ -605,6 +605,8 @@ export const openAfterMerge = (
   prs: ReadonlyArray<TrackPr>,
   beads: BeadsById,
   track: string,
+  /** Where a `TODO(<id>)` still names each bead, on the merge target (`path:line`). */
+  todos: ReadonlyMap<string, ReadonlyArray<string>> = new Map(),
 ): ReadonlyArray<string> =>
   prs
     .filter((pr) => pr.state === "MERGED")
@@ -622,8 +624,9 @@ export const openAfterMerge = (
           tracks.length > 0
             ? `bd update ${id} --status deferred ${tracks.map((label) => `--remove-label ${label}`).join(" ")}`
             : `bd defer ${id}`;
+        const where = todos.get(id) ?? [];
         return [
-          `${id} (${bead.status}) is listed in merged PR #${pr.number} but still open: close it if its work is done (\`bd close ${id}\`), or write what is left in its notes and defer it${tracks.length > 0 ? " off the track" : ""} (\`${defer}\`)`,
+          `${id} (${bead.status}) is listed in merged PR #${pr.number} but still open: close it if its work is done (\`bd close ${id}\`), or write what is left in its notes and defer it${tracks.length > 0 ? " off the track" : ""} (\`${defer}\`)${where.length === 0 ? "" : `. Before closing it: ${todoClause(id, where)}`}`,
         ];
       }),
     );

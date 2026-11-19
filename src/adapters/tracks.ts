@@ -41,6 +41,7 @@ import {
   worktreesDir,
 } from "../core/layout.ts";
 import { decodeMessage, type ReviewTracks } from "../core/mail.ts";
+import { listedBeads } from "../core/trackPr.ts";
 import {
   type BeadsById,
   type BeadsCheck,
@@ -422,6 +423,30 @@ const trackBeads = (repo: string) =>
       }),
     ) as BeadsById,
   }));
+
+/**
+ * Where a `TODO(<id>)` names each of `ids` in the tree at `rev`, as `path:line`, by one
+ * `git grep`. A grep that fails finds nothing: this only adds advice.
+ */
+export const todosNaming = (repo: string, rev: string, ids: ReadonlyArray<string>) =>
+  Effect.gen(function* () {
+    const found = new Map<string, Array<string>>();
+    const unique = [...new Set(ids)];
+    if (unique.length === 0) return found as ReadonlyMap<string, ReadonlyArray<string>>;
+    const pattern = `TODO\\((${unique.map((id) => id.replace(/[.\\]/g, "\\$&")).join("|")})\\)`;
+    const grep = yield* git(repo, ["grep", "-n", "-I", "-E", pattern, rev, "--"]);
+    for (const line of grep.code === 0 ? grep.stdout.split("\n") : []) {
+      // `<rev>:<path>:<line>:<text>`
+      const match = /^[^:]+:(.+?):(\d+):(.*)$/.exec(line);
+      if (match === null) continue;
+      for (const todo of (match[3] ?? "").matchAll(/TODO\(([^)\s]+)\)/g)) {
+        const id = todo[1] ?? "";
+        if (unique.includes(id))
+          found.set(id, [...(found.get(id) ?? []), `${match[1]}:${match[2]}`]);
+      }
+    }
+    return found as ReadonlyMap<string, ReadonlyArray<string>>;
+  });
 
 const GH_TIMEOUT_MS = 30_000;
 
@@ -814,7 +839,16 @@ export const trackList = (cwd: string) =>
         const afterMerge =
           own === undefined || beads.integration.state !== "ok"
             ? []
-            : openAfterMerge(own, beads.byId, track);
+            : openAfterMerge(
+                own,
+                beads.byId,
+                track,
+                yield* todosNaming(
+                  repo,
+                  targets[targets.length - 1] ?? MAIN_BRANCH,
+                  own.filter((pr) => pr.state === "MERGED").flatMap((pr) => listedBeads(pr.body)),
+                ),
+              );
         const done = trackDone({ beads: open, branchExists, merged: merge.merged, prs: own });
         const lastCommit =
           branchExists && (merge.ahead ?? 0) > 0

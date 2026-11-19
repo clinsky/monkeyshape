@@ -471,6 +471,19 @@ describe("whether a track is done", () => {
     ).toHaveLength(1);
   });
 
+  test("a bead left open that a TODO still names says so, before anyone closes it (jhz.1)", () => {
+    const beads: BeadsById = new Map([["x-1", { status: "open", type: "task", labels: [] }]]);
+    const [line] = openAfterMerge(
+      [pr(5, "MERGED", "## Beads\n\n- x-1 the work\n")],
+      beads,
+      "docs",
+      new Map([["x-1", ["src/a.ts:12", "src/b.ts:3"]]]),
+    );
+    expect(line).toContain(
+      "Before closing it: `TODO(x-1)` is still at src/a.ts:12, src/b.ts:3: delete it (or do what it says) before `bd close x-1`",
+    );
+  });
+
   test("a bead waiting on another (blocked, or a blocks dependency still open) isn't flagged until it closes (2dl)", () => {
     const body = "## Beads\n\n- x-1 its first part\n- x-5 bd says blocked\n";
     const beads = (dep: string): BeadsById =>
