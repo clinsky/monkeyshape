@@ -191,6 +191,26 @@ export default {
     expect(await has("shape.toml")).toBe(false);
   });
 
+  test("the pin is the monkeyshape node_modules holds, so mshape and its imports are one version", async () => {
+    await old('export default { beads: "required" };\n');
+    await Bun.write(
+      join(dir, "node_modules", "monkeyshape", "package.json"),
+      JSON.stringify({ name: "monkeyshape", version: "0.4.0" }),
+    );
+    expect((await migrate()).code).toBe(0);
+    expect((await Effect.runPromise(loadConfig(dir))).mshape?.version).toBe("0.4.0");
+  });
+
+  test("docs that name shape.config.ts are listed, since it is gone", async () => {
+    await old('export default { beads: "required" };\n');
+    await Bun.write(join(dir, "AGENTS.md"), "The config is `shape.config.ts`.\n");
+    await Bun.write(join(dir, "README.md"), "Nothing about it.\n");
+    const result = await migrate();
+    expect(result.lines).toContain(
+      "note: AGENTS.md names shape.config.ts, which is gone: say shape.toml there (refs/missing-path flags each until then)",
+    );
+  });
+
   test("no shape.config.ts: refuses, saying where a config comes from", async () => {
     const result = await migrate();
     expect(result.code).toBe(1);

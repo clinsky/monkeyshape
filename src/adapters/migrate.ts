@@ -14,6 +14,38 @@ import { CONFIG_FILE, importTsConfig, loadConfig, TS_CONFIG_FILE } from "./confi
 
 const exists = (path: string) => Effect.promise(() => Bun.file(path).exists());
 
+/**
+ * The monkeyshape the repo's `node_modules` holds, which the pin must equal (the sync check's
+ * `pin-npm-differs`); undefined where none is installed.
+ */
+const installedVersion = (root: string) =>
+  Effect.promise(async () => {
+    const manifest: unknown = await Bun.file(
+      join(root, "node_modules", "monkeyshape", "package.json"),
+    )
+      .json()
+      .catch(() => undefined);
+    return typeof manifest === "object" &&
+      manifest !== null &&
+      "version" in manifest &&
+      typeof manifest.version === "string"
+      ? manifest.version
+      : undefined;
+  });
+
+/** The repo's Markdown that names `shape.config.ts`, which migrate deletes: refs flags each. */
+const docsNaming = (root: string) =>
+  Effect.promise(async () => {
+    const found: Array<string> = [];
+    for await (const file of new Bun.Glob("**/*.md").scan({ cwd: root, dot: false }))
+      if (
+        !file.startsWith("node_modules/") &&
+        (await Bun.file(join(root, file)).text()).includes(TS_CONFIG_FILE)
+      )
+        found.push(file);
+    return found.sort();
+  });
+
 /** A local rule's id, as `defineRule` gives it; a rule with none is named by its place. */
 const ruleId = (rule: unknown, index: number): string =>
   typeof rule === "object" && rule !== null && "id" in rule && typeof rule.id === "string"
@@ -55,7 +87,15 @@ export const migrateConfig = (root: string, pin: BornPin, load: typeof loadConfi
     const ported = new Set<string>();
     for (const id of ruleIds)
       if (yield* exists(join(root, SHAPE_RULES_DIR, `${id}.yml`))) ported.add(id);
-    const plan = planMigration({ config, source, ruleIds, ported, pin });
+    // The pin is the monkeyshape the repo installs, so mshape and its imports are one version.
+    const installed = yield* installedVersion(root);
+    const plan = planMigration({
+      config,
+      source,
+      ruleIds,
+      ported,
+      pin: installed === undefined ? pin : { version: installed },
+    });
     if ("refused" in plan) return { lines: plan.refused, code: 1 } satisfies MigrateResult;
     // Loaded as mshape will load it, from beside the repo, before it replaces anything: a
     // failure leaves shape.config.ts as it was and writes no shape.toml into the repo.
@@ -73,10 +113,16 @@ export const migrateConfig = (root: string, pin: BornPin, load: typeof loadConfi
       await writeFile(join(root, CONFIG_FILE), plan.toml);
       await rm(path);
     });
+    const stale = yield* docsNaming(root);
     return {
       lines: [
         `wrote ${CONFIG_FILE} from ${TS_CONFIG_FILE}, and deleted ${TS_CONFIG_FILE}`,
         ...plan.notes.map((note) => `note: ${note}`),
+        ...(stale.length === 0
+          ? []
+          : [
+              `note: ${stale.join(", ")} ${stale.length === 1 ? "names" : "name"} ${TS_CONFIG_FILE}, which is gone: say ${CONFIG_FILE} there (refs/missing-path flags each until then)`,
+            ]),
         `run mshape check: it gives the same outcomes as before, now read from ${CONFIG_FILE}`,
       ],
       code: 0,
