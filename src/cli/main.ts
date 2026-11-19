@@ -16,13 +16,13 @@ import { findConfig, loadConfig } from "../adapters/config.ts";
 import { reviewPost, scanFile } from "../adapters/denylist.ts";
 import { depBump } from "../adapters/dep.ts";
 import { runGate } from "../adapters/gate.ts";
+import { harnesses } from "../adapters/harnesses/index.ts";
 import { initRepo, vendoredSpec } from "../adapters/init.ts";
 import { ownRoot, recordedSums, runningCompiled } from "../adapters/launch.ts";
 import { mailInbox, mailInboxAll, mailRead, mailSend } from "../adapters/mail.ts";
 import { migrateConfig } from "../adapters/migrate.ts";
 import {
   type Caller,
-  claudeCodeNotifier,
   enterTrack,
   liveSessions,
   notifyRecipient,
@@ -30,6 +30,7 @@ import {
   removeSessions,
   sessionAddress,
 } from "../adapters/notices.ts";
+import { primeText } from "../adapters/prime.ts";
 import { runTool } from "../adapters/process.ts";
 import { packSource, packWorkingTree } from "../adapters/release.ts";
 import { reviewNew, reviewRm } from "../adapters/reviews.ts";
@@ -72,8 +73,9 @@ import { nextStep, REPO_NAME } from "../core/scaffold.ts";
 import { formatCollisions, formatSync, SKILL_NAME } from "../core/skills.ts";
 import { formatSyncPlan } from "../core/sync.ts";
 import { headingProblems } from "../core/trackPr.ts";
-import { PACK_IDS, shapeJsonSchema } from "../schemas/config.ts";
+import { HARNESS_IDS, PACK_IDS, shapeJsonSchema } from "../schemas/config.ts";
 import { type ConfigError, TrackError, WorkspaceError } from "../schemas/errors.ts";
+import { caller, hookCaller, setInvokedBy } from "./session.ts";
 
 /** What a command returns: the text to print, and the exit code (0 prints to stdout). */
 interface Outcome {
@@ -285,7 +287,7 @@ const trackPrCommand = (root: string, args: ReadonlyArray<string>) =>
         body,
         fetchEnv: { ...process.env, GIT_TERMINAL_PROMPT: "0" },
         configDir: configDir(),
-        claudeDir: claudeDir(),
+        harnesses: harnesses(process.env),
         bodyOnly: args.includes("--body-only"),
         ...(args.includes("--wait") ? { wait: CI_TIMING } : {}),
         notify: (to, subject, text) =>
@@ -294,8 +296,7 @@ const trackPrCommand = (root: string, args: ReadonlyArray<string>) =>
             const delivery = yield* notifyRecipient(
               root,
               message,
-              claudeCodeNotifier,
-              claudeDir(),
+              harnesses(process.env),
               new Date(),
             ).pipe(
               Effect.catchTags({
@@ -385,7 +386,11 @@ const trackSessions = (root: string): TrackSessions => {
     );
   return {
     live: (track) =>
-      reason(Effect.map(liveSessions(root, track, claudeDir(), new Date()), (live) => ({ live }))),
+      reason(
+        Effect.map(liveSessions(root, track, harnesses(process.env), new Date()), (live) => ({
+          live,
+        })),
+      ),
     remove: (track) => reason(removeSessions(root, track)),
   };
 };
@@ -492,8 +497,7 @@ const msgSend = (root: string, args: ReadonlyArray<string>) =>
       const delivery = yield* notifyRecipient(
         root,
         message,
-        claudeCodeNotifier,
-        claudeDir(),
+        harnesses(process.env),
         new Date(),
       ).pipe(
         Effect.catchTags({
@@ -510,7 +514,7 @@ const msgSend = (root: string, args: ReadonlyArray<string>) =>
 
 /** Pushes a stored message's notice to the sessions at its address; a failure changes nothing. */
 const pushNotice = (root: string, message: Message) =>
-  notifyRecipient(root, message, claudeCodeNotifier, claudeDir(), new Date());
+  notifyRecipient(root, message, harnesses(process.env), new Date());
 
 /**
  * Turns the repo's watches into mail before an inbox is listed, so a watch's own message shows
@@ -559,19 +563,22 @@ const everyTrackBut = (root: string, who: Caller) =>
 const msgInbox = (root: string, quiet: boolean) =>
   Effect.gen(function* () {
     const who = quiet ? yield* Effect.promise(hookCaller) : caller();
+    return yield* inboxFor(root, who, quiet);
+  });
+
+/**
+ * The inbox's lines for `who`, after the repo's watches have become mail; `quiet`, the hooks'
+ * form, as `msgInbox` says.
+ */
+const inboxFor = (root: string, who: Caller, quiet: boolean) =>
+  Effect.gen(function* () {
     const watched = yield* watchNotes(root);
     const inbox = yield* mailInbox(root, who);
     const listed = formatInbox(inbox.address, inbox.messages, inbox.unreadable, quiet);
     const note =
       inbox.unregistered === undefined
         ? []
-        : [
-            unregisteredNote(
-              inbox.unregistered.session,
-              inbox.address,
-              inbox.unregistered.registrable,
-            ),
-          ];
+        : [unregisteredNote(inbox.unregistered.session, inbox.address)];
     return {
       output: [...(listed === "" ? [] : [listed]), ...note, ...watched].join("\n"),
       code: 0,
@@ -605,34 +612,31 @@ const scan = (root: string, args: ReadonlyArray<string>) =>
     return yield* scanFile(root, configDir(), file === "-" ? "stdin" : file, text);
   });
 
-/** Claude Code's config directory, where it records each session: `~/.claude` by default. */
-const claudeDir = (): string => process.env["CLAUDE_CONFIG_DIR"] ?? `${homedir()}/.claude`;
-
-/** The caller, as Claude Code's environment says; `session` overrides its session id. */
-const caller = (session = process.env["CLAUDE_CODE_SESSION_ID"] ?? ""): Caller => {
-  const pid = Number(process.env["CLAUDE_PID"] ?? "");
-  return {
-    identity: {
-      ...(session === "" ? {} : { session }),
-      ...(Number.isSafeInteger(pid) && pid > 0 ? { pid } : {}),
-    },
-    claudeDir: claudeDir(),
-    now: new Date(),
-  };
-};
-
 /**
- * A hook's caller: the session id from the hook's JSON on stdin, else from Claude Code's
- * environment. Only hooks read stdin, and never from a terminal, so nothing waits on one.
+ * `mshape prime`: what a session loads at its start, in any harness, hooked or run by the
+ * agent: PRIME, then this session's registration (silent when done or outside every address,
+ * a note otherwise), then its unread subjects. Never fails: each part that can't run is a note.
  */
-const hookCaller = async (): Promise<Caller> => {
-  if (!process.stdin.isTTY) {
-    const input = await Bun.stdin.text();
-    const match = /"session_id"\s*:\s*"([^"]+)"/.exec(input);
-    if (match?.[1] !== undefined) return caller(match[1]);
-  }
-  return caller();
-};
+const prime = (root: string) =>
+  Effect.gen(function* () {
+    const who = yield* Effect.promise(hookCaller);
+    const loop = yield* primeText(root);
+    const registered = yield* register(root, who);
+    const inbox = yield* inboxFor(root, who, true).pipe(
+      Effect.catchTags({
+        TrackError: () => Effect.succeed({ output: "", code: 0 }),
+        WorkspaceError: (error) =>
+          Effect.succeed({ output: `note: mshape prime: ${error.message}`, code: 0 }),
+      }),
+    );
+    const parts = [loop.text, loop.note, registered, inbox.output];
+    return {
+      output: parts
+        .filter((part): part is string => part !== undefined && part !== "")
+        .join("\n\n"),
+      code: 0,
+    };
+  });
 
 /** The SessionStart hook's form: silent when done or outside every address, a note otherwise. */
 const msgRegister = (root: string) =>
@@ -1103,11 +1107,21 @@ export const COMMANDS: ReadonlyArray<Command> = [
   mshape msg unwatch pr <n> | bead <id> | ci <sha> | main
       Stop one; a ci watch matches the start of its commit id.
   mshape msg register
-      Record this Claude Code session at its checkout's address (a track, main,
-      review-<track>, or review-<n> for a PR from no track), or where it already is, so send
-      notifies it at once: the SessionStart hook runs it.
-      Silent outside every address; never fails.`,
+      Record this session at its checkout's address (a track, main, review-<track>, or
+      review-<n> for a PR from no track), or where it already is, so send notifies it at
+      once. mshape prime does this too. Silent outside every address; never fails.`,
     run: msg,
+  },
+  {
+    name: "prime",
+    usage: `  mshape prime
+      What a session loads at its start: the loop (bd prime, else .beads/PRIME.md), this
+      session's registration, and its unread mail. The session-start hook runs it; where a
+      harness has none, the agent runs it. Never fails; never waits on a terminal.
+  mshape --harness <id> <command>
+      Any command, as run by a hook of harness <id>: only that harness identifies the
+      session (${HARNESS_IDS.join(", ")}).`,
+    run: (root, args) => (args.length === 0 ? prime(root) : Effect.succeed(usage())),
   },
 ];
 
@@ -1115,7 +1129,17 @@ const HELP: ReadonlyArray<string | undefined> = [undefined, "help", "--help"];
 
 export const program = (root: string, args: ReadonlyArray<string>) =>
   Effect.gen(function* () {
-    const [name, ...rest] = args;
+    // A hook's `--harness <id>`, first and only first, so no argument is ever read as one.
+    const flagged = args[0] === "--harness";
+    const named = flagged ? args[1] : undefined;
+    const invokedBy = HARNESS_IDS.find((id) => id === named);
+    setInvokedBy(invokedBy);
+    if (flagged && invokedBy === undefined)
+      return {
+        output: `mshape: --harness takes one of ${HARNESS_IDS.join(", ")}${named === undefined ? "" : `, not \`${named}\``}`,
+        code: 2,
+      };
+    const [name, ...rest] = flagged ? args.slice(2) : args;
     if (name === "--version") return { output: pkg.version, code: 0 };
     if (HELP.includes(name)) return { output: help(), code: 0 };
     const command = COMMANDS.find((entry) => entry.name === name);

@@ -15,7 +15,7 @@
  *   <repo>/.agents/worktrees/<name>.pr-<n>     gitignored: a pull request under review, detached
  *   <common>/monkeyshape/mail/<address>/<id>.json        an address's unread message
  *   <common>/monkeyshape/mail/<address>/read/<id>.json   moved there when read
- *   <common>/monkeyshape/sessions/<address>/<session>.json   a live session at the address
+ *   <common>/monkeyshape/sessions/<address>/<harness>.<session>.json   a live session there
  *
  * An address is what a session serves, and so where its mail goes: a track, `main` (the main
  * checkout), `review-<track>` (a reviewer of that track's PRs) or `review-<n>` (a pull request
@@ -161,5 +161,6 @@ export const sessionsDir = (common: string): string => `${trim(common)}/monkeysh
 export const trackSessionsDir = (common: string, track: string): string =>
   `${sessionsDir(common)}/${track}`;
 
-export const sessionPath = (common: string, track: string, session: string): string =>
-  `${trackSessionsDir(common, track)}/${session}.json`;
+/** A registration's file at an address: `registrationFile`'s name, from `src/core/notices.ts`. */
+export const sessionPath = (common: string, track: string, file: string): string =>
+  `${trackSessionsDir(common, track)}/${file}`;

@@ -50,7 +50,9 @@ describe("track layout", () => {
     expect(messagePath(common, "docs", "m1")).toBe(`${store}/mail/docs/m1.json`);
     expect(sessionsDir(common)).toBe(`${store}/sessions`);
     expect(trackSessionsDir(common, "docs")).toBe(`${store}/sessions/docs`);
-    expect(sessionPath(common, "docs", "s1")).toBe(`${store}/sessions/docs/s1.json`);
+    expect(sessionPath(common, "docs", "claude-code.s1.json")).toBe(
+      `${store}/sessions/docs/claude-code.s1.json`,
+    );
     expect(handoffsStore(common)).toBe(`${store}/handoffs`);
   });
 

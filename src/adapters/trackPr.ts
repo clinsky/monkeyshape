@@ -66,6 +66,7 @@ import {
 import { type TrackError, WorkspaceError } from "../schemas/errors.ts";
 import { loadConfig } from "./config.ts";
 import { guard, outgoingCommits } from "./denylist.ts";
+import type { Harnesses } from "./harnesses/index.ts";
 import { liveSessions } from "./notices.ts";
 import { bunPath } from "./process.ts";
 import { linkHandoffs, linkShared } from "./reviews.ts";
@@ -178,7 +179,7 @@ const reviewFacts = (
   track: string,
   pr: OpenPr,
   tip: string,
-  claudeDir: string,
+  harnesses: Harnesses,
   now: Date,
 ) =>
   Effect.gen(function* () {
@@ -194,7 +195,7 @@ const reviewFacts = (
     let registered = false;
     let address = addresses[0] ?? reviewAddress(number);
     for (const at of addresses) {
-      const here = yield* liveSessions(cwd, at, claudeDir, now);
+      const here = yield* liveSessions(cwd, at, harnesses, now);
       if (here.length > 0 && live.length === 0) address = at;
       live.push(...here);
       const recorded = yield* Effect.promise(() =>
@@ -256,14 +257,14 @@ const waitOutReview = (
   track: string,
   pr: OpenPr | undefined,
   tip: string,
-  claudeDir: string,
+  harnesses: Harnesses,
   say: (line: string) => Effect.Effect<void>,
 ) =>
   Effect.gen(function* () {
     if (pr === undefined) return;
     const now = new Date(yield* Clock.currentTimeMillis);
     const decision = reviewDecision(
-      yield* reviewFacts(cwd, common, repo, track, pr, tip, claudeDir, now),
+      yield* reviewFacts(cwd, common, repo, track, pr, tip, harnesses, now),
     );
     if ("refuse" in decision) return yield* refuse(decision.refuse);
     if (decision.note !== undefined) yield* say(decision.note);
@@ -773,8 +774,8 @@ export const trackPr = (
     readonly fetchEnv: Readonly<Record<string, string | undefined>>;
     /** The machine's config directory, which holds its denylist. */
     readonly configDir: string;
-    /** Claude Code's config directory, where it records the sessions a review runs in. */
-    readonly claudeDir: string;
+    /** The harnesses this mshape ships, which say whether a reviewer's session still runs. */
+    readonly harnesses: Harnesses;
     /** Edit the body only: no push and no gate, refused unless the Gate section still holds. */
     readonly bodyOnly?: boolean;
     /** Wait for CI on the pushed commit after posting, and fail when it fails. */
@@ -819,7 +820,7 @@ export const trackPr = (
       );
     // --body-only pushes nothing, so a review in progress can't be changed under it.
     if (!options.bodyOnly)
-      yield* waitOutReview(top, common, repo, track, existing, tip, options.claudeDir, say);
+      yield* waitOutReview(top, common, repo, track, existing, tip, options.harnesses, say);
     if (options.bodyOnly) {
       if (existing === undefined)
         return yield* refuse(
@@ -981,7 +982,7 @@ export const trackPr = (
       track,
       existing,
       tip,
-      options.claudeDir,
+      options.harnesses,
       () => Effect.void,
     );
     // The commit the gate ran on, not the branch: one made while the gate ran is ungated.

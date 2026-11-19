@@ -113,8 +113,9 @@ describe.skipIf(host === undefined)("running mshape from a hook, with no Bun", (
       CLAUDE_CODE_SESSION_ID: crypto.randomUUID(),
       CLAUDE_PID: String(process.pid),
     };
-    const registered = await shell(worktree(), hookFor("SessionStart", "msg register"), session);
-    expect(registered.output).not.toContain("note:");
+    const registered = await shell(worktree(), hookFor("SessionStart", " prime"), session);
+    expect(registered.output).not.toContain("note: mshape");
+    expect(registered.output).not.toContain("no session identity");
     expect(registered.code).toBe(0);
     const sent = await mshape(repo, ["msg", "send", "a", "--subject", "from main", "a body"]);
     expect(sent.code).toBe(0);

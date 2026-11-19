@@ -1,6 +1,6 @@
 # The working loop
 
-Loaded at every session start by `bd prime`. This is what monkeyshape decides for every repo
+Loaded at every session start by `mshape prime`. This is what monkeyshape decides for every repo
 that uses it; AGENTS.md is what this repo decides, and wins where the two differ. Shipped by
 monkeyshape and checked by `mshape check`: refresh it with `mshape sync`,
 never by hand.

@@ -70,7 +70,8 @@ Everything else has one home too:
 | Review | chat: `/review-pr <number>` | Review against real data in a scratch worktree (`mshape review <n>`); findings go on the PR; you merge. |
 | Bump | you: set shape.toml's `[mshape]` `version` and `sums` (the sha256 of that release's `SHA256SUMS`; in TypeScript, the `monkeyshape` package to the same version), then `mshape sync` | Brings what the package ships up to date: the shared skills, `.beads/PRIME.md`, the PR template and monkeyshape's hooks. `mshape check` fails until it has run. |
 
-Every session starts with `.beads/PRIME.md`, which bd's SessionStart hook prints: what
+Every session starts with `.beads/PRIME.md`, which `mshape prime` prints at session start (a
+hook runs it; in a harness without one, the agent does), with the session's unread mail: what
 monkeyshape decides for every repo (beads, tracks, PRs, who decides by default). AGENTS.md is
 what your repo decides, and wins where they differ.
 

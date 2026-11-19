@@ -103,6 +103,10 @@ export const PACK_IDS = ["typescript", "rust", "python"] as const;
 export type PackId = (typeof PACK_IDS)[number];
 const Pack = Schema.Literals(PACK_IDS);
 
+/** The harnesses a repo's sessions run in, in `harnesses`; each delivers its own files. */
+export const HARNESS_IDS = ["claude-code", "codex", "pi"] as const;
+export type HarnessId = (typeof HARNESS_IDS)[number];
+
 export const ModuleRule = Schema.Struct({
   description: Schema.String,
   /** The pack whose files the module holds: required when the repo lists more than one. */

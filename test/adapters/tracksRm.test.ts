@@ -158,14 +158,14 @@ describe("track rm", () => {
     const refused = mshapeWith(env, repo, "rm", "docs");
     expect(refused.code).toBe(1);
     expect(refused.stderr).toContain(
-      `1 Claude Code session(s) still running in \`docs\` would lose their worktree: ${session}. Quit each one (\`/exit\`), or pass --force`,
+      `1 session(s) still running in \`docs\` would lose their worktree: ${session}. Quit each one, or pass --force`,
     );
     expect(await exists(wt("docs"))).toBe(true);
 
     const forced = mshapeWith(env, repo, "rm", "docs", "--force");
     expect(forced.code).toBe(0);
     expect(forced.stderr).toContain(
-      `--force: removing the track from under 1 running Claude Code session(s): ${session}`,
+      `--force: removing the track from under 1 running session(s): ${session}`,
     );
     expect(forced.stdout).toContain("removed 1 session registration(s)");
     expect(await exists(registry)).toBe(false);
