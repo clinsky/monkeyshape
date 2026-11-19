@@ -25,7 +25,8 @@ Run this in the main checkout, on an up-to-date `main`, in a fresh chat.
 - `mshape garden`.
 
 On a repo's first milestone there is nothing to look back on: skip to step 3. If the ending
-plan already has its `## Retrospective` on `main`, skip to step 3 too.
+plan already has its `## Retrospective` on `main`, skip step 2 only: the handoffs gathered
+here are what step 6 promotes.
 
 ## 2. Retrospective
 
@@ -34,14 +35,15 @@ what the process beads and handoff lessons say, and what you would change. Facts
 links (PRs, beads), not a story. Ask what they saw that you didn't.
 
 Ask every track and reviewer too, by `mshape msg send`, how working together went: messages,
-collisions, reviews, handoffs. A track that hands off before the end answers first, and its
-earlier session's answer weighs most. Then bring the human what several of them agree on.
+collisions, reviews, handoffs. A session that took a track over by handoff saw less of the
+milestone: weigh its answer so. Then bring the human what several of them agree on.
 
-Close the boundary here; a fresh `/milestone` chat plans the next one, from step 3, and stays
-open as its planning session. In this session, append a short `## Retrospective` to the
-ending plan (what was agreed, linking the verbatim answers, posted as a comment on this PR),
-update docs/roadmap.md where direction changed, and put what was agreed into the next goal's
-epic, in one PR; once it merges, remove the finished tracks (step 8's rules).
+Close the boundary here; a fresh `/milestone` chat plans the next one and stays open as its
+planning session. It removes the finished tracks at step 8, after step 6 has promoted their
+handoffs' lessons. In this session, one PR: docs/roadmap.md where direction changed, what was
+agreed in the next goal's epic, and a short `## Retrospective` appended to the ending plan.
+Open it, post the verbatim answers as its first comment, then commit that comment's link
+into the Retrospective.
 
 ## 3. Agree the goal
 
