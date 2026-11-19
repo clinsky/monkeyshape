@@ -18,7 +18,8 @@ Goals not yet shipped are listed in the order they would be taken.
 | The loop at scale: a PR as one reviewed unit, rules where agents act, the denylist, tracks that start working | **Shipped** (milestone 4, 0.5.0) | `monkeyshape-4sa` |
 | A language-neutral core: config as data, a configurable gate, a pinned binary, the pack interface | **Shipped** (milestone 5, 0.6.0) | `monkeyshape-070` |
 | Language packs: Rust and Python | **Shipped** (milestone 5, 0.6.0) | `monkeyshape-gbx` |
-| Harness adapters: Codex and pi | Later: milestone 6 | `monkeyshape-dlz` |
+| Harness adapters: Codex and pi | Next: milestone 6 | `monkeyshape-dlz` |
+| The loop between tracks: what milestone 5 taught | Next: milestone 6 | `monkeyshape-jhz` |
 | `mshape validate`: the real-data loop (core) | Later | `monkeyshape-97o` |
 | The remaining starter rules (TypeScript pack) | Later | `monkeyshape-hh2` |
 | The agentic layer: spend ledger (core), model-output decoding (per pack) | Later | `monkeyshape-v56` |
@@ -114,13 +115,18 @@ Every rule must trace back to one of these principles. A rule that can't is dele
 
 ## 2. Direction
 
-### What milestone 4 taught
+### What milestones 4 and 5 taught
 
-Two repos ran on 0.4.0 at scale (four and three parallel tracks) and their reports drove
-milestone 4 (`notes/2026-11-18-milestone-4.md`). Real adopters stay the source of the next
-fixes, and their tracks report precisely when asked. What agents follow must be where they
-act (PRIME.md, the skills, file headers, check messages). Milestone 5 (`plan/MILESTONE.md`)
-takes the next goal in order.
+Two repos ran on 0.4.0 at scale and their reports drove milestone 4
+(`notes/2026-11-18-milestone-4.md`). Real adopters stay the source of the next fixes, and
+their tracks report precisely when asked. What agents follow must be where they act
+(PRIME.md, the skills, file headers, check messages).
+
+Milestone 5 ran five tracks and five reviewers in parallel on this repo, and shipped 0.6.0.
+Its retrospective asked every track and reviewer how working together went
+(`notes/2026-11-19-milestone-5-retro.md`): what they agreed on is the next goal below, taken
+with the harness adapters. Messages sent before a PR shaped designs; messages after it were
+mostly noise; two green PRs merged a minute apart turned `main` red three times.
 
 ### A language-neutral core (`monkeyshape-070`, milestone 5)
 
@@ -208,10 +214,11 @@ one.
 **Consumer.** Agents running in Codex and pi on the maintainer's repos.
 
 **Done looks like:** a track worked end to end in Codex and in pi (session start loads the
-loop, mail arrives, a PR opens through `track pr`), with Claude Code behaving as on 0.5.0.
+loop, mail arrives, a PR opens through `track pr`), with Claude Code behaving as on 0.6.0.
 
-**Why later.** No Codex or pi user yet, while two repos wait on the packs. If one arrives
-before the Python repo, it swaps with milestone 5; nothing in it depends on the packs.
+**Why now.** The packs shipped in 0.6.0, and the maintainer chose this for milestone 6
+(2026-11-19), with the loop between tracks: both change the skills, the hooks and the
+mailbox, and the loop's fixes must be harness-neutral anyway.
 
 **Learned so far.** Claude Code is woven in today: the `.claude/skills` symlink, the
 `.claude/settings.json` hooks, `CLAUDE_CODE_SESSION_ID` for registration, and live notices
@@ -219,6 +226,35 @@ over Claude Code's undocumented socket (`notes/2026-11-03-spike-native-delivery.
 Skills already live in `.agents/skills`, which Codex reads.
 
 **Out of scope:** Cursor and any other harness.
+
+### The loop between tracks (`monkeyshape-jhz`, milestone 6)
+
+**Intent.** Tracks and reviewers coordinate through mechanism, not relays by the human: only
+messages that need a decision are written by hand.
+
+- **A green PR means a green `main`:** the maintainer's merge-queue or up-to-date setting
+  (`7kw`); meanwhile an LGTM only on a head merged with `main`, with CI on it, and shared
+  files a pack adds to split into one file per pack.
+- **Track and reviewer talk directly, as the skills say:** the reviewer messages the track
+  after posting; the track answers with its head, its CI run and each finding's test; a
+  review starts on the human's `/review-pr`; one push per review round.
+- **Notices are mechanical and opt-in:** `track pr` tells the owners of the files a PR edits;
+  a track asks to hear when a PR merges or a bead closes, a reviewer when CI finishes on its
+  head.
+- **A handoff records what no command shows:** decisions, local-only work, traps; not every
+  PR event.
+- **A decision touching several owners' files goes to `main` first,** which names one owner.
+
+Skill text generalizes to adopters; what only monkeyshape needs goes in its AGENTS.md.
+
+**Consumer.** Every repo running tracks in parallel: this one, and the adopters' next
+milestones.
+
+**Done looks like:** a milestone's tracks run without the human relaying a merge, a review
+or a CI result, and `main` stays green through parallel merges.
+
+**Why now.** Every track and reviewer of milestone 5 named the same few frictions, and the
+harness adapters rewrite the same skills, hooks and mailbox.
 
 ### `mshape validate` (`monkeyshape-97o`, core)
 
