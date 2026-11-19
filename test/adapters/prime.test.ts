@@ -144,6 +144,17 @@ describe("mshape prime: the plan's table", () => {
     expect(primed).toEqual({ code: 0, stdout: `${PRIME}\n(bd memories)`, stderr: "" });
   });
 
+  test("bd runs and prints nothing (no beads here): no PRIME and no note saying bd is missing", async () => {
+    await writeFile(join(bdDir, "bd"), "#!/bin/sh\nexit 0\n");
+    const scratch = join(base, "scratch");
+    await mkdir(scratch);
+    expect(await mshape(scratch, ["prime"], { stdin: hookInput(1) })).toEqual({
+      code: 0,
+      stdout: "",
+      stderr: "",
+    });
+  });
+
   test("run twice in one session (compact, clear, resume): one registration", async () => {
     for (const source of ["startup", "compact"]) {
       const primed = await mshape(wt("docs"), ["--harness", "claude-code", "prime"], {

@@ -152,7 +152,7 @@ export interface Harness {
 
 /** One session as the registry records it (`sessions/<address>/<harness>.<session>.json`). */
 export interface Registration {
-  /** Absent in a 0.6.0 registration, which is read as `claude-code`. */
+  /** A 0.6.0 registration's file has none; it is decoded as `claude-code`. */
   readonly harness: HarnessId;
   readonly session: string;
   readonly pid?: number;
