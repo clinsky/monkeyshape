@@ -40,7 +40,8 @@ const cells = (line: string): ReadonlyArray<string> | undefined => {
 };
 
 /**
- * The first table under the `### File owners` heading whose header is `| Path | Track |`;
+ * The first table under the `### File owners` heading (text may follow, as the plan's
+ * `### File owners (prs, z1u.10)`) whose header is `| Path | Track |`;
  * undefined when the plan has no such heading or table. A row that isn't two cells, a path
  * and a track name, is skipped and named in `skipped`.
  */
@@ -48,7 +49,7 @@ export const parseFileOwners = (plan: string): FileOwners | undefined => {
   const lines = plan.replaceAll("\r\n", "\n").split("\n");
   const { fenced } = fencedLines(lines);
   const at = lines.findIndex(
-    (line, index) => !fenced[index] && new RegExp(`^###\\s+${OWNERS_HEADING}\\s*$`).test(line),
+    (line, index) => !fenced[index] && new RegExp(`^###\\s+${OWNERS_HEADING}\\b`).test(line),
   );
   if (at === -1) return undefined;
   for (let index = at + 1; index < lines.length; index++) {

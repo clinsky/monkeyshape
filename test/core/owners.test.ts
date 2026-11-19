@@ -21,9 +21,9 @@ const PLAN = `# Milestone
 |---|---|---|
 | \`src/x.ts\` | not this table | other |
 
-### File owners
+### File owners (\`prs\`, \`z1u.10\`)
 
-Prose first.
+Prose first, naming \`| Path | Track |\` inline.
 
 | Path | Track |
 |---|---|
