@@ -5,17 +5,83 @@
  * cross-session socket. Its I/O is `src/adapters/harnesses/claude-code.ts`: this module says
  * what those records mean, who runs a command, and what a notice looks like on the socket.
  */
-import { addHooks, HOOKS, type Hook, missingHooks, SETTINGS_FILE } from "../../core/hooks.ts";
-import { CLAUDE_SKILLS_LINK, CLAUDE_SKILLS_TARGET } from "../../core/layout.ts";
+import {
+  before07,
+  type Hook,
+  type HookEvent,
+  hookCommand,
+  LOOP_HOOKS,
+  mergeHooks,
+  missingHooks,
+  ownCommands,
+  PRIME_FALLBACK,
+  staleHooks,
+  withNote,
+} from "../../core/hooks.ts";
 import { REGISTRATION_GRACE_MS } from "../../core/notices.ts";
 import type {
   Harness,
   Identity,
   Invocation,
   JsonObject,
+  LoopHook,
+  Moment,
   Registration,
   SessionStatus,
 } from "../harness.ts";
+
+/** Committed symlink: Claude Code reads project skills only from here. */
+export const CLAUDE_SKILLS_LINK = ".claude/skills";
+
+/** The link's text, relative to `.claude/`, so it resolves in every clone and worktree. */
+export const CLAUDE_SKILLS_TARGET = "../.agents/skills";
+
+/** Where Claude Code reads the project's hooks, repo-relative. */
+export const SETTINGS_FILE = ".claude/settings.json";
+
+const EVENTS: Readonly<Record<Moment, HookEvent>> = {
+  "session-start": "SessionStart",
+  prompt: "UserPromptSubmit",
+};
+
+/**
+ * What monkeyshape's hooks ran before 0.7 for each loop command, so sync knows them as its own
+ * and replaces them: 0.6's three SessionStart hooks (bd's primer, `msg register`, the inbox)
+ * are `prime` now.
+ */
+const RETIRED: Readonly<Record<string, ReadonlyArray<string>>> = {
+  prime: [
+    "bd prime --hook-json",
+    withNote(
+      "bd prime --hook-json",
+      "bd could not run here, so this session has no beads primer. Install bd: https://github.com/steveyegge/beads",
+    ),
+    ...before07(["msg", "register"]),
+    ...before07(["msg", "inbox", "--quiet"]),
+  ],
+  "msg inbox --quiet": before07(["msg", "inbox", "--quiet"]),
+};
+
+/**
+ * Claude Code's hook for each loop command: `mshape --harness claude-code <args>`, found where
+ * it is installed; `prime` falls back to bd's primer when mshape can't run.
+ */
+export const claudeHooks = (hooks: ReadonlyArray<LoopHook>): ReadonlyArray<Hook> =>
+  hooks.map((hook) => ({
+    event: EVENTS[hook.moment],
+    matcher: "",
+    command: hookCommand(
+      ["--harness", "claude-code", ...hook.args],
+      hook.args[0] === "prime" ? PRIME_FALLBACK : undefined,
+    ),
+    retired: RETIRED[hook.args.join(" ")] ?? [],
+  }));
+
+/** The hooks monkeyshape writes into Claude Code's settings now. */
+export const CLAUDE_HOOKS: ReadonlyArray<Hook> = claudeHooks(LOOP_HOOKS);
+
+/** Every command monkeyshape writes or wrote into Claude Code's settings. */
+const OURS = ownCommands(claudeHooks(LOOP_HOOKS));
 
 /** The fields of Claude Code's session file that a notice depends on. */
 export interface ClaudeSession {
@@ -188,16 +254,23 @@ export const claudeCode: Harness = {
   id: "claude-code",
   name: "Claude Code",
   moments: ["session-start", "prompt"],
-  // The hooks are still core's `HOOKS` until sync delivers per harness (z1u.4).
-  files: () => [
-    {
-      kind: "owned-entries",
-      path: SETTINGS_FILE,
-      merge: (current: JsonObject | undefined) => addHooks(current ?? {}, HOOKS),
-      missing: (current: JsonObject | undefined) =>
-        missingHooks(current ?? {}, HOOKS).map(describeHook),
-    },
-  ],
+  files: (loop) => {
+    const hooks = claudeHooks(loop);
+    return [
+      {
+        kind: "owned-entries",
+        path: SETTINGS_FILE,
+        merge: (current: JsonObject | undefined) => mergeHooks(current ?? {}, hooks, OURS),
+        missing: (current: JsonObject | undefined) => [
+          ...missingHooks(current ?? {}, hooks).map((hook) => `doesn't run ${describeHook(hook)}`),
+          ...staleHooks(current ?? {}, hooks, OURS).map(
+            (hook) =>
+              `still runs ${hook.event}: \`${hook.command}\`, which monkeyshape no longer ships`,
+          ),
+        ],
+      },
+    ];
+  },
   skills: { kind: "link", path: CLAUDE_SKILLS_LINK, target: CLAUDE_SKILLS_TARGET },
   identify,
   invoke: (skill, args) => `/${skill}${args === undefined ? "" : ` ${args}`}`,

@@ -15,6 +15,9 @@ import {
   type Toolchain,
   templateFor,
 } from "../core/scaffold.ts";
+import { skillsLinkOf } from "../core/skills.ts";
+import type { Harness } from "../harnesses/harness.ts";
+import { HARNESSES } from "../harnesses/index.ts";
 import { PACKS } from "../packs/index.ts";
 import { PACK_IDS, type PackId, resolveConfig } from "../schemas/config.ts";
 import { WorkspaceError } from "../schemas/errors.ts";
@@ -148,6 +151,7 @@ export const initRepo = (
   given?: string,
   pack = "typescript",
   pin?: BornPin,
+  harnesses: ReadonlyArray<Harness> = HARNESSES.filter((one) => one.id === "claude-code"),
 ) =>
   Effect.gen(function* () {
     const tarball = pack === "typescript" ? given : undefined;
@@ -183,7 +187,7 @@ export const initRepo = (
               Effect.mapError((error) => fail(tarball, error.reason)),
             ),
           };
-    const files = scaffold(name, template, toolchain, vendored, pack, pin);
+    const files = scaffold(name, template, toolchain, vendored, pack, pin, harnesses);
     yield* Effect.tryPromise({
       try: async () => {
         for (const [path, text] of files) {
@@ -214,9 +218,15 @@ export const initRepo = (
       );
     }
     // init wrote PRIME.md and the PR template from the package, so sync owns them from the start.
-    const skills = yield* installSkills(`${packageRoot}/skills`, target, {
-      files: OWNABLE_FILES,
-    }).pipe(Effect.mapError((error) => partial(`cannot install the skills: ${error.reason}`)));
+    const skills = yield* installSkills(
+      `${packageRoot}/skills`,
+      target,
+      { files: OWNABLE_FILES },
+      skillsLinkOf(
+        harnesses,
+        harnesses.map((one) => one.id),
+      ),
+    ).pipe(Effect.mapError((error) => partial(`cannot install the skills: ${error.reason}`)));
     done.push(`${skills.sync.added.length} shared skills`);
 
     const git = yield* run(target, ["git", "init", "--quiet", "--initial-branch=main"]);

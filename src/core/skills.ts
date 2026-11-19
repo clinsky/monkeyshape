@@ -7,11 +7,13 @@
  * package stops shipping is removed. The same manifest records the other files sync owns
  * (`files`), so a file the adopter wrote is told from one sync wrote in every clone.
  */
-import type { ResolvedConfig } from "../schemas/config.ts";
+
+import type { Harness } from "../harnesses/harness.ts";
+import type { HarnessId, ResolvedConfig } from "../schemas/config.ts";
 import { OWNABLE_FILES } from "./conventions.ts";
 import { SYNC_COMMAND } from "./hooks.ts";
-import { CLAUDE_SKILLS_LINK, CLAUDE_SKILLS_TARGET, SKILLS_DIR, SKILLS_MANIFEST } from "./layout.ts";
-import type { SkillFiles, Snapshot, Violation } from "./model.ts";
+import { SKILLS_DIR, SKILLS_MANIFEST } from "./layout.ts";
+import type { SkillFiles, SkillsSnapshot, Snapshot, Violation } from "./model.ts";
 import { join } from "./paths.ts";
 
 export interface SkillSync {
@@ -221,20 +223,33 @@ const violation = (
   message,
 });
 
-const RELINK = `\`rm -r ${CLAUDE_SKILLS_LINK} && ${SYNC_COMMAND}\``;
+/** Where the first listed harness that reads skills through a link wants it, if one does. */
+export const skillsLinkOf = (
+  harnesses: ReadonlyArray<Harness>,
+  listed: ReadonlyArray<HarnessId>,
+): SkillsSnapshot["linkAt"] => {
+  for (const harness of harnesses)
+    if (listed.includes(harness.id) && harness.skills.kind === "link")
+      return { path: harness.skills.path, target: harness.skills.target, harness: harness.name };
+  return undefined;
+};
 
 /** Whether git lists `path` or an entry above it: a symlinked skill is a single entry. */
 const listed = (files: ReadonlySet<string>, path: string): boolean =>
   path.split("/").some((_, i, segments) => files.has(segments.slice(0, i + 1).join("/")));
 
 const linkViolations = (snapshot: Snapshot, files: ReadonlySet<string>): Array<Violation> => {
-  const { link, installed, claudeDirectory } = snapshot.skills;
+  const { linkAt, link, installed, claudeDirectory } = snapshot.skills;
+  if (linkAt === undefined) return [];
+  const { path, target, harness } = linkAt;
+  const dir = path.slice(0, path.lastIndexOf("/"));
+  const RELINK = `\`rm -r ${path} && ${SYNC_COMMAND}\``;
   if (link.kind === "missing")
     return [
       violation(
         "link",
-        CLAUDE_SKILLS_LINK,
-        `is missing, so Claude Code can't see the skills in ${SKILLS_DIR}. Run \`${SYNC_COMMAND}\` to create the link, and commit it.`,
+        path,
+        `is missing, so ${harness} can't see the skills in ${SKILLS_DIR}. Run \`${SYNC_COMMAND}\` to create the link, and commit it.`,
       ),
     ];
   if (link.kind === "link") {
@@ -242,34 +257,30 @@ const linkViolations = (snapshot: Snapshot, files: ReadonlySet<string>): Array<V
       return [
         violation(
           "link",
-          CLAUDE_SKILLS_LINK,
+          path,
           `links to the absolute path ${link.target}, which resolves only on this machine's checkout, not in other clones or worktrees. Replace it with the relative link: ${RELINK}.`,
         ),
       ];
     // `../.agents/skills/` and `./../.agents/skills` resolve the same; only where it lands counts.
-    if (join(".claude", link.target) !== SKILLS_DIR)
+    if (join(dir, link.target) !== SKILLS_DIR)
       return [
-        violation(
-          "link",
-          CLAUDE_SKILLS_LINK,
-          `links to ${link.target}, not ${CLAUDE_SKILLS_TARGET}. Replace it: ${RELINK}.`,
-        ),
+        violation("link", path, `links to ${link.target}, not ${target}. Replace it: ${RELINK}.`),
       ];
-    return files.has(CLAUDE_SKILLS_LINK)
+    return files.has(path)
       ? []
       : [
           violation(
             "untracked",
-            CLAUDE_SKILLS_LINK,
-            "is ignored by git, so clones and CI won't have it. If .gitignore has `.claude/`, change that line to `.claude/*` and add `!.claude/skills`; then `git add .claude/skills`.",
+            path,
+            `is ignored by git, so clones and CI won't have it. If .gitignore has \`${dir}/\`, change that line to \`${dir}/*\` and add \`!${path}\`; then \`git add ${path}\`.`,
           ),
         ];
   }
   const out = [
     violation(
       "link",
-      CLAUDE_SKILLS_LINK,
-      `is a ${link.kind === "directory" ? "directory" : "file"}, not a link to ${CLAUDE_SKILLS_TARGET}, so Claude Code and other agents see different skills. The fix deletes it: first move or merge every skill in it into ${SKILLS_DIR}/, then ${RELINK}.`,
+      path,
+      `is a ${link.kind === "directory" ? "directory" : "file"}, not a link to ${target}, so ${harness} and other agents see different skills. The fix deletes it: first move or merge every skill in it into ${SKILLS_DIR}/, then ${RELINK}.`,
     ),
   ];
   const installedBySkill = bySkill(installed);
@@ -279,15 +290,15 @@ const linkViolations = (snapshot: Snapshot, files: ReadonlySet<string>): Array<V
       out.push(
         violation(
           "unlinked",
-          `${CLAUDE_SKILLS_LINK}/${name}`,
-          `is only in ${CLAUDE_SKILLS_LINK}, so agents other than Claude Code can't see it. Move it to ${SKILLS_DIR}/${name}.`,
+          `${path}/${name}`,
+          `is only in ${path}, so agents other than ${harness} can't see it. Move it to ${SKILLS_DIR}/${name}.`,
         ),
       );
     else if (!same(twin, copy))
       out.push(
         violation(
           "diverged",
-          `${CLAUDE_SKILLS_LINK}/${name}`,
+          `${path}/${name}`,
           `differs from ${SKILLS_DIR}/${name}. Diff the two and keep what you need in ${SKILLS_DIR}/${name} before relinking, which deletes this copy.`,
         ),
       );

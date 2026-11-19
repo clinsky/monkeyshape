@@ -1,12 +1,22 @@
 /**
- * The Claude Code hooks a repo runs, and how a hook or a skill invokes `mshape`. `HOOKS` is the
- * one list: the `hooks` key of `.claude/settings.json`, in this repo and in every repo
- * `mshape init` creates, is rendered from it, and a test fails when this repo's drifts. The
- * file's other keys belong to the repo. A new hook is one entry here.
+ * The commands the loop runs in a session, whatever the harness (`LOOP_HOOKS`), how a hook or
+ * a skill invokes `mshape`, and the hook-config JSON Claude Code and Codex share: events, each
+ * a list of `{ matcher, hooks: [{ type: "command", command }] }`. An adapter renders
+ * `LOOP_HOOKS` into its own commands and files (`src/harnesses/<id>/`); a new loop command is
+ * one entry here.
  */
+import type { LoopHook } from "../harnesses/harness.ts";
 import { INSTALL_URL } from "./launch.ts";
 
-/** The hook events monkeyshape uses; add one when an entry needs it. */
+/** The loop's commands, at each moment of a session, in the order they run. */
+export const LOOP_HOOKS: ReadonlyArray<LoopHook> = [
+  // The loop, the session's registration and its unread mail.
+  { moment: "session-start", args: ["prime"] },
+  // The unread mail at every prompt, until it is read.
+  { moment: "prompt", args: ["msg", "inbox", "--quiet"] },
+];
+
+/** The hook events monkeyshape uses, as Claude Code and Codex name them. */
 export type HookEvent = "SessionStart" | "UserPromptSubmit";
 
 export interface Hook {
@@ -68,7 +78,7 @@ export const withMshape = (command: string, otherwise?: string): string =>
  * What hooks before 0.6 ran: `mshape` through the package script, with bun found on the PATH or
  * in ~/.bun/bin. Kept only so sync knows them as monkeyshape's and replaces them.
  */
-const legacy = (args: ReadonlyArray<string>): ReadonlyArray<string> => {
+export const legacy = (args: ReadonlyArray<string>): ReadonlyArray<string> => {
   const script = ["bun", "run", "--silent", "mshape", ...args.map(quote)].join(" ");
   const missing04 =
     'mshape could not run here, so this hook did nothing. Either bun is not on this session\'s PATH (run `command -v bun`; add bun\'s bin directory, often ~/.bun/bin, to the PATH Claude Code starts with), or monkeyshape is not installed (run `bun install`; package.json needs the script `"mshape": "mshape"`).';
@@ -101,38 +111,12 @@ export const hookCommand = (args: ReadonlyArray<string>, otherwise?: string): st
 export const PRIME_FALLBACK = "bd prime 2>/dev/null || true";
 
 /** What 0.6's hooks ran for `args`, and what hooks before 0.6 did: sync replaces them all. */
-const before07 = (args: ReadonlyArray<string>): ReadonlyArray<string> => [
+export const before07 = (args: ReadonlyArray<string>): ReadonlyArray<string> => [
   hookCommand(args),
   ...legacy(args),
 ];
 
-/** Every hook, in the order each event runs them. */
-export const HOOKS: ReadonlyArray<Hook> = [
-  // The loop, the session's registration and its unread mail: what 0.6 ran as three hooks.
-  {
-    event: "SessionStart",
-    matcher: "",
-    command: hookCommand(["--harness", "claude-code", "prime"], PRIME_FALLBACK),
-    retired: [
-      "bd prime --hook-json",
-      withNote(
-        "bd prime --hook-json",
-        "bd could not run here, so this session has no beads primer. Install bd: https://github.com/steveyegge/beads",
-      ),
-      ...before07(["msg", "register"]),
-      ...before07(["msg", "inbox", "--quiet"]),
-    ],
-  },
-  // The track's unread mail at every prompt, until it is read.
-  {
-    event: "UserPromptSubmit",
-    matcher: "",
-    command: hookCommand(["--harness", "claude-code", "msg", "inbox", "--quiet"]),
-    retired: before07(["msg", "inbox", "--quiet"]),
-  },
-];
-
-/** The `hooks` key of `.claude/settings.json`: each hook under its event, in list order. */
+/** A hook config's `hooks` key: each hook under its event, in list order. */
 export const settingsHooks = (hooks: ReadonlyArray<Hook>): Record<string, Array<unknown>> => {
   const events: Record<string, Array<unknown>> = {};
   for (const hook of hooks)
@@ -144,17 +128,14 @@ export const settingsHooks = (hooks: ReadonlyArray<Hook>): Record<string, Array<
 };
 
 /**
- * `.claude/settings.json`'s text: `current` (the parsed file, or nothing for a new repo) with
- * its `hooks` key replaced. The list owns `hooks` and nothing else, since Claude Code and the
- * user keep `permissions`, `env` and the rest in the same file.
+ * A hook config's text: `current` (the parsed file, or nothing for a new repo) with its `hooks`
+ * key replaced. The list owns `hooks` and nothing else, since the harness and the user keep
+ * other keys (Claude Code's `permissions`, `env`) in the same file.
  */
 export const renderSettings = (
   hooks: ReadonlyArray<Hook>,
   current: Readonly<Record<string, unknown>> = {},
 ): string => `${JSON.stringify({ ...current, hooks: settingsHooks(hooks) }, null, 2)}\n`;
-
-/** Where Claude Code reads the project's hooks, repo-relative. */
-export const SETTINGS_FILE = ".claude/settings.json";
 
 const hookEntries = (
   settings: Readonly<Record<string, unknown>>,
@@ -190,45 +171,101 @@ export const missingHooks = (
 ): ReadonlyArray<Hook> => hooks.filter((hook) => !runs(settings, hook));
 
 /**
- * An event's entries without the retired commands of `hooks`: an entry left with no command
- * goes too. Anything not shaped like an entry is the repo's, and kept as it is.
+ * An event's entries without the commands in `drop`: an entry left with no command goes too.
+ * Anything not shaped like an entry is the repo's, and kept as it is.
  */
-const withoutRetired = (
-  entries: ReadonlyArray<unknown>,
-  event: string,
-  hooks: ReadonlyArray<Hook>,
-): Array<unknown> => {
-  const retired = new Set(
-    hooks.filter((hook) => hook.event === event).flatMap((hook) => hook.retired ?? []),
-  );
-  const isRetired = (inner: unknown) =>
+const without = (entries: ReadonlyArray<unknown>, drop: ReadonlySet<string>): Array<unknown> => {
+  const dropped = (inner: unknown) =>
     typeof inner === "object" &&
     inner !== null &&
-    retired.has((inner as { command?: unknown }).command as string);
+    drop.has((inner as { command?: unknown }).command as string);
   return entries.flatMap((entry) => {
     const inner = (entry as { hooks?: unknown } | null)?.hooks;
-    if (!Array.isArray(inner) || !inner.some(isRetired)) return [entry];
-    const kept = inner.filter((hook) => !isRetired(hook));
+    if (!Array.isArray(inner) || !inner.some(dropped)) return [entry];
+    const kept = inner.filter((hook) => !dropped(hook));
     return kept.length === 0 ? [] : [{ ...(entry as object), hooks: kept }];
   });
 };
 
+/** The commands of `ours` that `settings` runs under `event` but `hooks` doesn't ship there. */
+const staleIn = (
+  settings: Readonly<Record<string, unknown>>,
+  event: string,
+  hooks: ReadonlyArray<Hook>,
+  ours: ReadonlySet<string>,
+): ReadonlySet<string> => {
+  const shipped = new Set(hooks.filter((hook) => hook.event === event).map((hook) => hook.command));
+  const stale = new Set<string>();
+  for (const entry of hookEntries(settings, event)) {
+    const inner = (entry as { hooks?: unknown } | null)?.hooks;
+    if (!Array.isArray(inner)) continue;
+    for (const hook of inner) {
+      const command = (hook as { command?: unknown } | null)?.command;
+      if (typeof command === "string" && ours.has(command) && !shipped.has(command))
+        stale.add(command);
+    }
+  }
+  return stale;
+};
+
+/** Every command monkeyshape ever wrote for `hooks`: theirs now and every retired one. */
+export const ownCommands = (hooks: ReadonlyArray<Hook>): ReadonlySet<string> =>
+  new Set(hooks.flatMap((hook) => [hook.command, ...(hook.retired ?? [])]));
+
 /**
- * `settings` with each missing hook appended under its event, its retired commands removed,
- * and everything else, the repo's own hooks included, kept: for a repo whose settings.json
- * monkeyshape doesn't own whole.
+ * What `settings` runs that monkeyshape wrote and no longer ships, by event: a retired
+ * command, or one of `ours` (`ownCommands` of every hook this adapter could render) that
+ * `hooks` drops. An empty map is in step.
  */
-export const addHooks = (
+export const staleHooks = (
   settings: Readonly<Record<string, unknown>>,
   hooks: ReadonlyArray<Hook>,
+  ours: ReadonlySet<string> = ownCommands(hooks),
+): ReadonlyArray<{ readonly event: string; readonly command: string }> => {
+  const { hooks: existing } = settings;
+  const events =
+    typeof existing === "object" && existing !== null && !Array.isArray(existing)
+      ? Object.keys(existing)
+      : [];
+  return events.flatMap((event) =>
+    [...staleIn(settings, event, hooks, ours)].map((command) => ({ event, command })),
+  );
+};
+
+/**
+ * `settings` with monkeyshape's entries made exactly `hooks`: what it wrote and no longer
+ * ships (a command in `ours` that `hooks` doesn't run under that event) removed, each missing
+ * hook appended after the repo's entries under its event, and everything else, the repo's own
+ * hooks included, kept where it is. `mergeHooks(settings, [], ours)` removes all of
+ * monkeyshape's; an event it empties goes.
+ */
+export const mergeHooks = (
+  settings: Readonly<Record<string, unknown>>,
+  hooks: ReadonlyArray<Hook>,
+  ours: ReadonlySet<string> = ownCommands(hooks),
 ): string => {
   const { hooks: existing } = settings;
   const current =
     typeof existing === "object" && existing !== null && !Array.isArray(existing)
       ? (existing as Record<string, unknown>)
       : {};
-  const added: Record<string, unknown> = { ...current };
-  for (const [event, entries] of Object.entries(settingsHooks(missingHooks(settings, hooks))))
-    added[event] = [...withoutRetired(hookEntries(settings, event), event, hooks), ...entries];
-  return `${JSON.stringify({ ...settings, hooks: added }, null, 2)}\n`;
+  const merged: Record<string, unknown> = {};
+  const added = settingsHooks(missingHooks(settings, hooks));
+  for (const event of new Set([...Object.keys(current), ...Object.keys(added)])) {
+    const stale = staleIn(settings, event, hooks, ours);
+    const was = current[event];
+    // An event the file doesn't have yet starts empty; one that isn't a list is the repo's.
+    const entries = was === undefined ? [] : Array.isArray(was) ? without(was, stale) : was;
+    const next = Array.isArray(entries) ? [...entries, ...(added[event] ?? [])] : entries;
+    // An event only monkeyshape's entries filled, now empty, goes; the repo's empty one stays.
+    if (Array.isArray(next) && next.length === 0 && stale.size > 0) continue;
+    merged[event] = next;
+  }
+  return `${JSON.stringify({ ...settings, hooks: merged }, null, 2)}\n`;
 };
+
+/** `mergeHooks` with only `hooks`' retired commands taken as monkeyshape's to remove. */
+export const addHooks = (
+  settings: Readonly<Record<string, unknown>>,
+  hooks: ReadonlyArray<Hook>,
+): string => mergeHooks(settings, hooks, ownCommands(hooks));

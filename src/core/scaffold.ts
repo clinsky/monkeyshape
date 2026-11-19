@@ -2,13 +2,16 @@
  * What `mshape init` writes: the package's `template/` files, rendered, plus the JSON configs
  * generated here. The configs are generated rather than copied because they pin versions, and
  * because a `biome.json` inside `template/` would be a nested root config for biome itself.
- * `.claude/settings.json` is rendered from the hook list in `hooks.ts`, and the PR template from
- * `PR_SECTIONS` in `conventions.ts`, the same as this repo's.
+ * Each listed harness's files (Claude Code's `.claude/settings.json`) are rendered from
+ * `LOOP_HOOKS` by its adapter, and the PR template from `PR_SECTIONS` in `conventions.ts`, the
+ * same as this repo's.
  */
 
+import type { Harness } from "../harnesses/harness.ts";
+import { DEFAULT_HARNESSES } from "../schemas/config.ts";
 import { GATE_SCRIPT, PR_TEMPLATE_FILE, prTemplate } from "./conventions.ts";
 import type { VendoredEntry } from "./dep.ts";
-import { HOOKS, renderSettings, SETTINGS_FILE } from "./hooks.ts";
+import { LOOP_HOOKS } from "./hooks.ts";
 
 /** Lowercase words joined by hyphens: a package name, a directory and a beads prefix at once. */
 export const REPO_NAME = /^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$/;
@@ -85,11 +88,31 @@ const configs = (name: string, toolchain: Toolchain): Record<string, string> => 
   }),
 });
 
-/** What every pack's repo gets generated: the hooks and the PR template. */
-const common = (): Record<string, string> => ({
-  [SETTINGS_FILE]: renderSettings(HOOKS),
+/** What every pack's repo gets generated: each listed harness's files and the PR template. */
+const common = (harnesses: ReadonlyArray<Harness>): Record<string, string> => ({
+  ...Object.fromEntries(
+    harnesses.flatMap((harness) =>
+      harness
+        .files(LOOP_HOOKS)
+        .map((file) => [file.path, file.kind === "whole" ? file.text : file.merge(undefined)]),
+    ),
+  ),
   [PR_TEMPLATE_FILE]: prTemplate(),
 });
+
+/**
+ * A config with `harnesses` recorded, after its `packs` line, unless they are the default,
+ * which a born repo leaves unsaid as every repo before `harnesses` did.
+ */
+export const recordHarnesses = (config: string, harnesses: ReadonlyArray<Harness>): string => {
+  const ids = harnesses.map((harness) => harness.id);
+  if (ids.length === 0 || ids.join() === DEFAULT_HARNESSES.join()) return config;
+  const line = `\n# The harnesses this repo's sessions run in: sync delivers each one's hooks.\nharnesses = ${JSON.stringify(ids).replaceAll(",", ", ")}\n`;
+  const packs = /^packs = .*$/m.exec(config);
+  return packs === null
+    ? `${line.slice(1)}\n${config}`
+    : `${config.slice(0, packs.index + packs[0].length)}\n${line}${config.slice(packs.index + packs[0].length + 1)}`;
+};
 
 /** Where each pack's own template files live, laid over the rest of `template/`. */
 export const PACKS_DIR = "packs";
@@ -123,17 +146,19 @@ export const scaffold = (
   vendored?: VendoredEntry,
   pack = "typescript",
   pin?: BornPin,
+  harnesses: ReadonlyArray<Harness> = [],
 ): ReadonlyMap<string, string> =>
   new Map([
     ...[...template].map(([path, text]) => {
       const rendered = render(text, name);
       const target = render(targetPath(path), name);
       if (target !== CONFIG) return [target, rendered] as const;
-      const pinned = pin === undefined ? rendered : recordPin(rendered, pin);
+      const listed = recordHarnesses(rendered, harnesses);
+      const pinned = pin === undefined ? listed : recordPin(listed, pin);
       return [target, vendored === undefined ? pinned : recordVendored(pinned, vendored)] as const;
     }),
     ...(pack === "typescript" ? Object.entries(configs(name, toolchain)) : []),
-    ...Object.entries(common()),
+    ...Object.entries(common(harnesses)),
   ]);
 
 /** The born repo's config, which every pack's template has. */

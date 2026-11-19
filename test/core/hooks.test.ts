@@ -4,16 +4,16 @@ import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   addHooks,
-  HOOKS,
   missingHooks,
   mshapeCommand,
   renderSettings,
-  SETTINGS_FILE,
   SYNC_COMMAND,
   settingsHooks,
 } from "../../src/core/hooks.ts";
 import { INSTALL_URL } from "../../src/core/launch.ts";
 import { scaffold } from "../../src/core/scaffold.ts";
+import { CLAUDE_HOOKS as HOOKS, SETTINGS_FILE } from "../../src/harnesses/claude-code/index.ts";
+import { HARNESSES } from "../../src/harnesses/index.ts";
 
 const ROOT = join(import.meta.dir, "..", "..");
 
@@ -84,7 +84,16 @@ describe("hooks", () => {
 
   test("init writes the rendered settings.json, whatever the template carries", async () => {
     expect(await Bun.file(join(ROOT, "template", SETTINGS_FILE)).exists()).toBe(false);
-    const files = scaffold("my-app", new Map([[SETTINGS_FILE, "{}"]]), toolchain);
+    const claude = HARNESSES.filter((harness) => harness.id === "claude-code");
+    const files = scaffold(
+      "my-app",
+      new Map([[SETTINGS_FILE, "{}"]]),
+      toolchain,
+      undefined,
+      "typescript",
+      undefined,
+      claude,
+    );
     expect(files.get(SETTINGS_FILE)).toBe(renderSettings(HOOKS));
   });
 

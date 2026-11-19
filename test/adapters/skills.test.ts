@@ -33,7 +33,7 @@ describe("installSkills", () => {
   test("copies the skills and links .claude/skills relatively to them", async () => {
     const first = await install();
     expect(first.sync.added).toEqual(["roadmap", "track"]);
-    expect(first.linked).toBe(true);
+    expect(first.linked).toBe(".claude/skills");
     expect(await readlink(join(repo(), ".claude", "skills"))).toBe("../.agents/skills");
     expect(await Bun.file(join(repo(), ".claude", "skills", "track", "SKILL.md")).text()).toBe(
       "track v1\n",
@@ -50,7 +50,7 @@ describe("installSkills", () => {
     const again = await install();
     expect(again.sync.updated).toEqual(["track"]);
     expect(again.sync.unchanged).toEqual(["roadmap"]);
-    expect(again.linked).toBe(false);
+    expect(again.linked).toBeUndefined();
     expect(await Bun.file(join(repo(), ".agents", "skills", "track", "SKILL.md")).text()).toBe(
       "track v2\n",
     );
@@ -62,7 +62,7 @@ describe("installSkills", () => {
   test("leaves an existing .claude/skills directory for the check to report", async () => {
     await put(join(repo(), ".claude", "skills", "mine", "SKILL.md"), "mine\n");
     const result = await install();
-    expect(result.linked).toBe(false);
+    expect(result.linked).toBeUndefined();
     expect(await Bun.file(join(repo(), ".claude", "skills", "mine", "SKILL.md")).text()).toBe(
       "mine\n",
     );
@@ -137,6 +137,6 @@ describe("installSkills", () => {
     await rm(shipped(), { recursive: true });
     const result = await install();
     expect(result.sync.added).toEqual([]);
-    expect(result.linked).toBe(true);
+    expect(result.linked).toBe(".claude/skills");
   });
 });

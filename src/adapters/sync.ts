@@ -1,14 +1,25 @@
-/** `mshape sync`'s writes: PRIME.md, the PR template and the hooks, as `planSync` decides. */
-import { mkdir, readdir, stat } from "node:fs/promises";
+/**
+ * `mshape sync`'s writes: PRIME.md, the PR template and each listed harness's files, as
+ * `planSync` decides.
+ */
+import { mkdir, readdir, rm, stat } from "node:fs/promises";
 import { dirname } from "node:path";
 import * as Effect from "effect/Effect";
 import { PR_TEMPLATE_FILE, PRIME_FILE } from "../core/conventions.ts";
 import { type Delivery, deliveries, shippedFiles } from "../core/delivery.ts";
-import { SETTINGS_FILE } from "../core/hooks.ts";
 import { SKILLS_DIR, SKILLS_MANIFEST } from "../core/layout.ts";
-import { ownedFiles, parseManifest } from "../core/skills.ts";
-import { isPrTemplate, planSync, SYNCED_FILES, type SyncPlan } from "../core/sync.ts";
+import { ownedFiles, parseManifest, skillsLinkOf } from "../core/skills.ts";
+import {
+  harnessDeliveries,
+  isPrTemplate,
+  planSync,
+  SYNCED_FILES,
+  type SyncPlan,
+} from "../core/sync.ts";
+import type { Harness } from "../harnesses/harness.ts";
+import { HARNESSES } from "../harnesses/index.ts";
 import { PACKS } from "../packs/index.ts";
+import type { HarnessId } from "../schemas/config.ts";
 import { WorkspaceError } from "../schemas/errors.ts";
 import { loadConfig } from "./config.ts";
 import { readPresent } from "./disk.ts";
@@ -23,9 +34,12 @@ const text = (path: string): Promise<string | undefined> =>
  * The synced files on disk that git ignores: the same files `mshape check` sees as present but
  * unlisted, so check and sync agree on them. Outside a git repository, none.
  */
-const ignoredFiles = async (repo: string): Promise<ReadonlyArray<string>> => {
+const ignoredFiles = async (
+  repo: string,
+  harnessFiles: ReadonlyArray<string>,
+): Promise<ReadonlyArray<string>> => {
   const out: Array<string> = [];
-  for (const file of SYNCED_FILES) {
+  for (const file of [...SYNCED_FILES, ...harnessFiles]) {
     if (!(await Bun.file(`${repo}/${file}`).exists())) continue;
     const ran = Bun.spawnSync(["git", "check-ignore", "--quiet", "--", file], { cwd: repo });
     if (ran.exitCode === 0) out.push(file);
@@ -59,11 +73,21 @@ const currentTexts = async (repo: string, delivered: ReadonlyArray<Delivery>) =>
  * own files in `replace`. Run it before the skills' install, which records `plan.owned`: an
  * unreadable manifest stops both before anything is written.
  */
+/**
+ * The harnesses sync delivers for: the shipped ones, and which the repo lists. Undefined when
+ * the repo's config doesn't load, so sync touches no harness's file on a guess.
+ */
+export interface HarnessSelection {
+  readonly shipped: ReadonlyArray<Harness>;
+  readonly listed: ReadonlyArray<HarnessId>;
+}
+
 export const syncRepo = (
   repo: string,
   packageRoot: string,
   replace: ReadonlyArray<string> = [],
   delivered: ReadonlyArray<Delivery> = [],
+  harnesses: HarnessSelection | undefined = { shipped: HARNESSES, listed: ["claude-code"] },
 ) =>
   Effect.tryPromise({
     try: async (): Promise<SyncPlan> => {
@@ -76,16 +100,27 @@ export const syncRepo = (
         throw new Error(
           `${SKILLS_DIR}/${SKILLS_MANIFEST} is not the list sync writes, so nothing was changed. Restore it with \`git checkout -- ${SKILLS_DIR}/${SKILLS_MANIFEST}\``,
         );
+      const texts = new Map<string, string | undefined>();
+      for (const harness of harnesses?.shipped ?? [])
+        for (const file of harness.files([]))
+          texts.set(file.path, await text(`${repo}/${file.path}`));
+      const harnessFiles =
+        harnesses === undefined
+          ? []
+          : harnessDeliveries(harnesses.shipped, harnesses.listed, (path) => texts.get(path));
       const plan = planSync(
         {
-          ignored: await ignoredFiles(repo),
+          ignored: await ignoredFiles(
+            repo,
+            harnessFiles.filter((one) => one.listed).map((one) => one.file.path),
+          ),
           beads: await stat(`${repo}/.beads`).then(
             (found) => found.isDirectory(),
             () => false,
           ),
           prime: await text(`${repo}/${PRIME_FILE}`),
           prTemplate: await text(`${repo}/${PR_TEMPLATE_FILE}`),
-          settings: await text(`${repo}/${SETTINGS_FILE}`),
+          harnessFiles,
           owned: ownedFiles(manifest),
           replace,
           otherTemplates: await otherTemplates(repo),
@@ -97,6 +132,7 @@ export const syncRepo = (
         await mkdir(dirname(`${repo}/${path}`), { recursive: true });
         await Bun.write(`${repo}/${path}`, contents);
       }
+      for (const path of plan.remove) await rm(`${repo}/${path}`, { force: true });
       return plan;
     },
     catch: (cause) =>
@@ -132,6 +168,14 @@ export const packDeliveries = (repo: string, packageRoot: string) =>
     return deliveries(config.value, packs, shipped);
   });
 
+/** The repo's listed harnesses, from its config; undefined when the config doesn't load. */
+export const harnessSelection = (repo: string) =>
+  Effect.map(Effect.option(loadConfig(repo)), (config) =>
+    config._tag === "None"
+      ? undefined
+      : ({ shipped: HARNESSES, listed: config.value.harnesses } satisfies HarnessSelection),
+  );
+
 export const syncAll = (
   repo: string,
   packageRoot: string,
@@ -152,15 +196,19 @@ export const syncAll = (
           reason: `monkeyshape ships no skill of that name, so there is nothing to replace it with. It ships ${[...names].sort().join(", ")}`,
         }),
       );
+    const selection = yield* harnessSelection(repo);
     const plan = yield* syncRepo(
       repo,
       packageRoot,
       replace.files,
       yield* packDeliveries(repo, packageRoot),
+      selection,
     );
-    const skills = yield* installSkills(`${packageRoot}/skills`, repo, {
-      files: plan.owned,
-      replace: replace.skills,
-    });
+    const skills = yield* installSkills(
+      `${packageRoot}/skills`,
+      repo,
+      { files: plan.owned, replace: replace.skills },
+      selection === undefined ? undefined : skillsLinkOf(selection.shipped, selection.listed),
+    );
     return { plan, skills };
   });

@@ -1,21 +1,21 @@
-/** Installs the package's shared skills into a repo, and links them where Claude Code looks. */
+/** Installs the package's shared skills into a repo, and links them where a harness looks. */
 import { lstat, mkdir, readlink, rm, symlink } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import * as Effect from "effect/Effect";
-import {
-  CLAUDE_SKILLS_LINK,
-  CLAUDE_SKILLS_TARGET,
-  SKILLS_DIR,
-  SKILLS_MANIFEST,
-} from "../core/layout.ts";
+import { SKILLS_DIR, SKILLS_MANIFEST } from "../core/layout.ts";
 import type { SkillFiles, SkillsLink, SkillsSnapshot } from "../core/model.ts";
 import {
   parseManifest,
   type SkillSync,
   type SkillSyncOptions,
+  skillsLinkOf,
   syncSkills,
 } from "../core/skills.ts";
+import { HARNESSES } from "../harnesses/index.ts";
 import { WorkspaceError } from "../schemas/errors.ts";
+
+/** Where a repo that lists no `harnesses`, so Claude Code alone, has its link. */
+const CLAUDE_CODE_LINK = skillsLinkOf(HARNESSES, ["claude-code"]);
 
 /** Whether anything is at `path`, a dangling link included. */
 const present = (path: string): Promise<boolean> =>
@@ -42,8 +42,9 @@ export const readTree = (dir: string) =>
 
 export interface SkillsInstall {
   readonly sync: SkillSync;
-  /** Whether `.claude/skills` had to be created. */
-  readonly linked: boolean;
+  /** The link sync created, where a listed harness reads skills through one. */
+  /** The link sync created, where a listed harness reads skills through one. */
+  readonly linked: string | undefined;
 }
 
 /**
@@ -51,7 +52,12 @@ export interface SkillsInstall {
  * `.claude/skills` link if it is missing. An existing link or directory there is left alone:
  * `mshape check` says what is wrong with it.
  */
-export const installSkills = (shippedDir: string, repo: string, options: SkillSyncOptions = {}) =>
+export const installSkills = (
+  shippedDir: string,
+  repo: string,
+  options: SkillSyncOptions = {},
+  at: SkillsSnapshot["linkAt"] = CLAUDE_CODE_LINK,
+) =>
   Effect.gen(function* () {
     const installedDir = `${repo}/${SKILLS_DIR}`;
     const installed = yield* readTree(installedDir);
@@ -66,7 +72,7 @@ export const installSkills = (shippedDir: string, repo: string, options: SkillSy
         }),
       );
     const sync = syncSkills(yield* readTree(shippedDir), installed, options);
-    const link = `${repo}/${CLAUDE_SKILLS_LINK}`;
+    const link = at === undefined ? undefined : `${repo}/${at.path}`;
     const linked = yield* Effect.tryPromise({
       try: async () => {
         await mkdir(installedDir, { recursive: true });
@@ -82,10 +88,10 @@ export const installSkills = (shippedDir: string, repo: string, options: SkillSy
           await mkdir(dirname(`${installedDir}/${path}`), { recursive: true });
           await Bun.write(`${installedDir}/${path}`, bytes);
         }
-        if (await present(link)) return false;
+        if (at === undefined || link === undefined || (await present(link))) return undefined;
         await mkdir(dirname(link), { recursive: true });
-        await symlink(CLAUDE_SKILLS_TARGET, link);
-        return true;
+        await symlink(at.target, link);
+        return at.path;
       },
       catch: (cause) =>
         new WorkspaceError({ operation: "install skills", path: repo, reason: String(cause) }),
@@ -105,14 +111,24 @@ const linkAt = (path: string): Promise<SkillsLink> =>
   );
 
 /** What `mshape check` needs to verify the install, read from disk as agents will see it. */
-export const loadSkills = (shippedDir: string, repo: string) =>
+export const loadSkills = (
+  shippedDir: string,
+  repo: string,
+  at: SkillsSnapshot["linkAt"] = CLAUDE_CODE_LINK,
+) =>
   Effect.gen(function* () {
-    const link = yield* Effect.promise(() => linkAt(`${repo}/${CLAUDE_SKILLS_LINK}`));
+    const link: SkillsLink =
+      at === undefined
+        ? { kind: "missing" }
+        : yield* Effect.promise(() => linkAt(`${repo}/${at.path}`));
     return {
+      ...(at === undefined ? {} : { linkAt: at }),
       link,
       installed: yield* readTree(`${repo}/${SKILLS_DIR}`),
       claudeDirectory:
-        link.kind === "directory" ? yield* readTree(`${repo}/${CLAUDE_SKILLS_LINK}`) : new Map(),
+        at !== undefined && link.kind === "directory"
+          ? yield* readTree(`${repo}/${at.path}`)
+          : new Map(),
       shipped: yield* readTree(shippedDir),
     } satisfies SkillsSnapshot;
   });

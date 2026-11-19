@@ -1,6 +1,7 @@
 /**
  * What `mshape sync` keeps in step with the installed monkeyshape, beside the shared skills:
- * `.beads/PRIME.md`, the PR template, and monkeyshape's hooks in `.claude/settings.json`.
+ * `.beads/PRIME.md`, the PR template, and each listed harness's files (its hooks: Claude
+ * Code's in `.claude/settings.json`), with what it wrote for a harness no longer listed removed.
  * Planning is pure; the adapter writes. The `sync` check holds a repo to the same plan, so a
  * hand edit or a missing hook fails the gate with the fix: run sync.
  *
@@ -11,7 +12,8 @@
  * already the shipped text, or recorded in the manifest as one sync owns. A file the adopter
  * wrote is left alone and named, with where its content goes; `--replace` hands it to sync.
  */
-import type { ResolvedConfig } from "../schemas/config.ts";
+import type { Harness, HarnessFile, JsonObject } from "../harnesses/harness.ts";
+import type { HarnessId, ResolvedConfig } from "../schemas/config.ts";
 import { OWNABLE_FILES, PR_TEMPLATE_FILE, PRIME_FILE, prTemplate } from "./conventions.ts";
 import {
   type Delivery,
@@ -21,7 +23,7 @@ import {
   foreignTables,
   standing,
 } from "./delivery.ts";
-import { addHooks, HOOKS, type Hook, missingHooks, SETTINGS_FILE, SYNC_COMMAND } from "./hooks.ts";
+import { LOOP_HOOKS, SYNC_COMMAND } from "./hooks.ts";
 import { SKILLS_MANIFEST } from "./layout.ts";
 import type { Snapshot, Violation } from "./model.ts";
 import { ownedFiles } from "./skills.ts";
@@ -37,6 +39,9 @@ export const SYNC_RULES = [
   "pr-template-other",
   "hook-missing",
   "settings-invalid",
+  "harness-file-missing",
+  "harness-file-diverged",
+  "harness-unlisted",
   "ignored",
   "base-missing",
   "base-diverged",
@@ -56,11 +61,87 @@ const violation = (
 
 const SYNC = `\`${SYNC_COMMAND}\``;
 
-/** The files sync writes besides the skills: each must be committed to reach other clones. */
-export const SYNCED_FILES: ReadonlyArray<string> = [PRIME_FILE, PR_TEMPLATE_FILE, SETTINGS_FILE];
+/** The files sync writes besides the skills and the harnesses': each must be committed. */
+export const SYNCED_FILES: ReadonlyArray<string> = [PRIME_FILE, PR_TEMPLATE_FILE];
 
-const ignoredMessage = (file: string): string =>
-  `is on disk but ignored by git, so it isn't committed and other clones and CI don't have it${file === SETTINGS_FILE ? ": their sessions run none of its hooks" : ""}. \`${SYNC_COMMAND}\` can't fix that. Find the rule with \`git check-ignore -v ${file}\`, unignore the file (for \`.claude/\`, use \`.claude/*\` plus \`!${file}\`), then \`git add ${file}\` and commit it.`;
+/** Every file sync writes for `harnesses` (the shipped ones), whether listed or not. */
+export const harnessPaths = (harnesses: ReadonlyArray<Harness>): ReadonlyArray<string> => [
+  ...new Set(harnesses.flatMap((harness) => harness.files(LOOP_HOOKS).map((file) => file.path))),
+];
+
+const ignoredMessage = (file: string, harness?: string): string => {
+  const dir = file.includes("/") ? file.slice(0, file.indexOf("/")) : undefined;
+  return `is on disk but ignored by git, so it isn't committed and other clones and CI don't have it${harness === undefined ? "" : `: their ${harness} sessions run none of its hooks`}. \`${SYNC_COMMAND}\` can't fix that. Find the rule with \`git check-ignore -v ${file}\`, unignore the file${dir === undefined ? "" : ` (for \`${dir}/\`, use \`${dir}/*\` plus \`!${file}\`)`}, then \`git add ${file}\` and commit it.`;
+};
+
+/**
+ * A harness's file as sync sees it: listed harnesses deliver the loop's hooks; a shipped harness
+ * the repo doesn't list delivers none, so what monkeyshape wrote for it goes.
+ */
+export interface HarnessDelivery {
+  readonly harness: Harness;
+  readonly listed: boolean;
+  readonly file: HarnessFile;
+  readonly current: string | undefined;
+}
+
+/** Each shipped harness's files, with their text now (`text` reads one; undefined is none). */
+export const harnessDeliveries = (
+  shipped: ReadonlyArray<Harness>,
+  listed: ReadonlyArray<HarnessId>,
+  text: (path: string) => string | undefined,
+): ReadonlyArray<HarnessDelivery> =>
+  shipped.flatMap((harness) => {
+    const on = listed.includes(harness.id);
+    return harness
+      .files(on ? LOOP_HOOKS : [])
+      .map((file) => ({ harness, listed: on, file, current: text(file.path) }));
+  });
+
+/** Whether two JSON texts hold the same value, whatever their formatting. */
+const sameJson = (a: string, b: JsonObject): boolean =>
+  JSON.stringify(JSON.parse(a)) === JSON.stringify(b);
+
+/**
+ * What a harness's file needs: `write` its new text, `remove` it (a whole file monkeyshape wrote
+ * for a harness no longer listed), or nothing; `invalid` when an owned-entries file isn't a
+ * JSON object; `kept` when an unlisted harness's whole file isn't the one monkeyshape wrote.
+ * `problems` say what the file lacks, for the check.
+ */
+type Needs =
+  | { readonly kind: "ok" }
+  | { readonly kind: "write"; readonly text: string; readonly problems: ReadonlyArray<string> }
+  | { readonly kind: "remove" }
+  | { readonly kind: "invalid" }
+  | { readonly kind: "kept" };
+
+const needs = ({ listed, file, current }: HarnessDelivery): Needs => {
+  if (file.kind === "whole") {
+    if (listed)
+      return current === file.text
+        ? { kind: "ok" }
+        : {
+            kind: "write",
+            text: file.text,
+            problems: [
+              current === undefined ? "is missing" : "differs from what monkeyshape writes",
+            ],
+          };
+    if (current === undefined) return { kind: "ok" };
+    return current === file.text ? { kind: "remove" } : { kind: "kept" };
+  }
+  if (!listed && current === undefined) return { kind: "ok" };
+  const parsed = parseSettings(current);
+  if (parsed === undefined) return { kind: "invalid" };
+  if (listed) {
+    const problems = file.missing(current === undefined ? undefined : parsed);
+    return problems.length === 0
+      ? { kind: "ok" }
+      : { kind: "write", text: file.merge(current === undefined ? undefined : parsed), problems };
+  }
+  const merged = file.merge(parsed);
+  return sameJson(merged, parsed) ? { kind: "ok" } : { kind: "write", text: merged, problems: [] };
+};
 
 /**
  * Why an adopter's own file blocks the gate, and where its content goes: for sync, which
@@ -90,8 +171,8 @@ export interface SyncState {
   readonly beads: boolean;
   readonly prime: string | undefined;
   readonly prTemplate: string | undefined;
-  /** `.claude/settings.json`'s text, if it exists. */
-  readonly settings: string | undefined;
+  /** Each shipped harness's files, listed or not (`harnessDeliveries`). */
+  readonly harnessFiles: ReadonlyArray<HarnessDelivery>;
   /** The files of `OWNABLE_FILES` sync owns now, by its manifest (`ownedFiles`). */
   readonly owned: ReadonlyArray<string>;
   /** Files the adopter asked sync to take over with `--replace`. */
@@ -130,6 +211,8 @@ export interface SyncPlan {
   readonly owned: ReadonlyArray<string>;
   /** Of `write`, the files that don't exist yet. */
   readonly created: ReadonlyArray<string>;
+  /** Files to delete: what monkeyshape wrote whole for a harness no longer listed. */
+  readonly remove: ReadonlyArray<string>;
 }
 
 /** What it takes to bring a repo's synced files up to `shippedPrime` and this package's code. */
@@ -165,14 +248,20 @@ export const planSync = (state: SyncState, shippedPrime: string): SyncPlan => {
     if (state.owned.includes(PR_TEMPLATE_FILE)) owned.push(PR_TEMPLATE_FILE);
     for (const file of state.otherTemplates) blocked.push(`${file} ${otherTemplateMessage(file)}`);
   } else whole(PR_TEMPLATE_FILE, state.prTemplate, prTemplate());
-  const settings = parseSettings(state.settings);
-  if (settings === undefined)
-    blocked.push(
-      `${SETTINGS_FILE}: left alone, since it isn't a JSON object; fix it, then sync again`,
-    );
-  else if (missingHooks(settings, HOOKS).length > 0) {
-    write.set(SETTINGS_FILE, addHooks(settings, HOOKS));
-    if (state.settings === undefined) created.push(SETTINGS_FILE);
+  const remove: Array<string> = [];
+  for (const delivery of state.harnessFiles) {
+    const { path } = delivery.file;
+    const need = needs(delivery);
+    if (need.kind === "write") {
+      write.set(path, need.text);
+      if (delivery.current === undefined) created.push(path);
+    } else if (need.kind === "remove") remove.push(path);
+    else if (need.kind === "invalid" && delivery.listed)
+      blocked.push(`${path}: left alone, since it isn't a JSON object; fix it, then sync again`);
+    else if (need.kind === "invalid" || need.kind === "kept")
+      notes.push(
+        `${path}: left alone, though \`harnesses\` doesn't list ${delivery.harness.id}, since it isn't ${need.kind === "invalid" ? "a JSON object" : "the file monkeyshape wrote"}; delete it if ${delivery.harness.name} is gone`,
+      );
   }
   for (const { delivery, current } of state.deliveries ?? []) {
     const message = deliveryMessage(delivery, current);
@@ -191,6 +280,7 @@ export const planSync = (state: SyncState, shippedPrime: string): SyncPlan => {
     blocked,
     owned: OWNABLE_FILES.filter((file) => owned.includes(file)),
     created,
+    remove,
   };
 };
 
@@ -199,11 +289,10 @@ export const formatSyncPlan = (plan: SyncPlan): ReadonlyArray<string> => [
   ...[...plan.write.keys()].map(
     (path) => `${path}: ${plan.created.includes(path) ? "added" : "updated"}`,
   ),
+  ...plan.remove.map((path) => `${path}: removed`),
   ...plan.notes,
   ...plan.blocked,
 ];
-
-const describe = (hook: Hook): string => `${hook.event}: \`${hook.command}\``;
 
 /**
  * A synced repo's PRIME.md and PR template match what this monkeyshape ships, and its
@@ -238,6 +327,12 @@ const syncedFiles = (config: ResolvedConfig, snapshot: Snapshot): ReadonlyArray<
   const out: Array<Violation> = [...snapshot.unlisted]
     .filter((file) => SYNCED_FILES.includes(file))
     .map((file) => violation("ignored", file, ignoredMessage(file)));
+  const delivered = harnessDeliveries(snapshot.harnesses ?? [], config.harnesses, (path) =>
+    snapshot.texts.get(path),
+  );
+  for (const { file, harness, listed } of delivered)
+    if (listed && snapshot.unlisted.has(file.path))
+      out.push(violation("ignored", file.path, ignoredMessage(file.path, harness.name)));
   // An ignored file is reported once, as ignored: "missing" would prescribe sync, which can't help.
   const owned = ownedFiles(snapshot.skills.installed.get(SKILLS_MANIFEST));
   const prime = snapshot.unlisted.has(PRIME_FILE) ? undefined : snapshot.texts.get(PRIME_FILE);
@@ -286,25 +381,41 @@ const syncedFiles = (config: ResolvedConfig, snapshot: Snapshot): ReadonlyArray<
         `differs from the template the installed monkeyshape renders from its PR sections, which \`mshape track pr\` and CI's PR check use too. Run ${SYNC} and commit it.`,
       ),
     );
-  const settings = parseSettings(snapshot.texts.get(SETTINGS_FILE));
-  if (snapshot.unlisted.has(SETTINGS_FILE)) {
-    // Reported above as ignored.
-  } else if (settings === undefined)
-    out.push(
-      violation(
-        "settings-invalid",
-        SETTINGS_FILE,
-        `isn't a JSON object, so Claude Code runs none of its hooks. Fix the JSON, then run ${SYNC}.`,
-      ),
-    );
-  else {
-    const missing = missingHooks(settings, HOOKS);
-    if (missing.length > 0)
+  for (const delivery of delivered) {
+    const { file, harness } = delivery;
+    // An ignored file is reported once, as ignored, above.
+    if (snapshot.unlisted.has(file.path)) continue;
+    const need = needs(delivery);
+    if (need.kind === "invalid" && delivery.listed)
+      out.push(
+        violation(
+          "settings-invalid",
+          file.path,
+          `isn't a JSON object, so ${harness.name} runs none of its hooks. Fix the JSON, then run ${SYNC}.`,
+        ),
+      );
+    else if (need.kind === "remove" || (need.kind === "write" && !delivery.listed))
+      out.push(
+        violation(
+          "harness-unlisted",
+          file.path,
+          `holds what monkeyshape wrote for ${harness.name}, which \`harnesses\` in shape.toml no longer lists. Run ${SYNC}, which removes only that and keeps the repo's own, and commit it; or list \`${harness.id}\` again.`,
+        ),
+      );
+    else if (need.kind === "write" && file.kind === "owned-entries")
       out.push(
         violation(
           "hook-missing",
-          SETTINGS_FILE,
-          `doesn't run ${missing.map(describe).join("; ")}. Without them a session misses the conventions or its track's mail at start. Run ${SYNC}, which adds them and keeps your own hooks, and commit it.`,
+          file.path,
+          `${need.problems.join("; ")}. Without them a ${harness.name} session misses the conventions or its track's mail at start. Run ${SYNC}, which brings monkeyshape's hooks in step and keeps your own, and commit it.`,
+        ),
+      );
+    else if (need.kind === "write")
+      out.push(
+        violation(
+          delivery.current === undefined ? "harness-file-missing" : "harness-file-diverged",
+          file.path,
+          `${need.problems.join("; ")}: monkeyshape writes it whole for ${harness.name}, which runs it. Run ${SYNC} and commit it; a change of the repo's own goes in AGENTS.md instead.`,
         ),
       );
   }
