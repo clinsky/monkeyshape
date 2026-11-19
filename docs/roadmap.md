@@ -16,8 +16,8 @@ Goals not yet shipped are listed in the order they would be taken.
 | Ready for a real application and a new repo: a gate whose pass means what it says, adopter rules | **Shipped** (milestone 3, 0.4.0) | `monkeyshape-xv2` |
 | First real adoptions: an existing application, and a repo born through the loop | **Done** on 0.4.0 | `monkeyshape-36f` |
 | The loop at scale: a PR as one reviewed unit, rules where agents act, the denylist, tracks that start working | **Shipped** (milestone 4, 0.5.0) | `monkeyshape-4sa` |
-| A language-neutral core: config as data, a configurable gate, a pinned binary, the pack interface | **In progress** (milestone 5) | `monkeyshape-070` |
-| Language packs: Rust and Python | **In progress** (milestone 5) | `monkeyshape-gbx` |
+| A language-neutral core: config as data, a configurable gate, a pinned binary, the pack interface | **Shipped** (milestone 5, 0.6.0) | `monkeyshape-070` |
+| Language packs: Rust and Python | **Shipped** (milestone 5, 0.6.0) | `monkeyshape-gbx` |
 | Harness adapters: Codex and pi | Later: milestone 6 | `monkeyshape-dlz` |
 | `mshape validate`: the real-data loop (core) | Later | `monkeyshape-97o` |
 | The remaining starter rules (TypeScript pack) | Later | `monkeyshape-hh2` |

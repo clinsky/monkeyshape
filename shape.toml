@@ -5,7 +5,7 @@ packs = ["typescript"]
 
 # The mshape this repo runs: its own source, never a fetched binary.
 [mshape]
-version = "0.5.0"
+version = "0.6.0"
 dev = ["bun", "src/cli/main.ts"]
 
 [sources]

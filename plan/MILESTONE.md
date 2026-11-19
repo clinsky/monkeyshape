@@ -525,3 +525,7 @@ already written by agents, not generated for it.
   milestone. Every "three adopters" above reads "two": `config` migrated both on scratch
   clones (#137), every outcome as on 0.5.0 but one `refs/missing-path` each, for the
   `shape.config.ts` their AGENTS.md still names, which migrate's note points to.
+- **2026-11-19, ty's coverage report is deferred (`8il.18`), the maintainer's decision.** The
+  acceptance line on ty's coverage leaves this milestone: what ruff and ty catch will be
+  reported later, from the Python repo once it runs real tracks. `8il.18` is deferred off
+  `python`; the release (`8il.23`) and the closing acceptance no longer wait on it.
