@@ -51,8 +51,8 @@ Milestone 5 closed with 0.6.0 (#140); its plan and retrospective are
    records CI during review.
 6. **Handoffs and the smaller fixes.** A handoff records what no command shows. The skills
    name the mechanisms of goals 4 and 5 instead of asking agents to message. The gate's test
-   stages report counts; `track list` stops flagging filed and blocked beads; the open
-   process bugs (`jhz`) are fixed.
+   stages report counts; `track list` stops flagging filed and blocked beads;
+   `msg send --reply-to` threads a conversation; the open process bugs (`jhz`) are fixed.
 
 **Acceptance on real data:**
 
@@ -114,7 +114,7 @@ maintainer's.
 | Learning a PR merged, CI ended, `main` red | the human relays; reviewers poll | `mshape msg watch`, as mail |
 | "#N edits your file" | written by hand | `track pr`, from the plan's File owners table |
 | Review handshake | messages by hand, by habit | `review post` and `track pr --wait` send them |
-| Open process beads | 17 (`bd list --label process`) | each fixed, deferred with a reason, or closed |
+| Process beads (`bd list --label process`) | 15 open, 4 deferred (`7kw`, `cyz`, `3a5`, `3q2`) | each open one fixed or closed |
 
 ## What changed since milestone 5, and why
 
@@ -260,8 +260,8 @@ An event becomes one message from the sender address `mshape` to the watcher, th
 
 ### File owners (`prs`, `z1u.10`)
 
-`track pr` reads the table under "### File owners" in `plan/MILESTONE.md` on the base it
-gates: `| Path | Track |`, paths as globs, the first matching row wins. This is that table.
+`track pr` reads the first table under "### File owners" in `plan/MILESTONE.md` on the base
+it gates, whose header is `| Path | Track |`: paths as globs, the first matching row wins. This is that table.
 `src/cli/main.ts`, `shape.toml` and `test/` are every track's, so no row names them: a test
 belongs with its code, and a conflict there is settled as it comes.
 
@@ -350,7 +350,7 @@ that touches several owners' files goes to `main` first, which names one owner.
 | `harness` | goals 1, 2 | The interface, drafted with `codex` and frozen; `mshape prime`; the registry and identity; Claude Code as the first adapter; `harnesses` in `shape.toml`, `init --harness`, sync per harness (`iwf`); PRIME and skills harness-neutral | This repo and both adopters' scratch clones as on 0.6.0; tables `prime`, registry and selection as tests |
 | `codex` | goal 3 | The Codex adapter: hooks, identity, skills, a notifier through `codex queue` (or app-server); `init --harness codex`. Starts at once on the draft and reviews it | A born Rust repo's scripted Codex session loads the loop, registers, gets a notice, opens a PR; then the Rust repo (acceptance) |
 | `pi` | goal 3 | The pi adapter: the extension, a socket it owns, `pi.sendMessage`; built on the frozen interface, unchanged. Starts at the freeze | A born repo's scripted pi session gets a notice while idle; `harness.ts` unchanged |
-| `notices` | goals 4, 6 | `msg watch` and its table; `--reply-to`; `track list` and `track rm` fixes; gate test counts; the release fixes and 0.7.0's preparation | The watch table as tests; a watch on this repo's own PRs delivers through a real merge |
+| `notices` | goals 4, 6 | `msg watch` and its table; `--reply-to` (goal 6); `track list` and `track rm` fixes; gate test counts; the release fixes and 0.7.0's preparation | The watch table as tests; a watch on this repo's own PRs delivers through a real merge |
 | `prs` | goals 5, 6 | File owners and the owners notice; the review handshake and its table; `jhz.4`; the skill text | Both tables as tests; the handshake run on this milestone's own reviews |
 
 **Beads** (epic `monkeyshape-z1u`; serves `dlz` and `jhz`): `harness`: `z1u.1` interface,
