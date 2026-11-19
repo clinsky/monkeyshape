@@ -154,7 +154,7 @@ const claims = (config: ResolvedConfig, snapshot: Snapshot): ReadonlyArray<Viola
           violation(
             "unlisted-pack",
             file,
-            `is ${other.language}, but \`packs\` in ${config.configFile} doesn't list \`${other.id}\`, so no check reads it. Add \`"${other.id}"\` to \`packs\`; or, if the repo checks it its own way, cover it with a command in \`coverage.commands\` or list it in \`coverage.exemptFiles\` with the reason.`,
+            `is ${other.language}, but \`packs\` in ${config.configFile} doesn't list \`${other.id}\`, so no check reads it. Add \`"${other.id}"\` to \`packs\`; or, if the repo checks it its own way, cover it with a command in \`coverage.commands\` or list it in \`coverage.exempt-files\` with the reason.`,
           ),
         ];
   });

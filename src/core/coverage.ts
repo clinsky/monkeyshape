@@ -223,7 +223,7 @@ export const executableSources = (config: ResolvedConfig, snapshot: Snapshot) =>
   );
 };
 
-/** Listed in `coverage.exemptFiles`, with the reason it needs no check. */
+/** Listed in `coverage.exempt-files`, with the reason it needs no check. */
 const exempted = (config: ResolvedConfig, file: string): boolean =>
   config.coverage.exemptFiles.some((entry) => matchesPathOrBelow(file, entry.path));
 
@@ -242,7 +242,7 @@ const uncovered = (config: ResolvedConfig, snapshot: Snapshot): ReadonlyArray<Vi
       violation(
         "uncovered",
         file,
-        `is ${snapshot.modes.get(file) === "executable" ? "an executable file" : "source"} that monkeyshape doesn't analyze, and no declared command checks it. Add a command that does to \`coverage.commands\` in ${config.configFile} (\`{ files, run }\`), or list it in \`coverage.exemptFiles\` with the reason it needs none.${snapshot.modes.get(file) === "executable" ? " If it is a compiled binary, no command checks it: exempt it with that reason, or stop tracking it and build it instead. A vendored release belongs in `files.vendored` with its package and sha256." : ""}`,
+        `is ${snapshot.modes.get(file) === "executable" ? "an executable file" : "source"} that monkeyshape doesn't analyze, and no declared command checks it. Add a command that does to \`coverage.commands\` in ${config.configFile} (\`{ files, run }\`), or list it in \`coverage.exempt-files\` with the reason it needs none.${snapshot.modes.get(file) === "executable" ? " If it is a compiled binary, no command checks it: exempt it with that reason, or stop tracking it and build it instead. A vendored release belongs in `files.vendored` with its package and sha256." : ""}`,
       ),
     );
   }
@@ -252,7 +252,7 @@ const uncovered = (config: ResolvedConfig, snapshot: Snapshot): ReadonlyArray<Vi
         violation(
           "exempt-unmatched",
           config.configFile,
-          `\`coverage.exemptFiles\` lists '${entry.path}', which matches no file. Remove the entry, or fix its glob.`,
+          `\`coverage.exempt-files\` lists '${entry.path}', which matches no file. Remove the entry, or fix its glob.`,
         ),
       );
   return out;
@@ -294,7 +294,7 @@ const unparsable = (config: ResolvedConfig, snapshot: Snapshot): ReadonlyArray<V
           violation(
             "data",
             file,
-            `does not parse as ${format.toUpperCase()}: ${error}. Fix it; if it is broken on purpose (a test fixture), list it in \`coverage.exemptFiles\` with that reason.${format === "json" ? " If its tool reads it with comments, name the file `.jsonc` where the tool accepts that name; where the tool needs this exact name, list it in `coverage.exemptFiles` with the reason (read as JSONC by that tool)." : ""}`,
+            `does not parse as ${format.toUpperCase()}: ${error}. Fix it; if it is broken on purpose (a test fixture), list it in \`coverage.exempt-files\` with that reason.${format === "json" ? " If its tool reads it with comments, name the file `.jsonc` where the tool accepts that name; where the tool needs this exact name, list it in `coverage.exempt-files` with the reason (read as JSONC by that tool)." : ""}`,
           ),
         ];
   });

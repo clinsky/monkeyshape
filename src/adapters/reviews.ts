@@ -1,6 +1,6 @@
 /**
  * `mshape review <n>` and `mshape review rm <n>`: a pull request's head in a detached worktree
- * beside the tracks, with `tracks.sharedPaths` and the handoffs linked in, for the `review-pr`
+ * beside the tracks, with `tracks.shared-paths` and the handoffs linked in, for the `review-pr`
  * skill, which reads the charter of the track a PR comes from. A review is not a track: no
  * branch, no handoff of its own, no label. Its state lives on the pull request, and the
  * worktree is scratch, removed when the review ends. It is an address: `review-<track>` for a
@@ -98,7 +98,7 @@ const recordTrack = (common: string, pr: string, track: string | undefined) =>
   });
 
 /**
- * `tracks.sharedPaths` linked into the review's worktree, after a create or a move alike: a path
+ * `tracks.shared-paths` linked into the review's worktree, after a create or a move alike: a path
  * the head tracks is the PR's own (git put it there) and only noted; a missing link is made.
  */
 export const linkShared = (

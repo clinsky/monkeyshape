@@ -518,7 +518,7 @@ describe("review of #61: JSON whose tool reads comments", () => {
     expect(found?.rule).toBe("coverage/data");
     expect(found?.message).toContain("name the file `.jsonc`");
     expect(found?.message).toContain("needs this exact name");
-    expect(found?.message).toContain("`coverage.exemptFiles`");
+    expect(found?.message).toContain("`coverage.exempt-files`");
   });
 });
 

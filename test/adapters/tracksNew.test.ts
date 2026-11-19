@@ -97,7 +97,7 @@ describe("track new", () => {
       await setup(shared);
       const refused = mshape(repo, "new", "docs");
       expect(refused.code).toBe(1);
-      expect(refused.stderr).toContain("tracks.sharedPaths");
+      expect(refused.stderr).toContain("tracks.shared-paths");
       expect(await exists(wt("docs"))).toBe(false);
       expect(branches()).toEqual(["main"]);
     }

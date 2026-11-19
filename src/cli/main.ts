@@ -19,6 +19,7 @@ import { runGate } from "../adapters/gate.ts";
 import { initRepo, vendoredSpec } from "../adapters/init.ts";
 import { ownRoot, recordedSums, runningCompiled } from "../adapters/launch.ts";
 import { mailInbox, mailInboxAll, mailRead, mailSend } from "../adapters/mail.ts";
+import { migrateConfig } from "../adapters/migrate.ts";
 import {
   type Caller,
   claudeCodeNotifier,
@@ -827,13 +828,22 @@ const rules = (root: string, args: ReadonlyArray<string>) =>
     return { output: formatRules(RULES, config?.localRules, shape), code: 0 };
   });
 
-/** `mshape config schema`: the JSON Schema of `shape.toml`, as the package ships it. */
-const configCommand = (_root: string, args: ReadonlyArray<string>) =>
-  Effect.succeed(
-    args.length === 1 && args[0] === "schema"
-      ? { output: shapeJsonSchema().trimEnd(), code: 0 }
-      : usage(),
-  );
+/**
+ * `mshape config schema`: the JSON Schema of `shape.toml`, as the package ships it.
+ * `mshape config migrate`: `shape.config.ts` to `shape.toml`, pinning the running package.
+ */
+const configCommand = (root: string, args: ReadonlyArray<string>) =>
+  Effect.gen(function* () {
+    if (args.length === 1 && args[0] === "schema")
+      return { output: shapeJsonSchema().trimEnd(), code: 0 };
+    if (args.length !== 1 || args[0] !== "migrate") return usage();
+    // It imports the TypeScript config, so it runs under the npm package, whose version the
+    // repo's node_modules holds: that is the pin (sync/pin-npm-differs).
+    const result = yield* migrateConfig(root, {
+      version: (yield* checkoutVersion()) ?? pkg.version,
+    });
+    return { output: result.lines.join("\n"), code: result.code };
+  });
 
 /** Every command, in the order the help lists them. */
 export const COMMANDS: ReadonlyArray<Command> = [
@@ -899,7 +909,11 @@ export const COMMANDS: ReadonlyArray<Command> = [
     name: "config",
     usage: `  mshape config schema
       Print the JSON Schema of shape.toml, which the package ships as schema/shape.schema.json:
-      point an editor's TOML support at it to validate the config as you type.`,
+      point an editor's TOML support at it to validate the config as you type.
+  mshape config migrate
+      Once, in a repo with shape.config.ts: write shape.toml with the same values (packs =
+      ["typescript"], pinning this mshape) and delete shape.config.ts. Refuses while a local rule
+      isn't ported to shape-rules/, and where shape.toml is already here.`,
     run: configCommand,
   },
   {
@@ -907,7 +921,7 @@ export const COMMANDS: ReadonlyArray<Command> = [
     usage: `  mshape track new <name>
       Start a track: worktree .agents/worktrees/<repo>@<name> on track/<name> from main (or
       from main's upstream, after fetching it, when that has commits main lacks),
-      the shared handoffs and tracks.sharedPaths linked in, and a stub handoff. Shared paths
+      the shared handoffs and tracks.shared-paths linked in, and a stub handoff. Shared paths
       come from the main checkout's config (shape.toml), from whichever checkout this runs.
   mshape track list
       Every track: handoff status, open beads, commits in neither main nor origin/main,
@@ -974,7 +988,7 @@ export const COMMANDS: ReadonlyArray<Command> = [
     name: "review",
     usage: `  mshape review <n>
       Pull request <n>'s head from origin in a detached worktree .agents/worktrees/<repo>.pr-<n>,
-      tracks.sharedPaths and the shared handoffs (.handoffs) linked in. Again later: put it
+      tracks.shared-paths and the shared handoffs (.handoffs) linked in. Again later: put it
       exactly at the new head, printing the old one; edits to tracked files there are listed,
       then discarded.
       A session at main (or at another review) moves to the reviewer's address, so its mail

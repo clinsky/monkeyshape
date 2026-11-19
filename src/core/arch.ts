@@ -187,7 +187,7 @@ export const checkArch = (config: ResolvedConfig, snapshot: Snapshot): ReadonlyA
           violation(
             "config",
             config.configFile,
-            `module '${name}' lists unknown module '${target}' in mayImport`,
+            `module '${name}' lists unknown module '${target}' in may-import`,
           ),
         );
 
@@ -269,7 +269,7 @@ const judge = (
       violation(
         "host-access",
         use.file,
-        `${use.what}, but module '${from}' has no hostAccess. Reach the host through a service in an adapter module${use.alternative === undefined ? "" : `, or ${use.alternative}`}.`,
+        `${use.what}, but module '${from}' has no host-access. Reach the host through a service in an adapter module${use.alternative === undefined ? "" : `, or ${use.alternative}`}.`,
         use.line,
       ),
     );

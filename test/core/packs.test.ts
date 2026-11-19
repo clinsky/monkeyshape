@@ -230,10 +230,7 @@ describe("the install hint for a missing tool", () => {
       ["coverage"],
     ).map((v) => v.message);
 
-  test("a config that can make it optional says how, in its own syntax and file", () => {
-    expect(missing({}, "shape.config.ts")[0]).toContain(
-      'or set `prerequisites: { tsc: "optional" }` in shape.config.ts to read its config instead',
-    );
+  test("a config that can make it optional says how, in TOML, naming the config's file", () => {
     expect(missing({}, "shape.toml")[0]).toContain(
       'or set `tsc = "optional"` under `[prerequisites]` in shape.toml to read its config instead',
     );

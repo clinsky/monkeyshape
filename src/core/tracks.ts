@@ -56,7 +56,7 @@ export const nameProblem = (track: string): string | undefined => {
 };
 
 /**
- * `tracks.sharedPaths` as a whole. The schema has already made each entry normal; here the
+ * `tracks.shared-paths` as a whole. The schema has already made each entry normal; here the
  * entries must not repeat or nest, nor overlap what the track commands manage: `.git`, the
  * handoff links and the worktrees directory, which linked into a worktree would contain itself.
  */
@@ -74,7 +74,7 @@ export const sharedPathProblems = (paths: ReadonlyArray<string>): ReadonlyArray<
       if (other !== path && within(path, other))
         problems.push(`\`${path}\` lies under \`${other}\`: list only \`${other}\``);
   });
-  return problems.map((problem) => `tracks.sharedPaths in shape.config.ts: ${problem}`);
+  return problems.map((problem) => `tracks.shared-paths in shape.toml: ${problem}`);
 };
 
 /**
@@ -373,8 +373,8 @@ export const planRm = (facts: RmFacts): RmPlan => {
   if (blocker === "required")
     refusals.push(
       integration.state === "absent"
-        ? `shape.config.ts requires beads, but the repo has no .beads/config.yaml, so the open beads labelled \`${label}\` can't be checked: set beads up, or set \`beads: "optional"\``
-        : `shape.config.ts requires beads, but ${"reason" in integration ? integration.reason : "it didn't answer"}, so the open beads labelled \`${label}\` can't be checked: get \`bd\` working, then retry`,
+        ? `shape.toml requires beads, but the repo has no .beads/config.yaml, so the open beads labelled \`${label}\` can't be checked: set beads up, or set \`beads = "optional"\``
+        : `shape.toml requires beads, but ${"reason" in integration ? integration.reason : "it didn't answer"}, so the open beads labelled \`${label}\` can't be checked: get \`bd\` working, then retry`,
     );
   if (facts.statusError !== undefined)
     refusals.push(

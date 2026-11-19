@@ -1,7 +1,7 @@
 /**
  * What the repo holds, whatever the language: no file past the size cap without a reason, no
  * `.env` file, and each vendored release tarball the one its record says. Large data lives
- * outside the repo (`tracks.sharedPaths`), and secrets never enter it.
+ * outside the repo (`tracks.shared-paths`), and secrets never enter it.
  *
  * Files another tool owns (`classify`'s `builtin`: `.beads/`, git's own files, symlinks)
  * are not held to any of it.
@@ -74,7 +74,7 @@ export const checkFiles = (
         violation(
           "too-large",
           file,
-          `is ${formatBytes(size)}, past the ${formatBytes(maxBytes)} cap. Keep large data outside the repo (\`tracks.sharedPaths\` links it into worktrees); if it must be tracked, list it in \`files.large\` in ${config.configFile} with the reason.`,
+          `is ${formatBytes(size)}, past the ${formatBytes(maxBytes)} cap. Keep large data outside the repo (\`tracks.shared-paths\` links it into worktrees); if it must be tracked, list it in \`files.large\` in ${config.configFile} with the reason.`,
         ),
       );
     const name = file.slice(file.lastIndexOf("/") + 1);

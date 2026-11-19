@@ -107,10 +107,7 @@ const optionalHint = (
   approximates: boolean,
 ): string => {
   if (!approximates || !settable.has(name)) return "";
-  const setting = config.configFile.endsWith(".toml")
-    ? `\`${name} = "optional"\` under \`[prerequisites]\``
-    : `\`prerequisites: { ${name}: "optional" }\``;
-  return `, or set ${setting} in ${config.configFile} to read its config instead`;
+  return `, or set \`${name} = "optional"\` under \`[prerequisites]\` in ${config.configFile} to read its config instead`;
 };
 
 const NOT_LOADED: Integration = { state: "unavailable", reason: "its pack's loader didn't run it" };
@@ -573,8 +570,8 @@ export const prerequisites = (
       prerequisite(
         "beads-required",
         beads.state === "absent"
-          ? "shape.config.ts requires beads, but the repo has no .beads/config.yaml"
-          : `shape.config.ts requires beads, but ${beads.reason}`,
+          ? `${config.configFile} requires beads, but the repo has no .beads/config.yaml`
+          : `${config.configFile} requires beads, but ${beads.reason}`,
       ),
     );
   for (const check of only.filter((check) => config.checks[check] === undefined))

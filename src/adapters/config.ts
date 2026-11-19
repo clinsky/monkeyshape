@@ -256,24 +256,12 @@ const loadToml = (root: string, path: string, shown: string) =>
   });
 
 /**
- * `path` overrides the repo's own config, e.g. to try monkeyshape on a repo before adopting
- * it: a `.toml` file is read as `shape.toml`, anything else imported as `shape.config.ts`.
+ * `shape.config.ts` (or a `--config` module) imported and decoded strictly, before any of the
+ * checks across keys: what `config migrate` turns into `shape.toml`. `shown` names it in errors.
  */
-export const loadConfig = (root: string, given?: string) =>
+export const importTsConfig = (root: string, path: string, shown: string) =>
   Effect.gen(function* () {
-    const path = given ?? (yield* findConfig(root)) ?? join(root, CONFIG_FILE);
-    // The file tried, as the user would name it: `--config` may point anywhere.
-    const shown = relative(root, path).startsWith("..") ? path : relative(root, path);
-    const own = given === undefined;
     const outside = relative(root, path).startsWith("..");
-    if (!(yield* exists(path)))
-      return yield* Effect.fail(
-        new ConfigError({
-          path: shown,
-          reason: own ? "not found; every adopting repo has one" : "not found",
-        }),
-      );
-    if (path.endsWith(".toml")) return yield* loadToml(root, path, shown);
     const module = yield* Effect.tryPromise({
       try: async () => {
         if (!outside) return (await import(path)) as { readonly default?: unknown };
@@ -298,9 +286,30 @@ export const loadConfig = (root: string, given?: string) =>
           reason: `could not load: ${cause instanceof Error && !("position" in cause) ? cause.message : loadFailure(cause)}`,
         }),
     });
-    const config = yield* decodeStrict(ShapeConfig)(module.default).pipe(
+    return yield* decodeStrict(ShapeConfig)(module.default).pipe(
       Effect.mapError((error) => new ConfigError({ path: shown, reason: error.message })),
     );
+  });
+
+/**
+ * `path` overrides the repo's own config, e.g. to try monkeyshape on a repo before adopting
+ * it: a `.toml` file is read as `shape.toml`, anything else imported as `shape.config.ts`.
+ */
+export const loadConfig = (root: string, given?: string) =>
+  Effect.gen(function* () {
+    const path = given ?? (yield* findConfig(root)) ?? join(root, CONFIG_FILE);
+    // The file tried, as the user would name it: `--config` may point anywhere.
+    const shown = relative(root, path).startsWith("..") ? path : relative(root, path);
+    const own = given === undefined;
+    if (!(yield* exists(path)))
+      return yield* Effect.fail(
+        new ConfigError({
+          path: shown,
+          reason: own ? "not found; every adopting repo has one" : "not found",
+        }),
+      );
+    if (path.endsWith(".toml")) return yield* loadToml(root, path, shown);
+    const config = yield* importTsConfig(root, path, shown);
     const problems = [...configProblems(config), ...unshipped(config), ...undeclared(config)];
     if (problems.length > 0)
       return yield* Effect.fail(new ConfigError({ path: shown, reason: problems.join("; ") }));

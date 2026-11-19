@@ -25,9 +25,7 @@ describe("shared paths as a whole", () => {
 
   test("duplicates, nesting either way, and .handoffs or .git are each named", () => {
     const problems = (paths: ReadonlyArray<string>) =>
-      sharedPathProblems(paths).map((p) =>
-        p.replace("tracks.sharedPaths in shape.config.ts: ", ""),
-      );
+      sharedPathProblems(paths).map((p) => p.replace("tracks.shared-paths in shape.toml: ", ""));
     expect(problems(["data", "data"])).toContain("`data` is listed twice");
     expect(problems(["data/large", "data"])).toEqual([
       "`data/large` lies under `data`: list only `data`",
