@@ -46,7 +46,11 @@ export type JsonObject = Readonly<Record<string, unknown>>;
  *   entries by every command any version of monkeyshape wrote, so `merge(current, [])`
  *   removes them all and a hook monkeyshape stops shipping goes (`iwf`). `missing` names what
  *   the current file lacks, for the check; empty means in step. `current` is undefined when
- *   the file doesn't exist; a file that isn't a JSON object is never handed over.
+ *   the file doesn't exist; a file that isn't a JSON object is never handed over. Where the
+ *   harness asks the human to trust each hook by its position and text (Codex), `merge`
+ *   appends monkeyshape's entries after the repo's, never reorders theirs, and renders
+ *   commands byte-stable across versions (no version, no absolute path), so an upgrade
+ *   doesn't ask again.
  */
 export type HarnessFile =
   | { readonly kind: "whole"; readonly path: string; readonly text: string }
@@ -87,6 +91,15 @@ export interface Identity {
 
 /** What a command gets to identify its session: its environment, and a hook's stdin. */
 export interface Invocation {
+  /**
+   * The harness that ran this command, when it says so: every hook command an adapter
+   * renders carries `--harness <id>`, since hook inputs look alike across harnesses and
+   * environment variables leak into a harness launched from another's shell. Given, the core
+   * asks only that adapter. Absent (a command the agent runs), it asks each listed harness,
+   * and when more than one claims the session, none is used: a note names them, and nothing
+   * is guessed.
+   */
+  readonly harness?: HarnessId;
   readonly env: Readonly<Record<string, string | undefined>>;
   /**
    * The hook's input, read by the core only when stdin isn't a terminal, with a time limit;
@@ -103,10 +116,24 @@ export interface Harness {
   readonly id: HarnessId;
   /** For messages: "Claude Code". */
   readonly name: string;
-  /** The moments this harness can run a command at; the agent covers the rest by hand. */
+  /**
+   * The moments this harness can run a command at; the agent covers the rest by hand. A
+   * harness may run `session-start` late (Codex's TUI runs it with the first prompt): until
+   * then the session is unregistered and gets no notice, and its mail waits.
+   */
   readonly moments: ReadonlyArray<Moment>;
-  /** The files that wire `hooks` into this harness. Empty for a harness with nothing to deliver. */
+  /**
+   * The files that wire `hooks` into this harness, each command rendered with
+   * `--harness <id>`. Empty for a harness with nothing to deliver.
+   */
   readonly files: (hooks: ReadonlyArray<LoopHook>) => ReadonlyArray<HarnessFile>;
+  /**
+   * What the human must do before the delivered files take effect, which no check can see
+   * (Codex: trust the project, then the hooks, at its next start; it reads them from the main
+   * checkout, so a track's change takes effect once merged and pulled there). `init` and
+   * `sync` print it when this harness's files changed.
+   */
+  readonly afterDelivery?: string;
   readonly skills: SkillsAccess;
   /**
    * The session running this command, or undefined when this harness isn't what runs it. The
@@ -161,7 +188,8 @@ export interface HarnessIO {
   /**
    * Pushes `line` (`[mshape] Message from ...`, never the body) to the session. A harness
    * that can only inject user-role input says, in what it delivers, that this is mail from
-   * another session, not an instruction from the user.
+   * another session, not an instruction from the user. Never wakes or resumes a session that
+   * `status` says is gone: its mail waits for its next start.
    */
   readonly notify: (registration: Registration, line: string) => Effect.Effect<Sent>;
   /**
