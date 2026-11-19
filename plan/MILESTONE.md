@@ -71,7 +71,7 @@ Milestone 5 closed with 0.6.0 (#140); its plan and retrospective are
 - **The interface held:** `codex` and `pi` PRs change nothing in `src/harnesses/harness.ts`
   after the freeze, or each change is an amendment saying why Claude Code and Codex missed it.
 - **pi:** the adapter passes its scripted test on a born repo (a real pi session in a test,
-  pi 1.0.0 on this machine). A real repo's track in pi is deferred until a pi user
+  pi 1.5.2 on this machine). A real repo's track in pi is deferred until a pi user
   arrives, by the maintainer (2026-11-19).
 
 **Release:** 0.7.0 as soon as goals 1, 2, 4 and 5, Codex (goal 3) and the skill text are
@@ -126,8 +126,8 @@ maintainer's.
 - The maintainer, 2026-11-19: Codex and pi both built; Codex accepted on the Rust repo, pi's
   real-repo acceptance deferred; `7kw` deferred, `main` occasionally red accepted.
 - Research by an agent for the maintainer (2026-11-19), on what Codex and pi offer natively,
-  is below under "Harness facts". It is design input, unverified on this machine: Codex
-  isn't installed yet, and the tracks verify each fact on the installed version first.
+  is below under "Harness facts". It is design input, unverified on this machine (codex-cli
+  0.170.0 and pi 1.5.2 installed 2026-11-19), and the tracks verify each fact on the installed version first.
 
 ## Interfaces the tracks share
 
@@ -217,7 +217,7 @@ Reported 2026-11-19 by research for the maintainer, from the harnesses' docs and
 yet run here. Each track verifies its harness's facts on the installed version before
 building on them, and reports what differs in its first PR.
 
-- **Codex:** project hooks in `.codex/hooks.json` (`SessionStart` with startup, resume,
+- **Codex (codex-cli 0.170.0 here):** project hooks in `.codex/hooks.json` (`SessionStart` with startup, resume,
   clear, compact and fork sources; `UserPromptSubmit`; `SessionEnd`), JSON on stdin with
   `session_id` and `cwd`, stdout added as developer context. `CODEX_THREAD_ID` in tool
   commands' environment; a thread id and a session id differ for forks.
@@ -225,7 +225,7 @@ building on them, and reports what differs in its first PR.
   an idle loaded thread; `--resume` for an unloaded one; acceptance isn't processing.
   `codex app-server` (JSON-RPC over stdio or a unix-socket WebSocket) can `turn/steer` an active
   turn, but may not reach a standalone CLI session. Reads `AGENTS.md` and `.agents/skills`.
-- **pi (1.0.0 here):** TypeScript extensions from `.pi/extensions/`, loaded once the project
+- **pi (1.5.2 here):** TypeScript extensions from `.pi/extensions/`, loaded once the project
   is trusted. `pi.on("session_start" | "session_shutdown", ...)`,
   `ctx.sessionManager.getSessionId()`.
   `pi.sendMessage({customType, content, display}, {triggerTurn, deliverAs: "steer"})` adds a custom (not user) message, waking an idle session or steering
