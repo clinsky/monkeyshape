@@ -66,6 +66,12 @@ where the two differ.
   guard sized for that; give a test its own timeout only above it.
 - The code blocks in `docs/adopting.md` are the consumer test's fixture, and the README's
   `$ mshape check` block its expected output: edit both as code.
+- A core change that reads files is tried with a second, non-TypeScript pack: the rules
+  engine parsed `.rs` with oxc until the Rust pack hit it. `fakePack` and `listed` in
+  `test/support.ts` make that a two-line test.
+- Two PRs green alone can turn `main` red together in a file both add to: two `[coverage]`
+  tables in `shape.toml` (#124), a test file pushed over its line budget (#112). Add keys to
+  the table already there, never a second header; split a file both add to before its budget.
 
 ## Real-data probes
 
