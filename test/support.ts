@@ -172,3 +172,10 @@ export const listed = (pack: Pack): LoadedPack => ({
   pack,
   load: { tools: [], outputs: new Map() },
 });
+
+/**
+ * Whether a test that runs a real toolchain (uv, cargo) skips: only where the toolchain is
+ * missing and this isn't CI. With `CI=true`, as on GitHub's runners, it runs and fails without
+ * it, so a suite can't quietly stop running there; a laptop without the tool still skips.
+ */
+export const skipWithout = (present: boolean): boolean => !present && process.env["CI"] !== "true";
