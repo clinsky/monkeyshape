@@ -44,7 +44,7 @@ export const targetPath = (templatePath: string): string => RENAMED[templatePath
 export const moduleName = (name: string): string => name.replaceAll("-", "_");
 
 /** `{{name}}` and `{{module}}` filled in: in a file's text, and in its path. */
-const render = (text: string, name: string): string =>
+export const render = (text: string, name: string): string =>
   text.replaceAll("{{name}}", name).replaceAll("{{module}}", moduleName(name));
 
 const json = (value: unknown): string => `${JSON.stringify(value, null, 2)}\n`;

@@ -19,15 +19,8 @@ const filesUnder = async (directory: string): Promise<ReadonlyArray<string>> =>
     .map((entry) => join(entry.parentPath, entry.name));
 
 describe("template/packs/rust", () => {
-  // init runs no sync for this pack, yet installs the skills, so the sync check holds the
-  // born repo's Cargo.toml to these tables on its first gate.
-  test("Cargo.toml ships the workspace lints sync would write", async () => {
-    const cargo = Bun.TOML.parse(await read("Cargo.toml"));
-    expect(cargo).toMatchObject({ workspace: { lints: CURATED, members: ["crates/*"] } });
-  });
-
-  test("the starter crate opts into them, and the toolchain brings clippy and rustfmt", async () => {
-    expect(Bun.TOML.parse(await read("crates/core/Cargo.toml"))).toMatchObject({
+  test("the starter crate opts into the workspace lints, and the toolchain brings clippy and rustfmt", async () => {
+    expect(Bun.TOML.parse(await read("crates/{{module}}/Cargo.toml"))).toMatchObject({
       lints: { workspace: true },
     });
     expect(Bun.TOML.parse(await read("rust-toolchain.toml"))).toMatchObject({
@@ -55,6 +48,38 @@ describe("template/packs/rust", () => {
     for (const file of await filesUnder(TEMPLATE))
       if (runsBun.test(await Bun.file(file).text())) named.push(file);
     expect(named).toEqual([]);
+  });
+});
+
+// init needs no cargo: what it writes is checked wherever the tests run.
+describe("mshape init my-repo --pack rust", () => {
+  let work = "";
+  const born = () => join(work, "my-repo");
+
+  beforeAll(async () => {
+    work = await mkdtemp(join(tmpdir(), "rust-born-"));
+    const created = await initFromSource(work, ["my-repo", "--pack", "rust"], {
+      CLAUDE_CODE_SESSION_ID: "",
+      CLAUDE_PID: "",
+    });
+    expect(created.code).toBe(0);
+  }, 120_000);
+
+  afterAll(async () => {
+    await rm(work, { recursive: true, force: true });
+  });
+
+  // The sync check holds the born repo to these tables from its first gate.
+  test("Cargo.toml has the workspace lints, delivered by init as sync would", async () => {
+    const cargo = Bun.TOML.parse(await Bun.file(join(born(), "Cargo.toml")).text());
+    expect(cargo).toMatchObject({ workspace: { lints: CURATED, members: ["crates/*"] } });
+  });
+
+  test("the starter crate is named for the repo, as a crate and as a module", async () => {
+    const crate = Bun.TOML.parse(await Bun.file(join(born(), "crates/my_repo/Cargo.toml")).text());
+    expect(crate).toMatchObject({ package: { name: "my-repo" }, lints: { workspace: true } });
+    const shape = Bun.TOML.parse(await Bun.file(join(born(), "shape.toml")).text());
+    expect(shape).toMatchObject({ arch: { modules: { my_repo: { paths: ["crates/my_repo"] } } } });
   });
 });
 
@@ -92,15 +117,12 @@ describe.skipIf(!toolchain)("mshape init --pack rust, then its gate without Bun"
     expect(tracked).toContain("Cargo.toml");
   });
 
-  test("cargo's stages pass, and the checks the template answers for", async () => {
+  // 8il.15's acceptance: the born repo is green on its first gate, with no Bun anywhere.
+  test("the whole gate passes on the first run: cargo's stages and mshape check", async () => {
     const gate = await mshape(["gate"]);
-    for (const stage of ["cargo-fmt", "clippy", "cargo-test"])
+    for (const stage of ["cargo-fmt", "clippy", "mshape-check", "cargo-test"])
       expect(gate.output).toMatch(new RegExp(`\\n\\s+${stage}\\s+passed`));
-    const check = await mshape([
-      "check",
-      "--only",
-      "arch,sources,coverage,rules,budgets,packs,sync,skills",
-    ]);
-    expect(check.output).toContain("mshape check passed");
+    expect(gate.output).toContain("mshape gate passed");
+    expect(gate.code).toBe(0);
   }, 300_000);
 });
