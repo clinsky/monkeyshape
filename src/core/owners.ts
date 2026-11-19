@@ -161,23 +161,27 @@ export const ownerMessage = (
   };
 };
 
-/** A file's lines as one side of a `git diff -U0` gives them. */
+/** A line a diff adds or removes: its number on that side, and its text. */
+export interface DiffLine {
+  readonly line: number;
+  readonly text: string;
+}
+
+/** A file's changes as `git diff -U0` gives them. */
 export interface DiffLines {
-  /** Each added line's text. */
-  readonly added: ReadonlyArray<string>;
-  /** Each removed line: its number on the old side, and its text. */
-  readonly removed: ReadonlyArray<{ readonly line: number; readonly text: string }>;
+  /** Each added line, numbered on the new side. */
+  readonly added: ReadonlyArray<DiffLine>;
+  /** Each removed line, numbered on the old side. */
+  readonly removed: ReadonlyArray<DiffLine>;
 }
 
 /** `git diff -U0 --no-renames` output, by the new path (the old one for a deleted file). */
 export const parseDiff = (diff: string): ReadonlyMap<string, DiffLines> => {
-  const files = new Map<
-    string,
-    { added: Array<string>; removed: Array<{ line: number; text: string }> }
-  >();
-  let current: { added: Array<string>; removed: Array<{ line: number; text: string }> } | undefined;
+  const files = new Map<string, { added: Array<DiffLine>; removed: Array<DiffLine> }>();
+  let current: { added: Array<DiffLine>; removed: Array<DiffLine> } | undefined;
   let oldPath = "";
   let old = 0;
+  let added = 0;
   for (const line of diff.split("\n")) {
     if (line.startsWith("diff --git ")) {
       current = undefined;
@@ -193,14 +197,15 @@ export const parseDiff = (diff: string): ReadonlyMap<string, DiffLines> => {
       files.set(path, current);
       continue;
     }
-    const hunk = /^@@ -(\d+)(?:,\d+)? \+\d+(?:,\d+)? @@/.exec(line);
+    const hunk = /^@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@/.exec(line);
     if (hunk !== null) {
       old = Number(hunk[1]);
+      added = Number(hunk[2]);
       continue;
     }
     if (current === undefined) continue;
     if (line.startsWith("-")) current.removed.push({ line: old++, text: line.slice(1) });
-    else if (line.startsWith("+")) current.added.push(line.slice(1));
+    else if (line.startsWith("+")) current.added.push({ line: added++, text: line.slice(1) });
   }
   return files;
 };
@@ -212,25 +217,21 @@ export interface Reverted {
 }
 
 /**
- * Lines `main` gained since an earlier head of the branch forked from it (`gained`, the diff
- * between the two merge bases) that the tip now removes (`removing`, the diff from the tip's
- * merge base to the tip), in files `ours` doesn't say are the track's. Lines that earlier head
- * added itself (`had`, the diff from its merge base to it) don't count: they are the track's
- * own, merged since, which a follow-up may edit. Blank lines don't count either.
+ * Lines `main` gained since an earlier head of the branch forked from it that the tip now
+ * removes, in files `ours` doesn't say are the track's. By position, not text: `gained` is the
+ * diff between the two merge bases, so its added lines are numbered in the tip's merge base,
+ * and `removing`, the diff from that merge base to the tip, numbers its removed lines there
+ * too. A removal of an equal line elsewhere (a `}`, a table rule) is the track's own.
  */
 export const revertedLines = (
   gained: ReadonlyMap<string, DiffLines>,
   removing: ReadonlyMap<string, DiffLines>,
-  had: ReadonlyMap<string, DiffLines>,
   ours: (file: string) => boolean,
 ): ReadonlyArray<Reverted> =>
   [...removing].flatMap(([file, diff]) => {
     if (ours(file)) return [];
-    const own = new Set(had.get(file)?.added ?? []);
-    const added = new Set(
-      (gained.get(file)?.added ?? []).filter((text) => text.trim() !== "" && !own.has(text)),
-    );
-    const lines = diff.removed.filter(({ text }) => added.has(text)).map(({ line }) => line);
+    const added = new Set((gained.get(file)?.added ?? []).map(({ line }) => line));
+    const lines = diff.removed.filter(({ line }) => added.has(line)).map(({ line }) => line);
     return lines.length === 0 ? [] : [{ file, lines }];
   });
 

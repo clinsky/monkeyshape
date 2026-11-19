@@ -58,6 +58,7 @@ import {
   reviewedHead as isReviewed,
   type PostedReview,
   planPrBody,
+  pushedPath,
   type ReviewFacts,
   reviewDecision,
   withCiLine,
@@ -649,17 +650,39 @@ const diffLines = (repo: string, from: string, to: string) =>
 /** How far back the branch's reflog is read for an earlier head the tip rewrote. */
 const REFLOG_DEPTH = 50;
 
+/** The commits `branch` was pushed at: its remote-tracking ref's reflog, and track pr's record. */
+const pushedHeads = (repo: string, common: string, track: string, remote: string, branch: string) =>
+  Effect.gen(function* () {
+    const tracking = yield* git(repo, [
+      "reflog",
+      "show",
+      "--format=%H",
+      `refs/remotes/${remote}/${branch}`,
+      "--",
+    ]);
+    const recorded = yield* Effect.promise(() =>
+      Bun.file(pushedPath(common, track))
+        .text()
+        .catch(() => ""),
+    );
+    return new Set(
+      [...tracking.stdout.split("\n"), recorded.trim()].filter((sha) => /^[0-9a-f]{40}$/.test(sha)),
+    );
+  });
+
 /**
- * Refuses a tip that rewrote the branch (its newest earlier head in the reflog isn't an
- * ancestor of the tip, as after a squash) and removes lines main gained since that head
- * forked, in files the track doesn't own (`jhz.4`). Not checked: a branch only added to, and
- * one whose open PR's head is already in the tip's history.
+ * Refuses a tip that rewrote the branch since its last push (the newest reflog entry before
+ * that push that isn't an ancestor of the tip, as after a squash) and removes lines main
+ * gained since that earlier head forked, in files the track doesn't own (`jhz.4`). Not
+ * checked: a branch only added to since its last push, and one whose open PR's head is
+ * already in the tip's history. What was pushed before belongs to a PR already published.
  */
 const refuseReverts = (
   top: string,
   repo: string,
+  common: string,
   track: string,
-  branch: string,
+  remote: string,
   pr: OpenPr | undefined,
   tip: string,
   base: string,
@@ -667,6 +690,7 @@ const refuseReverts = (
   owners: ReadonlyArray<OwnerRow>,
 ) =>
   Effect.gen(function* () {
+    const branch = trackBranch(track);
     // A PR whose head the tip contains has had any rewrite pushed already: what the tip adds
     // since is commits, each saying what it removes.
     if (pr !== undefined) {
@@ -681,6 +705,7 @@ const refuseReverts = (
       if (sha !== "" && (yield* git(repo, ["merge-base", "--is-ancestor", sha, tip])).code === 0)
         return;
     }
+    const pushed = yield* pushedHeads(repo, common, track, remote, branch);
     const logged = yield* git(repo, [
       "reflog",
       "show",
@@ -690,7 +715,8 @@ const refuseReverts = (
       "--",
     ]);
     let oldHead: string | undefined;
-    for (const entry of new Set(logged.stdout.split("\n").filter((line) => line !== ""))) {
+    for (const entry of logged.stdout.split("\n").filter((line) => line !== "")) {
+      if (pushed.has(entry)) break;
       if ((yield* git(repo, ["merge-base", "--is-ancestor", entry, tip])).code === 0) continue;
       oldHead = entry;
       break;
@@ -701,7 +727,6 @@ const refuseReverts = (
     const reverted = revertedLines(
       yield* diffLines(repo, oldBase, base),
       yield* diffLines(repo, base, tip),
-      yield* diffLines(repo, oldBase, oldHead),
       (file) => ownerOf(file, owners) === track,
     );
     if (reverted.length > 0)
@@ -886,11 +911,11 @@ export const trackPr = (
     const target = targets[targets.length - 1] ?? MAIN_BRANCH;
     const owners = yield* fileOwners(repo, target, say);
     const owned = otherOwners(yield* changedFiles(repo, base, tip), owners, track);
-    yield* refuseReverts(top, repo, track, branch, existing, tip, base, target, owners);
-
-    // Before the slow gate, and after the fetch, so the remote refs say what is published.
     const remote =
       (yield* git(repo, ["config", `branch.${MAIN_BRANCH}.remote`])).stdout.trim() || "origin";
+    yield* refuseReverts(top, repo, common, track, remote, existing, tip, base, target, owners);
+
+    // Before the slow gate, and after the fetch, so the remote refs say what is published.
     const unpublished = yield* outgoingCommits(repo, tip, remote);
     const notConfigured = yield* guard(
       top,
@@ -972,6 +997,11 @@ export const trackPr = (
         }`,
       );
 
+    // What the reflog walk stops at next time, even once the remote's branch is deleted.
+    yield* Effect.promise(async () => {
+      await mkdir(dirname(pushedPath(common, track)), { recursive: true });
+      await writeFile(pushedPath(common, track), `${tip}\n`);
+    });
     const now = yield* tipOf;
     if (now !== tip)
       yield* say(

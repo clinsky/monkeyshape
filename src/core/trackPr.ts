@@ -282,6 +282,10 @@ export const gateCheckoutPath = (repo: string, track: string): string => {
 export const gateLogPath = (common: string, track: string): string =>
   `${common.replace(/\/+$/, "")}/monkeyshape/gate/${track}.log`;
 
+/** The commit track pr last pushed for `track`, kept inside git's directory. */
+export const pushedPath = (common: string, track: string): string =>
+  `${common.replace(/\/+$/, "")}/monkeyshape/pushed/${track}`;
+
 /** The tests a gate run names as failed: bun's `(fail) <describe> > <test>` lines. */
 export const failingTests = (output: string): ReadonlyArray<string> =>
   output

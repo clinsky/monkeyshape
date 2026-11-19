@@ -171,12 +171,7 @@ describe("a squash onto a moved main (jhz.4)", () => {
   );
 
   test("lines main gained that the push removes, in a file the track doesn't own: named with their lines", () => {
-    const reverted = revertedLines(
-      gained,
-      removing,
-      new Map(),
-      (file) => file === "src/core/trackPr.ts",
-    );
+    const reverted = revertedLines(gained, removing, (file) => file === "src/core/trackPr.ts");
     expect(reverted).toEqual([{ file: "plan/M.md", lines: [11, 12] }]);
     const problem = revertedProblem(reverted, "a".repeat(40), "c".repeat(40), "b".repeat(40));
     expect(problem).toContain("plan/M.md (lines 11-12 at aaaaaaaaaaaa)");
@@ -184,17 +179,24 @@ describe("a squash onto a moved main (jhz.4)", () => {
   });
 
   test("an edit of a line main had before, and the track's own file: not refused", () => {
-    expect(revertedLines(new Map(), removing, new Map(), () => false)).toEqual([]);
-    expect(revertedLines(gained, removing, new Map(), () => true)).toEqual([]);
+    expect(revertedLines(new Map(), removing, () => false)).toEqual([]);
+    expect(revertedLines(gained, removing, () => true)).toEqual([]);
   });
 
-  test("lines the earlier head added itself, merged since: the track's own, so a follow-up may edit them", () => {
-    const had = parseDiff(
-      "diff --git a/plan/M.md b/plan/M.md\n--- a/plan/M.md\n+++ b/plan/M.md\n@@ -10,0 +11 @@\n+## Amendments\n",
+  test("a removal of a line equal to one main gained elsewhere in the file: not refused (#145's review)", () => {
+    // main gained `}` at line 26 of base; the PR removed the old `}` at line 4.
+    const gainedBrace = parseDiff(
+      "diff --git a/n.ts b/n.ts\n--- a/n.ts\n+++ b/n.ts\n@@ -23,0 +24,3 @@\n+g(() => {\n+  b();\n+}\n",
     );
-    expect(revertedLines(gained, removing, had, () => false)).toEqual([
-      { file: "plan/M.md", lines: [12] },
-      { file: "src/core/trackPr.ts", lines: [2] },
+    const removingBrace = parseDiff(
+      "diff --git a/n.ts b/n.ts\n--- a/n.ts\n+++ b/n.ts\n@@ -4 +3,0 @@\n-}\n",
+    );
+    expect(revertedLines(gainedBrace, removingBrace, () => false)).toEqual([]);
+    const removingNew = parseDiff(
+      "diff --git a/n.ts b/n.ts\n--- a/n.ts\n+++ b/n.ts\n@@ -26 +25,0 @@\n-}\n",
+    );
+    expect(revertedLines(gainedBrace, removingNew, () => false)).toEqual([
+      { file: "n.ts", lines: [26] },
     ]);
   });
 

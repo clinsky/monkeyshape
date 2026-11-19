@@ -4,8 +4,8 @@
  * of plan/MILESTONE.md's Owners notice table.
  */
 import { describe, expect, test } from "bun:test";
-import { mkdir, readdir, writeFile } from "node:fs/promises";
-import { body, mshape, pr, repo, sh, useTrackPrRepo, wt } from "./trackPrHarness.ts";
+import { mkdir, readdir, rm, writeFile } from "node:fs/promises";
+import { body, gh, mshape, pr, repo, sh, useTrackPrRepo, wt } from "./trackPrHarness.ts";
 
 useTrackPrRepo();
 
@@ -162,4 +162,33 @@ describe("track pr: a squash onto a moved main (jhz.4)", () => {
     await commit({ "notes/a.md": "one\n" }, "drop the amendment, on purpose");
     expect(mshape(wt(), "pr").code).toBe(0);
   });
+
+  test.each([
+    ["kept", false],
+    ["deleted on merge and pruned", true],
+  ])(
+    "the next PR, cut fresh from main after a squashed PR merged (its remote branch %s), removing a line on purpose: pushed (#145's review)",
+    async (_, deleted) => {
+      await onMain({ "plan/MILESTONE.md": PLAN, "notes/a.md": "one\n" });
+      sh(wt(), "merge", "-q", "origin/main");
+      await commit({ "page.md": "first\n" });
+      await commit({ "page.md": "second\n" });
+      sh(wt(), "reset", "--soft", sh(wt(), "merge-base", "HEAD", "origin/main"));
+      sh(wt(), "commit", "-qm", "squashed");
+      expect((await open()).code).toBe(0);
+      // It merges; another track amends the file; the PR is closed out on GitHub.
+      sh(repo, "fetch", "-q", "origin", "track/docs");
+      sh(repo, "merge", "-q", "--no-edit", "FETCH_HEAD");
+      sh(repo, "push", "-q", "origin", "main");
+      await onMain({ "notes/a.md": "one\namended by other\n" });
+      await rm(`${gh}/pr.json`);
+      if (deleted) sh(repo, "push", "-q", "origin", "--delete", "track/docs");
+      sh(wt(), "fetch", "-q", "--prune", "origin");
+      sh(wt(), "reset", "-q", "--hard", "origin/main");
+      await commit({ "notes/a.md": "one\n" }, "drop the amendment, on purpose");
+      const next = await open();
+      expect(next.stderr).not.toContain("the branch was rewritten");
+      expect(next.code).toBe(0);
+    },
+  );
 });
