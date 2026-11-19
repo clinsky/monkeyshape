@@ -33,8 +33,12 @@ import { WorkspaceError } from "../schemas/errors.ts";
 import { type Caller, sessionAddress } from "./notices.ts";
 import { fs, locate, refuse, registeredAddresses, reviewTracks, worktrees } from "./tracks.ts";
 
-/** A caller Claude Code said nothing about: a terminal, or `track migrate`. */
-const nobody = (now: Date): Caller => ({ identity: {}, claudeDir: "", now });
+/** A caller no harness said anything about: a terminal, or `track migrate`. */
+const nobody = (now: Date): Caller => ({
+  identity: undefined,
+  harnesses: { list: [], io: () => undefined },
+  now,
+});
 
 /** `run`, with one expected error code (`ENOENT`, `EEXIST`) as `fallback`, not a failure. */
 const fsUnless = <A, B>(
