@@ -24,13 +24,26 @@ Run this in the main checkout, on an up-to-date `main`, in a fresh chat.
   "not done" sections.
 - `mshape garden`.
 
-On a repo's first milestone there is nothing to look back on: skip to step 3.
+On a repo's first milestone there is nothing to look back on: skip to step 3. If the ending
+plan already has its `## Retrospective` on `main`, skip step 2 only: the handoffs gathered
+here are what step 6 promotes.
 
 ## 2. Retrospective
 
 Tell the human, briefly: what shipped against each acceptance line, what slipped and why,
 what the process beads and handoff lessons say, and what you would change. Facts with
 links (PRs, beads), not a story. Ask what they saw that you didn't.
+
+Ask every track and reviewer too, by `mshape msg send`, how working together went: messages,
+collisions, reviews, handoffs. A session that took a track over by handoff saw less of the
+milestone: weigh its answer so. Then bring the human what several of them agree on.
+
+Close the boundary here; a fresh `/milestone` chat plans the next one and stays open as its
+planning session. It removes the finished tracks at step 8, after step 6 has promoted their
+handoffs' lessons. In this session, one PR: docs/roadmap.md where direction changed, what was
+agreed in the next goal's epic, and a short `## Retrospective` appended to the ending plan.
+Open it, post the verbatim answers as its first comment, then commit that comment's link
+into the Retrospective.
 
 ## 3. Agree the goal
 
