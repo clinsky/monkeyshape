@@ -270,7 +270,12 @@ const gateOnTip = (
     yield* removeCheckout(repo, path);
     yield* gitOk(repo, ["worktree", "add", "--quiet", "--detach", path, tip]);
     return yield* Effect.gen(function* () {
-      const shared = (yield* loadConfig(repo)).tracks.sharedPaths;
+      // The tip's own config, not the main checkout's, which may be behind main or broken.
+      // One that doesn't load links nothing here: the gate itself says why it doesn't load.
+      const shared = yield* loadConfig(path).pipe(
+        Effect.map((config) => config.tracks.sharedPaths),
+        Effect.orElseSucceed((): ReadonlyArray<string> => []),
+      );
       for (const line of [
         ...(yield* linkShared(repo, path, "the tip being gated", shared)),
         ...(yield* linkHandoffs(common, repo, path)),
