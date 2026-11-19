@@ -1,0 +1,17 @@
+id: bun-through-bunpath
+language: typescript
+message: >-
+  reads process.execPath, which under the compiled mshape is mshape itself, so a command spawned with it runs mshape again instead of Bun. Spawn Bun through bunPath() from src/adapters/process.ts. If this reads the running binary's own path and never spawns it (its recorded sums), say so with `// shape-ignore local/bun-through-bunpath: <reason>` on the line above.
+metadata:
+  bugClass: A command meant for Bun that forks the compiled mshape, because process.execPath is the binary itself.
+rule:
+  any:
+    - pattern: process.execPath
+    - pattern: process["execPath"]
+    # `const { execPath } = process` and `import { execPath } from "node:process"`.
+    - kind: shorthand_property_identifier_pattern
+      regex: ^execPath$
+    - kind: import_specifier
+      has:
+        field: name
+        regex: ^execPath$

@@ -1,0 +1,11 @@
+invalid:
+  - 'Bun.spawn([process.execPath, "test"]);'
+  - 'const bun = process.execPath;'
+  - 'spawnSync(process["execPath"], ["install"]);'
+  - "const { execPath } = process;"
+  - 'import { execPath } from "node:process";'
+valid:
+  - 'Bun.spawn([bunPath(), "test"]);'
+  - "const path = process.argv[0];"
+  - "const { argv } = process;"
+  - "const execPath = options.execPath;"

@@ -72,3 +72,10 @@ run = ["bun", "test", "--parallel", "--timeout=30000"]
 [[coverage.commands]]
 files = ["install.sh"]
 run = ["sh", "-n", "{files}"]
+
+# bunPath() is the enforcement point for spawning Bun, so it is the one file that may read
+# process.execPath (AGENTS.md's gotcha on node_modules/.bin shims).
+[rules."local/bun-through-bunpath"]
+allow = [
+  { path = "src/adapters/process.ts", reason = "bunPath(): process.execPath only when mshape runs under Bun, never in the compiled binary" },
+]
