@@ -58,6 +58,14 @@ export const fsUnless = <A, B>(
 export const entries = (path: string) =>
   fsUnless("list", path, "ENOENT", [] as Array<string>, () => readdir(path));
 
+export interface SendOptions {
+  /**
+   * A track's reviewer address takes mail before any reviewer registers there, which then
+   * waits for the session that does: `track pr` answering a posted review sends this way.
+   */
+  readonly toReviewer?: boolean;
+}
+
 /** Hard links never replace a file, so an id taken by another sender is retried, not lost. */
 const ATTEMPTS = 5;
 
@@ -69,11 +77,7 @@ export const mailSend = (
   now: Date,
   random: () => string,
   caller: Caller = nobody(now),
-  /**
-   * A track's reviewer address takes mail before any reviewer registers there, which then
-   * waits for the session that does: `track pr` answering a posted review sends this way.
-   */
-  toReviewer = false,
+  options: SendOptions = {},
 ) =>
   Effect.gen(function* () {
     const problem = subjectProblem(subject);
@@ -85,7 +89,9 @@ export const mailSend = (
     const known = knownAddresses(repo, all, handoffs, tracks, yield* registeredAddresses(common));
     const reviewed = reviewerTrackOf(to);
     const held =
-      toReviewer && reviewed !== undefined && knownTracks(repo, all, handoffs).includes(reviewed);
+      (options.toReviewer ?? false) &&
+      reviewed !== undefined &&
+      knownTracks(repo, all, handoffs).includes(reviewed);
     const unknown = held ? undefined : recipientProblem(to, known, tracks);
     if (unknown !== undefined) return yield* refuse(`${unknown}`);
     // From the sender's address, so a reply reaches it: a review's, once a session moved there.

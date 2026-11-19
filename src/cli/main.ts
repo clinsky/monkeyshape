@@ -309,16 +309,9 @@ const mailAndNotify =
   (root: string): TrackPrNotify =>
   (to, subject, text) =>
     Effect.gen(function* () {
-      const message = yield* mailSend(
-        root,
-        to,
-        subject,
-        text,
-        new Date(),
-        randomHex,
-        caller(),
-        reviewerTrackOf(to) !== undefined,
-      );
+      const message = yield* mailSend(root, to, subject, text, new Date(), randomHex, caller(), {
+        toReviewer: reviewerTrackOf(to) !== undefined,
+      });
       const delivery = yield* notifyRecipient(
         root,
         message,
