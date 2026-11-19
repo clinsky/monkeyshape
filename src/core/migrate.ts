@@ -14,10 +14,8 @@ import {
   ShapeToml,
 } from "../schemas/config.ts";
 import { parse } from "./parse.ts";
+import { SHAPE_RULES_DIR } from "./rules/shapeRules.ts";
 import { type BornPin, recordPin } from "./scaffold.ts";
-
-/** Where a repo's own rules live once ported from `localRules`: `shape-rules/<id>.yml`. */
-export const SHAPE_RULES_DIR = "shape-rules";
 
 /** A bare TOML key, else a quoted one. */
 const key = (name: string): string =>

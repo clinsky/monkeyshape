@@ -7,7 +7,8 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import * as Effect from "effect/Effect";
-import { planMigration, SHAPE_RULES_DIR } from "../core/migrate.ts";
+import { planMigration } from "../core/migrate.ts";
+import { SHAPE_RULES_DIR } from "../core/rules/shapeRules.ts";
 import type { BornPin } from "../core/scaffold.ts";
 import { CONFIG_FILE, importTsConfig, loadConfig, TS_CONFIG_FILE } from "./config.ts";
 
