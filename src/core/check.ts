@@ -55,7 +55,7 @@ const run: Record<
   budgets: checkBudgets,
   coverage: checkCoverage,
   files: checkFiles,
-  rules: (config, snapshot) => checkRules(config, snapshot, RULES),
+  rules: (config, snapshot) => checkRules(config, snapshot),
   packs: checkPacks,
   skills: checkSkills,
   sync: checkSync,

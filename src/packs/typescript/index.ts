@@ -11,7 +11,7 @@ import { graph } from "./graph.ts";
 import { biome, tsc } from "./tools.ts";
 
 /** A registry rule over oxc's tree, run on text: relative imports resolve against `files`. */
-const onText = (rule: Rule): PackRule => ({
+export const onText = (rule: Rule): PackRule => ({
   id: rule.id,
   layer: rule.layer,
   bugClass: rule.bugClass,
