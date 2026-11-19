@@ -24,7 +24,7 @@ const ID = /^[a-z0-9]+(?:-[a-z0-9]+)*$/u;
 /**
  * The ast-grep languages whose files each pack claims, by the names ast-grep accepts, in
  * lower case. A rule in any other language would match only files outside the rules' scope.
- * TODO(monkeyshape-q0z): a pack says its own, once the engine runs packs' rules.
+ * Here, not on the pack: a field on `Pack` would change the interface frozen in pack.ts.
  */
 const PACK_LANGUAGES: Readonly<Record<string, ReadonlyArray<string>>> = {
   typescript: ["typescript", "ts", "tsx"],
