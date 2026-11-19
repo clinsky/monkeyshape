@@ -27,6 +27,8 @@ export const primeText = (cwd: string) =>
     const bd = yield* runTool(cwd, ["bd", "prime"]);
     if (bd.code === 0 && bd.stdout.trim() !== "") return { text: bd.stdout.trimEnd() };
     const own = yield* primeFile(cwd);
+    // bd ran and had nothing to say (no beads here): no note, since bd isn't what's missing.
+    if (bd.code === 0) return own === undefined ? {} : { text: own.trimEnd() };
     const why = `bd could not run here (${bd.code === -1 ? "not installed" : `exit ${bd.code}`})`;
     return own === undefined
       ? {

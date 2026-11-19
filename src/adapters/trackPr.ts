@@ -774,7 +774,7 @@ export const trackPr = (
     readonly fetchEnv: Readonly<Record<string, string | undefined>>;
     /** The machine's config directory, which holds its denylist. */
     readonly configDir: string;
-    /** Claude Code's config directory, where it records the sessions a review runs in. */
+    /** The harnesses this mshape ships, which say whether a reviewer's session still runs. */
     readonly harnesses: Harnesses;
     /** Edit the body only: no push and no gate, refused unless the Gate section still holds. */
     readonly bodyOnly?: boolean;

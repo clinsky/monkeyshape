@@ -436,11 +436,11 @@ export const planRm = (facts: RmFacts): RmPlan => {
     const ids = facts.sessions.live.join(", ");
     if (facts.force)
       warnings.push(
-        `removing the track from under ${facts.sessions.live.length} running Claude Code session(s): ${ids}`,
+        `removing the track from under ${facts.sessions.live.length} running session(s): ${ids}`,
       );
     else
       refusals.push(
-        `${facts.sessions.live.length} Claude Code session(s) still running in \`${facts.track}\` would lose their worktree: ${ids}. Quit each one (\`/exit\`), or pass --force`,
+        `${facts.sessions.live.length} session(s) still running in \`${facts.track}\` would lose their worktree: ${ids}. Quit each one, or pass --force`,
       );
   }
 
