@@ -250,6 +250,49 @@ describe("msg watch", () => {
     expect(await watches("docs")).toEqual([]);
   });
 
+  test("watched again after it fired, it fires again: a re-run of CI on the same head, a PR reopened", async () => {
+    reset();
+    world.prs["12"] = open;
+    await watch(wt("docs"), "pr", "12");
+    world.prs["12"] = merged;
+    expect((await check()).sent).toHaveLength(1);
+    world.prs["12"] = open;
+    expect(await watch(wt("docs"), "pr", "12")).toContain("Watching pr 12 at docs");
+    world.prs["12"] = merged;
+    expect((await check()).sent.map((m) => m.subject)).toEqual(["#12 merged: Add a thing"]);
+    expect(await watches("docs")).toEqual([]);
+
+    const ended = (conclusion: string): Run => ({
+      sha: SHA,
+      workflow: "ci",
+      status: "completed",
+      conclusion,
+      url: "u",
+      title: "t",
+      created: "2026-11-19T12:00:00Z",
+    });
+    world.runs = { found: [ended("failure")] };
+    await watch(wt("docs"), "ci", SHA);
+    expect((await check()).sent.map((m) => m.subject)).toEqual(["CI failed on 1a45d74: ci"]);
+    await watch(wt("docs"), "ci", SHA);
+    world.runs = { found: [ended("success")] };
+    expect((await check()).sent.map((m) => m.subject)).toEqual(["CI passed on 1a45d74"]);
+  });
+
+  test("a gh that can't answer is asked once per check, however many things it watches", async () => {
+    reset();
+    for (const pr of ["7", "8", "9"]) world.prs[pr] = open;
+    for (const pr of ["7", "8", "9"]) await watch(wt("docs"), "pr", pr);
+    await watch(wt("docs"), "main");
+    for (const pr of ["7", "8", "9"])
+      world.prs[pr] = { unavailable: "`gh pr view` failed: timed out after 10s" };
+    world.asked = [];
+    const { notes } = await check();
+    expect(world.asked).toHaveLength(1);
+    expect(notes[0]).toContain("not asked, since `gh pr view` failed: timed out after 10s");
+    expect(await watches("docs")).toEqual(["main.json", "pr-7.json", "pr-8.json", "pr-9.json"]);
+  });
+
   test("two addresses watch one PR: each gets its message, and gh is asked once", async () => {
     reset();
     world.prs["12"] = open;

@@ -24,6 +24,7 @@ import {
   decodeWatch,
   describeWatch,
   encodeWatch,
+  eventKeys,
   formatWatches,
   type PrSeen,
   parseTarget,
@@ -57,7 +58,7 @@ export interface Observer {
 }
 
 /** A hook waits on this, so a hung `gh` must not hang the session's prompt for long. */
-const TIMEOUT_MS = 20_000;
+const TIMEOUT_MS = 10_000;
 
 const tool = (
   env: Environment,
@@ -275,6 +276,11 @@ export const watchAdd = (
       readFile(path, "utf8"),
     );
     if (already !== undefined) return `Already watching ${describeWatch(watch)} at ${address}.`;
+    // Cleared before the watch exists, so no check sees the new watch beside an old ledger.
+    for (const key of eventKeys(watch)) {
+      const ledger = sentPath(common, address, key);
+      yield* fsUnless("remove", ledger, "ENOENT", undefined, () => unlink(ledger));
+    }
     yield* writeWatch(path, watch);
     const when =
       watch.kind === "pr"
@@ -355,12 +361,19 @@ export const checkWatches = (
     yield* stamp(checkedStamp(common), now);
 
     // Each thing watched is asked about once, however many addresses watch it.
+    // Once gh or bd can't answer, it isn't asked again in this check: a hung gh costs the
+    // prompt that started the check one timeout, not one per thing watched.
     const asked = new Map<string, Lookup<unknown>>();
-    const ask = <A>(key: string, run: () => Effect.Effect<Lookup<A>>) =>
+    const down = new Map<string, string>();
+    const ask = <A>(key: string, tool: "gh" | "bd", run: () => Effect.Effect<Lookup<A>>) =>
       Effect.gen(function* () {
         const cached = asked.get(key);
         if (cached !== undefined) return cached as Lookup<A>;
+        const failed = down.get(tool);
+        if (failed !== undefined)
+          return { unavailable: `not asked, since ${failed}` } satisfies Lookup<A>;
         const fresh = yield* run();
+        if ("unavailable" in fresh) down.set(tool, fresh.unavailable);
         asked.set(key, fresh);
         return fresh;
       });
@@ -368,12 +381,12 @@ export const checkWatches = (
       Effect.gen(function* () {
         const seen =
           watch.kind === "pr"
-            ? yield* ask(`pr ${watch.pr}`, () => observer.pr(cwd, watch.pr))
+            ? yield* ask(`pr ${watch.pr}`, "gh", () => observer.pr(cwd, watch.pr))
             : watch.kind === "bead"
-              ? yield* ask(`bead ${watch.id}`, () => observer.bead(cwd, watch.id))
+              ? yield* ask(`bead ${watch.id}`, "bd", () => observer.bead(cwd, watch.id))
               : watch.kind === "ci"
-                ? yield* ask(`ci ${watch.sha}`, () => observer.runs(cwd, { sha: watch.sha }))
-                : yield* ask("main", () => observer.runs(cwd, "main"));
+                ? yield* ask(`ci ${watch.sha}`, "gh", () => observer.runs(cwd, { sha: watch.sha }))
+                : yield* ask("main", "gh", () => observer.runs(cwd, "main"));
         if ("missing" in seen) return seen.missing;
         if ("unavailable" in seen) return seen.unavailable;
         const value = seen.found;

@@ -250,3 +250,73 @@ describe("what gh and bd print", () => {
     );
   });
 });
+
+describe("a cancelled run (ci.yml's cancel-in-progress) is no failure", () => {
+  const watch = { kind: "main", since: "2026-11-19T09:00:00Z", red: false } as const;
+  const head = (sha: string, conclusion: string, pr: number, at: string, workflow = "ci"): Run =>
+    run({
+      sha,
+      conclusion,
+      title: `Merge pull request #${pr} from someone/x`,
+      created: at,
+      workflow,
+    });
+  const a = "a".repeat(40);
+  const b = "b".repeat(40);
+  const c = "c".repeat(40);
+
+  test("main: a head superseded by a quick second merge sends nothing (the review's input)", () => {
+    const decided = decideMain(watch, [
+      head(b, "success", 12, "2026-11-19T10:01:00Z"),
+      head(a, "cancelled", 11, "2026-11-19T10:00:00Z"),
+    ]);
+    expect(decided.events).toEqual([]);
+    expect(decided.next).toEqual({ kind: "main", since: "2026-11-19T10:01:00Z", red: false });
+  });
+
+  test("main: a cancelled head between red and green leaves it red, so green is still said once", () => {
+    const decided = decideMain(watch, [
+      head(c, "success", 13, "2026-11-19T10:02:00Z"),
+      head(b, "cancelled", 12, "2026-11-19T10:01:00Z"),
+      head(a, "failure", 11, "2026-11-19T10:00:00Z"),
+    ]);
+    expect(decided.events.map((event) => event.subject)).toEqual([
+      "main is red at aaaaaaa (#11)",
+      "main is green again at ccccccc (#13)",
+    ]);
+  });
+
+  test("main: a head with one workflow failed and another cancelled is red", () => {
+    const decided = decideMain(watch, [
+      head(a, "failure", 11, "2026-11-19T10:00:00Z", "lint"),
+      head(a, "cancelled", 11, "2026-11-19T10:00:00Z"),
+    ]);
+    expect(decided.events.map((event) => event.subject)).toEqual(["main is red at aaaaaaa (#11)"]);
+  });
+
+  test("main: a cancelled head alone, newest, is passed over: no message, nothing held back", () => {
+    const decided = decideMain({ ...watch, red: true }, [
+      head(a, "cancelled", 11, "2026-11-19T10:00:00Z"),
+    ]);
+    expect(decided).toEqual({
+      events: [],
+      next: { kind: "main", since: "2026-11-19T10:00:00Z", red: true },
+    });
+  });
+
+  test("ci: a cancelled run on the watched head says cancelled, not failed", () => {
+    const decided = decideCi({ kind: "ci", sha: SHA }, [run({ conclusion: "cancelled" })]);
+    expect(decided.events[0]?.subject).toBe("CI cancelled on 1a45d74: ci");
+    expect(decided.events[0]?.body).toContain("watch that push's head");
+    expect(decided.next).toBeUndefined();
+  });
+
+  test("ci: failed beats cancelled; passed needs no cancellation", () => {
+    expect(
+      decideCi({ kind: "ci", sha: SHA }, [
+        run({ conclusion: "cancelled" }),
+        run({ workflow: "lint", conclusion: "failure" }),
+      ]).events[0]?.subject,
+    ).toBe("CI failed on 1a45d74: lint");
+  });
+});

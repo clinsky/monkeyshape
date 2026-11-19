@@ -198,22 +198,54 @@ export const decodeRuns = (text: string): ReadonlyArray<Run> | string => {
   return out;
 };
 
-/** A run that ended any way but these failed: a skipped job is no failure. */
+/** A run that ended any way but these and `cancelled` failed: a skipped job is no failure. */
 const PASSING = ["success", "skipped", "neutral"];
+
+/**
+ * A cancelled run is no verdict: CI's `cancel-in-progress` cancels a head's run when a newer
+ * push supersedes it, so on `main` it mostly means a quick second merge, not a failure.
+ */
+const CANCELLED = "cancelled";
 
 type Verdict =
   | { readonly ended: false }
   | {
       readonly ended: true;
       readonly failed: ReadonlyArray<Run>;
+      readonly cancelled: ReadonlyArray<Run>;
       readonly runs: ReadonlyArray<Run>;
     };
 
-/** Whether every run on one head has ended, and which failed. No runs yet is not ended. */
+/**
+ * Whether every run on one head has ended, which failed and which were cancelled. No runs yet
+ * is not ended.
+ */
 export const verdict = (runs: ReadonlyArray<Run>): Verdict =>
   runs.length === 0 || runs.some((run) => run.status !== "completed")
     ? { ended: false }
-    : { ended: true, failed: runs.filter((run) => !PASSING.includes(run.conclusion)), runs };
+    : {
+        ended: true,
+        failed: runs.filter(
+          (run) => !PASSING.includes(run.conclusion) && run.conclusion !== CANCELLED,
+        ),
+        cancelled: runs.filter((run) => run.conclusion === CANCELLED),
+        runs,
+      };
+
+/**
+ * The keys of every event a watch can send, which the ledger holds once sent. A new watch
+ * clears them, so "never twice" holds for one watch's life: a watch made again after it fired
+ * (a re-run of CI on the same head, a PR reopened) fires again. `main` has none to clear:
+ * its `since` already starts after every head it reported.
+ */
+export const eventKeys = (watch: Watch): ReadonlyArray<string> =>
+  watch.kind === "pr"
+    ? [`pr-${watch.pr}-merged`, `pr-${watch.pr}-closed`]
+    : watch.kind === "bead"
+      ? [`bead-${watch.id}-closed`]
+      : watch.kind === "ci"
+        ? [`ci-${watch.sha}`]
+        : [];
 
 /** One message a watch sends: `key` is unique to the event, for this watcher. */
 export interface WatchEvent {
@@ -287,17 +319,26 @@ const runLines = (runs: ReadonlyArray<Run>): ReadonlyArray<string> =>
 export const decideCi = (watch: Watch & { kind: "ci" }, runs: ReadonlyArray<Run>): Decided => {
   const ended = verdict(runs.filter((run) => run.sha === watch.sha));
   if (!ended.ended) return { events: [], next: watch };
-  const passed = ended.failed.length === 0;
-  const first = ended.failed[0] ?? ended.runs[0];
+  // A failure says more than a cancellation; a cancelled run is no pass either.
+  const outcome =
+    ended.failed.length > 0 ? "failed" : ended.cancelled.length > 0 ? "cancelled" : "passed";
+  const named = outcome === "failed" ? ended.failed : ended.cancelled;
+  const first = named[0] ?? ended.runs[0];
   return {
     events: [
       {
         key: `ci-${watch.sha}`,
-        subject: passed
-          ? `CI passed on ${short(watch.sha)}`
-          : `CI failed on ${short(watch.sha)}: ${clip(ended.failed.map((run) => run.workflow).join(", "), 80)}`,
+        subject:
+          outcome === "passed"
+            ? `CI passed on ${short(watch.sha)}`
+            : `CI ${outcome} on ${short(watch.sha)}: ${clip(named.map((run) => run.workflow).join(", "), 80)}`,
         body: [
-          `CI on ${watch.sha} ${passed ? "passed" : "failed"}${first === undefined ? "" : `: ${first.url}`}`,
+          `CI on ${watch.sha} ${outcome}${first === undefined ? "" : `: ${first.url}`}`,
+          ...(outcome === "cancelled"
+            ? [
+                "A cancelled run is usually one a newer push superseded: watch that push's head for its result.",
+              ]
+            : []),
           ...runLines(ended.runs),
           "",
           removedLine(watch),
@@ -336,6 +377,12 @@ export const decideMain = (watch: Watch & { kind: "main" }, runs: ReadonlyArray<
     const pr = mergedPr(head.list[0]?.title ?? "");
     const which = `${short(head.sha)}${pr === undefined ? "" : ` (#${pr})`}`;
     const failed = ended.failed.length > 0;
+    // Cancelled with nothing failed: superseded by a newer merge, so no verdict. Passed over,
+    // leaving red or green as the last head that had one.
+    if (!failed && ended.cancelled.length > 0) {
+      since = head.created;
+      continue;
+    }
     if (failed)
       events.push({
         key: `main-red-${head.sha}`,
