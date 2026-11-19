@@ -25,6 +25,21 @@ import {
   worktreePath,
 } from "../core/layout.ts";
 import {
+  namedOwners,
+  type OwnerRow,
+  otherOwners,
+  ownerMessage,
+  ownerNotices,
+  ownerOf,
+  ownersLine,
+  PLAN_FILE,
+  parseDiff,
+  parseFileOwners,
+  revertedLines,
+  revertedProblem,
+  withOwnersLine,
+} from "../core/owners.ts";
+import {
   behindWarning,
   bodyOnlyProblem,
   type CheckRun,
@@ -43,6 +58,7 @@ import {
   reviewedHead as isReviewed,
   type PostedReview,
   planPrBody,
+  pushedPath,
   type ReviewFacts,
   reviewDecision,
   withCiLine,
@@ -578,6 +594,176 @@ export const awaitCi = (
     }
   });
 
+/**
+ * Mails a track, with a live notice where its harness takes one; what it says of the
+ * delivery. Refuses when the address has no mailbox.
+ */
+export type TrackPrNotify = (
+  to: string,
+  subject: string,
+  body: string,
+) => Effect.Effect<string, TrackError | WorkspaceError>;
+
+/**
+ * The plan's File owners rows, read from `target` (the branch the PR merges into, so a plan
+ * merged since the track started counts); none, with one note, when it has no such table.
+ */
+const fileOwners = (repo: string, target: string, say: (line: string) => Effect.Effect<void>) =>
+  Effect.gen(function* () {
+    const shown = yield* git(repo, ["show", `${target}:${PLAN_FILE}`]);
+    const parsed = shown.code === 0 ? parseFileOwners(shown.stdout) : undefined;
+    if (parsed === undefined) {
+      yield* say(
+        `note: ${shown.code === 0 ? `${PLAN_FILE} on \`${shortRef(target)}\` has no File owners table` : `no ${PLAN_FILE} on \`${shortRef(target)}\``}, so no file here is another track's: no owner is named or mailed`,
+      );
+      return [];
+    }
+    for (const row of parsed.skipped)
+      yield* say(
+        `note: ${PLAN_FILE}'s File owners table: skipped \`${row}\`, which isn't \`| <path glob> | <track> |\``,
+      );
+    return parsed.rows;
+  });
+
+const shortRef = (ref: string): string => ref.replace(/^refs\/(?:remotes|heads)\//, "");
+
+/** The files changed from `base` to `tip`, as paths, renames as a delete and an add. */
+const changedFiles = (repo: string, base: string, tip: string) =>
+  Effect.map(gitOk(repo, ["diff", "--name-only", "--no-renames", "-z", base, tip]), (out) =>
+    out.split("\0").filter((file) => file !== ""),
+  );
+
+const diffLines = (repo: string, from: string, to: string) =>
+  Effect.map(
+    gitOk(repo, [
+      "-c",
+      "core.quotePath=false",
+      "diff",
+      "-U0",
+      "--no-renames",
+      "--no-color",
+      from,
+      to,
+    ]),
+    parseDiff,
+  );
+
+/** How far back the branch's reflog is read for an earlier head the tip rewrote. */
+const REFLOG_DEPTH = 50;
+
+/** The commits `branch` was pushed at: its remote-tracking ref's reflog, and track pr's record. */
+const pushedHeads = (repo: string, common: string, track: string, remote: string, branch: string) =>
+  Effect.gen(function* () {
+    const tracking = yield* git(repo, [
+      "reflog",
+      "show",
+      "--format=%H",
+      `refs/remotes/${remote}/${branch}`,
+      "--",
+    ]);
+    const recorded = yield* Effect.promise(() =>
+      Bun.file(pushedPath(common, track))
+        .text()
+        .catch(() => ""),
+    );
+    return new Set(
+      [...tracking.stdout.split("\n"), recorded.trim()].filter((sha) => /^[0-9a-f]{40}$/.test(sha)),
+    );
+  });
+
+/**
+ * Refuses a tip that rewrote the branch since its last push (the newest reflog entry before
+ * that push that isn't an ancestor of the tip, as after a squash) and removes lines main
+ * gained since that earlier head forked, in files the track doesn't own (`jhz.4`). Not
+ * checked: a branch only added to since its last push, and one whose open PR's head is
+ * already in the tip's history. What was pushed before belongs to a PR already published.
+ */
+const refuseReverts = (
+  top: string,
+  repo: string,
+  common: string,
+  track: string,
+  remote: string,
+  pr: OpenPr | undefined,
+  tip: string,
+  base: string,
+  target: string,
+  owners: ReadonlyArray<OwnerRow>,
+) =>
+  Effect.gen(function* () {
+    const branch = trackBranch(track);
+    // A PR whose head the tip contains has had any rewrite pushed already: what the tip adds
+    // since is commits, each saying what it removes.
+    if (pr !== undefined) {
+      const head = yield* spawn(top, [
+        "gh",
+        "api",
+        `repos/{owner}/{repo}/pulls/${pr.number}`,
+        "-q",
+        ".head.sha",
+      ]);
+      const sha = head.code === 0 ? head.stdout.trim() : "";
+      if (sha !== "" && (yield* git(repo, ["merge-base", "--is-ancestor", sha, tip])).code === 0)
+        return;
+    }
+    const pushed = yield* pushedHeads(repo, common, track, remote, branch);
+    const logged = yield* git(repo, [
+      "reflog",
+      "show",
+      "--format=%H",
+      `-n${REFLOG_DEPTH}`,
+      `refs/heads/${branch}`,
+      "--",
+    ]);
+    let oldHead: string | undefined;
+    for (const entry of logged.stdout.split("\n").filter((line) => line !== "")) {
+      if (pushed.has(entry)) break;
+      if ((yield* git(repo, ["merge-base", "--is-ancestor", entry, tip])).code === 0) continue;
+      oldHead = entry;
+      break;
+    }
+    if (oldHead === undefined) return;
+    const oldBase = (yield* git(repo, ["merge-base", oldHead, target])).stdout.trim();
+    if (oldBase === "" || oldBase === base) return;
+    const reverted = revertedLines(
+      yield* diffLines(repo, oldBase, base),
+      yield* diffLines(repo, base, tip),
+      (file) => ownerOf(file, owners) === track,
+    );
+    if (reverted.length > 0)
+      return yield* refuse(
+        `${revertedProblem(reverted, base, oldHead, oldBase)}. Nothing was pushed or posted`,
+      );
+  });
+
+/** Mails each owner `notices` names, once; an owner with no mailbox is named in the body only. */
+const mailOwners = (
+  pr: { readonly number: number; readonly url: string },
+  track: string,
+  notices: ReadonlyMap<string, ReadonlyArray<string>>,
+  notify: TrackPrNotify | undefined,
+  say: (line: string) => Effect.Effect<void>,
+) =>
+  Effect.gen(function* () {
+    if (notify === undefined) return;
+    for (const [owner, files] of notices) {
+      const { subject, body } = ownerMessage(pr, track, files);
+      const said = yield* notify(owner, subject, body).pipe(
+        Effect.catchTags({
+          TrackError: (error) =>
+            Effect.succeed(
+              `note: ${owner} owns ${files.join(", ")} but wasn't mailed (${error.reason}); the PR body names it`,
+            ),
+          WorkspaceError: (error) =>
+            Effect.succeed(
+              `note: mailing ${owner} failed (${error.message}); the PR body names it`,
+            ),
+        }),
+      );
+      yield* say(said);
+    }
+  });
+
 export const trackPr = (
   cwd: string,
   options: {
@@ -594,6 +780,8 @@ export const trackPr = (
     readonly bodyOnly?: boolean;
     /** Wait for CI on the pushed commit after posting, and fail when it fails. */
     readonly wait?: CiTiming;
+    /** Mails the owners of other tracks' files; none, and they are only named. */
+    readonly notify?: TrackPrNotify;
   },
   say: (line: string) => Effect.Effect<void>,
 ) =>
@@ -721,10 +909,14 @@ export const trackPr = (
     yield* say(prSizeNote(lines));
     const behindMain = yield* behind(repo, tip, targets[targets.length - 1] ?? MAIN_BRANCH);
     if (behindMain.warning !== undefined) yield* say(behindMain.warning);
-
-    // Before the slow gate, and after the fetch, so the remote refs say what is published.
+    const target = targets[targets.length - 1] ?? MAIN_BRANCH;
+    const owners = yield* fileOwners(repo, target, say);
+    const owned = otherOwners(yield* changedFiles(repo, base, tip), owners, track);
     const remote =
       (yield* git(repo, ["config", `branch.${MAIN_BRANCH}.remote`])).stdout.trim() || "origin";
+    yield* refuseReverts(top, repo, common, track, remote, existing, tip, base, target, owners);
+
+    // Before the slow gate, and after the fetch, so the remote refs say what is published.
     const unpublished = yield* outgoingCommits(repo, tip, remote);
     const notConfigured = yield* guard(
       top,
@@ -759,11 +951,14 @@ export const trackPr = (
       );
     }
 
-    const gateText = gateSection(
-      ranCommand,
-      tip,
-      gate.stdout,
-      gate.plan.kind === "fast" ? ciLine(tip) : undefined,
+    const gateText = withOwnersLine(
+      gateSection(
+        ranCommand,
+        tip,
+        gate.stdout,
+        gate.plan.kind === "fast" ? ciLine(tip) : undefined,
+      ),
+      ownersLine(owned),
     );
     const plan = planPrBody(options.body ?? existing?.body ?? "", gateText);
     if ("problems" in plan)
@@ -803,6 +998,11 @@ export const trackPr = (
         }`,
       );
 
+    // What the reflog walk stops at next time, even once the remote's branch is deleted.
+    yield* Effect.promise(async () => {
+      await mkdir(dirname(pushedPath(common, track)), { recursive: true });
+      await writeFile(pushedPath(common, track), `${tip}\n`);
+    });
     const now = yield* tipOf;
     if (now !== tip)
       yield* say(
@@ -814,6 +1014,13 @@ export const trackPr = (
     const done = existing
       ? `updated ${url}: the Gate section is from this run; every other section is ${options.body === undefined ? "as it was" : "from --body-file"}`
       : `opened ${url}`;
+    yield* mailOwners(
+      { number: existing?.number ?? Number(/(\d+)\/?$/.exec(url)?.[1] ?? 0), url },
+      track,
+      ownerNotices(namedOwners(existing?.body ?? ""), owned),
+      options.notify,
+      say,
+    );
     if (options.wait === undefined) return done;
     const recordCi = recordCiResult(top, branch, plan.body, gateText);
     return yield* awaitCi(

@@ -16,7 +16,7 @@ import { findConfig, loadConfig } from "../adapters/config.ts";
 import { reviewPost, scanFile } from "../adapters/denylist.ts";
 import { depBump } from "../adapters/dep.ts";
 import { runGate } from "../adapters/gate.ts";
-import { type Harnesses, harnesses } from "../adapters/harnesses/index.ts";
+import { harnesses } from "../adapters/harnesses/index.ts";
 import { initRepo, vendoredSpec } from "../adapters/init.ts";
 import { ownRoot, recordedSums, runningCompiled } from "../adapters/launch.ts";
 import { mailInbox, mailInboxAll, mailRead, mailSend } from "../adapters/mail.ts";
@@ -48,15 +48,22 @@ import {
   trackNew,
   trackRm,
 } from "../adapters/tracks.ts";
+import { checkWatches, ghObserver, watchAdd, watchList, watchRemove } from "../adapters/watch.ts";
 import { loadSnapshot } from "../adapters/workspace.ts";
 import { assess, CHECKS, evaluate, prerequisites } from "../core/check.ts";
 import { OWNABLE_FILES } from "../core/conventions.ts";
 import { garden } from "../core/garden.ts";
 import { cacheRoot } from "../core/launch.ts";
 import { CLAUDE_SKILLS_LINK, isReviewAddress, SKILLS_DIR } from "../core/layout.ts";
-import { formatAllInboxes, formatInbox, formatMessage, formatSent } from "../core/mail.ts";
+import {
+  formatAllInboxes,
+  formatInbox,
+  formatMessage,
+  formatSent,
+  type Message,
+} from "../core/mail.ts";
 import type { CheckName } from "../core/model.ts";
-import { formatDelivery, identifySession, unregisteredNote } from "../core/notices.ts";
+import { formatDelivery, unregisteredNote } from "../core/notices.ts";
 import { initBaseline, tighten } from "../core/ratchet.ts";
 import { packVersion } from "../core/release.ts";
 import { formatCheck, formatGarden, formatViolation, tallyByRule } from "../core/report.ts";
@@ -66,9 +73,9 @@ import { nextStep, REPO_NAME } from "../core/scaffold.ts";
 import { formatCollisions, formatSync, SKILL_NAME } from "../core/skills.ts";
 import { formatSyncPlan } from "../core/sync.ts";
 import { headingProblems } from "../core/trackPr.ts";
-import type { Invocation } from "../harnesses/harness.ts";
 import { HARNESS_IDS, PACK_IDS, shapeJsonSchema } from "../schemas/config.ts";
 import { type ConfigError, TrackError, WorkspaceError } from "../schemas/errors.ts";
+import { caller, hookCaller, setInvokedBy } from "./session.ts";
 
 /** What a command returns: the text to print, and the exit code (0 prints to stdout). */
 interface Outcome {
@@ -283,6 +290,24 @@ const trackPrCommand = (root: string, args: ReadonlyArray<string>) =>
         harnesses: harnesses(process.env),
         bodyOnly: args.includes("--body-only"),
         ...(args.includes("--wait") ? { wait: CI_TIMING } : {}),
+        notify: (to, subject, text) =>
+          Effect.gen(function* () {
+            const message = yield* mailSend(root, to, subject, text, new Date(), randomHex);
+            const delivery = yield* notifyRecipient(
+              root,
+              message,
+              harnesses(process.env),
+              new Date(),
+            ).pipe(
+              Effect.catchTags({
+                TrackError: (error) =>
+                  Effect.succeed({ notified: 0, pruned: [], skipped: [error.reason] }),
+                WorkspaceError: (error) =>
+                  Effect.succeed({ notified: 0, pruned: [], skipped: [error.message] }),
+              }),
+            );
+            return `${formatSent(message)}\n${formatDelivery(to, delivery)}`;
+          }),
       },
       (line) => Effect.sync(() => console.error(line)),
     );
@@ -487,6 +512,25 @@ const msgSend = (root: string, args: ReadonlyArray<string>) =>
     return { output: said.join("\n"), code: 0 };
   });
 
+/** Pushes a stored message's notice to the sessions at its address; a failure changes nothing. */
+const pushNotice = (root: string, message: Message) =>
+  notifyRecipient(root, message, harnesses(process.env), new Date());
+
+/**
+ * Turns the repo's watches into mail before an inbox is listed, so a watch's own message shows
+ * in it. Never fails the inbox: what went wrong is a note.
+ */
+const watchNotes = (root: string) =>
+  checkWatches(root, new Date(), ghObserver(process.env), randomHex, (message) =>
+    pushNotice(root, message),
+  ).pipe(
+    Effect.map((checked) => checked.notes),
+    Effect.catchTags({
+      TrackError: (error) => Effect.succeed([`note: mshape msg watch: ${error.reason}`]),
+      WorkspaceError: (error) => Effect.succeed([`note: mshape msg watch: ${error.message}`]),
+    }),
+  );
+
 /** Whether `word` names an address a message can go to: a track, `main` or a review. */
 const isAddress = (root: string, word: string) =>
   Effect.gen(function* () {
@@ -522,16 +566,23 @@ const msgInbox = (root: string, quiet: boolean) =>
     return yield* inboxFor(root, who, quiet);
   });
 
-/** The inbox's lines for `who`; `quiet`, the hooks' form, as `msgInbox` says. */
+/**
+ * The inbox's lines for `who`, after the repo's watches have become mail; `quiet`, the hooks'
+ * form, as `msgInbox` says.
+ */
 const inboxFor = (root: string, who: Caller, quiet: boolean) =>
   Effect.gen(function* () {
+    const watched = yield* watchNotes(root);
     const inbox = yield* mailInbox(root, who);
     const listed = formatInbox(inbox.address, inbox.messages, inbox.unreadable, quiet);
     const note =
       inbox.unregistered === undefined
         ? []
         : [unregisteredNote(inbox.unregistered.session, inbox.address)];
-    return { output: [...(listed === "" ? [] : [listed]), ...note].join("\n"), code: 0 };
+    return {
+      output: [...(listed === "" ? [] : [listed]), ...note, ...watched].join("\n"),
+      code: 0,
+    };
   }).pipe(
     Effect.catchTags({
       TrackError: (error) => (quiet ? Effect.succeed({ output: "", code: 0 }) : Effect.fail(error)),
@@ -560,58 +611,6 @@ const scan = (root: string, args: ReadonlyArray<string>) =>
     });
     return yield* scanFile(root, configDir(), file === "-" ? "stdin" : file, text);
   });
-
-/**
- * The harness a hook names (`mshape --harness <id> ...`), for this run: `program` sets it
- * from the leading flag before any command runs.
- */
-let invokedBy: Invocation["harness"];
-
-/** The caller, as its harness tells it: `hookInput` is a hook's stdin, when there is one. */
-const callerFrom = (hookInput?: string): Caller => {
-  const shipped: Harnesses = harnesses(process.env);
-  const found = identifySession(shipped.list, {
-    env: process.env,
-    ...(hookInput === undefined ? {} : { hookInput }),
-    ...(invokedBy === undefined ? {} : { harness: invokedBy }),
-  });
-  return found.kind === "identified"
-    ? { identity: found.identity, harnesses: shipped, now: new Date() }
-    : { identity: undefined, unidentified: found.reason, harnesses: shipped, now: new Date() };
-};
-
-const caller = (): Caller => callerFrom();
-
-/**
- * How long a hook's input may take to arrive. A hook's stdin is written at once and closed;
- * anything slower isn't a hook's (a pipe left open), and is not waited on.
- */
-const HOOK_INPUT_MS = 1000;
-
-/**
- * A hook's stdin: never read from a terminal, where nothing would end it (`jhz.3`), and given
- * up after `HOOK_INPUT_MS`.
- */
-const hookInput = (): Promise<string | undefined> =>
-  new Promise((resolve) => {
-    const { stdin } = process;
-    if (stdin.isTTY === true) return resolve(undefined);
-    const chunks: Array<Buffer> = [];
-    const done = (input: string | undefined) => {
-      clearTimeout(timer);
-      // A pipe left open would keep the process alive after its output. Listeners stay:
-      // removed first, Bun keeps the pipe open.
-      stdin.destroy();
-      resolve(input);
-    };
-    const timer = setTimeout(() => done(undefined), HOOK_INPUT_MS);
-    stdin.on("data", (chunk: Buffer) => chunks.push(chunk));
-    stdin.on("end", () => done(Buffer.concat(chunks).toString("utf8")));
-    stdin.on("error", () => done(undefined));
-  });
-
-/** A hook's caller: identified from the hook's input when there is one, else as any caller. */
-const hookCaller = async (): Promise<Caller> => callerFrom(await hookInput());
 
 /**
  * `mshape prime`: what a session loads at its start, in any harness, hooked or run by the
@@ -656,6 +655,14 @@ const msg = (root: string, args: ReadonlyArray<string>) =>
     if (sub === "inbox" && rest.length === 1 && rest[0] === "--all")
       return { output: formatAllInboxes(yield* mailInboxAll(root)), code: 0 };
     if (sub === "register" && rest.length === 0) return yield* msgRegister(root);
+    if (sub === "watch" && rest.length === 0)
+      return { output: yield* watchList(root, caller()), code: 0 };
+    if (sub === "watch")
+      return {
+        output: yield* watchAdd(root, rest, caller(), ghObserver(process.env), new Date()),
+        code: 0,
+      };
+    if (sub === "unwatch") return { output: yield* watchRemove(root, rest, caller()), code: 0 };
     if (sub === "read" && rest.length === 1) {
       const { message, alreadyRead } = yield* mailRead(root, rest[0] ?? "", caller());
       return { output: formatMessage(message, alreadyRead), code: 0 };
@@ -1089,6 +1096,16 @@ export const COMMANDS: ReadonlyArray<Command> = [
       For the milestone boundary; marks nothing read.
   mshape msg read <id>
       Print a message and mark it read at this address. Nothing else marks one read.
+  mshape msg watch pr <n> | bead <id> | ci <sha> | main
+      Be told by mail, from mshape, when pull request <n> merges or closes, a bead closes,
+      CI on a commit ends (pass or fail), or a head of main fails CI and later passes again.
+      A pr, bead or ci watch is removed once it fires; main's stays. Each event is sent
+      once. Checked through gh and bd when any session's inbox is read, at most once a
+      minute; a gh or bd that can't run is a note, and no watch is lost.
+  mshape msg watch
+      This address's watches.
+  mshape msg unwatch pr <n> | bead <id> | ci <sha> | main
+      Stop one; a ci watch matches the start of its commit id.
   mshape msg register
       Record this session at its checkout's address (a track, main, review-<track>, or
       review-<n> for a PR from no track), or where it already is, so send notifies it at
@@ -1115,7 +1132,8 @@ export const program = (root: string, args: ReadonlyArray<string>) =>
     // A hook's `--harness <id>`, first and only first, so no argument is ever read as one.
     const flagged = args[0] === "--harness";
     const named = flagged ? args[1] : undefined;
-    invokedBy = HARNESS_IDS.find((id) => id === named);
+    const invokedBy = HARNESS_IDS.find((id) => id === named);
+    setInvokedBy(invokedBy);
     if (flagged && invokedBy === undefined)
       return {
         output: `mshape: --harness takes one of ${HARNESS_IDS.join(", ")}${named === undefined ? "" : `, not \`${named}\``}`,

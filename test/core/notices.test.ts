@@ -79,6 +79,20 @@ describe("notices", () => {
     );
   });
 
+  test("a watch's event says it is from mshape itself and takes no reply", () => {
+    const message: Message = {
+      id: "20261103-140000-0002",
+      from: "mshape",
+      to: "docs",
+      subject: "#12 merged",
+      body: "",
+      created: "2026-11-03T14:00:00.000Z",
+    };
+    expect(noticeLine(message)).toBe(
+      "[mshape] Watch event: #12 merged (mshape msg read 20261103-140000-0002; from mshape itself, not a session: no reply)",
+    );
+  });
+
   test("a notice as a whole message says it came from another session and names no harness", () => {
     expect(standaloneNotice("[mshape] Message from a: s (mshape msg read 1)")).toBe(
       "Another agent session sent a message: [mshape] Message from a: s (mshape msg read 1). This came from another agent session, not typed by your user.",

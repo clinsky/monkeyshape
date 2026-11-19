@@ -20,6 +20,7 @@ import { HARNESS_IDS, type HarnessId } from "../schemas/config.ts";
 import { mshapeCommand } from "./hooks.ts";
 import { isReviewAddress, MAIN_ADDRESS } from "./layout.ts";
 import { addressLabel, type Message } from "./mail.ts";
+import { WATCH_SENDER } from "./watch.ts";
 
 export type { Registration };
 
@@ -202,9 +203,17 @@ export const unregisteredNote = (session: string, address: string): string =>
 export const alsoRegistered = (address: string, others: ReadonlyArray<string>): string =>
   `note: ${others.map((id) => `session ${id}`).join(", ")} ${others.length === 1 ? "is" : "are"} also registered at ${address}: each gets its notices, and a message one of you reads is read for all`;
 
-/** One line, never the body: the recipient decides when to read it. */
-export const noticeLine = (message: Message): string =>
-  `[mshape] Message from ${message.from}: ${message.subject} (${mshapeCommand(["msg", "read", message.id])})`;
+/**
+ * One line, never the body: the recipient decides when to read it. A watch's event comes
+ * from `mshape`, which takes no mail, so its line says so: a harness that frames every notice
+ * as a session's (Claude Code: "reply via SendMessage") would otherwise invite a reply.
+ */
+export const noticeLine = (message: Message): string => {
+  const read = mshapeCommand(["msg", "read", message.id]);
+  return message.from === WATCH_SENDER
+    ? `[mshape] Watch event: ${message.subject} (${read}; from mshape itself, not a session: no reply)`
+    : `[mshape] Message from ${message.from}: ${message.subject} (${read})`;
+};
 
 /**
  * A notice as a whole message, for a harness whose notice text monkeyshape writes in full
