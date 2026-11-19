@@ -1,10 +1,12 @@
 /** Loads the repo into a `Snapshot`: git's file list, the texts checks read, and what bd, tsc and biome report. */
+import { tmpdir } from "node:os";
 import * as Effect from "effect/Effect";
 import { PRIME_FILE } from "../core/conventions.ts";
 import { parseJsonc } from "../core/coverage.ts";
 import { parseDecisions } from "../core/decisions.ts";
 import { shippedFiles } from "../core/delivery.ts";
 import { SETTINGS_FILE } from "../core/hooks.ts";
+import { cacheRoot } from "../core/launch.ts";
 import { type BeadSummary, classify, type Integration, type Snapshot } from "../core/model.ts";
 import { SYNCED_FILES } from "../core/sync.ts";
 import { PACKS } from "../packs/index.ts";
@@ -16,6 +18,7 @@ import { exists, readPresent, readText } from "./disk.ts";
 import { loadSizes, loadVendored } from "./files.ts";
 import { LOADERS } from "./packs/index.ts";
 import { BUN_MISSING, bunPath, run, runTool } from "./process.ts";
+import { loadShapeRules } from "./shapeRules.ts";
 import { loadSkills } from "./skills.ts";
 
 const listFiles = (root: string) =>
@@ -277,7 +280,17 @@ export const loadSnapshot = (
   root: string,
   config: ResolvedConfig,
   packageRoot: string,
-  { checks }: { readonly checks: ReadonlyArray<CheckName> } = { checks: CHECK_NAMES },
+  {
+    checks,
+    cache = cacheRoot({}, tmpdir()),
+  }: {
+    readonly checks: ReadonlyArray<CheckName>;
+    /**
+     * Where fetched tools are kept (`cacheRoot`, from the environment at the cli): ast-grep,
+     * for the repo's `shape-rules/`. Without one, a cache under the temp directory.
+     */
+    readonly cache?: string;
+  } = { checks: CHECK_NAMES },
 ) =>
   Effect.gen(function* () {
     const coverage = checks.includes("coverage");
@@ -360,6 +373,10 @@ export const loadSnapshot = (
       if (!listedNow.has(file) && (yield* exists(root, file))) unlisted.add(file);
     const commands = coverage ? yield* runCommands(root, config, present) : new Map();
     const vendored = yield* loadVendored(root, config, present);
+    // Only the rules check reads them, and running them may fetch ast-grep.
+    const shapeRules = checks.includes("rules")
+      ? yield* loadShapeRules(root, present, cache)
+      : undefined;
     const snapshot: Snapshot = {
       files: present,
       texts,
@@ -381,6 +398,7 @@ export const loadSnapshot = (
       commands,
       sizes,
       vendored,
+      shapeRules,
     };
     return snapshot;
   });
