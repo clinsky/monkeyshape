@@ -221,6 +221,14 @@ export default {
     expect(said).not.toContain("Fix it");
     expect(await Bun.file(join(dir, "shape.config.ts")).text()).toBe(PLAIN);
     expect(await has("shape.toml")).toBe(false);
+    // Where there is nothing to import, the compiled mshape says so, with no Bun to install.
+    await rm(join(dir, "shape.config.ts"));
+    const none = await Effect.runPromise(migrateConfig(dir, PIN, loadConfig, true));
+    expect(none.lines[0]).toContain("there is no shape.config.ts here to migrate");
+    await Bun.write(join(dir, "shape.toml"), 'packs = ["rust"]\n');
+    const migrated = await Effect.runPromise(migrateConfig(dir, PIN, loadConfig, true));
+    expect(migrated.lines[0]).toContain("shape.toml is already here, so this repo is migrated");
+    expect(`${none.lines.join("\n")}${migrated.lines.join("\n")}`).not.toContain("bun add");
   });
 
   test("an import that fails for want of monkeyshape is told to install it, not to fix the config", () => {

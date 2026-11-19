@@ -83,11 +83,6 @@ export const migrateConfig = (
 ) =>
   Effect.gen(function* () {
     const refuse = (line: string): MigrateResult => ({ lines: [line], code: 1 });
-    // shape.config.ts imports `monkeyshape`, which resolves only under the npm package.
-    if (compiled)
-      return refuse(
-        `config migrate imports ${TS_CONFIG_FILE}, whose imports resolve only under monkeyshape's npm package, not an installed mshape: ${MIGRATE_STEPS}. Nothing was changed`,
-      );
     if (yield* exists(join(root, CONFIG_FILE)))
       return refuse(
         `${CONFIG_FILE} is already here, so this repo is migrated: nothing was changed. Edit ${CONFIG_FILE}${(yield* exists(join(root, TS_CONFIG_FILE))) ? `, and delete ${TS_CONFIG_FILE}, which mshape no longer reads` : ""}`,
@@ -96,6 +91,13 @@ export const migrateConfig = (
     if (!(yield* exists(path)))
       return refuse(
         `there is no ${TS_CONFIG_FILE} here to migrate. Run mshape config migrate at the root of a repo that has one; a new repo gets ${CONFIG_FILE} from mshape init`,
+      );
+    // shape.config.ts imports `monkeyshape`, which resolves only under the npm package. Only
+    // here, where there is one to import: a repo already on shape.toml, or one of another
+    // language, is told as much above, with no Bun to run anything with.
+    if (compiled)
+      return refuse(
+        `config migrate imports ${TS_CONFIG_FILE}, whose imports resolve only under monkeyshape's npm package, not an installed mshape: ${MIGRATE_STEPS}. Nothing was changed`,
       );
     // The old config as mshape loaded it: one it refused is fixed first, in the language its
     // author wrote, rather than carried into shape.toml.
