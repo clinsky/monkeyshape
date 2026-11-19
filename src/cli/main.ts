@@ -489,7 +489,7 @@ const msgSend = (root: string, args: ReadonlyArray<string>) =>
         new Date(),
         randomHex,
         caller(),
-        replyTo,
+        { replyTo },
       );
       // Stored first: whatever happens to the notices, the mail waits for them.
       const delivery = yield* notifyRecipient(

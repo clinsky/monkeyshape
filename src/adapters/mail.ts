@@ -61,6 +61,11 @@ export const entries = (path: string) =>
 /** Hard links never replace a file, so an id taken by another sender is retried, not lost. */
 const ATTEMPTS = 5;
 
+/** `mailSend`'s optional settings. */
+export interface SendOptions {
+  readonly replyTo?: string | undefined;
+}
+
 export const mailSend = (
   cwd: string,
   to: string,
@@ -69,7 +74,11 @@ export const mailSend = (
   now: Date,
   random: () => string,
   caller: Caller = nobody(now),
-  replyTo?: string,
+  /**
+   * What else this send says, one key per feature, so two features never fight over a
+   * positional slot: `replyTo`, the id of the message this answers (`msg send --reply-to`).
+   */
+  options: SendOptions = {},
 ) =>
   Effect.gen(function* () {
     const problem = subjectProblem(subject);
@@ -91,6 +100,7 @@ export const mailSend = (
         refuse(`${error.reason}. Send from a track's worktree, the main checkout or a review`),
       ),
     );
+    const { replyTo } = options;
     if (replyTo !== undefined) {
       const parent = (yield* allMessages(common)).get(replyTo);
       const cannot = replyProblem(replyTo, parent, sender.address);
