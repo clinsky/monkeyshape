@@ -77,7 +77,6 @@ PR could affect, in its review worktree; quote what each prints in the review.
 | This repo | `bun src/cli/main.ts check` | passes, every line as on `main` but what the PR changes |
 | A born repo | in a scratch directory, `bun <worktree>/src/cli/main.ts init born`, then `bun run check` in `born/` | green |
 | An adopter | a scratch clone of an adopter on this machine (the maintainer says which; never name it on GitHub), then `bun <worktree>/src/cli/main.ts check` there | the same outcome as `main`'s CLI there, but what the PR changes |
-| The compiled `mshape` | when the PR touches what the binary runs (config loading, migrate, the launcher, CI templates): `bun run release pack <absolute dir>`, then that dir's `mshape-<platform>` in a born repo or an adopter's clone | as the Bun CLI there |
 
 ## Adding a rule
 
