@@ -142,18 +142,32 @@ const runRule = (sg: string, root: string, file: string, files: ReadonlySet<stri
     const parsed = parseYaml(source);
     const value =
       "value" in parsed && typeof parsed.value === "object" && parsed.value !== null
-        ? (parsed.value as { id?: unknown; message?: unknown; metadata?: unknown })
+        ? (parsed.value as {
+            id?: unknown;
+            language?: unknown;
+            message?: unknown;
+            metadata?: unknown;
+          })
         : undefined;
     const fields = {
       id: text(value?.id),
+      language: text(value?.language),
       message: text(value?.message),
       bugClass: text((value?.metadata as { bugClass?: unknown } | undefined)?.bugClass),
     };
-    if ("reason" in parsed)
+    // ast-grep reads `---`-separated rules from one file; monkeyshape pairs a file with one
+    // rule, its id and its cases.
+    const refused =
+      "reason" in parsed
+        ? `it is not YAML: ${parsed.reason}`
+        : Array.isArray(parsed.value)
+          ? `it holds ${parsed.value.length} rules: one rule per file, so each has its own id, file and cases. Split it into ${SHAPE_RULES_DIR}/<id>.yml files`
+          : undefined;
+    if (refused !== undefined)
       return {
         file,
         ...fields,
-        error: `it is not YAML: ${parsed.reason}`,
+        error: refused,
         matches: [],
         cases: { state: "absent" },
       } satisfies ShapeRuleRun;

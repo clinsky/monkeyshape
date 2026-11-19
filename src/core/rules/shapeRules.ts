@@ -21,6 +21,23 @@ export const casesFileOf = (file: string): string => file.replace(/\.(ya?ml)$/u,
 
 const ID = /^[a-z0-9]+(?:-[a-z0-9]+)*$/u;
 
+/**
+ * The ast-grep languages whose files each pack claims, by the names ast-grep accepts, in
+ * lower case. A rule in any other language would match only files outside the rules' scope.
+ * TODO(monkeyshape-q0z): a pack says its own, once the engine runs packs' rules.
+ */
+const PACK_LANGUAGES: Readonly<Record<string, ReadonlyArray<string>>> = {
+  typescript: ["typescript", "ts", "tsx"],
+  rust: ["rust", "rs"],
+  python: ["python", "py"],
+};
+
+/** A listed pack, as far as shape-rules care: its id and the language it reads. */
+export interface ListedPack {
+  readonly id: string;
+  readonly language: string;
+}
+
 /** A rule ready for the engine: its matches by file, as 1-based lines. */
 export interface ShapeRule {
   /** `local/<id>`. */
@@ -50,8 +67,11 @@ const SHAPE = `a rule file is an ast-grep rule (\`id\`, \`language\`, \`rule\`, 
 /** The file's own name, without `.yml`: what its id must be. */
 const stem = (file: string): string => (file.split("/").at(-1) ?? file).replace(/\.ya?ml$/u, "");
 
-/** Why `run` can't be a rule, if it can't. */
-const shapeProblem = (run: ShapeRuleRun): string | undefined => {
+/**
+ * Why `run` can't be a rule, if it can't. A rule must be in a listed pack's language: the
+ * rules run over files a listed pack claims, so any other rule would never report.
+ */
+const shapeProblem = (run: ShapeRuleRun, packs: ReadonlyArray<ListedPack>): string | undefined => {
   if (run.error !== undefined) return `does not run: ${run.error}`;
   if (run.id === undefined || !ID.test(run.id))
     return `has id ${JSON.stringify(run.id)}, not lowercase words joined by hyphens: ${SHAPE}`;
@@ -63,6 +83,11 @@ const shapeProblem = (run: ShapeRuleRun): string | undefined => {
   ] as const)
     if (text === undefined || text.trim().length < 8)
       return `needs a \`${key}\` of at least 8 characters: ${SHAPE}`;
+  const readable = packs.flatMap((pack) => PACK_LANGUAGES[pack.id] ?? []);
+  if (!readable.includes((run.language ?? "").toLowerCase())) {
+    const listed = packs.map((pack) => `${pack.id} reads ${pack.language}`).join(", ");
+    return `has \`language: ${run.language ?? "(none)"}\`, which no listed pack reads (${listed || "no pack is listed"}): the rules run over the files a listed pack claims, so it would never report. Write it in ${readable.length === 0 ? "a listed pack's language" : `one of ${readable.join(", ")}`}, or check those files with a command in \`coverage.commands\``;
+  }
   return undefined;
 };
 
@@ -104,20 +129,21 @@ const caseProblems = (run: ShapeRuleRun, id: string): ReadonlyArray<ShapeRulePro
 };
 
 /**
- * The repo's shape-rules as engine rules. `taken` are the ids already in use, by
+ * The repo's shape-rules as engine rules, for the listed `packs`. `taken` are the ids already in use, by
  * `rules/<id>` as reported: a registry rule (`no-throw`) or a `localRules` one
  * (`local/no-save`). A rule whose id collides, or that is misshaped, doesn't run.
  */
 export const shapeRuleSet = (
   shapeRules: ShapeRules | undefined,
   taken: ReadonlySet<string>,
+  packs: ReadonlyArray<ListedPack>,
 ): ShapeRuleSet => {
   const rules: Array<ShapeRule> = [];
   const problems: Array<ShapeRuleProblem> = [];
   const unrun: Array<string> = [];
   const seen = new Set<string>();
   for (const run of shapeRules?.rules ?? []) {
-    const problem = shapeProblem(run);
+    const problem = shapeProblem(run, packs);
     const id = `local/${run.id}`;
     if (problem !== undefined) {
       problems.push({ kind: "local-rule", file: run.file, message: problem });

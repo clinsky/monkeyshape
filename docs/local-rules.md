@@ -110,8 +110,11 @@ export const collect = (records: ReadonlyArray<IndexRecord>) => saveIndex("modul
 
 ## The rest
 
-- A rule's `language` is any ast-grep reads: `typescript`, `tsx`, `rust`, `python` and more.
-  A match counts in a file a listed pack claims and `sources` includes; elsewhere it doesn't.
+- A rule's `language` is a listed pack's, as ast-grep names it: `typescript`, `ts` or `tsx`;
+  `rust`; `python`. Rules run over the files a listed pack claims and `sources` includes, so a
+  rule in another language (`yaml`, `javascript`) could never report: it fails as
+  `rules/local-rule`. Check such files with a command in `coverage.commands` instead.
+- One rule per file: ast-grep's `---`-separated rules in one file fail as `rules/local-rule`.
 - In shape.toml, `[rules."local/<id>"]` takes `off` and `allow` like any rule, and a
   `shape-ignore local/<id>: <reason>` line comment, in the file's own comment syntax, covers
   its own line and the next. ast-grep's own `severity` is ignored: a match fails the gate.

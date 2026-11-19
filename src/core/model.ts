@@ -123,6 +123,8 @@ export interface ShapeRuleRun {
   readonly file: string;
   /** The rule's own fields, where they are strings. */
   readonly id?: string | undefined;
+  /** ast-grep's `language`, as written: `rust`, `TypeScript`, `py`. */
+  readonly language?: string | undefined;
   readonly message?: string | undefined;
   /** `metadata.bugClass`. */
   readonly bugClass?: string | undefined;

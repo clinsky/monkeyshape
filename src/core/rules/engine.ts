@@ -118,6 +118,7 @@ export const checkRules = (
   const shape = shapeRuleSet(
     snapshot.shapeRules,
     new Set([...all.map((rule) => rule.id), ...local.brokenIds]),
+    snapshot.packs.map(({ pack }) => ({ id: pack.id, language: pack.language })),
   );
   for (const problem of shape.problems)
     if (problem.kind === "local-rule" || config.rules[idOf(problem)]?.off === undefined)

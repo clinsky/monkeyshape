@@ -90,6 +90,8 @@ describe("shape-rules through ast-grep", () => {
       "shape-rules/no-expect.test.yml": 'valid:\n  - "y?"\ninvalid:\n  - "y.expect(\\"set\\")"\n',
       "shape-rules/misspelt.yml": "id: misspelt\nlanguage: rust\nrule:\n  patern: x\n",
       "shape-rules/not-yaml.yml": "id: [unclosed\n",
+      // ast-grep takes `---`-separated rules; monkeyshape pairs one file with one rule.
+      "shape-rules/two.yml": `${RULE.replace("no-unwrap", "two")}---\n${RULE.replace("no-unwrap", "three")}`,
     });
     const loaded = await Effect.runPromise(loadShapeRules(repo, files, fresh));
     expect(loaded?.integration).toEqual({ state: "ok" });
@@ -98,6 +100,7 @@ describe("shape-rules through ast-grep", () => {
     expect(byId.get("shape-rules/no-unwrap.yml")).toEqual({
       file: "shape-rules/no-unwrap.yml",
       id: "no-unwrap",
+      language: "rust",
       message: "unwrap panics on None; return the error to the caller instead",
       bugClass: "Panics in library code",
       matches: [{ file: "src/lib.rs", line: 3 }],
@@ -124,6 +127,9 @@ describe("shape-rules through ast-grep", () => {
     expect(byId.get("shape-rules/no-expect.yml")?.error).toBeUndefined();
     expect(byId.get("shape-rules/misspelt.yml")?.error).toContain("unknown field `patern`");
     expect(byId.get("shape-rules/not-yaml.yml")?.error).toStartWith("it is not YAML: ");
+    expect(byId.get("shape-rules/two.yml")?.error).toBe(
+      "it holds 2 rules: one rule per file, so each has its own id, file and cases. Split it into shape-rules/<id>.yml files",
+    );
   }, 120_000);
 
   test("a cases file that isn't lists of snippets is invalid, naming the key", async () => {

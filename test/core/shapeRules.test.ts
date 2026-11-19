@@ -34,6 +34,7 @@ const CASES_RAN = {
 const rule = (over: Partial<ShapeRuleRun> = {}): ShapeRuleRun => ({
   file: "shape-rules/no-bang.yml",
   id: "no-bang",
+  language: "typescript",
   message: "A non-null assertion hides undefined; narrow the type instead.",
   bugClass: "Crashes on values the types said were there.",
   matches: [
@@ -157,6 +158,31 @@ describe("adopter rules through ast-grep", () => {
       "rules/local-rule shape-rules/other.yml:1 has id 'no-bang' but is named other.yml: rename the file to shape-rules/no-bang.yml, or the id to 'other'",
       'rules/local-rule shape-rules/no-bang.yml:1 needs a `metadata.bugClass` of at least 8 characters: a rule file is an ast-grep rule (`id`, `language`, `rule`, `message`) with `metadata: { bugClass: "<the class of bug it removes>" }`, named `shape-rules/<id>.yml` after its id',
     ]);
+  });
+
+  test("a rule in a language no listed pack reads is refused: it would never report", () => {
+    // ast-grep reads YAML and finds the match; no listed pack claims deploy/ci.yml, so the
+    // engine would drop it. Refused, so a rule never looks live while checking nothing.
+    const yaml = rule({
+      file: "shape-rules/no-target-trigger.yml",
+      id: "no-target-trigger",
+      language: "yaml",
+      matches: [{ file: "deploy/ci.yml", line: 1 }],
+      cases: { ...CASES_RAN, file: "shape-rules/no-target-trigger.test.yml" },
+    });
+    const snapshot = withRules(
+      [yaml],
+      { state: "ok" },
+      {
+        "src/a.ts": "export const a = 1;\n",
+        "deploy/ci.yml": "on: { pull_request_target: {} }\n",
+      },
+    );
+    expect(found(snapshot)).toEqual([
+      "rules/local-rule shape-rules/no-target-trigger.yml:1 has `language: yaml`, which no listed pack reads (typescript reads TypeScript): the rules run over the files a listed pack claims, so it would never report. Write it in one of typescript, ts, tsx, or check those files with a command in `coverage.commands`",
+    ]);
+    // A listed pack's language, in any case ast-grep accepts: it runs.
+    expect(found(withRules([rule({ language: "TSX" })]))[0]).toStartWith("rules/local/no-bang");
   });
 
   test("a rule turned off reports nothing, its cases unchecked", () => {
