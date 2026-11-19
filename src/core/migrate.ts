@@ -28,9 +28,6 @@ const isTable = (value: unknown): value is Readonly<Record<string, unknown>> =>
 const isAdd = (value: unknown): boolean =>
   isTable(value) && Object.keys(value).length === 1 && Array.isArray(value["add"]);
 
-/** A table with nothing in it, at any depth: it says nothing, so it isn't written. */
-const isEmpty = (value: unknown): boolean => isTable(value) && Object.values(value).every(isEmpty);
-
 /** A value on one line: TOML's basic strings take JSON's escapes. */
 const inline = (value: unknown): string => {
   if (typeof value === "string") return JSON.stringify(value);
@@ -52,14 +49,15 @@ const assignment = (name: string, value: unknown): string => {
 
 /**
  * A table's keys as TOML: its plain values under `[path]`, then each subtable as its own
- * section. A table with no plain values gets no header of its own, only its subtables'.
+ * section. A table with only subtables gets no header of its own; an empty one keeps its
+ * header, since an empty table says something (`arch.modules = {}` is a map with no modules).
  */
 const section = (path: ReadonlyArray<string>, table: Readonly<Record<string, unknown>>) => {
-  const kept = Object.entries(table).filter(([, value]) => !isEmpty(value));
-  const plain = kept.filter(([, value]) => !isTable(value) || isAdd(value));
-  const nested = kept.filter(([, value]) => isTable(value) && !isAdd(value));
+  const entries = Object.entries(table);
+  const plain = entries.filter(([, value]) => !isTable(value) || isAdd(value));
+  const nested = entries.filter(([, value]) => isTable(value) && !isAdd(value));
   const out: Array<string> = [];
-  if (plain.length > 0)
+  if (plain.length > 0 || (nested.length === 0 && path.length > 0))
     out.push(
       [
         ...(path.length > 0 ? [`[${path.map(key).join(".")}]`] : []),
@@ -139,7 +137,14 @@ const propertyName = (property: Record<string, unknown>): string | undefined => 
  * imported constant, a call): the deepest key whose value isn't written out. `defineConfig(…)`
  * and `export default {…}` are both read; anything else yields nothing to note.
  */
-export const computedKeys = (source: string): ReadonlyArray<ReadonlyArray<string>> => {
+export interface Computed {
+  /** The key's path, camelCase as written; for `keys`, the object that holds them. */
+  readonly path: ReadonlyArray<string>;
+  /** `value`: the key's value is computed; `keys`: the object spreads or computes keys. */
+  readonly kind: "value" | "keys" | "whole";
+}
+
+export const computedKeys = (source: string): ReadonlyArray<Computed> => {
   const { program } = parse("shape.config.ts", source);
   type Node = { readonly type: string } & Record<string, unknown>;
   const exported = (program.body as unknown as ReadonlyArray<Node>).find(
@@ -149,12 +154,14 @@ export const computedKeys = (source: string): ReadonlyArray<ReadonlyArray<string
   const root = (call === undefined ? exported : (call["arguments"] as ReadonlyArray<Node>)[0]) as
     | Node
     | undefined;
-  if (root?.type !== "ObjectExpression") return root === undefined ? [] : [[]];
-  const found: Array<ReadonlyArray<string>> = [];
+  if (root?.type !== "ObjectExpression")
+    return root === undefined ? [] : [{ path: [], kind: "whole" }];
+  const found: Array<Computed> = [];
   const walk = (object: Node, path: ReadonlyArray<string>) => {
     for (const property of object["properties"] as ReadonlyArray<Node>) {
       if (property.type !== "Property" || property["computed"] === true) {
-        found.push(path);
+        if (!found.some((one) => one.kind === "keys" && one.path.join(".") === path.join(".")))
+          found.push({ path, kind: "keys" });
         continue;
       }
       const name = propertyName(property);
@@ -162,7 +169,7 @@ export const computedKeys = (source: string): ReadonlyArray<ReadonlyArray<string
       const value = property["value"] as Node;
       if (name === "localRules") continue;
       if (value.type === "ObjectExpression") walk(value, [...path, name]);
-      else if (!literal(value)) found.push([...path, name]);
+      else if (!literal(value)) found.push({ path: [...path, name], kind: "value" });
     }
   };
   walk(root, []);
@@ -204,12 +211,20 @@ export const planMigration = (input: {
     const next = { ...holder };
     if (simplest.value === undefined) delete next[list];
     else next[list] = simplest.value;
-    config[table] = next;
+    // A table emptied here held only the default, which it no longer needs to say.
+    if (Object.keys(next).length === 0) delete config[table];
+    else config[table] = next;
   }
-  for (const path of computedKeys(input.source)) {
-    if (path.length === 0) {
+  for (const { path, kind } of computedKeys(input.source)) {
+    if (kind === "whole") {
       notes.push(
         "the config isn't an object literal, so each key is written as the value it evaluated to",
+      );
+      continue;
+    }
+    if (kind === "keys") {
+      notes.push(
+        `${path.length === 0 ? "the top level" : kebab(path)} spreads or computes keys: each is written as the value it evaluated to`,
       );
       continue;
     }

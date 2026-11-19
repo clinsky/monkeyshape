@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
-import { computedKeys, toToml } from "../../src/core/migrate.ts";
+import { computedKeys, planMigration, toToml } from "../../src/core/migrate.ts";
+import { DEFAULT_COVERAGE_EXEMPT, type ShapeConfig } from "../../src/schemas/config.ts";
 
 describe("toToml", () => {
   test("plain values first, then each table; a table with only subtables has no header", () => {
@@ -37,9 +38,13 @@ describe("toToml", () => {
     });
   });
 
-  test("{ add } reads as one value; an empty table is dropped", () => {
-    const text = toToml({ refs: { docs: { add: ["x.md"] } }, coverage: {} });
-    expect(text).toBe('[refs]\ndocs = { add = ["x.md"] }\n');
+  test("{ add } reads as one value; an empty table keeps its header, since it says something (#132's review)", () => {
+    expect(toToml({ refs: { docs: { add: ["x.md"] } } })).toBe(
+      '[refs]\ndocs = { add = ["x.md"] }\n',
+    );
+    const text = toToml({ arch: { modules: {} } });
+    expect(text).toBe("[arch.modules]\n");
+    expect(Bun.TOML.parse(text)).toEqual({ arch: { modules: {} } });
   });
 });
 
@@ -55,13 +60,50 @@ export default defineConfig({
 });
 `;
     expect(computedKeys(source)).toEqual([
-      ["budgets", "agentsLines"],
-      ["refs", "docs"],
+      { path: ["budgets", "agentsLines"], kind: "value" },
+      { path: ["refs", "docs"], kind: "value" },
     ]);
     expect(computedKeys("export default { beads: 'required' };\n")).toEqual([]);
   });
 
   test("a config that isn't an object literal: the whole of it is computed", () => {
-    expect(computedKeys("const c = { beads: 'required' };\nexport default c;\n")).toEqual([[]]);
+    expect(computedKeys("const c = { beads: 'required' };\nexport default c;\n")).toEqual([
+      { path: [], kind: "whole" },
+    ]);
+  });
+});
+
+describe("planMigration's notes and tables (#132's review)", () => {
+  const plan = (config: ShapeConfig, source: string) =>
+    planMigration({ config, source, ruleIds: [], ported: new Set(), pin: { version: "0.6.0" } });
+
+  test("a spread or computed key names the object it is in, not the whole config", () => {
+    const top = plan(
+      { beads: "required" },
+      'const shared = {};\nexport default { ...shared, beads: "required" };\n',
+    );
+    expect("notes" in top && top.notes).toEqual([
+      "the top level spreads or computes keys: each is written as the value it evaluated to",
+    ]);
+    const nested = plan(
+      { arch: { modules: { core: { description: "Pure." } } } },
+      'const m = {};\nexport default { arch: { modules: { ...m, core: { description: "Pure." } } } };\n',
+    );
+    expect("notes" in nested && nested.notes).toEqual([
+      "arch.modules spreads or computes keys: each is written as the value it evaluated to",
+    ]);
+  });
+
+  test("arch = { modules = {} } is kept, so arch resolves as the same empty map", () => {
+    const written = plan({ arch: { modules: {} } }, "export default { arch: { modules: {} } };\n");
+    expect("toml" in written && written.toml).toContain("[arch.modules]\n");
+  });
+
+  test("a table that held only a default list is dropped with it", () => {
+    const written = plan(
+      { coverage: { exempt: [...DEFAULT_COVERAGE_EXEMPT] } },
+      "export default { coverage: { exempt: [] } };\n",
+    );
+    expect("toml" in written && written.toml).not.toContain("[coverage]");
   });
 });
