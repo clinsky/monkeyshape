@@ -22,6 +22,18 @@ import { MAIN_BRANCH, TRACK_NAME, trackBranch, trackLabel } from "./layout.ts";
 import { fencedLines } from "./markdown.ts";
 
 export const HANDOFF_SECTIONS = ["Charter", "State", "Lessons not yet promoted", "Traps"] as const;
+
+/** What a stub's empty sections say. */
+export const NONE_YET = "None yet.";
+
+/**
+ * The lessons a handoff still holds, or undefined when there are none (`None yet.`, or
+ * nothing): what `track rm` would delete with the handoff before anyone promoted them.
+ */
+export const unpromotedLessons = (handoff: Handoff): string | undefined => {
+  const lessons = handoff.sections["Lessons not yet promoted"].trim();
+  return lessons === "" || lessons === NONE_YET ? undefined : lessons;
+};
 export type HandoffSection = (typeof HANDOFF_SECTIONS)[number];
 
 /** The lines a charter opens with, in this order. */
@@ -71,8 +83,8 @@ export const stubHandoff = (
     Charter: "",
     State: `No charter yet: the next \`/track\` session interviews the human for one and writes it above,
 opening with ${CHARTER_LINES.map((line) => `\`${line}\``).join(", ")}. Worktree \`${worktree}\` on \`${trackBranch(track)}\`, branched from \`${base}\`.`,
-    "Lessons not yet promoted": "None yet.",
-    Traps: "None yet.",
+    "Lessons not yet promoted": NONE_YET,
+    Traps: NONE_YET,
   };
   const text = [
     `# Track: ${track}\nQueue: ${handoffQueue(track)}`,

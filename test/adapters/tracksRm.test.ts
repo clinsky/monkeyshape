@@ -88,6 +88,26 @@ describe("track rm", () => {
     expect(forced.stdout).toContain("kept handoff");
   });
 
+  test("a handoff with lessons not yet promoted refuses rm; emptied, rm goes ahead (jhz.5)", async () => {
+    await setup();
+    mshape(repo, "new", "docs");
+    const { readFile } = await import("node:fs/promises");
+    const stub = await readFile(handoff("docs"), "utf8");
+    await writeFile(
+      handoff("docs"),
+      stub.replace(
+        "## Lessons not yet promoted\n\nNone yet.",
+        "## Lessons not yet promoted\n\n- the fake gh hid a bug",
+      ),
+    );
+    const refused = mshape(repo, "rm", "docs", "--force");
+    expect(refused.code).toBe(1);
+    expect(refused.stderr).toContain("  - the fake gh hid a bug");
+    expect(await exists(wt("docs"))).toBe(true);
+    await writeFile(handoff("docs"), stub);
+    expect(mshape(repo, "rm", "docs").code).toBe(0);
+  });
+
   test("unread mail refuses rm; read or forced, the mailbox goes, so a new track of the name starts empty", async () => {
     await setup();
     mshape(repo, "new", "docs");

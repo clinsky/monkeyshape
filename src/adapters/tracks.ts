@@ -19,7 +19,7 @@ import {
 } from "node:fs/promises";
 import { posix } from "node:path";
 import * as Effect from "effect/Effect";
-import { migrateHandoff, parseHandoff, stubHandoff } from "../core/handoff.ts";
+import { migrateHandoff, parseHandoff, stubHandoff, unpromotedLessons } from "../core/handoff.ts";
 import { mshapeCommand } from "../core/hooks.ts";
 import {
   HANDOFFS_LINK,
@@ -394,7 +394,16 @@ const trackBeads = (repo: string) =>
     byTrack: openBeadsByTrack(loaded.value ?? []),
     byId: new Map(
       (loaded.value ?? []).flatMap((row) => {
-        const { id, status, issue_type, labels } = (row ?? {}) as Record<string, unknown>;
+        const { id, status, issue_type, labels, dependencies } = (row ?? {}) as Record<
+          string,
+          unknown
+        >;
+        const blockedBy = Array.isArray(dependencies)
+          ? dependencies.flatMap((dep) => {
+              const { depends_on_id, type } = (dep ?? {}) as Record<string, unknown>;
+              return type === "blocks" && typeof depends_on_id === "string" ? [depends_on_id] : [];
+            })
+          : [];
         return typeof id === "string" && typeof status === "string"
           ? [
               [
@@ -405,6 +414,7 @@ const trackBeads = (repo: string) =>
                   labels: Array.isArray(labels)
                     ? labels.filter((label): label is string => typeof label === "string")
                     : [],
+                  blockedBy,
                 },
               ] as const,
             ]
@@ -873,6 +883,18 @@ const messageFiles = (dir: string) =>
     ),
   );
 
+/** The handoff's unpromoted lessons, for `rm`: none when it is gone or says none. */
+const handoffLessons = (path: string) =>
+  Effect.promise(() => readFile(path, "utf8").catch(() => undefined)).pipe(
+    Effect.map((text) => {
+      if (text === undefined) return undefined;
+      const parsed = parseHandoff(text);
+      return "problems" in parsed
+        ? { unparsed: parsed.problems[0] ?? "it isn't a handoff" }
+        : unpromotedLessons(parsed);
+    }),
+  );
+
 /**
  * What `rm` would delete with the track's mailbox. Read here rather than through the mailbox's
  * adapter, which imports this one: the files and their format are `src/core/mail.ts`'s.
@@ -996,6 +1018,7 @@ export const trackRm = (
       ),
       handoffPath: handoff,
       handoffExists: yield* lexists(handoff),
+      lessons: yield* handoffLessons(handoff),
       beads,
       mailbox,
       sessions,
