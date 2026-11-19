@@ -1,6 +1,6 @@
 {
   "name": "monkeyshape",
-  "version": "0.5.0",
+  "version": "0.6.0",
   "description": "Opinionated checks, configs and a working loop for humans and coding agents building together in Rust, Python or TypeScript, with work tracked in beads.",
   "keywords": [
     "rust",
