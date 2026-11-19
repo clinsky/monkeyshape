@@ -98,7 +98,8 @@ outcome, not a spec. Show the human the charter and the beads; start once they a
   `mshape track pr --body-only --body-file <path>`: no push and no gate, refused if the Gate
   section would be false. Add `--wait` to any `track pr` to wait for CI on the PR's head: it
   exits 1 naming a failed check, or when the branch conflicts with main and so gets no CI.
-  Close the beads when it merges.
+  Once it is open, `mshape msg watch pr <n>`: its merge (or close) reaches you as mail, so
+  no one has to tell you. Close the beads when it merges.
 - **One open PR at a time**, from `track/<name>`. The PR is one reviewed unit: once it is
   open, `track/<name>` takes only what the PR itself needs: before its review, a blocker
   another track found or a test someone asked for; once reviewed, answers to the review. Do
@@ -141,6 +142,7 @@ outcome, not a spec. Show the human the charter and the beads; start once they a
   your change needs a file another track owns (to stay in step with your code), edit it
   and say why in your PR body. `track pr` reads the plan's File owners table, names each
   such file in the Gate section and mails its owner once; don't send that message yourself.
+  A decision that touches several owners' files goes to `main` first, which names one owner.
 - **Mail arriving:** a live notice, `[mshape] Message from <track>: <subject>`, or a line at
   your next prompt. Neither marks it read. Finish the step you are on if it can wait, then
   `mshape msg read <id>`, and act on it; answer only if the sender must act on your answer.
@@ -152,8 +154,10 @@ outcome, not a spec. Show the human the charter and the beads; start once they a
 - **A mechanical step with no command:** don't script it into prose; file a bead for the CLI.
 - **The process got in the way:** `bd create --labels process` saying what broke.
 
-Update the handoff's State when a PR opens or merges, so a crash loses nothing. When the
-human says the context is running out, run `/handoff`. After each merge, run
+**The handoff holds what no command shows:** a decision and its reason, work that exists
+only locally and why it waits, a trap. PRs, beads, branches and CI are what `gh`, `bd` and
+`git` print: don't restate them there. Update it when one of those changes, and before you
+stop, not on every PR event. When the human says the context is running out, run `/handoff`. After each merge, run
 `mshape track list` and act on what it prints under this track's row (a bead still open
 though its PR merged: close it or say what is left). When its `done` column says `yes`, tell
 the human the track is done; an empty `bd ready` is not enough, since it hides beads in

@@ -22,7 +22,8 @@ belongs to a track.
   leave it uncommitted (the next chat opens in this same worktree) and list it in State.
   Never stash: the stash is shared by every worktree.
 - **Beads:** close what merged; claim what is half done; file what you found and didn't do.
-- **Open PRs:** note each one's number and what it waits on.
+- **Open PRs:** `mshape msg watch pr <n>` on each, so its merge reaches the next session as
+  mail.
 - **Mail:** `mshape msg inbox`. Read what you can act on now (`mshape msg read <id>`); what
   you leave unread is shown to the next session when it starts. An answer you owe another
   track goes now, with `mshape msg send`, not into the handoff.
@@ -36,8 +37,10 @@ Traps, in that order, with `###` for headings inside them. About 120 lines at mo
 - **Charter:** leave it unless the work changed what the track is for; then rewrite it, and
   say in State that it changed and why. It opens with `Serves: <goal steps>, because <why>`,
   then `Out of scope:` and `Done means:` lines.
-- **State:** done (PRs and beads, by number), in flight (the branch, the PR, what is half
-  done and the next command to run), and next. Concrete enough to act on without asking.
+- **State:** what no command shows. Decisions and their reasons; work that exists only
+  locally (a branch, uncommitted files) and why it waits; what is half done and the next
+  command to run. Not what `gh`, `bd` and `git` print (open PRs, beads, CI): the next session
+  runs those. Concrete enough to act on without asking.
 - **Lessons not yet promoted:** what you learned that should become a check, a test, an
   AGENTS.md gotcha or a decision. If promoting one is quick, do it now instead and delete
   it here. A lesson that is really a bead becomes one.

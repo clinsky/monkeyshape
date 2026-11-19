@@ -151,7 +151,8 @@ good. Use `COMMENT`: GitHub refuses approve and request-changes on your own
 account's PR. `mshape review post` mails the track the link and one line per finding (a
 PR from no track learns of it from the PR): don't message it yourself. Then tell the human
 in a few lines: what you ran, each finding and its severity, the review link. **Stop and
-wait** for the author: its push reaches you as mail.
+wait** for the author: its push reaches you as mail. For a PR from no track, which mails
+no one, `mshape msg watch pr $N` tells you when it merges or closes.
 
 ## 6. Re-review
 

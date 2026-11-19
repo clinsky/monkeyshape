@@ -17,7 +17,8 @@ never by hand.
 - `bd close <id> --reason "..."` once the PR that does it has merged, not before.
 - `bd remember "..."` keeps a lesson every session needs; memories are printed below this
   and are budgeted, so promote a lasting one to a check or AGENTS.md instead.
-- Never `bd edit`: it opens an editor and blocks.
+- Never `bd edit`: it opens an editor and blocks. Add to a bead's notes with
+  `bd update <id> --append-notes "..."`: `--notes` replaces what is there.
 - Run `bd sync` only where `bd config get dolt.auto-push` prints `true`, when you start and
   before you stop: it pulls other clones' beads, then pushes what auto-push's five-minute
   throttle held back. Anywhere else, don't: it may offer to set up a remote, and where
@@ -50,8 +51,11 @@ never by hand.
   time, `track pr` alone): it runs `mshape gate --fast`, pushes, and fills the Gate
   section; CI runs the whole gate, and `track pr --wait` records its result there.
   Outside a track, `gh pr create --body-file <file>`, which skips GitHub's template.
-- Review runs in its own chat with `/review-pr <n>`. Answer every finding on the PR; before
-  replying "fixed", rerun the reviewer's probes and try to break the fix with valid input.
+- Review runs in its own chat with `/review-pr <n>`. `mshape review post` mails the track
+  the review; `track pr` mails the reviewer each answering push. Answer every finding on the
+  PR; before replying "fixed", rerun the reviewer's probes and try to break the fix.
+- Don't poll or ask to be told: `mshape msg watch pr <n>` (or `bead <id>`, `ci <sha>`,
+  `main`) mails you when it merges, closes or CI ends.
 
 ## Who decides
 
@@ -62,5 +66,5 @@ design, refactors, docs, checks and beads, and explain them in the PR body.
 ## Before you stop
 
 Commit what is done and push it unless it waits for a PR to merge, `bd sync` as above,
-update the handoff's State if you are in a track, and say what is left. Text is a
+in a track put in its handoff what no command shows, and say what is left. Text is a
 hypothesis: when a doc or bead disagrees with the code, fix the text.
