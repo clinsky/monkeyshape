@@ -47,13 +47,20 @@ import {
   trackNew,
   trackRm,
 } from "../adapters/tracks.ts";
+import { checkWatches, ghObserver, watchAdd, watchList, watchRemove } from "../adapters/watch.ts";
 import { loadSnapshot } from "../adapters/workspace.ts";
 import { assess, CHECKS, evaluate, prerequisites } from "../core/check.ts";
 import { OWNABLE_FILES } from "../core/conventions.ts";
 import { garden } from "../core/garden.ts";
 import { cacheRoot } from "../core/launch.ts";
 import { CLAUDE_SKILLS_LINK, isReviewAddress, SKILLS_DIR } from "../core/layout.ts";
-import { formatAllInboxes, formatInbox, formatMessage, formatSent } from "../core/mail.ts";
+import {
+  formatAllInboxes,
+  formatInbox,
+  formatMessage,
+  formatSent,
+  type Message,
+} from "../core/mail.ts";
 import type { CheckName } from "../core/model.ts";
 import { formatDelivery, unregisteredNote } from "../core/notices.ts";
 import { initBaseline, tighten } from "../core/ratchet.ts";
@@ -501,6 +508,25 @@ const msgSend = (root: string, args: ReadonlyArray<string>) =>
     return { output: said.join("\n"), code: 0 };
   });
 
+/** Pushes a stored message's notice to the sessions at its address; a failure changes nothing. */
+const pushNotice = (root: string, message: Message) =>
+  notifyRecipient(root, message, claudeCodeNotifier, claudeDir(), new Date());
+
+/**
+ * Turns the repo's watches into mail before an inbox is listed, so a watch's own message shows
+ * in it. Never fails the inbox: what went wrong is a note.
+ */
+const watchNotes = (root: string) =>
+  checkWatches(root, new Date(), ghObserver(process.env), randomHex, (message) =>
+    pushNotice(root, message),
+  ).pipe(
+    Effect.map((checked) => checked.notes),
+    Effect.catchTags({
+      TrackError: (error) => Effect.succeed([`note: mshape msg watch: ${error.reason}`]),
+      WorkspaceError: (error) => Effect.succeed([`note: mshape msg watch: ${error.message}`]),
+    }),
+  );
+
 /** Whether `word` names an address a message can go to: a track, `main` or a review. */
 const isAddress = (root: string, word: string) =>
   Effect.gen(function* () {
@@ -533,6 +559,7 @@ const everyTrackBut = (root: string, who: Caller) =>
 const msgInbox = (root: string, quiet: boolean) =>
   Effect.gen(function* () {
     const who = quiet ? yield* Effect.promise(hookCaller) : caller();
+    const watched = yield* watchNotes(root);
     const inbox = yield* mailInbox(root, who);
     const listed = formatInbox(inbox.address, inbox.messages, inbox.unreadable, quiet);
     const note =
@@ -545,7 +572,10 @@ const msgInbox = (root: string, quiet: boolean) =>
               inbox.unregistered.registrable,
             ),
           ];
-    return { output: [...(listed === "" ? [] : [listed]), ...note].join("\n"), code: 0 };
+    return {
+      output: [...(listed === "" ? [] : [listed]), ...note, ...watched].join("\n"),
+      code: 0,
+    };
   }).pipe(
     Effect.catchTags({
       TrackError: (error) => (quiet ? Effect.succeed({ output: "", code: 0 }) : Effect.fail(error)),
@@ -621,6 +651,14 @@ const msg = (root: string, args: ReadonlyArray<string>) =>
     if (sub === "inbox" && rest.length === 1 && rest[0] === "--all")
       return { output: formatAllInboxes(yield* mailInboxAll(root)), code: 0 };
     if (sub === "register" && rest.length === 0) return yield* msgRegister(root);
+    if (sub === "watch" && rest.length === 0)
+      return { output: yield* watchList(root, caller()), code: 0 };
+    if (sub === "watch")
+      return {
+        output: yield* watchAdd(root, rest, caller(), ghObserver(process.env), new Date()),
+        code: 0,
+      };
+    if (sub === "unwatch") return { output: yield* watchRemove(root, rest, caller()), code: 0 };
     if (sub === "read" && rest.length === 1) {
       const { message, alreadyRead } = yield* mailRead(root, rest[0] ?? "", caller());
       return { output: formatMessage(message, alreadyRead), code: 0 };
@@ -1054,6 +1092,16 @@ export const COMMANDS: ReadonlyArray<Command> = [
       For the milestone boundary; marks nothing read.
   mshape msg read <id>
       Print a message and mark it read at this address. Nothing else marks one read.
+  mshape msg watch pr <n> | bead <id> | ci <sha> | main
+      Be told by mail, from mshape, when pull request <n> merges or closes, a bead closes,
+      CI on a commit ends (pass or fail), or a head of main fails CI and later passes again.
+      A pr, bead or ci watch is removed once it fires; main's stays. Each event is sent
+      once. Checked through gh and bd when any session's inbox is read, at most once a
+      minute; a gh or bd that can't run is a note, and no watch is lost.
+  mshape msg watch
+      This address's watches.
+  mshape msg unwatch pr <n> | bead <id> | ci <sha> | main
+      Stop one; a ci watch matches the start of its commit id.
   mshape msg register
       Record this Claude Code session at its checkout's address (a track, main,
       review-<track>, or review-<n> for a PR from no track), or where it already is, so send
