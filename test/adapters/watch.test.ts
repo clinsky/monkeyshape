@@ -92,7 +92,11 @@ const fake: Observer = {
     }),
 };
 
-const nobody = () => ({ identity: {}, claudeDir: "", now: new Date() });
+const nobody = () => ({
+  identity: undefined,
+  harnesses: { list: [], io: () => undefined },
+  now: new Date(),
+});
 let clock = Date.parse("2026-11-19T12:00:00Z");
 /** Each check a minute after the last, so the rate limit lets it run. */
 const later = () => {

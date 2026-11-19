@@ -1,57 +1,35 @@
 /**
- * Session addresses and live notices. A session registers itself at start (`mshape msg
- * register`, from its SessionStart hook) at the address of the checkout it runs in: a track,
- * `main`, `review-<track>` or `review-<n>`. From then on its address is its registration, never
- * its directory: a session at `main` that runs `mshape review <n>` moves to the reviewer's
- * address, and its mail and notices follow. A session outside every address never registers, so other work on the
- * machine never gets a notice. At send time each registration is matched against Claude Code's own record of the
- * session (`~/.claude/sessions/<pid>.json`, undocumented, so read strictly and by protocol
- * version), and the socket and token come from there, never from the mailbox.
- * `src/adapters/notices.ts` does the I/O. Claude Code's socket never replies, so a session is
- * live when its record matches and its socket accepts the connection; nothing more is known.
+ * Session addresses and live notices, whatever the harness. A session registers itself at
+ * start (`mshape prime`, from its harness's session-start hook, or run by the agent) at the
+ * address of the checkout it runs in: a track, `main`, `review-<track>` or `review-<n>`. From
+ * then on its address is its registration, never its directory: a session at `main` that runs
+ * `mshape review <n>` moves to the reviewer's address, and its mail and notices follow. A
+ * session outside every address never registers, so other work on the machine never gets a
+ * notice. Whether a registered session still runs, and how a notice reaches it, are its
+ * harness's (`src/harnesses/harness.ts`); `src/adapters/notices.ts` does the I/O.
  */
+
+import {
+  type Harness,
+  type Identity,
+  type Invocation,
+  type Registration,
+  SESSION_KEY,
+} from "../harnesses/harness.ts";
+import { HARNESS_IDS, type HarnessId } from "../schemas/config.ts";
 import { mshapeCommand } from "./hooks.ts";
 import { isReviewAddress, MAIN_ADDRESS } from "./layout.ts";
 import { addressLabel, type Message } from "./mail.ts";
+import { WATCH_SENDER } from "./watch.ts";
+
+export type { Registration };
 
 /**
- * One live session at an address, as `register` records it under the session registry. Only
- * what the session knows of itself when its SessionStart hook runs: nothing here depends on
- * Claude Code having written its own record yet. Everything else is read at send time.
+ * How long a new registration may run ahead of its harness's record of the session. The hook
+ * can register before the harness writes its record (at start) or updates it (after /clear); a
+ * send in that window must not prune a registration that is about to be right.
  */
-export interface Registration {
-  /** A UUID per session: a reused pid or a `/clear` runs a different one. */
-  readonly session: string;
-  /** Claude Code's process: its session file is `<pid>.json`. */
-  readonly pid: number;
-  readonly registered: string;
-}
-
-/** The fields of Claude Code's session file that a notice depends on. */
-export interface ClaudeSession {
-  readonly pid: number;
-  /** The directory the session runs in, when the record says; `track rm` reads it. */
-  readonly cwd?: string;
-  readonly sessionId: string;
-  readonly procStart: string;
-  readonly peerProtocol: number;
-  readonly messagingSocketPath: string;
-}
-
-/**
- * The fields of a published key file (`<pid>.<hash>.key`) a sender uses. Keys of earlier
- * processes with the same pid can linger, so `procStart` says which process published it.
- */
-export interface ClaudeKey {
-  readonly peerToken: string;
-  readonly procStart: string;
-}
-
-/** The one socket protocol notices are written for (Claude Code 2.1.317). */
-export const PEER_PROTOCOL = 1;
-
-/** A session id as Claude Code writes it: also a file name in the registry, so nothing else. */
-export const SESSION_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+export const REGISTRATION_GRACE_MS = 30_000;
 
 const object = (text: string): Record<string, unknown> | undefined => {
   try {
@@ -64,161 +42,71 @@ const object = (text: string): Record<string, unknown> | undefined => {
   }
 };
 
-export const decodeRegistration = (text: string): Registration | undefined => {
+const isHarnessId = (value: string): value is HarnessId =>
+  (HARNESS_IDS as ReadonlyArray<string>).includes(value);
+
+/**
+ * A registry file's contents: a registration, one of a harness this mshape doesn't ship
+ * (`foreign`: skipped with a note, never pruned by guess), or undefined for a file that is
+ * neither. A 0.6.0 registration has no `harness` and is Claude Code's.
+ */
+export type Stored =
+  | { readonly kind: "registration"; readonly registration: Registration }
+  | { readonly kind: "foreign"; readonly harness: string; readonly session: string };
+
+export const decodeRegistration = (text: string): Stored | undefined => {
   const value = object(text);
   if (value === undefined) return undefined;
-  const { session, pid, registered } = value;
-  return typeof session === "string" &&
-    SESSION_ID.test(session) &&
-    typeof pid === "number" &&
-    typeof registered === "string"
-    ? { session, pid, registered }
-    : undefined;
+  const { harness = "claude-code", session, pid, endpoint, registered } = value;
+  if (
+    typeof harness !== "string" ||
+    typeof session !== "string" ||
+    !SESSION_KEY.test(session) ||
+    typeof registered !== "string" ||
+    (pid !== undefined && typeof pid !== "number") ||
+    (endpoint !== undefined && typeof endpoint !== "string")
+  )
+    return undefined;
+  if (!isHarnessId(harness)) return { kind: "foreign", harness, session };
+  return {
+    kind: "registration",
+    registration: {
+      harness,
+      session,
+      ...(typeof pid === "number" ? { pid } : {}),
+      ...(typeof endpoint === "string" ? { endpoint } : {}),
+      registered,
+    },
+  };
 };
 
 export const encodeRegistration = (registration: Registration): string =>
   `${JSON.stringify(registration, null, 2)}\n`;
 
-/** Claude Code's session file, or undefined when it lacks a field a notice needs. */
-export const decodeClaudeSession = (text: string): ClaudeSession | undefined => {
-  const value = object(text);
-  if (value === undefined) return undefined;
-  const { pid, cwd, sessionId, procStart, peerProtocol, messagingSocketPath } = value;
-  return typeof pid === "number" &&
-    typeof sessionId === "string" &&
-    typeof procStart === "string" &&
-    typeof peerProtocol === "number" &&
-    typeof messagingSocketPath === "string"
-    ? {
-        pid,
-        ...(typeof cwd === "string" ? { cwd } : {}),
-        sessionId,
-        procStart,
-        peerProtocol,
-        messagingSocketPath,
-      }
-    : undefined;
-};
-
-export const decodeClaudeKey = (text: string): ClaudeKey | undefined => {
-  const value = object(text);
-  if (value === undefined) return undefined;
-  const { peerToken, procStart } = value;
-  return typeof peerToken === "string" && typeof procStart === "string"
-    ? { peerToken, procStart }
-    : undefined;
-};
-
-/** Where to send a notice, read at send time and never stored. */
-export interface Target {
-  readonly session: string;
-  readonly socket: string;
-  readonly token: string;
-}
-
 /**
- * What to do with one registration, from Claude Code's current record of its process:
- * notify it, prune it (the session is gone or is now another one), or skip it with a reason
- * (it is live, but this version of mshape can't talk to it).
+ * A registration's file name: keyed by harness and session, so two harnesses' ids never
+ * collide. A 0.6.0 file is `<session>.json`; it is read as it is and replaced at the
+ * session's next registration.
  */
-export type Plan =
-  | { readonly kind: "notify"; readonly target: Target }
-  | { readonly kind: "prune"; readonly reason: string }
-  | { readonly kind: "skip"; readonly reason: string };
+export const registrationFile = (registration: Pick<Registration, "harness" | "session">) =>
+  `${registration.harness}.${registration.session}.json`;
 
-/**
- * How long a new registration may run ahead of Claude Code's record. The hook can register
- * before Claude Code writes its record (at start) or updates it (after /clear); a send in that
- * window must not prune a registration that is about to be right.
- */
-export const REGISTRATION_GRACE_MS = 30_000;
-
-/**
- * Whether a registration's session is still running, from Claude Code's current record of
- * its process: `live`, `pending` (it registered just now, ahead of the record, so it counts
- * as running), or `gone` with the reason. The one rule `send` and `track rm` both use.
- */
-export type SessionStatus =
-  | { readonly kind: "live" | "pending" }
-  | { readonly kind: "gone"; readonly reason: string };
-
-export const sessionStatus = (
-  registration: Registration,
-  session: ClaudeSession | undefined,
-  now: Date,
-): SessionStatus => {
-  // A /clear starts a new session id in the same process; a reused pid runs another one.
-  if (session !== undefined && session.sessionId === registration.session) return { kind: "live" };
-  const age = now.getTime() - Date.parse(registration.registered);
-  if (age >= 0 && age < REGISTRATION_GRACE_MS) return { kind: "pending" };
-  return {
-    kind: "gone",
-    reason:
-      session === undefined
-        ? "its Claude Code session has ended"
-        : "its process now runs another session",
-  };
-};
-
-/**
- * Sessions running inside a worktree whether or not they registered (one started before the
- * register hook existed, or whose `register` only gave a note): by the record's `cwd`.
- * Paths are compared as given, so the caller resolves symlinks on both sides first.
- */
-export const sessionsIn = (
-  worktree: string,
-  records: ReadonlyArray<ClaudeSession>,
-): ReadonlyArray<string> =>
-  records
-    .filter((record) => record.cwd === worktree || record.cwd?.startsWith(`${worktree}/`))
-    .map((record) => record.sessionId);
-
-export const planNotice = (
-  registration: Registration,
-  session: ClaudeSession | undefined,
-  keys: ReadonlyArray<ClaudeKey>,
-  now: Date,
-): Plan => {
-  const status = sessionStatus(registration, session, now);
-  if (status.kind === "gone") return { kind: "prune", reason: status.reason };
-  if (status.kind === "pending" || session === undefined)
-    return { kind: "skip", reason: "it registered just now, before Claude Code recorded it; kept" };
-  if (session.peerProtocol !== PEER_PROTOCOL)
-    return {
-      kind: "skip",
-      reason: `Claude Code speaks messaging protocol ${session.peerProtocol}; this mshape knows ${PEER_PROTOCOL}`,
-    };
-  // The live process's key, whatever order the directory lists leftovers in.
-  const key = keys.find((candidate) => candidate.procStart === session.procStart);
-  if (key === undefined) return { kind: "skip", reason: "Claude Code published no key for it" };
-  return {
-    kind: "notify",
-    target: {
-      session: registration.session,
-      socket: session.messagingSocketPath,
-      token: key.peerToken,
-    },
-  };
-};
-
-/** What Claude Code tells a command about the session running it; either may be missing. */
-export interface Identity {
-  readonly session?: string;
-  readonly pid?: number;
-}
-
-/** A registration, and the address it is filed under. */
+/** A registration, the address it is filed under, and its file there. */
 export interface Placed {
   readonly address: string;
+  readonly file: string;
   readonly registration: Registration;
 }
 
+const sameSession = (a: Identity | Registration, b: Registration): boolean =>
+  a.harness === b.harness && a.session === b.session;
+
 /**
- * Which registration is the caller's own. By session id when Claude Code gave one: a session
- * filed twice (a move cut short between its write and its delete) is where it was filed last.
- * By pid alone only among registrations still running, and more than one is ambiguous (a
- * `/clear` just now: the process's old session and its new one). Without either, nobody:
- * the caller is never guessed from a directory or from who else is registered.
+ * Which registration is the caller's own. By harness and session id when the harness gave
+ * one: a session filed twice (a move cut short between its write and its delete) is where it
+ * was filed last. By pid alone only among registrations still running, and more than one is
+ * ambiguous (a `/clear` just now: the process's old session and its new one). Without either,
+ * nobody: the caller is never guessed from a directory or from who else is registered.
  */
 export type Self =
   | { readonly kind: "anonymous" }
@@ -228,22 +116,72 @@ export type Self =
 
 export const findSelf = (
   placed: ReadonlyArray<Placed>,
-  identity: Identity,
+  identity: Identity | undefined,
   running: (entry: Placed) => boolean,
 ): Self => {
   const newest = (a: Placed, b: Placed) =>
     b.registration.registered.localeCompare(a.registration.registered);
+  if (identity === undefined) return { kind: "anonymous" };
   if (identity.session !== undefined) {
-    const [mine] = placed
-      .filter((entry) => entry.registration.session === identity.session)
-      .sort(newest);
+    const [mine] = placed.filter((entry) => sameSession(identity, entry.registration)).sort(newest);
     return mine === undefined ? { kind: "unregistered" } : { kind: "registered", placed: mine };
   }
   if (identity.pid === undefined) return { kind: "anonymous" };
-  const mine = placed.filter((entry) => entry.registration.pid === identity.pid && running(entry));
+  const mine = placed.filter(
+    (entry) =>
+      entry.registration.harness === identity.harness &&
+      entry.registration.pid === identity.pid &&
+      running(entry),
+  );
   if (mine.length > 1) return { kind: "ambiguous", placed: mine };
   return mine[0] === undefined ? { kind: "unregistered" } : { kind: "registered", placed: mine[0] };
 };
+
+/**
+ * Who runs this command, from the harnesses that could: the one `--harness` names, else each
+ * that claims it. Two claims are no identity (a harness started from another's shell inherits
+ * its variables), and nothing is guessed. `missing` says what was looked for.
+ */
+export type Identified =
+  | { readonly kind: "identified"; readonly identity: Identity }
+  | { readonly kind: "unidentified"; readonly reason: string };
+
+export const identifySession = (
+  harnesses: ReadonlyArray<Harness>,
+  invocation: Invocation,
+): Identified => {
+  const asked =
+    invocation.harness === undefined
+      ? harnesses
+      : harnesses.filter((harness) => harness.id === invocation.harness);
+  const claims = asked.flatMap((harness) => {
+    const identity = harness.identify(invocation);
+    return identity === undefined ? [] : [{ harness, identity }];
+  });
+  const [only, ...more] = claims;
+  if (only !== undefined && more.length === 0)
+    return { kind: "identified", identity: only.identity };
+  if (only !== undefined)
+    return {
+      kind: "unidentified",
+      reason: `${claims.map((claim) => claim.harness.name).join(" and ")} each claim the session running this, as when one was started from the other's shell, so none is taken. Run it from the session's own hook, which passes --harness`,
+    };
+  const looked = asked.map((harness) => harness.identifiedBy).join("; or ");
+  return {
+    kind: "unidentified",
+    reason:
+      asked.length === 0
+        ? `no harness this mshape ships is ${invocation.harness}`
+        : `nothing identified the session running this (looked for ${looked})`,
+  };
+};
+
+/** Why a command has no address of its own: `reason` from `identifySession`. */
+export const noIdentity = (reason: string): string =>
+  `no session identity: ${reason}, so this has no address of its own and none is guessed`;
+
+export const ambiguousSelf = (placed: ReadonlyArray<Placed>): string =>
+  `which session runs this is ambiguous: process ${placed[0]?.registration.pid} has ${placed.length} running registrations (${placed.map((entry) => `session ${entry.registration.session} at ${entry.address}`).join(", ")}). Run it again from the session itself, where its harness gives its session id`;
 
 /**
  * Where `mshape review` puts a session at `from`, `to` being the review's address
@@ -254,38 +192,36 @@ export const findSelf = (
 export const reviewMove = (from: string, to: string): string | undefined =>
   (from === MAIN_ADDRESS || isReviewAddress(from)) && from !== to ? to : undefined;
 
-export const NO_IDENTITY =
-  "no session identity: Claude Code gave no session id (hook input or CLAUDE_CODE_SESSION_ID) and no CLAUDE_PID, so this has no address of its own and none is guessed";
-
-export const ambiguousSelf = (placed: ReadonlyArray<Placed>): string =>
-  `which session runs this is ambiguous: process ${placed[0]?.registration.pid} has ${placed.length} running registrations (${placed.map((entry) => `session ${entry.registration.session} at ${entry.address}`).join(", ")}). Run it again from the session itself, where Claude Code sets CLAUDE_CODE_SESSION_ID`;
-
 /**
  * What the inbox hook adds for a session that has an id but no registration: how to register,
- * or, when there is no pid to register with, why it can't, so it isn't asked to at every prompt
- * for a step that would fail.
+ * so it gets live notices; until then its mail is its directory's.
  */
-export const unregisteredNote = (session: string, address: string, registrable: boolean): string =>
-  `note: this session (${session}) isn't registered, so it gets no live notices, and its mail is taken from its directory's address, ${addressLabel(address)}. ${
-    registrable
-      ? `Run \`${mshapeCommand(["msg", "register"])}\` to register it.`
-      : "It can't register: Claude Code gave no CLAUDE_PID and has no record of it, so it gets only these unread subjects at each prompt."
-  }`;
+export const unregisteredNote = (session: string, address: string): string =>
+  `note: this session (${session}) isn't registered, so it gets no live notices, and its mail is taken from its directory's address, ${addressLabel(address)}. Run \`${mshapeCommand(["msg", "register"])}\` to register it.`;
 
 /** What `register` says when other running sessions share the address. */
 export const alsoRegistered = (address: string, others: ReadonlyArray<string>): string =>
   `note: ${others.map((id) => `session ${id}`).join(", ")} ${others.length === 1 ? "is" : "are"} also registered at ${address}: each gets its notices, and a message one of you reads is read for all`;
 
-/** One line, never the body: the recipient decides when to read it. */
-export const noticeLine = (message: Message): string =>
-  `[mshape] Message from ${message.from}: ${message.subject} (${mshapeCommand(["msg", "read", message.id])})`;
+/**
+ * One line, never the body: the recipient decides when to read it. A watch's event comes
+ * from `mshape`, which takes no mail, so its line says so: a harness that frames every notice
+ * as a session's (Claude Code: "reply via SendMessage") would otherwise invite a reply.
+ */
+export const noticeLine = (message: Message): string => {
+  const read = mshapeCommand(["msg", "read", message.id]);
+  return message.from === WATCH_SENDER
+    ? `[mshape] Watch event: ${message.subject} (${read}; from mshape itself, not a session: no reply)`
+    : `[mshape] Message from ${message.from}: ${message.subject} (${read})`;
+};
 
-/** The two lines Claude Code's socket reads: auth, then the notice as a user message. */
-export const socketPayload = (token: string, line: string): string =>
-  `${JSON.stringify({ type: "auth", token })}\n${JSON.stringify({
-    type: "user",
-    message: { role: "user", content: line },
-  })}\n`;
+/**
+ * A notice as a whole message, for a harness whose notice text monkeyshape writes in full
+ * (Codex, pi; Claude Code wraps the line in its own): the maintainer's wording (#147). Says
+ * where it came from and names no harness.
+ */
+export const standaloneNotice = (line: string): string =>
+  `Another agent session sent a message: ${line}. This came from another agent session, not typed by your user.`;
 
 /** What happened to each registration, for the sender. */
 export interface Delivery {

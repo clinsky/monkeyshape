@@ -40,8 +40,10 @@ export const SYNC_COMMAND = mshapeCommand(["sync"]);
  * is one of not running: the launcher offline with the pinned version not cached, say, whose
  * own message names the URL just before the note.
  */
-export const withNote = (command: string, note: string): string =>
-  `${command} || echo ${quote(`note: ${note}`)}`;
+export const withNote = (command: string, note: string, otherwise?: string): string =>
+  otherwise === undefined
+    ? `${command} || echo ${quote(`note: ${note}`)}`
+    : `${command} || { echo ${quote(`note: ${note}`)}; ${otherwise}; }`;
 
 /**
  * Where a hook looks for `mshape` after the session's PATH: where `install.sh` puts it. A
@@ -59,8 +61,8 @@ const MSHAPE_FAILED =
  * `MSHAPE_FALLBACK`. `$HOME` stays a variable, so `.claude/settings.json` is the same on every
  * machine. Without `mshape`, a note naming the install line, and exit 0.
  */
-export const withMshape = (command: string): string =>
-  `PATH="$PATH:${MSHAPE_FALLBACK}"; if command -v mshape >/dev/null; then ${command}; else echo ${quote(`note: ${MSHAPE_NOT_INSTALLED}`)}; fi`;
+export const withMshape = (command: string, otherwise?: string): string =>
+  `PATH="$PATH:${MSHAPE_FALLBACK}"; if command -v mshape >/dev/null; then ${command}; else echo ${quote(`note: ${MSHAPE_NOT_INSTALLED}`)}${otherwise === undefined ? "" : `; ${otherwise}`}; fi`;
 
 /**
  * What hooks before 0.6 ran: `mshape` through the package script, with bun found on the PATH or
@@ -84,31 +86,50 @@ const legacy = (args: ReadonlyArray<string>): ReadonlyArray<string> => {
   ];
 };
 
-/** A hook running `mshape <args>`, degrading to a note, replacing what earlier versions ran. */
-const mshapeHook = (event: HookEvent, args: ReadonlyArray<string>): Hook => ({
-  event,
-  matcher: "",
-  command: withMshape(withNote(mshapeCommand(args), MSHAPE_FAILED)),
-  retired: legacy(args),
-});
+/**
+ * `mshape <args>` as a hook runs it: found where it is installed, degrading to a note, and
+ * then to `otherwise` when mshape can't run.
+ */
+export const hookCommand = (args: ReadonlyArray<string>, otherwise?: string): string =>
+  withMshape(withNote(mshapeCommand(args), MSHAPE_FAILED, otherwise), otherwise);
+
+/**
+ * What the session-start hook still loads when mshape can't run (not installed, offline with
+ * its pinned version not cached): bd's own primer, which prints the repo's PRIME.md, as every
+ * hook before 0.7 did. Silent when bd can't run either: mshape's note already said why.
+ */
+export const PRIME_FALLBACK = "bd prime 2>/dev/null || true";
+
+/** What 0.6's hooks ran for `args`, and what hooks before 0.6 did: sync replaces them all. */
+const before07 = (args: ReadonlyArray<string>): ReadonlyArray<string> => [
+  hookCommand(args),
+  ...legacy(args),
+];
 
 /** Every hook, in the order each event runs them. */
 export const HOOKS: ReadonlyArray<Hook> = [
-  // bd's own: the beads primer, as hook JSON.
+  // The loop, the session's registration and its unread mail: what 0.6 ran as three hooks.
   {
     event: "SessionStart",
     matcher: "",
-    command: withNote(
+    command: hookCommand(["--harness", "claude-code", "prime"], PRIME_FALLBACK),
+    retired: [
       "bd prime --hook-json",
-      "bd could not run here, so this session has no beads primer. Install bd: https://github.com/steveyegge/beads",
-    ),
-    retired: ["bd prime --hook-json"],
+      withNote(
+        "bd prime --hook-json",
+        "bd could not run here, so this session has no beads primer. Install bd: https://github.com/steveyegge/beads",
+      ),
+      ...before07(["msg", "register"]),
+      ...before07(["msg", "inbox", "--quiet"]),
+    ],
   },
-  // Records the session against its track, so a message reaches it while it runs.
-  mshapeHook("SessionStart", ["msg", "register"]),
-  // The track's unread mail, at session start and at every prompt, until it is read.
-  mshapeHook("SessionStart", ["msg", "inbox", "--quiet"]),
-  mshapeHook("UserPromptSubmit", ["msg", "inbox", "--quiet"]),
+  // The track's unread mail at every prompt, until it is read.
+  {
+    event: "UserPromptSubmit",
+    matcher: "",
+    command: hookCommand(["--harness", "claude-code", "msg", "inbox", "--quiet"]),
+    retired: before07(["msg", "inbox", "--quiet"]),
+  },
 ];
 
 /** The `hooks` key of `.claude/settings.json`: each hook under its event, in list order. */

@@ -81,12 +81,12 @@ describe("what track rm may do", () => {
     const refused = planRm({ ...facts, sessions });
     expect(refused.steps).toEqual([]);
     expect(refused.refusals).toEqual([
-      "2 Claude Code session(s) still running in `docs` would lose their worktree: 681a4ec1, 9f00ab12. Quit each one (`/exit`), or pass --force",
+      "2 session(s) still running in `docs` would lose their worktree: 681a4ec1, 9f00ab12. Quit each one, or pass --force",
     ]);
     const forced = planRm({ ...facts, sessions, force: true });
     expect(forced.refusals).toEqual([]);
     expect(forced.warnings).toEqual([
-      "removing the track from under 2 running Claude Code session(s): 681a4ec1, 9f00ab12",
+      "removing the track from under 2 running session(s): 681a4ec1, 9f00ab12",
     ]);
     expect(forced.steps.map((step) => step.kind)).toEqual(["worktree", "branch", "handoff"]);
   });

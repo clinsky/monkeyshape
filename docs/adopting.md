@@ -213,8 +213,9 @@ Then run `mshape sync`. It installs:
 - the shared skills, in `.agents/skills`, linked from `.claude/skills`;
 - `.beads/PRIME.md`;
 - the PR template;
-- monkeyshape's hooks in `.claude/settings.json`. A bare `bd prime --hook-json` hook is
-  replaced by the same command with a fallback note. Your other hooks and settings are kept.
+- monkeyshape's hooks in `.claude/settings.json`: `mshape prime` at session start (PRIME.md,
+  the session's registration and its unread mail) and the unread mail at each prompt. A bare
+  `bd prime --hook-json` hook is replaced by it. Your other hooks and settings are kept.
 
 `sync` never overwrites a file you wrote:
 
