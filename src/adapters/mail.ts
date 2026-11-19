@@ -26,7 +26,9 @@ import {
   type Message,
   messageId,
   recipientProblem,
+  replyProblem,
   subjectProblem,
+  threadOf,
   type Unreadable,
 } from "../core/mail.ts";
 import { WorkspaceError } from "../schemas/errors.ts";
@@ -67,6 +69,7 @@ export const mailSend = (
   now: Date,
   random: () => string,
   caller: Caller = nobody(now),
+  replyTo?: string,
 ) =>
   Effect.gen(function* () {
     const problem = subjectProblem(subject);
@@ -88,7 +91,27 @@ export const mailSend = (
         refuse(`${error.reason}. Send from a track's worktree, the main checkout or a review`),
       ),
     );
-    return yield* storeMessage(common, sender.address, to, subject, body, now, random);
+    if (replyTo !== undefined) {
+      const parent = (yield* allMessages(common)).get(replyTo);
+      const cannot = replyProblem(replyTo, parent, sender.address);
+      if (cannot !== undefined) return yield* refuse(cannot);
+    }
+    return yield* storeMessage(common, sender.address, to, subject, body, now, random, replyTo);
+  });
+
+/**
+ * Every message in every mailbox, read or unread, by id: where a thread's earlier messages
+ * are, since each is in its recipient's mailbox. An id two mailboxes share (two sends in one
+ * second with the same 4 random digits) keeps the first found.
+ */
+export const allMessages = (common: string) =>
+  Effect.gen(function* () {
+    const byId = new Map<string, Message>();
+    for (const address of (yield* entries(mailDir(common))).filter((name) => TRACK_NAME.test(name)))
+      for (const dir of [mailboxDir(common, address), mailboxReadDir(common, address)])
+        for (const message of (yield* readMessages(dir)).messages)
+          if (!byId.has(message.id)) byId.set(message.id, message);
+    return byId as ReadonlyMap<string, Message>;
   });
 
 /**
@@ -103,13 +126,22 @@ export const storeMessage = (
   body: string,
   now: Date,
   random: () => string,
+  replyTo?: string,
 ) =>
   Effect.gen(function* () {
     const dir = mailboxDir(common, to);
     yield* fs("create", dir, () => mkdir(dir, { recursive: true }));
     for (let attempt = 0; attempt < ATTEMPTS; attempt++) {
       const id = messageId(now, random());
-      const message: Message = { id, from, to, subject, body, created: now.toISOString() };
+      const message: Message = {
+        id,
+        from,
+        to,
+        subject,
+        body,
+        created: now.toISOString(),
+        ...(replyTo === undefined ? {} : { replyTo }),
+      };
       const temporary = `${dir}/.${id}.${process.pid}.tmp`;
       const final = messagePath(common, to, id);
       yield* fs("write", temporary, () => writeFile(temporary, encodeMessage(message)));
@@ -210,5 +242,9 @@ export const mailRead = (cwd: string, id: string, caller: Caller) =>
       );
     const message = decodeMessage(text);
     if (typeof message === "string") return yield* refuse(`${read} is not a message (${message})`);
-    return { message, alreadyRead: !moved };
+    const thread =
+      message.replyTo === undefined
+        ? { earlier: [] }
+        : threadOf(message, yield* allMessages(common));
+    return { message, alreadyRead: !moved, thread };
   });
