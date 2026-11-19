@@ -18,6 +18,7 @@ import {
   trackOf,
 } from "./layout.ts";
 import type { Worktree } from "./tracks.ts";
+import { WATCH_SENDER } from "./watch.ts";
 
 export interface Message {
   readonly id: string;
@@ -139,6 +140,8 @@ export const recipientProblem = (
   reviewTracks: ReviewTracks = new Map(),
 ): string | undefined => {
   if (known.includes(to)) return undefined;
+  if (to === WATCH_SENDER)
+    return `\`${WATCH_SENDER}\` sends the mail of \`mshape msg watch\` and takes none: to talk about what it reported, message the track concerned (addresses: ${known.join(", ")})`;
   const pr = reviewOf(to);
   const track = pr === undefined ? undefined : reviewTracks.get(pr);
   if (pr !== undefined && track !== undefined)
