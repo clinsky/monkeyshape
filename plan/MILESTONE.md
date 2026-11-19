@@ -511,10 +511,11 @@ already written by agents, not generated for it.
   point; a vocabulary banned from a layer) on generic examples in this repo's tests, closing
   each gap or recording it as a limit in `docs/local-rules.md`. The acceptance line "their
   ported ast-grep rules report what their `localRules` reported" is dropped. The adopters'
-  migration stays checked by us, on scratch clones only, nothing committed to them: the repo
-  with no local rules migrates fully; for the two with local rules, a time-boxed attempt
-  (about half an hour each) writes them as `shape-rules` in the clone and compares findings,
-  and past the time box the result recorded is migrate's refusal naming the rules. Order:
+  migration stays checked by the tracks, on scratch clones only, nothing committed to them:
+  `config` migrates each (the repo with no local rules migrates fully); for the two with
+  local rules, `packs` makes a time-boxed attempt (about half an hour each) to write them as
+  `shape-rules` in a clone and compare findings, as `8il.11`'s real-data probe, and past the
+  time box records migrate's refusal naming the rules. Order:
   `8il.11`, then `localRules` removed and the `shape.config.ts`-only row flipped (`8il.2`'s
   second PR), then 0.6.0: `migrate` is the one command that still reads the old config, and
   it refuses until each rule id has a `shape-rules` file.
