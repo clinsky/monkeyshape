@@ -7,6 +7,7 @@ import { loadPython } from "../../../src/adapters/packs/python.ts";
 import { python, RUFF, TY } from "../../../src/packs/python/index.ts";
 import { effectiveTyRules, renderTyRules } from "../../../src/packs/python/tyRules.ts";
 import { resolveConfig } from "../../../src/schemas/config.ts";
+import { skipWithout } from "../../support.ts";
 
 const SHAPE = resolveConfig({ packs: ["python"] }, "shape.toml", [], {
   python: python.defaultSources.include,
@@ -94,7 +95,10 @@ describe("loadPython without uv's help", () => {
   });
 });
 
-describe.skipIf(Bun.which("uv") === null)("loadPython and the gate's stages, with uv", () => {
+/** Skipped without uv, except in CI, where it fails instead. */
+const noUv = skipWithout(Bun.which("uv") !== null);
+
+describe.skipIf(noUv)("loadPython and the gate's stages, with uv", () => {
   let project = "";
 
   beforeAll(async () => {

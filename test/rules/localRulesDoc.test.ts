@@ -1,6 +1,7 @@
 /**
  * docs/local-rules.md, run as written: its code blocks are a repo, the gate fails on the
- * documented bug with the documented output, and passes on the documented fix.
+ * documented bug with the documented output, and passes on the documented fix. Its rule runs
+ * on the ast-grep `mshape` fetches, into the machine's cache.
  */
 import { describe, expect, test } from "bun:test";
 import { mkdtemp, rm } from "node:fs/promises";
@@ -8,7 +9,6 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { ROOT, run } from "../integration/harness.ts";
 
-const API = join(ROOT, "src", "api", "monkeyshape.ts");
 const CLI = join(ROOT, "src", "cli", "main.ts");
 
 const blocks = async (): Promise<ReadonlyArray<string>> => {
@@ -16,18 +16,16 @@ const blocks = async (): Promise<ReadonlyArray<string>> => {
   return [...text.matchAll(/```\w*\n([\s\S]*?)```/g)].map((block) => block[1] ?? "");
 };
 
-/** `// <path>` on a block's first line names its file; `// <path>, fixed` is the fix. */
+/**
+ * `// <path>` or `# <path>` on a block's first line names its file, in the file's own
+ * comment syntax; `, fixed` after it is the fix.
+ */
 const files = async (): Promise<Record<string, string>> => {
   const out: Record<string, string> = {};
   for (const block of await blocks()) {
-    const [first = "", ...rest] = block.split("\n");
-    const name = /^\/\/ (\S+?)(, fixed)?$/.exec(first);
+    const name = /^(?:\/\/|#) (\S+?)(, fixed)?$/.exec(block.split("\n")[0] ?? "");
     if (name?.[1] === undefined) continue;
-    // The scratch repo has no node_modules: the package is this checkout's API.
-    out[`${name[1]}${name[2] ?? ""}`] = `${first}\n${rest.join("\n")}`.replaceAll(
-      'from "monkeyshape"',
-      `from ${JSON.stringify(API)}`,
-    );
+    out[`${name[1]}${name[2] ?? ""}`] = block;
   }
   return out;
 };
@@ -35,8 +33,9 @@ const files = async (): Promise<Record<string, string>> => {
 describe("docs/local-rules.md, followed literally", () => {
   test("its blocks are the enforcement point, the rule, the config, the bug and its fix", async () => {
     expect(Object.keys(await files()).sort()).toEqual([
-      "rules/indexWrites.ts",
-      "shape.config.ts",
+      "shape-rules/index-writes-merge.test.yml",
+      "shape-rules/index-writes-merge.yml",
+      "shape.toml",
       "src/jobs/collect.ts",
       "src/jobs/collect.ts, fixed",
       "src/store/index.ts",

@@ -33,6 +33,7 @@ import {
 import { runTool } from "../adapters/process.ts";
 import { packSource, packWorkingTree } from "../adapters/release.ts";
 import { reviewNew, reviewRm } from "../adapters/reviews.ts";
+import { listShapeRules } from "../adapters/shapeRules.ts";
 import { syncAll } from "../adapters/sync.ts";
 import { CI_TIMING, trackPr } from "../adapters/trackPr.ts";
 import {
@@ -50,6 +51,7 @@ import { loadSnapshot } from "../adapters/workspace.ts";
 import { assess, CHECKS, evaluate, prerequisites } from "../core/check.ts";
 import { OWNABLE_FILES } from "../core/conventions.ts";
 import { garden } from "../core/garden.ts";
+import { cacheRoot } from "../core/launch.ts";
 import { CLAUDE_SKILLS_LINK, isReviewAddress, SKILLS_DIR } from "../core/layout.ts";
 import { formatAllInboxes, formatInbox, formatMessage, formatSent } from "../core/mail.ts";
 import type { CheckName } from "../core/model.ts";
@@ -688,12 +690,16 @@ const configFlag = (root: string, args: ReadonlyArray<string>): string | undefin
   return path === undefined ? undefined : resolve(root, path);
 };
 
+/** Where fetched tools are kept: the machine's cache, as the environment places it. */
+const toolCache = (): string =>
+  cacheRoot({ XDG_CACHE_HOME: process.env["XDG_CACHE_HOME"], HOME: process.env["HOME"] }, tmpdir());
+
 /** `checks`: what the caller will run, so the loader skips tools nothing will read. */
 const load = (root: string, args: ReadonlyArray<string>, checks: ReadonlyArray<CheckName>) =>
   Effect.gen(function* () {
     const config = yield* loadConfig(root, configFlag(root, args));
     const loaded = yield* Effect.flatMap(
-      loadSnapshot(root, config, PACKAGE_ROOT, { checks }),
+      loadSnapshot(root, config, PACKAGE_ROOT, { checks, cache: toolCache() }),
       (snapshot) => withBeadsExport(root, snapshot),
     );
     const baseline = yield* readBaseline(root);
@@ -818,7 +824,8 @@ const rules = (root: string, args: ReadonlyArray<string>) =>
   Effect.gen(function* () {
     const path = configFlag(root, args) ?? (yield* findConfig(root));
     const config = path === undefined ? undefined : yield* loadConfig(root, path);
-    return { output: formatRules(RULES, config?.localRules), code: 0 };
+    const shape = yield* listShapeRules(root);
+    return { output: formatRules(RULES, config?.localRules, shape), code: 0 };
   });
 
 /**

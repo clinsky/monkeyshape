@@ -17,6 +17,7 @@ import { dirname, join } from "../paths.ts";
 import { claimOf } from "../sources.ts";
 import { localRules } from "./local.ts";
 import type { Finding, Rule, RuleContext } from "./rule.ts";
+import { isShapeRuleFile, shapeRuleSet } from "./shapeRules.ts";
 
 export type { Finding, Rule, RuleContext } from "./rule.ts";
 
@@ -58,6 +59,10 @@ const violation = (
   line: number,
   message: string,
 ): Violation => reported(kind, file, line, message);
+
+/** The rule a cases problem is about, `local/<id>`, from its file, so `off` silences it. */
+const idOf = (problem: { readonly file: string }): string =>
+  `local/${(problem.file.split("/").at(-1) ?? "").replace(/(\.test)?\.ya?ml$/u, "")}`;
 
 /** Outside `checkRules` (one file, no repo): nothing beyond the file resolves. */
 const ALONE: RuleContext = { resolve: () => undefined };
@@ -109,8 +114,23 @@ export const checkRules = (
       (config.rules[rule.id]?.allow ?? []).map((allowance) => allowance.path),
     ) ?? [])
       violations.push(violation("local-cases", config.configFile, 1, problem));
+  // The repo's shape-rules/, run by ast-grep: problems, then rules by their matches.
+  const shape = shapeRuleSet(
+    snapshot.shapeRules,
+    new Set([...all.map((rule) => rule.id), ...local.brokenIds]),
+    snapshot.packs.map(({ pack }) => ({ id: pack.id, language: pack.language })),
+  );
+  for (const problem of shape.problems)
+    if (problem.kind === "local-rule" || config.rules[idOf(problem)]?.off === undefined)
+      violations.push(violation(problem.kind, problem.file, 1, problem.message));
+  const shapeActive = shape.rules.filter((rule) => config.rules[rule.id]?.off === undefined);
   const usedAllowances = new Set<string>();
-  const known = new Set([...all.map((rule) => rule.id), ...local.brokenIds]);
+  const known = new Set([
+    ...all.map((rule) => rule.id),
+    ...local.brokenIds,
+    ...shape.rules.map((rule) => rule.id),
+    ...shape.unrun,
+  ]);
   /** A local rule that broke: reported once, at the first file, with how many it broke on. */
   const brokeOn = new Map<string, { file: string; reason: string; files: number }>();
 
@@ -150,6 +170,25 @@ export const checkRules = (
       ignores.push({ rule: match[1] ?? "", line, reason, used: false });
     }
 
+    const allowanceOf = (id: string) =>
+      (config.rules[id]?.allow ?? []).find((a) => matchesAny(file, [a.path]));
+    /** A finding at `line`, unless an allowance or a `shape-ignore` covers it. */
+    const report = (id: string, line: number, message: string) => {
+      const allowance = allowanceOf(id);
+      if (allowance !== undefined) {
+        usedAllowances.add(`${id}\0${allowance.path}`);
+        return;
+      }
+      const ignore = ignores.find((i) => i.rule === id && (i.line === line || i.line === line - 1));
+      if (ignore !== undefined) {
+        ignore.used = true;
+        return;
+      }
+      violations.push(reported(id, file, line, message));
+    };
+    for (const rule of shapeActive)
+      for (const line of rule.lines.get(file) ?? []) report(rule.id, line, rule.message);
+
     const entry = matchesAny(file, config.entry);
     const context = contextFor(snapshot, file);
     // The registry's rules and `localRules` read oxc's tree: TypeScript's alone, until the
@@ -158,9 +197,7 @@ export const checkRules = (
     for (const rule of active) {
       if (parsed === undefined) break;
       if (rule.entryExempt && entry) continue;
-      const allowance = (config.rules[rule.id]?.allow ?? []).find((a) =>
-        matchesAny(file, [a.path]),
-      );
+      const allowance = allowanceOf(rule.id);
       const found = results(rule, parsed, context);
       if ("broken" in found) {
         // Its escape hatches here may be right: unchecked, they aren't unused.
@@ -171,21 +208,8 @@ export const checkRules = (
         else first.files++;
         continue;
       }
-      for (const finding of found) {
-        if (allowance !== undefined) {
-          usedAllowances.add(`${rule.id}\0${allowance.path}`);
-          continue;
-        }
-        const line = lineAt(text, finding.offset);
-        const ignore = ignores.find(
-          (i) => i.rule === rule.id && (i.line === line || i.line === line - 1),
-        );
-        if (ignore !== undefined) {
-          ignore.used = true;
-          continue;
-        }
-        violations.push(reported(rule.id, file, line, finding.message ?? rule.message));
-      }
+      for (const finding of found)
+        report(rule.id, lineAt(text, finding.offset), finding.message ?? rule.message);
     }
     for (const ignore of ignores)
       if (!ignore.used)
@@ -211,7 +235,7 @@ export const checkRules = (
 
   // A misshaped local rule never ran, so its allowances weren't tested, not unused. A rule
   // whose layer is off is different: `layers` is config, so its allowance is dead everywhere.
-  const unrun = new Set(local.brokenIds);
+  const unrun = new Set([...local.brokenIds, ...shape.unrun]);
   for (const [id, setting] of Object.entries(config.rules))
     for (const allowance of unrun.has(id) ? [] : (setting.allow ?? []))
       if (!usedAllowances.has(`${id}\0${allowance.path}`))
@@ -227,18 +251,20 @@ export const checkRules = (
 };
 
 /**
- * `mshape rules`: each rule with its layer (`local` for the repo's own) and the bug class it
- * removes, then a line for any `localRules` entry that isn't a rule, which `check` explains.
+ * `mshape rules`: each rule with its layer (`local` for the repo's own, in `localRules` or
+ * `shape-rules/`) and the bug class it removes, then a line for any `localRules` entry that isn't a rule, which `check` explains.
  */
 export const formatRules = (
   rules: ReadonlyArray<Rule>,
   localEntries: ReadonlyArray<unknown> = [],
+  shapeRules: ReadonlyArray<{ readonly id: string; readonly bugClass: string }> = [],
 ): string => {
   const local = localRules(localEntries);
-  const width = Math.max(22, ...local.rules.map((rule) => rule.id.length + 2));
+  const own = [...local.rules, ...shapeRules];
+  const width = Math.max(22, ...own.map((rule) => rule.id.length + 2));
   const rows = [
     ...rules.map((rule) => `${rule.id.padEnd(width)}${rule.layer.padEnd(9)}${rule.bugClass}`),
-    ...local.rules.map((rule) => `${rule.id.padEnd(width)}${"local".padEnd(9)}${rule.bugClass}`),
+    ...own.map((rule) => `${rule.id.padEnd(width)}${"local".padEnd(9)}${rule.bugClass}`),
   ];
   const broken = local.broken.length;
   return broken === 0
@@ -260,21 +286,30 @@ export interface RuleHatches {
 /**
  * For garden: each local rule's escape hatches, the `shape-ignore` comments naming it in the
  * sources and its allowances in the config, so growth in one domain rule shows by name. A
- * local rule with none still has a row: garden lists every one the repo runs.
+ * local rule with none still has a row: garden lists every one the repo runs. A
+ * `shape-rules/` rule is named by its file, so garden needn't run ast-grep.
  */
 export const localRuleHatches = (
   config: ResolvedConfig,
   snapshot: Snapshot,
 ): ReadonlyArray<RuleHatches> => {
-  const ids = localRules(config.localRules).rules.map((rule) => rule.id);
+  const ids = [
+    ...new Set([
+      ...localRules(config.localRules).rules.map((rule) => rule.id),
+      ...snapshot.files
+        .filter(isShapeRuleFile)
+        .map((file) => `local/${(file.split("/").at(-1) ?? "").replace(/\.ya?ml$/u, "")}`),
+    ]),
+  ];
   const ignores = new Map(ids.map((id) => [id, 0]));
   for (const file of snapshot.files) {
     if (!matchesAny(file, config.sources.include) || matchesAny(file, config.sources.exclude))
       continue;
     const text = snapshot.texts.get(file);
-    if (text === undefined) continue;
-    for (const comment of parse(file, text).comments) {
-      const id = comment.type === "Line" ? IGNORE.exec(comment.value)?.[1] : undefined;
+    const claim = claimOf(snapshot, file);
+    if (text === undefined || claim === undefined) continue;
+    for (const comment of claim.loaded.pack.comments({ path: file, text })) {
+      const id = comment.kind === "line" ? IGNORE.exec(comment.text)?.[1] : undefined;
       const count = id === undefined ? undefined : ignores.get(id);
       if (id !== undefined && count !== undefined) ignores.set(id, count + 1);
     }

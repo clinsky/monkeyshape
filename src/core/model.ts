@@ -107,6 +107,52 @@ export interface Snapshot {
   readonly beadsExport?: BeadsExport | undefined;
   /** Read only where a baseline needs it; undefined when unread or there is no merge base. */
   readonly changedLines?: ChangedLines | undefined;
+  /** The repo's own rules, `shape-rules/`, as ast-grep ran them; undefined when it has none. */
+  readonly shapeRules?: ShapeRules | undefined;
+}
+
+/** The repo's `shape-rules/`: whether ast-grep could run, and each rule as it ran. */
+export interface ShapeRules {
+  readonly integration: Integration;
+  readonly rules: ReadonlyArray<ShapeRuleRun>;
+}
+
+/** One `shape-rules/<id>.yml`, read and run through ast-grep by the adapter. */
+export interface ShapeRuleRun {
+  /** Repo-relative, e.g. `shape-rules/no-unwrap.yml`. */
+  readonly file: string;
+  /** The rule's own fields, where they are strings. */
+  readonly id?: string | undefined;
+  /** ast-grep's `language`, as written: `rust`, `TypeScript`, `py`. */
+  readonly language?: string | undefined;
+  readonly message?: string | undefined;
+  /** `metadata.bugClass`. */
+  readonly bugClass?: string | undefined;
+  /** Why it didn't run: YAML that doesn't parse, or ast-grep's reason for rejecting it. */
+  readonly error?: string | undefined;
+  /** Each match: the file and its 1-based line. */
+  readonly matches: ReadonlyArray<{ readonly file: string; readonly line: number }>;
+  /** Its cases file, `shape-rules/<id>.test.yml`, and how each case ran. */
+  readonly cases: ShapeRuleCases;
+}
+
+export type ShapeRuleCases =
+  | { readonly state: "absent" }
+  | { readonly state: "invalid"; readonly file: string; readonly reason: string }
+  | {
+      readonly state: "ran";
+      readonly file: string;
+      readonly runs: ReadonlyArray<ShapeCaseRun>;
+    };
+
+/** One case, `valid` (must report nothing) or `invalid` (must report), and what it got. */
+export interface ShapeCaseRun {
+  readonly kind: "valid" | "invalid";
+  /** 1-based, in its list. */
+  readonly index: number;
+  readonly matches: number;
+  /** Why it couldn't run, as ast-grep said. */
+  readonly error?: string | undefined;
 }
 
 /** The beads export as read: its beads, or why it doesn't decode. */
