@@ -529,3 +529,45 @@ already written by agents, not generated for it.
   acceptance line on ty's coverage leaves this milestone: what ruff and ty catch will be
   reported later, from the Python repo once it runs real tracks. `8il.18` is deferred off
   `python`; the release (`8il.23`) and the closing acceptance no longer wait on it.
+
+## Retrospective
+
+2026-11-19. Every track and reviewer was asked by mail how working together went: messages,
+collisions, reviews, handoffs. `packs` and `binary` handed off mid-milestone and answered
+first; those answers weigh most, their later sessions' less, except on handoffs, which only
+the later sessions read. The answers, verbatim: #141's comment
+(https://github.com/clinsky/monkeyshape/pull/141#issuecomment-7015703658). What several
+agreed on became `monkeyshape-jhz`, milestone 6 with the harness adapters:
+
+1. **Two green PRs merged in turn turned `main` red three times** (#109, #112, #124; every
+   track, four of five reviewers). The cure is testing the merge itself: the maintainer's
+   merge-queue or up-to-date setting (`7kw`). Meanwhile: LGTM only on a head merged with
+   `main`, with CI on that head; shared add-only files split into one file per pack; a
+   shared file split before its budget.
+2. **Track and reviewer messaging each other directly worked, and belongs in the skills**
+   (every reviewer; `rust`, `python`, `config`). The reviewer messages the track after
+   posting, with the link and one line per finding; the track answers with its head, its CI
+   run (not "CI green") and each finding's test; a review starts only on the human's
+   `/review-pr`; one push per review round.
+3. **"#N edits your file" notices were mostly noise; messages before a PR were the most
+   valuable** (`packs`, `binary`, `rust`, `python`, `config`). `track pr` knows the diff and
+   the ownership: it can name other tracks' files in the body and notify their owners, so
+   agents write only messages that need a decision.
+4. **Opt-in notices would replace the human's relays** (every track and reviewer): a PR
+   merged or a bead closed, to tracks that asked; CI finished on a reviewed head, to the
+   reviewer (all five polled CI); `main` went red.
+5. **A handoff should hold what no command shows** (both handed-off sessions, `config`,
+   `python`): a decision, local-only work and why it waits, a trap; the charter rewritten
+   when a decision changes it; before stopping. Updates on every PR event restated
+   `gh`, `git` and `bd`, went stale in minutes, and saved nothing.
+6. **`track pr`'s refusal during review is right but blunt** (`binary`, `review-binary`,
+   `rust`, `python`, `config`, `packs`): `--wait` should still record CI; a reviewer waiting
+   on another PR shouldn't block pushes (`gnv`).
+7. Smaller: the gate's test stage should report pass, skip and fail counts (two reviewers;
+   a suite skipped silently in CI until #131); a decision touching several owners' files
+   goes to `main` first, which names one owner (`python`: one pin took six messages).
+
+Single-source bugs filed under `jhz`: `bd close` with a `TODO(<id>)` still in code;
+`bd update --notes` replacing notes; `msg register` hanging in a terminal; a squash reverting
+lines `main` gained. The planning session's own lesson (`config`): check a plan's facts
+against the code before they become a task.

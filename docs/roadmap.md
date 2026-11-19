@@ -124,7 +124,7 @@ their tracks report precisely when asked. What agents follow must be where they 
 
 Milestone 5 ran five tracks and five reviewers in parallel on this repo, and shipped 0.6.0.
 Its retrospective asked every track and reviewer how working together went
-(`notes/2026-11-19-milestone-5-retro.md`): what they agreed on is the next goal below, taken
+(`plan/MILESTONE.md`, Retrospective): what they agreed on is the next goal below, taken
 with the harness adapters. Messages sent before a PR shaped designs; messages after it were
 mostly noise; two green PRs merged a minute apart turned `main` red three times.
 

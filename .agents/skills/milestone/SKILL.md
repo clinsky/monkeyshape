@@ -24,8 +24,8 @@ Run this in the main checkout, on an up-to-date `main`, in a fresh chat.
   "not done" sections.
 - `mshape garden`.
 
-On a repo's first milestone there is nothing to look back on: skip to step 3. If this
-boundary's retrospective is already in `notes/` and merged, skip to step 3 too.
+On a repo's first milestone there is nothing to look back on: skip to step 3. If the ending
+plan already has its `## Retrospective` on `main`, skip to step 3 too.
 
 ## 2. Retrospective
 
@@ -38,7 +38,8 @@ collisions, reviews, handoffs. A track that hands off before the end answers fir
 earlier session's answer weighs most. Then bring the human what several of them agree on.
 
 Close the boundary here; a fresh `/milestone` chat plans the next one, from step 3, and stays
-open as its planning session. In this session, write the retrospective's notes to `notes/`,
+open as its planning session. In this session, append a short `## Retrospective` to the
+ending plan (what was agreed, linking the verbatim answers, posted as a comment on this PR),
 update docs/roadmap.md where direction changed, and put what was agreed into the next goal's
 epic, in one PR; once it merges, remove the finished tracks (step 8's rules).
 
