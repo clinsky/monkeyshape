@@ -15,7 +15,8 @@ jobs:
       - uses: actions/checkout@v4
       - name: Install mshape
         run: |
-          curl -fsSL https://github.com/clinsky/monkeyshape/releases/latest/download/install.sh | sh
+          version=$(awk '/^\[/ { t = ($0 == "[mshape]") } t && /^version *=/ { gsub(/^version *= *"|".*$/, ""); print; exit }' shape.toml)
+          curl -fsSL https://github.com/clinsky/monkeyshape/releases/latest/download/install.sh | MSHAPE_VERSION="$version" sh
           echo "$HOME/.local/bin" >> "$GITHUB_PATH"
       - name: The PR body has every required section
         env:

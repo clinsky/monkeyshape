@@ -15,10 +15,11 @@ jobs:
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
-      # mshape runs the version shape.toml pins; rustup installs rust-toolchain.toml's
-      # toolchain on the first cargo command. No Bun.
+      # mshape at shape.toml's pin ([mshape] version; the latest release when unpinned), and
+      # rustup installs rust-toolchain.toml's toolchain on the first cargo command. No Bun.
       - name: Install mshape
         run: |
-          curl -fsSL https://github.com/clinsky/monkeyshape/releases/latest/download/install.sh | sh
+          version=$(awk '/^\[/ { t = ($0 == "[mshape]") } t && /^version *=/ { gsub(/^version *= *"|".*$/, ""); print; exit }' shape.toml)
+          curl -fsSL https://github.com/clinsky/monkeyshape/releases/latest/download/install.sh | MSHAPE_VERSION="$version" sh
           echo "$HOME/.local/bin" >> "$GITHUB_PATH"
       - run: mshape gate

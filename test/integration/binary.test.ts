@@ -10,6 +10,7 @@ import { dirname, join } from "node:path";
 import * as Effect from "effect/Effect";
 import { compileBinaries, packSource } from "../../src/adapters/release.ts";
 import { BINARY_TARGETS, packVersion, RELEASE_DIR } from "../../src/core/release.ts";
+import { skipWithout } from "../support.ts";
 import { ROOT } from "./harness.ts";
 
 const host = BINARY_TARGETS.find(
@@ -128,7 +129,7 @@ describe.skipIf(host === undefined)("the compiled mshape, with no Bun", () => {
   // The Python pack's template (8il.17): born by the compiled mshape and gated by it, with no
   // Bun on the PATH. uv, git and Python come from the machine; uv's cache is the machine's, so
   // the pinned toolchain isn't fetched again.
-  test.skipIf(Bun.which("uv") === null)(
+  test.skipIf(skipWithout(Bun.which("uv") !== null))(
     "init --pack python, then its gate: green with no Bun on the PATH",
     () => {
       const uv = dirname(Bun.which("uv") ?? "");
