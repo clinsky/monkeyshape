@@ -130,8 +130,15 @@ export interface ShapeRuleRun {
   readonly bugClass?: string | undefined;
   /** Why it didn't run: YAML that doesn't parse, or ast-grep's reason for rejecting it. */
   readonly error?: string | undefined;
-  /** Each match: the file and its 1-based line. */
-  readonly matches: ReadonlyArray<{ readonly file: string; readonly line: number }>;
+  /**
+   * Each match: the file, its 1-based line, and the message with the rule's metavariables
+   * filled in (`$W` as the code names it) where ast-grep gave one.
+   */
+  readonly matches: ReadonlyArray<{
+    readonly file: string;
+    readonly line: number;
+    readonly message?: string | undefined;
+  }>;
   /** Its cases file, `shape-rules/<id>.test.yml`, and how each case ran. */
   readonly cases: ShapeRuleCases;
 }

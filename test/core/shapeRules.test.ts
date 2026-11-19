@@ -61,6 +61,17 @@ describe("adopter rules through ast-grep", () => {
     ]);
   });
 
+  test("a match's own message, with the rule's metavariables filled in, is the one reported", () => {
+    const named = rule({
+      message: "reads $W.root; lend a directory instead.",
+      matches: [{ file: "src/a.ts", line: 2, message: "reads st.root; lend a directory instead." }],
+    });
+    expect(found(withRules([named]))).toEqual([
+      "rules/local/no-bang src/a.ts:2 reads st.root; lend a directory instead.",
+      "rules/unused-ignore src/a.ts:3 shape-ignore local/no-bang suppresses nothing; delete it",
+    ]);
+  });
+
   test("a match under shape-ignore is suppressed; an unused one is reported", () => {
     const moved = rule({ matches: [{ file: "src/a.ts", line: 2 }] });
     expect(found(withRules([moved]))).toEqual([

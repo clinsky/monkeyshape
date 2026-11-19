@@ -187,7 +187,8 @@ export const checkRules = (
       violations.push(reported(id, file, line, message));
     };
     for (const rule of shapeActive)
-      for (const line of rule.lines.get(file) ?? []) report(rule.id, line, rule.message);
+      for (const match of rule.lines.get(file) ?? [])
+        report(rule.id, match.line, match.message ?? rule.message);
 
     const entry = matchesAny(file, config.entry);
     const context = contextFor(snapshot, file);

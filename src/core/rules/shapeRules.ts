@@ -45,7 +45,11 @@ export interface ShapeRule {
   readonly file: string;
   readonly message: string;
   readonly bugClass: string;
-  readonly lines: ReadonlyMap<string, ReadonlyArray<number>>;
+  /** By file: each match's line, and its message where ast-grep filled one in. */
+  readonly lines: ReadonlyMap<
+    string,
+    ReadonlyArray<{ readonly line: number; readonly message?: string | undefined }>
+  >;
 }
 
 /** What stops a rule or its cases, reported at `file` as `rules/<kind>`. */
@@ -165,9 +169,12 @@ export const shapeRuleSet = (
     }
     seen.add(id);
     problems.push(...caseProblems(run, id));
-    const lines = new Map<string, Array<number>>();
+    const lines = new Map<string, Array<{ line: number; message?: string | undefined }>>();
     for (const match of run.matches)
-      lines.set(match.file, [...(lines.get(match.file) ?? []), match.line]);
+      lines.set(match.file, [
+        ...(lines.get(match.file) ?? []),
+        { line: match.line, message: match.message },
+      ]);
     rules.push({
       id,
       file: run.file,

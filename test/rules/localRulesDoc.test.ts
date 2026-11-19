@@ -35,6 +35,12 @@ describe("docs/local-rules.md, followed literally", () => {
     expect(Object.keys(await files()).sort()).toEqual([
       "shape-rules/index-writes-merge.test.yml",
       "shape-rules/index-writes-merge.yml",
+      "shape-rules/no-closed-ticket.test.yml",
+      "shape-rules/no-closed-ticket.yml",
+      "shape-rules/no-vendor.test.yml",
+      "shape-rules/no-vendor.yml",
+      "shape-rules/storage-root.test.yml",
+      "shape-rules/storage-root.yml",
       "shape.toml",
       "src/jobs/collect.ts",
       "src/jobs/collect.ts, fixed",
@@ -60,6 +66,32 @@ describe("docs/local-rules.md, followed literally", () => {
       const passed = await check();
       expect(passed.output).not.toContain("rules/local");
       expect(passed.code).toBe(0);
+
+      // The three kinds over real files: each reports where it should, and the vendor rule
+      // stays out of the directory its files scope leaves out.
+      const kinds: Record<string, string> = {
+        "src/jobs/walk.ts": "/** Re-walks the frontier (`OPS-112`). */\nexport const walk = 1;\n",
+        "src/jobs/state.ts":
+          'export const state = function* () {\n  const st = yield* Storage;\n  return join(st.root, "state");\n};\n',
+        "src/core/layout.ts": "export const acmeRoot = 1;\n",
+        "src/cli/targets.ts": 'export const vendor = "acme";\n',
+      };
+      for (const [path, text] of Object.entries(kinds)) await Bun.write(join(dir, path), text);
+      const reported = await check();
+      expect(
+        reported.output
+          .split("\n")
+          .filter((line) => /^\S+:\d+ +rules\/local\//u.test(line))
+          .sort(),
+      ).toEqual([
+        "src/core/layout.ts:1  rules/local/no-vendor",
+        "src/jobs/state.ts:3  rules/local/storage-root",
+        "src/jobs/walk.ts:1  rules/local/no-closed-ticket",
+      ]);
+      expect(reported.output).toContain(
+        "reads st.root, which skips what lend records. Lend a directory with st.lend(dir) instead.",
+      );
+      expect(reported.output).toContain('"acmeRoot" names a vendor.');
     } finally {
       await rm(dir, { recursive: true, force: true });
     }
