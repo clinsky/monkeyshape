@@ -424,7 +424,7 @@ export const behindWarning = (facts: {
     facts.conflicts === undefined || facts.conflicts.length === 0
       ? ""
       : `, and conflicts with it in ${facts.conflicts.slice(0, 5).join(", ")}${facts.conflicts.length > 5 ? ", ..." : ""}`;
-  return `warning: the branch is ${facts.behind} commit${facts.behind === 1 ? "" : "s"} behind \`${facts.target}\`${conflict}. Merge it in (\`git merge ${facts.target}\`) when the review allows, so CI tests what will merge`;
+  return `warning: the branch is ${facts.behind} commit${facts.behind === 1 ? "" : "s"} behind \`${facts.target}\`${conflict}. Merge it in (\`git merge ${facts.target}\`) before review, or in a push answering one, so CI tests what will merge. After the PR's LGTM, only if it conflicts with \`${facts.target}\`, and push only that merge`;
 };
 
 /** A CI check run on a commit, as GitHub's check-runs API lists it. */
