@@ -55,7 +55,7 @@ never by hand.
   the review; `track pr` mails the reviewer each answering push. Answer every finding on the
   PR; before replying "fixed", rerun the reviewer's probes and try to break the fix.
 - Don't poll or ask to be told: `mshape msg watch pr <n>` (or `bead <id>`, `ci <sha>`,
-  `main`) mails you when it merges, closes or CI ends.
+  `main`) mails you when it merges or closes, CI ends, or main goes red and green again.
 
 ## Who decides
 
