@@ -207,7 +207,7 @@ export const identify = (invocation: Invocation): Identity | undefined => {
 };
 
 const AFTER_DELIVERY =
-  "Codex runs these hooks only once you trust them: at Codex's next start, trust the project if it asks, then choose \"Trust all and continue\" for the hooks (asked again whenever a hook changes). Codex reads them from the main checkout, also in a track's worktree, so a change made in a track takes effect once it is merged and pulled there.";
+  "these hooks run only once you trust them: at Codex's next start, trust the project if it asks, then choose \"Trust all and continue\" for the hooks (asked again whenever a hook changes). Codex reads them from the main checkout, also in a track's worktree, so a change made in a track takes effect once it is merged and pulled there.";
 
 export const codex: Harness = {
   id: "codex",
