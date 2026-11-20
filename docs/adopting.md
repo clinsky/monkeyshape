@@ -254,9 +254,12 @@ adopted:
      `mshape prime` (PRIME.md, the session's registration, its unread mail) and passes
      `--harness` in every hook. Sessions registered by 0.6.0 are read as Claude Code's and
      refiled at their next start.
-  2. To run sessions in Codex, add `"codex"` to `harnesses` in `shape.toml` and sync again: it
-     writes `<repo>/.codex/hooks.json`. Codex runs a project's hooks only once you trust the project
-     and each hook, once per clone; sync's note says so.
+  2. To run sessions in Codex too, add `harnesses = ["claude-code", "codex"]` to `shape.toml`
+     and sync again: it writes `<repo>/.codex/hooks.json`. Without the key the default is
+     Claude Code alone, and a list without `claude-code` makes sync remove Claude Code's hooks
+     and skills link, so leave it out only to stop running sessions in Claude Code. Codex runs a
+     project's hooks only once you trust the project and each hook, once per clone; sync's note
+     says so.
   3. New, opt-in: `mshape msg watch` mails you when a PR merges or starts to conflict, a bead
      closes, CI ends on a commit or `main` goes red; `track pr` watches its own PR.
      `mshape msg send --reply-to <id>` threads a reply.

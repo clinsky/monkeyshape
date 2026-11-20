@@ -18,7 +18,7 @@ Goals not yet shipped are listed in the order they would be taken.
 | The loop at scale: a PR as one reviewed unit, rules where agents act, the denylist, tracks that start working | **Shipped** (milestone 4, 0.5.0) | `monkeyshape-4sa` |
 | A language-neutral core: config as data, a configurable gate, a pinned binary, the pack interface | **Shipped** (milestone 5, 0.6.0) | `monkeyshape-070` |
 | Language packs: Rust and Python | **Shipped** (milestone 5, 0.6.0) | `monkeyshape-gbx` |
-| Harness adapters: Codex and pi | **Shipped** for Claude Code and Codex (milestone 6, 0.7.0); pi in progress | `monkeyshape-dlz` |
+| Harness adapters: Codex and pi | **Shipped** for Claude Code and Codex (milestone 6, 0.7.0); pi follows in 0.7.x | `monkeyshape-dlz` |
 | The loop between tracks: what milestone 5 taught | **Shipped** (milestone 6, 0.7.0); acceptance running | `monkeyshape-jhz` |
 | `mshape validate`: the real-data loop (core) | Later | `monkeyshape-97o` |
 | The remaining starter rules (TypeScript pack) | Later | `monkeyshape-hh2` |
