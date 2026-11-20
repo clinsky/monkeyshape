@@ -249,6 +249,17 @@ of that release's `SHA256SUMS`), and `bun add -d --exact monkeyshape@<version>` 
 `mshape sync`, then the gate. What a release asks of a repo that already
 adopted:
 
+- **0.7.0.** The loop runs in Codex as well as Claude Code. From 0.6.0:
+  1. Move the pin and run `mshape sync`: it replaces the session-start hooks with
+     `mshape prime` (PRIME.md, the session's registration, its unread mail) and passes
+     `--harness` in every hook. Sessions registered by 0.6.0 are read as Claude Code's and
+     refiled at their next start.
+  2. To run sessions in Codex, add `"codex"` to `harnesses` in `shape.toml` and sync again: it
+     writes `<repo>/.codex/hooks.json`. Codex runs a project's hooks only once you trust the project
+     and each hook, once per clone; sync's note says so.
+  3. New, opt-in: `mshape msg watch` mails you when a PR merges or starts to conflict, a bead
+     closes, CI ends on a commit or `main` goes red; `track pr` watches its own PR.
+     `mshape msg send --reply-to <id>` threads a reply.
 - **0.6.0.** The config is `shape.toml`, data rather than code, and `mshape` is one binary per
   machine that runs the version the repo pins. From 0.5.0, in order:
   1. Install `mshape` as step 1 shows, and take the package:
