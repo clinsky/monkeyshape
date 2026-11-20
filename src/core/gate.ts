@@ -241,6 +241,21 @@ export const formatCounts = (counts: TestCounts): string =>
     ...(counts.skipped > 0 ? [`${counts.skipped} skipped`] : []),
   ].join(", ");
 
+/**
+ * The test stages' counts in a log of `mshape gate` (a CI job's, whose lines start with a
+ * timestamp): each stage line `formatGate` wrote with counts after its command, as
+ * `<stage> <state>: <counts>`. What `track pr --wait` copies into the Gate section, since the
+ * fast phase it runs itself leaves the tests to CI.
+ */
+export const testStageCounts = (log: string): ReadonlyArray<string> =>
+  log.split("\n").flatMap((line) => {
+    const match =
+      /^(?:\S+Z )?\s{2}(\S+)\s+(passed|failed)\s+.*: (\d+ passed(?:, \d+ failed)?(?:, \d+ skipped)?)\s*$/.exec(
+        line,
+      );
+    return match === null ? [] : [`${match[1]} ${match[2]}: ${match[3]}`];
+  });
+
 /** How a stage's command reads, on one line whatever its arguments hold. */
 export const stageCommand = (stage: PlannedStage): string =>
   stage.origin === "mshape" ? "mshape check" : stage.run.join(" ").replaceAll("\n", "\\n");

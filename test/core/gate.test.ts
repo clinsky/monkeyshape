@@ -1,5 +1,11 @@
 import { describe, expect, test } from "bun:test";
-import { CHECK_STAGE, formatCounts, gateStages, testCounts } from "../../src/core/gate.ts";
+import {
+  CHECK_STAGE,
+  formatCounts,
+  gateStages,
+  testCounts,
+  testStageCounts,
+} from "../../src/core/gate.ts";
 import { PACKS } from "../../src/packs/index.ts";
 import type { GateStage, PackId } from "../../src/schemas/config.ts";
 import { GATE_PACKS } from "./gatePacks.ts";
@@ -172,4 +178,21 @@ describe("a test stage's counts (z1u.14)", () => {
     expect(testCounts("Checked 225 files in 207ms. No fixes applied.")).toBeUndefined();
     expect(testCounts("")).toBeUndefined();
   });
+});
+
+test("a CI job's log gives each test stage with its counts; other stages and lines don't (rdw)", () => {
+  // As GitHub serves a job's log: a timestamp before each line (#149's check job).
+  const log = [
+    "2026-11-19T22:25:44.1531804Z ##[group]Run bun run --silent mshape gate",
+    "2026-11-19T22:27:40.3093674Z   tsc           passed    tsc -p .",
+    "2026-11-19T22:27:40.3094306Z   mshape-check  passed    mshape check",
+    "2026-11-19T22:27:40.3094652Z   bun-test      passed    bun test --parallel --timeout=30000: 1489 passed, 1 skipped",
+    "2026-11-19T22:27:40.3094986Z mshape gate passed",
+  ].join("\n");
+  expect(testStageCounts(log)).toEqual(["bun-test passed: 1489 passed, 1 skipped"]);
+  // A failing stage: its exit code sits between the command and the counts.
+  expect(
+    testStageCounts("  pytest        failed    uv run pytest (exit 1): 3 passed, 1 failed"),
+  ).toEqual(["pytest failed: 3 passed, 1 failed"]);
+  expect(testStageCounts("no gate here")).toEqual([]);
 });
