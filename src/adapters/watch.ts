@@ -26,6 +26,7 @@ import {
   encodeWatch,
   eventKeys,
   formatWatches,
+  isEventOf,
   type PrSeen,
   parseTarget,
   type Run,
@@ -120,8 +121,8 @@ export const ghObserver = (env: Environment): Observer => ({
     lookup(
       env,
       cwd,
-      ["gh", "pr", "view", pr, "--json", "state,title,url,mergeCommit"],
-      /Could not resolve to a PullRequest/,
+      ["gh", "api", `repos/{owner}/{repo}/pulls/${pr}`],
+      /HTTP 404/,
       `pull request #${pr}`,
       decodePr,
     ),
@@ -277,14 +278,17 @@ export const watchAdd = (
     );
     if (already !== undefined) return `Already watching ${describeWatch(watch)} at ${address}.`;
     // Cleared before the watch exists, so no check sees the new watch beside an old ledger.
-    for (const key of eventKeys(watch)) {
-      const ledger = sentPath(common, address, key);
+    const sentDir = sentPath(common, address, "");
+    for (const file of (yield* entries(sentDir)).filter((name) =>
+      isEventOf(name, eventKeys(watch)),
+    )) {
+      const ledger = sentPath(common, address, file);
       yield* fsUnless("remove", ledger, "ENOENT", undefined, () => unlink(ledger));
     }
     yield* writeWatch(path, watch);
     const when =
       watch.kind === "pr"
-        ? "when it merges or closes"
+        ? "when it starts to conflict with its base, and when it merges or closes"
         : watch.kind === "bead"
           ? "when it closes"
           : watch.kind === "ci"

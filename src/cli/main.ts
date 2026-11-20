@@ -1112,9 +1112,11 @@ export const COMMANDS: ReadonlyArray<Command> = [
       Print a message and mark it read at this address. Nothing else marks one read. A reply
       lists the earlier messages of its thread, oldest first, by id and subject.
   mshape msg watch pr <n> | bead <id> | ci <sha> | main
-      Be told by mail, from mshape, when pull request <n> merges or closes, a bead closes,
+      Be told by mail, from mshape, when pull request <n> starts to conflict with its base
+      (again only after it was clean), merges or closes, a bead closes,
       CI on a commit ends (pass or fail), or a head of main fails CI and later passes again.
-      A pr, bead or ci watch is removed once it fires; main's stays. Each event is sent
+      A pr watch is removed once the PR merges or closes, a bead or ci watch once it fires;
+      main's stays. Each event is sent
       once. Checked through gh and bd when any session's inbox is read, at most once a
       minute; a gh or bd that can't run is a note, and no watch is lost.
   mshape msg watch

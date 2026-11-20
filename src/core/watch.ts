@@ -11,7 +11,11 @@ import { mshapeCommand } from "./hooks.ts";
 export const WATCH_SENDER = "mshape";
 
 export type Watch =
-  | { readonly kind: "pr"; readonly pr: string }
+  /**
+   * `conflicting` is set while GitHub reports the PR conflicting with its base, once its
+   * message is sent: absent (0.7.0's watches) is clean.
+   */
+  | { readonly kind: "pr"; readonly pr: string; readonly conflicting?: boolean }
   | { readonly kind: "bead"; readonly id: string }
   /** `sha` is the full commit id, resolved when the watch is made. */
   | { readonly kind: "ci"; readonly sha: string }
@@ -98,8 +102,14 @@ export const decodeWatch = (text: string): Watch | string => {
   const kind = value["kind"];
   if (typeof kind !== "string" || !(kind in keys)) return `unknown kind: ${String(kind)}`;
   const wanted = keys[kind as Watch["kind"]];
-  const extra = Object.keys(value).filter((key) => !wanted.includes(key));
+  // A pr watch's `conflicting` is optional: one stored before it existed has none.
+  const optional = kind === "pr" ? ["conflicting"] : [];
+  const extra = Object.keys(value).filter(
+    (key) => !wanted.includes(key) && !optional.includes(key),
+  );
   if (extra.length > 0) return `unknown keys: ${extra.join(", ")}`;
+  if (value["conflicting"] !== undefined && typeof value["conflicting"] !== "boolean")
+    return "missing or of the wrong type: conflicting";
   const bad = wanted.filter((key) =>
     key === "red" ? typeof value[key] !== "boolean" : typeof value[key] !== "string",
   );
@@ -109,26 +119,40 @@ export const decodeWatch = (text: string): Watch | string => {
 
 export const encodeWatch = (watch: Watch): string => `${JSON.stringify(watch)}\n`;
 
-/** What `gh pr view --json number,state,title,url,mergeCommit` says. */
+/** What `gh api repos/{owner}/{repo}/pulls/<n>` says: one call, which gh 2.4 has. */
 export interface PrSeen {
   readonly state: "OPEN" | "MERGED" | "CLOSED";
   readonly title: string;
   readonly url: string;
   readonly mergeCommit?: string;
+  /** GitHub's answer while it is open: `UNKNOWN` until it has computed it, which asking starts. */
+  readonly mergeable: "MERGEABLE" | "CONFLICTING" | "UNKNOWN";
+  /** The base branch, and its head as GitHub last compared the PR with it. */
+  readonly base: string;
+  readonly baseHead: string;
 }
 
 export const decodePr = (text: string): PrSeen | string => {
   const value = record(text);
   if (typeof value === "string") return value;
-  const { state, title, url, mergeCommit } = value;
-  if (state !== "OPEN" && state !== "MERGED" && state !== "CLOSED")
-    return `state is ${String(state)}`;
-  if (typeof title !== "string" || typeof url !== "string") return "no title or url";
-  const oid =
-    typeof mergeCommit === "object" && mergeCommit !== null
-      ? (mergeCommit as Record<string, unknown>)["oid"]
-      : undefined;
-  return { state, title, url, ...(typeof oid === "string" ? { mergeCommit: oid } : {}) };
+  const { state, merged, title, html_url, merge_commit_sha, mergeable, base } = value;
+  if (state !== "open" && state !== "closed") return `state is ${String(state)}`;
+  if (typeof title !== "string" || typeof html_url !== "string") return "no title or html_url";
+  const baseRecord =
+    typeof base === "object" && base !== null ? (base as Record<string, unknown>) : {};
+  const { ref, sha } = baseRecord;
+  if (typeof ref !== "string" || typeof sha !== "string") return "no base ref or sha";
+  const isMerged = merged === true;
+  return {
+    state: state === "open" ? "OPEN" : isMerged ? "MERGED" : "CLOSED",
+    title,
+    url: html_url,
+    // An open PR's merge_commit_sha is GitHub's test merge, not a merge: only a merged one's.
+    ...(isMerged && typeof merge_commit_sha === "string" ? { mergeCommit: merge_commit_sha } : {}),
+    mergeable: mergeable === true ? "MERGEABLE" : mergeable === false ? "CONFLICTING" : "UNKNOWN",
+    base: ref,
+    baseHead: sha,
+  };
 };
 
 /** What `bd show <id> --json` says of one bead. */
@@ -232,6 +256,13 @@ export const verdict = (runs: ReadonlyArray<Run>): Verdict =>
         runs,
       };
 
+/** A conflict's key is this and the base's head: a key ending in `-` names every one. */
+const conflictPrefix = (pr: string): string => `pr-${pr}-conflict-`;
+
+/** Whether ledger entry `file` is one of `keys`: equal, or under a key ending in `-`. */
+export const isEventOf = (file: string, keys: ReadonlyArray<string>): boolean =>
+  keys.some((key) => file === key || (key.endsWith("-") && file.startsWith(key)));
+
 /**
  * The keys of every event a watch can send, which the ledger holds once sent. A new watch
  * clears them, so "never twice" holds for one watch's life: a watch made again after it fired
@@ -240,7 +271,7 @@ export const verdict = (runs: ReadonlyArray<Run>): Verdict =>
  */
 export const eventKeys = (watch: Watch): ReadonlyArray<string> =>
   watch.kind === "pr"
-    ? [`pr-${watch.pr}-merged`, `pr-${watch.pr}-closed`]
+    ? [`pr-${watch.pr}-merged`, `pr-${watch.pr}-closed`, conflictPrefix(watch.pr)]
     : watch.kind === "bead"
       ? [`bead-${watch.id}-closed`]
       : watch.kind === "ci"
@@ -275,8 +306,34 @@ const titled = (head: string, title: string): string =>
 const removedLine = (watch: Target): string =>
   `You watched this with \`${mshapeCommand(["msg", "watch", ...describeWatch(watch).split(" ")])}\`; that watch is now removed.`;
 
+/**
+ * An open PR: one message when it starts to conflict with its base, then nothing while it
+ * stays conflicting; clean again, it may send another. `UNKNOWN` decides nothing: GitHub
+ * computes it after being asked, so the next check sees it.
+ */
+const decideOpenPr = (watch: Watch & { kind: "pr" }, seen: PrSeen): Decided => {
+  const was = watch.conflicting ?? false;
+  if (seen.mergeable === "UNKNOWN" || (seen.mergeable === "CONFLICTING") === was)
+    return { events: [], next: watch };
+  if (seen.mergeable === "MERGEABLE") return { events: [], next: { kind: "pr", pr: watch.pr } };
+  return {
+    events: [
+      {
+        key: `${conflictPrefix(watch.pr)}${seen.baseHead}`,
+        subject: titled(`#${watch.pr} conflicts with ${seen.base}`, seen.title),
+        body: [
+          `GitHub reports ${seen.url} conflicting with \`${seen.base}\`, now at ${seen.baseHead}: it can't merge until \`${seen.base}\` is merged into its branch and the conflict resolved.`,
+          "",
+          `The watch stays until it merges or closes, and mails again only after the PR has been clean in between.`,
+        ].join("\n"),
+      },
+    ],
+    next: { ...watch, conflicting: true },
+  };
+};
+
 export const decidePr = (watch: Watch & { kind: "pr" }, seen: PrSeen): Decided => {
-  if (seen.state === "OPEN") return { events: [], next: watch };
+  if (seen.state === "OPEN") return decideOpenPr(watch, seen);
   const merged = seen.state === "MERGED";
   const head = merged ? `#${watch.pr} merged` : `#${watch.pr} closed without merging`;
   return {
