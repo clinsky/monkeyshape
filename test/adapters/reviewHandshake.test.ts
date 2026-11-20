@@ -39,6 +39,7 @@ const mshape = (cwd: string, ...args: ReadonlyArray<string>) => {
       CLAUDE_CONFIG_DIR: join(base, "no-claude"),
       CLAUDE_CODE_SESSION_ID: "",
       CLAUDE_PID: "",
+      CODEX_THREAD_ID: "",
     },
     stdout: "pipe",
     stderr: "pipe",

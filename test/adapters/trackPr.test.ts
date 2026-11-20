@@ -820,6 +820,7 @@ console.log(out);
         FAKE_GH: gh,
         CLAUDE_CODE_SESSION_ID: "",
         CLAUDE_PID: "",
+        CODEX_THREAD_ID: "",
       },
       stdout: "pipe",
       stderr: "pipe",
