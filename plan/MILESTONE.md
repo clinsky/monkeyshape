@@ -419,3 +419,18 @@ needs a model to start.
   wrapper around monkeyshape's line ("Another Claude session ..."), which monkeyshape can't
   change. This replaces the Notices paragraph's "the line says it is mail from another
   session"; the acceptance's "live while idle" stands for Codex.
+- **2026-11-20, a watched PR that starts to conflict sends mail (`notices`, `z1u.18`), and the
+  merge-with-main rule (`prs`, `z1u.17`), approved by the planning session.** From `prs`'s
+  question after merging `main` into PRs past their LGTM. The rule, from the maintainer's
+  "merging main in after LGTM makes no sense": a PR takes `main` before review or in a
+  review round's push; after LGTM it takes nothing unless it conflicts. `track pr` watches
+  its own PR, so the conflict arrives as mail and no one relays it. The Watches table gains:
+
+  | Case | Result |
+  |---|---|
+  | a watched PR starts to conflict with its base | one message naming the base's head; again only after it was clean; the watch stays |
+  | GitHub's mergeable state still unknown | no message; checked next time |
+- **2026-11-20, 0.7.0's preparation moves from `notices` to the planning session, and the
+  release waits for `z1u.17`, `z1u.18` and `c82` too, the maintainer's decisions.** The
+  release waits for every track then active (`harness`, `codex`, `notices`, `prs`), not for
+  `pi`, which hadn't started; `pi` follows in 0.7.x as planned.
