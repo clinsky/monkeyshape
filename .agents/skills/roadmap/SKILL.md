@@ -7,7 +7,7 @@ description: Use when the human brings a brain-dump about where the repo is head
 
 The roadmap is direction, not a spec: months ahead, coarse, rewritten in place, never cited
 by code or normative docs. Your job is to turn a brain-dump into goals clear enough that a
-later the `milestone` skill can pick one and give it acceptance on real data.
+later run of the `milestone` skill can pick one and give it acceptance on real data.
 
 Run this in the main checkout, on an up-to-date `main`, in a fresh chat.
 

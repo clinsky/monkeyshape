@@ -222,7 +222,6 @@ vendored = [
 export const SHARE_BEADS =
   "bd dolt push --yes && bd config set dolt.auto-push true && git commit --quiet -m 'Share beads through origin' .beads/config.yaml && git push --quiet origin HEAD";
 
-/** The last thing `init` prints: what to do now, and where the conventions are. */
 /**
  * How a human starts `skill` in each of `harnesses`, as they type it: `/roadmap`, or
  * "`/roadmap` in Claude Code, `$roadmap` in Codex" when several are listed.
@@ -241,6 +240,7 @@ export const invocation = (
   return typed.map((one) => `\`${one.text}\` in ${one.name}`).join(", ");
 };
 
+/** The last thing `init` prints: what to do now, and where the conventions are. */
 export const nextStep = (
   name: string,
   workflowUrl: string,
