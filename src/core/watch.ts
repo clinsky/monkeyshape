@@ -127,9 +127,12 @@ export interface PrSeen {
   readonly mergeCommit?: string;
   /** GitHub's answer while it is open: `UNKNOWN` until it has computed it, which asking starts. */
   readonly mergeable: "MERGEABLE" | "CONFLICTING" | "UNKNOWN";
-  /** The base branch, and its head as GitHub last compared the PR with it. */
+  /**
+   * The base branch. Its head is asked for apart (`git/ref/heads/<base>`): the PR's own
+   * `base.sha` moves only when the PR's branch is pushed, so it trails a base that moved into
+   * the conflict (#159's review).
+   */
   readonly base: string;
-  readonly baseHead: string;
 }
 
 export const decodePr = (text: string): PrSeen | string => {
@@ -140,8 +143,8 @@ export const decodePr = (text: string): PrSeen | string => {
   if (typeof title !== "string" || typeof html_url !== "string") return "no title or html_url";
   const baseRecord =
     typeof base === "object" && base !== null ? (base as Record<string, unknown>) : {};
-  const { ref, sha } = baseRecord;
-  if (typeof ref !== "string" || typeof sha !== "string") return "no base ref or sha";
+  const { ref } = baseRecord;
+  if (typeof ref !== "string") return "no base ref";
   const isMerged = merged === true;
   return {
     state: state === "open" ? "OPEN" : isMerged ? "MERGED" : "CLOSED",
@@ -151,7 +154,6 @@ export const decodePr = (text: string): PrSeen | string => {
     ...(isMerged && typeof merge_commit_sha === "string" ? { mergeCommit: merge_commit_sha } : {}),
     mergeable: mergeable === true ? "MERGEABLE" : mergeable === false ? "CONFLICTING" : "UNKNOWN",
     base: ref,
-    baseHead: sha,
   };
 };
 
@@ -311,18 +313,24 @@ const removedLine = (watch: Target): string =>
  * stays conflicting; clean again, it may send another. `UNKNOWN` decides nothing: GitHub
  * computes it after being asked, so the next check sees it.
  */
-const decideOpenPr = (watch: Watch & { kind: "pr" }, seen: PrSeen): Decided => {
+const decideOpenPr = (
+  watch: Watch & { kind: "pr" },
+  seen: PrSeen,
+  baseHead: string | undefined,
+): Decided => {
   const was = watch.conflicting ?? false;
   if (seen.mergeable === "UNKNOWN" || (seen.mergeable === "CONFLICTING") === was)
     return { events: [], next: watch };
   if (seen.mergeable === "MERGEABLE") return { events: [], next: { kind: "pr", pr: watch.pr } };
+  // Its head unknown, a conflict waits for the next check rather than naming the wrong one.
+  if (baseHead === undefined) return { events: [], next: watch };
   return {
     events: [
       {
-        key: `${conflictPrefix(watch.pr)}${seen.baseHead}`,
+        key: `${conflictPrefix(watch.pr)}${baseHead}`,
         subject: titled(`#${watch.pr} conflicts with ${seen.base}`, seen.title),
         body: [
-          `GitHub reports ${seen.url} conflicting with \`${seen.base}\`, now at ${seen.baseHead}: it can't merge until \`${seen.base}\` is merged into its branch and the conflict resolved.`,
+          `GitHub reports ${seen.url} conflicting with \`${seen.base}\`, now at ${baseHead}: it can't merge until \`${seen.base}\` is merged into its branch and the conflict resolved.`,
           "",
           `The watch stays until it merges or closes, and mails again only after the PR has been clean in between.`,
         ].join("\n"),
@@ -332,8 +340,20 @@ const decideOpenPr = (watch: Watch & { kind: "pr" }, seen: PrSeen): Decided => {
   };
 };
 
-export const decidePr = (watch: Watch & { kind: "pr" }, seen: PrSeen): Decided => {
-  if (seen.state === "OPEN") return decideOpenPr(watch, seen);
+/**
+ * Whether deciding `seen` needs its base's head: only a conflict about to be reported names
+ * it, so the adapter asks for it then and no other time.
+ */
+export const needsBaseHead = (watch: Watch & { kind: "pr" }, seen: PrSeen): boolean =>
+  seen.state === "OPEN" && seen.mergeable === "CONFLICTING" && !(watch.conflicting ?? false);
+
+export const decidePr = (
+  watch: Watch & { kind: "pr" },
+  seen: PrSeen,
+  /** The base branch's head now, when `needsBaseHead` says it is needed. */
+  baseHead?: string,
+): Decided => {
+  if (seen.state === "OPEN") return decideOpenPr(watch, seen, baseHead);
   const merged = seen.state === "MERGED";
   const head = merged ? `#${watch.pr} merged` : `#${watch.pr} closed without merging`;
   return {
