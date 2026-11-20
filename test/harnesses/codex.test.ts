@@ -62,7 +62,7 @@ describe("codex hooks.json", () => {
     expect(mergeHooks(merged, HOOKS)).toBe(mergeHooks(undefined, HOOKS));
   });
 
-  test("a stale command of ours is replaced, at the end, and the check names it until then", () => {
+  test("a stale command of ours is replaced in its slot, and the check names it until then", () => {
     const stale = codexCommand(["msg", "register"]);
     const current = {
       hooks: { SessionStart: [{ hooks: [{ type: "command", command: stale }] }, repoHook] },
@@ -73,8 +73,8 @@ describe("codex hooks.json", () => {
     ]);
     const file = parse(mergeHooks(current, HOOKS));
     expect(commands(file, "SessionStart")).toEqual([
-      "./scripts/fmt-check.sh",
       codexCommand(["prime"]),
+      "./scripts/fmt-check.sh",
     ]);
   });
 
@@ -193,5 +193,58 @@ describe("codex hooks.json in a repo that doesn't list codex", () => {
   test("ours removed, the repo's empty events kept", () => {
     const current = parse(mergeHooks({ hooks: { Stop: [] } }, HOOKS));
     expect(parse(mergeHooks(current, []))).toEqual({ hooks: { Stop: [] } });
+  });
+});
+
+describe("codex hooks.json: review of #151", () => {
+  test("a stale hook of ours between the repo's is replaced in its slot, so theirs keep their indices", () => {
+    const current = {
+      hooks: {
+        SessionStart: [
+          repoHook,
+          { hooks: [{ type: "command", command: codexCommand(["old"]) }] },
+          repoHook,
+        ],
+        UserPromptSubmit: [
+          { hooks: [{ type: "command", command: codexCommand(["msg", "inbox", "--quiet"]) }] },
+        ],
+      },
+    };
+    const file = parse(mergeHooks(current, HOOKS));
+    expect(commands(file, "SessionStart")).toEqual([
+      "./scripts/fmt-check.sh",
+      codexCommand(["prime"]),
+      "./scripts/fmt-check.sh",
+    ]);
+    expect(missingHooks(file, HOOKS)).toEqual([]);
+  });
+
+  test("a repo's own hook that runs mshape --harness codex isn't ours: kept, and never counted", () => {
+    const own = "mshape --harness codex msg send main --subject started started";
+    const wrapped = codexCommand(["msg", "send", "main", "hi"]).replace(
+      "could not run here",
+      "failed",
+    );
+    const current = {
+      hooks: {
+        SessionStart: [
+          { hooks: [{ type: "command", command: own }] },
+          { hooks: [{ type: "command", command: wrapped }] },
+        ],
+      },
+    };
+    const file = parse(mergeHooks(current, HOOKS));
+    expect(commands(file, "SessionStart")).toEqual([own, wrapped, codexCommand(["prime"])]);
+    expect(parse(mergeHooks(file, []))).toEqual(current);
+  });
+
+  test("ours with a quoted argument is still ours", () => {
+    const quoted: ReadonlyArray<LoopHook> = [
+      { moment: "session-start", args: ["msg", "send", "main", "it's here"] },
+    ];
+    const file = parse(mergeHooks(undefined, quoted));
+    expect(commands(file, "SessionStart")[0]).toContain(`'it'\\''s here'`);
+    expect(missingHooks(file, quoted)).toEqual([]);
+    expect(parse(mergeHooks(file, []))).toEqual({ hooks: {} });
   });
 });

@@ -40,12 +40,26 @@ const FLAG = ["--harness", "codex"] as const;
 export const codexCommand = (args: ReadonlyArray<string>): string =>
   hookCommand([...FLAG, ...args], args[0] === "prime" ? PRIME_FALLBACK : undefined);
 
+/** The arguments of a command line as `mshapeCommand` quotes them (POSIX single quotes). */
+const unquote = (line: string): ReadonlyArray<string> =>
+  [...line.matchAll(/'((?:[^']|'\\'')*)'|(\S+)/g)].map(
+    ([, quoted, bare]) => quoted?.replaceAll("'\\''", "'") ?? bare ?? "",
+  );
+
 /**
- * Whether `command` is one monkeyshape wrote for Codex, in any version: every one runs
- * `mshape` with `--harness codex`. A repo's own hook never matches.
+ * Whether `command` is one this adapter rendered: exactly `codexCommand` of the arguments it
+ * runs. A repo's own hook that runs `mshape --harness codex ...` some other way is the repo's.
+ * A version that changes how commands are rendered must keep recognising the old ones here.
  */
-const ours = (command: unknown): boolean =>
-  typeof command === "string" && command.includes(`mshape ${FLAG.join(" ")} `);
+const ours = (command: unknown): boolean => {
+  if (typeof command !== "string") return false;
+  const start = command.indexOf(`mshape ${FLAG.join(" ")} `);
+  if (start < 0) return false;
+  const rest = command.slice(start + `mshape ${FLAG.join(" ")} `.length);
+  const end = rest.indexOf(" ||");
+  if (end < 0) return false;
+  return command === codexCommand(unquote(rest.slice(0, end)));
+};
 
 type Entry = {
   readonly hooks: ReadonlyArray<{ readonly type: "command"; readonly command: string }>;
@@ -75,15 +89,29 @@ const commandsOf = (value: unknown): ReadonlyArray<unknown> =>
 const oursIn = (entries: ReadonlyArray<unknown>): ReadonlyArray<string> =>
   entries.flatMap((value) => commandsOf(value).filter(ours) as Array<string>);
 
-/** An event's entries with ours taken out; an entry left with no hook goes too. */
-const withoutOurs = (entries: ReadonlyArray<unknown>): Array<unknown> =>
-  entries.flatMap((value) => {
+/**
+ * An event's entries with ours made `commands`: each of ours rewritten in its own slot, in
+ * order, so the repo's entries keep their indices (Codex's trust key); ours left over are
+ * taken out (an entry left with no hook goes too), and commands left over are appended.
+ */
+const replaceOurs = (
+  entries: ReadonlyArray<unknown>,
+  commands: ReadonlyArray<string>,
+): Array<unknown> => {
+  const queue = [...commands];
+  const out = entries.flatMap((value) => {
     if (!isObject(value) || !Array.isArray(value["hooks"])) return [value];
     const inner = value["hooks"] as Array<unknown>;
     if (!inner.some((hook) => isObject(hook) && ours(hook["command"]))) return [value];
-    const kept = inner.filter((hook) => !(isObject(hook) && ours(hook["command"])));
+    const kept = inner.flatMap((hook) => {
+      if (!(isObject(hook) && ours(hook["command"]))) return [hook];
+      const next = queue.shift();
+      return next === undefined ? [] : [{ ...hook, command: next }];
+    });
     return kept.length === 0 ? [] : [{ ...value, hooks: kept }];
   });
+  return [...out, ...queue.map(entry)];
+};
 
 const sameList = (a: ReadonlyArray<string>, b: ReadonlyArray<string>) =>
   a.length === b.length && a.every((value, i) => value === b[i]);
@@ -91,8 +119,8 @@ const sameList = (a: ReadonlyArray<string>, b: ReadonlyArray<string>) =>
 /**
  * `.codex/hooks.json` with monkeyshape's entries made exactly `hooks`, everything else kept.
  * An event whose entries of ours are already right is left as it is, so nothing moves and no
- * hook is asked about again; otherwise ours go and the wanted ones are appended after the
- * repo's, never reordering theirs.
+ * hook is asked about again; otherwise ours are rewritten in their slots and new ones appended
+ * after the repo's, never reordering theirs (`replaceOurs`).
  */
 export const mergeHooks = (
   current: JsonObject | undefined,
@@ -112,8 +140,8 @@ export const mergeHooks = (
     if (value !== undefined && (!Array.isArray(value) || sameList(oursIn(entries), commands)))
       events[event] = value;
     else {
-      // Ours replaced; an event left empty only by taking ours out goes with them.
-      const kept = [...withoutOurs(entries), ...commands.map(entry)];
+      // An event left empty only by taking ours out goes with them.
+      const kept = replaceOurs(entries, commands);
       if (kept.length > 0) events[event] = kept;
     }
   }
