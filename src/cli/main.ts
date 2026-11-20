@@ -13,7 +13,7 @@ import {
 } from "../adapters/baseline.ts";
 import { withBeadsExport } from "../adapters/beads.ts";
 import { findConfig, loadConfig } from "../adapters/config.ts";
-import { reviewPost, scanFile } from "../adapters/denylist.ts";
+import { scanFile } from "../adapters/denylist.ts";
 import { depBump } from "../adapters/dep.ts";
 import { runGate } from "../adapters/gate.ts";
 import { harnesses } from "../adapters/harnesses/index.ts";
@@ -33,7 +33,7 @@ import {
 import { primeText } from "../adapters/prime.ts";
 import { runTool } from "../adapters/process.ts";
 import { packSource, packWorkingTree } from "../adapters/release.ts";
-import { reviewNew, reviewRm } from "../adapters/reviews.ts";
+import { reviewNew, reviewPostAndTell, reviewRm } from "../adapters/reviews.ts";
 import { listShapeRules } from "../adapters/shapeRules.ts";
 import { syncAll } from "../adapters/sync.ts";
 import { CI_TIMING, trackPr } from "../adapters/trackPr.ts";
@@ -75,6 +75,7 @@ import { formatSyncPlan } from "../core/sync.ts";
 import { headingProblems } from "../core/trackPr.ts";
 import { HARNESS_IDS, PACK_IDS, shapeJsonSchema } from "../schemas/config.ts";
 import { type ConfigError, TrackError, WorkspaceError } from "../schemas/errors.ts";
+import { mailAndNotify, randomHex } from "./mailNotify.ts";
 import { caller, hookCaller, setInvokedBy } from "./session.ts";
 
 /** What a command returns: the text to print, and the exit code (0 prints to stdout). */
@@ -290,24 +291,7 @@ const trackPrCommand = (root: string, args: ReadonlyArray<string>) =>
         harnesses: harnesses(process.env),
         bodyOnly: args.includes("--body-only"),
         ...(args.includes("--wait") ? { wait: CI_TIMING } : {}),
-        notify: (to, subject, text) =>
-          Effect.gen(function* () {
-            const message = yield* mailSend(root, to, subject, text, new Date(), randomHex);
-            const delivery = yield* notifyRecipient(
-              root,
-              message,
-              harnesses(process.env),
-              new Date(),
-            ).pipe(
-              Effect.catchTags({
-                TrackError: (error) =>
-                  Effect.succeed({ notified: 0, pruned: [], skipped: [error.reason] }),
-                WorkspaceError: (error) =>
-                  Effect.succeed({ notified: 0, pruned: [], skipped: [error.message] }),
-              }),
-            );
-            return `${formatSent(message)}\n${formatDelivery(to, delivery)}`;
-          }),
+        notify: mailAndNotify(root),
       },
       (line) => Effect.sync(() => console.error(line)),
     );
@@ -419,12 +403,6 @@ const carryMessages =
         WorkspaceError: (error) => Effect.succeed({ reason: error.message }),
       }),
     );
-
-/** Four hex digits for a message id: unique within a second among a handful of senders. */
-const randomHex = (): string =>
-  [...crypto.getRandomValues(new Uint8Array(2))]
-    .map((b) => b.toString(16).padStart(2, "0"))
-    .join("");
 
 /** `msg send`'s flags that take a value. */
 const SEND_VALUES = ["--subject", "--body-file", "--reply-to"] as const;
@@ -685,13 +663,19 @@ const review = (root: string, args: ReadonlyArray<string>) =>
         ),
         code: 0,
       };
-    if (args.length === 3 && args[0] === "post")
-      return {
-        output: yield* reviewPost(root, configDir(), args[1] ?? "", args[2] ?? "", (line) =>
-          Effect.sync(() => console.error(line)),
-        ),
-        code: 0,
-      };
+    const posting = args.filter((arg) => arg !== "--lgtm");
+    if (posting.length === 3 && posting[0] === "post" && args.length - posting.length <= 1) {
+      const output = yield* reviewPostAndTell(
+        root,
+        configDir(),
+        posting[1] ?? "",
+        posting[2] ?? "",
+        args.includes("--lgtm"),
+        mailAndNotify(root),
+        (line) => Effect.sync(() => console.error(line)),
+      );
+      return { output, code: 0 };
+    }
     if (args.length === 2 && args[0] === "rm")
       return {
         output: yield* reviewRm(root, args[1] ?? "", (line) =>
@@ -1065,10 +1049,13 @@ export const COMMANDS: ReadonlyArray<Command> = [
       Remove that worktree and its fetched ref. A reviewer at review-<track> keeps that
       address and its mail for the track's next PR; for a PR from no track, review-<n>'s
       unread mail is listed and its sessions removed. Never the shared data or the handoffs.
-  mshape review post <n> <file>
+  mshape review post <n> <file> [--lgtm]
       Post <file>, a review as GitHub's reviews API takes it ({commit_id, event, body,
       comments}), on pull request <n>, after scanning every string in it for denylisted terms
-      (see scan): a match refuses, naming where, and nothing is posted.`,
+      (see scan): a match refuses, naming where, and nothing is posted. Then mail the track
+      the PR is from: the link and one line per inline finding. --lgtm posts it as the LGTM
+      (refused beside an inline blocker, or on a commit that isn't the PR's head), mails the
+      track so, and removes the review's worktree; the reviewer keeps review-<track>.`,
     run: review,
   },
   {

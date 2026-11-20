@@ -319,17 +319,23 @@ export interface PostedReview {
 }
 
 /**
- * Whether a reviewer has posted on `head`. A thread reply is a review with an empty body (the
+ * The reviews that count as a reviewer's. A thread reply is a review with an empty body (the
  * author answering findings makes one), so it never counts. Once any review carries
  * `REVIEW_MARKER`, only marked ones count, since the author's account may be the reviewer's;
  * before then, any review with a body does, as a reviewer posting by hand leaves no mark.
  */
-export const reviewedHead = (reviews: ReadonlyArray<PostedReview>, head: string): boolean => {
+const counted = (reviews: ReadonlyArray<PostedReview>): ReadonlyArray<PostedReview> => {
   const marked = reviews.filter((review) => review.body.includes(REVIEW_MARKER));
-  const counted =
-    marked.length > 0 ? marked : reviews.filter((review) => review.body.trim() !== "");
-  return counted.some((review) => review.commit_id === head);
+  return marked.length > 0 ? marked : reviews.filter((review) => review.body.trim() !== "");
 };
+
+/** Whether a reviewer has posted on `head`. */
+export const reviewedHead = (reviews: ReadonlyArray<PostedReview>, head: string): boolean =>
+  counted(reviews).some((review) => review.commit_id === head);
+
+/** Whether a reviewer has posted on the PR at all: after that, a push answers a review. */
+export const reviewPosted = (reviews: ReadonlyArray<PostedReview>): boolean =>
+  counted(reviews).length > 0;
 
 /** What `track pr` knows about a review of its PR on this machine. */
 export interface ReviewFacts {
@@ -342,30 +348,33 @@ export interface ReviewFacts {
   readonly registered: boolean;
   /** Whether a review on the PR has the PR's head as its `commit_id`. */
   readonly reviewedHead: boolean;
+  /** Whether a reviewer has posted any review on the PR. */
+  readonly reviewed: boolean;
   /** Whether the push would change the PR's head: false when the tip already is it. */
   readonly moves: boolean;
 }
 
 /**
- * Whether `track pr` may push. A review is in progress while a live session is registered
- * at the reviewer's address and no review has the PR's head as its commit: no clock, since
- * commit dates are the author's. Once a review is on the head, its findings are there to answer.
- * A push that leaves the head where it is (`--wait` on a tip already pushed) changes nothing
- * under the reviewer, so it is never refused.
+ * Whether `track pr` may push. The first review is in progress while a live session is
+ * registered at the reviewer's address and no review is on the PR yet: no clock, since commit
+ * dates are the author's. Once a review is posted, a push answers it, however many pushes the
+ * answer takes (`gyd`); `track pr` mails the reviewer each one. A push that leaves the head
+ * where it is (`--wait` on a tip already pushed) changes nothing under the reviewer.
  */
 export const reviewDecision = (
   facts: ReviewFacts,
 ): { readonly refuse: string } | { readonly note: string | undefined } => {
   const { address } = facts;
-  if (facts.live.length > 0 && !facts.reviewedHead && facts.moves)
+  if (facts.live.length > 0 && !facts.reviewed && facts.moves)
     return {
-      refuse: `a review of #${facts.pr} is in progress (session ${facts.live.join(", ")} at \`${address}\`) and hasn't posted on the PR's head yet, so nothing was pushed or posted: a push now would change the PR under its reviewer. Wait for the review, then answer it; keep new work on a local branch meanwhile`,
+      refuse: `the first review of #${facts.pr} is in progress (session ${facts.live.join(", ")} at \`${address}\`) and hasn't posted yet, so nothing was pushed or posted: a push now would change the PR under its reviewer. Wait for the review, then answer it; keep new work on a local branch meanwhile`,
     };
   if (facts.live.length > 0) return { note: undefined };
-  if (facts.registered && !facts.reviewedHead)
+  if (facts.registered && !facts.reviewedHead && !facts.reviewed)
     return {
-      note: `note: a reviewer's session at \`${address}\` ended without posting a review on the PR's head; pushing`,
+      note: `note: a reviewer's session at \`${address}\` ended without posting a review; pushing`,
     };
+  if (facts.registered || facts.reviewed) return { note: undefined };
   return {
     note: `note: no review of #${facts.pr} is in progress on this machine; a reviewer on another machine can't be seen from here`,
   };

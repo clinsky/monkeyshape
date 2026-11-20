@@ -14,6 +14,7 @@ import {
   mailboxReadDir,
   mailDir,
   messagePath,
+  reviewerTrackOf,
   TRACK_NAME,
 } from "../core/layout.ts";
 import {
@@ -21,6 +22,7 @@ import {
   decodeMessage,
   encodeMessage,
   knownAddresses,
+  knownTracks,
   type Mailbox,
   MESSAGE_ID,
   type Message,
@@ -62,13 +64,19 @@ export const fsUnless = <A, B>(
 export const entries = (path: string) =>
   fsUnless("list", path, "ENOENT", [] as Array<string>, () => readdir(path));
 
-/** Hard links never replace a file, so an id taken by another sender is retried, not lost. */
-const ATTEMPTS = 5;
-
-/** `mailSend`'s optional settings. */
+/** `mailSend`'s optional settings, one key per feature. */
 export interface SendOptions {
+  /**
+   * A track's reviewer address takes mail before any reviewer registers there, which then
+   * waits for the session that does: `track pr` answering a posted review sends this way.
+   */
+  readonly toReviewer?: boolean;
+  /** The id of the message this answers (`msg send --reply-to`). */
   readonly replyTo?: string | undefined;
 }
+
+/** Hard links never replace a file, so an id taken by another sender is retried, not lost. */
+const ATTEMPTS = 5;
 
 export const mailSend = (
   cwd: string,
@@ -78,10 +86,7 @@ export const mailSend = (
   now: Date,
   random: () => string,
   caller: Caller = nobody(now),
-  /**
-   * What else this send says, one key per feature, so two features never fight over a
-   * positional slot: `replyTo`, the id of the message this answers (`msg send --reply-to`).
-   */
+  /** What else this send says, one key per feature, so two never fight over a slot. */
   options: SendOptions = {},
 ) =>
   Effect.gen(function* () {
@@ -89,14 +94,15 @@ export const mailSend = (
     if (problem !== undefined) return yield* refuse(`${problem}`);
     const { common, repo } = yield* locate(cwd);
     const tracks = yield* reviewTracks(common);
-    const known = knownAddresses(
-      repo,
-      yield* worktrees(repo),
-      yield* entries(handoffsStore(common)),
-      tracks,
-      yield* registeredAddresses(common),
-    );
-    const unknown = recipientProblem(to, known, tracks);
+    const all = yield* worktrees(repo);
+    const handoffs = yield* entries(handoffsStore(common));
+    const known = knownAddresses(repo, all, handoffs, tracks, yield* registeredAddresses(common));
+    const reviewed = reviewerTrackOf(to);
+    const held =
+      (options.toReviewer ?? false) &&
+      reviewed !== undefined &&
+      knownTracks(repo, all, handoffs).includes(reviewed);
+    const unknown = held ? undefined : recipientProblem(to, known, tracks);
     if (unknown !== undefined) return yield* refuse(`${unknown}`);
     // From the sender's address, so a reply reaches it: a review's, once a session moved there.
     const sender = yield* sessionAddress(cwd, caller).pipe(

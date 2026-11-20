@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { mkdir, rm, writeFile } from "node:fs/promises";
+import { mkdir, readdir, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { prSkeleton } from "../../src/core/conventions.ts";
 import { REVIEW_MARKER } from "../../src/core/trackPr.ts";
@@ -216,6 +216,21 @@ const reviewer = async (live: boolean, at: "reviewing" | "idle" | "legacy" = "re
 const reviews = (list: ReadonlyArray<{ commit_id: string; body: string }>) =>
   writeFile(`${gh}/reviews.json`, JSON.stringify(list));
 
+/** The unread mail at `address`. */
+const mail = async (address: string) => {
+  const dir = join(repo, ".git", "monkeyshape", "mail", address);
+  const files = (await readdir(dir).catch(() => [] as Array<string>)).filter((file) =>
+    file.endsWith(".json"),
+  );
+  return Promise.all(
+    files.map(
+      async (file) =>
+        JSON.parse(await Bun.file(join(dir, file)).text()) as { subject: string; body: string },
+    ),
+  );
+};
+const subjects = async (address: string) => (await mail(address)).map((message) => message.subject);
+
 /** Opens the PR (#7), then commits more, as answering a review would. */
 const openThenCommit = async () => {
   await writeFile(`${wt()}/body.md`, body("x"));
@@ -242,13 +257,10 @@ describe("track pr: the branch tip, and a review in progress", () => {
     const refused = mshape(wt(), "pr");
     expect(refused.code).toBe(1);
     expect(refused.stderr).toContain(
-      `a review of #7 is in progress (session ${session} at \`review-docs\`)`,
+      `the first review of #7 is in progress (session ${session} at \`review-docs\`)`,
     );
     expect(refused.stderr).not.toContain("running the gate");
     expect(remoteTip()).toBe(before);
-    // An earlier head's review doesn't count: the reviewer is on this one.
-    await reviews([{ commit_id: "0".repeat(40), body: "## Fit\n\nround 1" }]);
-    expect(mshape(wt(), "pr").code).toBe(1);
   });
 
   test("a live reviewer, the answer already pushed: a run that moves nothing goes ahead, and --body-only too", async () => {
@@ -267,40 +279,40 @@ describe("track pr: the branch tip, and a review in progress", () => {
     expect(bodyOnly.stderr).not.toContain("is in progress");
     expect(bodyOnly.code).toBe(0);
     expect((await pr()).body).toContain("refreshed");
-    // A commit that would move the head is still refused while the reviewer is on it.
+    // A commit that moves the head answers the posted review too (gyd): pushed.
     await commitFile("more.md", "more\n", "more");
-    expect(mshape(wt(), "pr").stderr).toContain("a review of #7 is in progress");
+    expect(mshape(wt(), "pr").code).toBe(0);
   });
 
   test("a thread reply on the head (an empty-bodied review) isn't the reviewer's review (#79's blocker)", async () => {
     await openThenCommit();
     await reviewer(true);
-    // Round 1 on an earlier head; the author's replies in its threads are on the current one.
+    // No review yet, only the author's replies in threads: the first review is still coming.
     await reviews([
-      { commit_id: "0".repeat(40), body: "## Fit\n\nround 1" },
       { commit_id: remoteTip(), body: "" },
       { commit_id: remoteTip(), body: "" },
     ]);
     const before = remoteTip();
     const refused = mshape(wt(), "pr");
     expect(refused.code).toBe(1);
-    expect(refused.stderr).toContain("a review of #7 is in progress");
+    expect(refused.stderr).toContain("the first review of #7 is in progress");
     expect(remoteTip()).toBe(before);
   });
 
-  test("once a review is marked by review post, only marked ones count: the author's own review doesn't (#79's nit)", async () => {
+  test("a review answered in two pushes: neither is refused while the reviewer is live, and it is mailed each (gyd)", async () => {
     await openThenCommit();
     await reviewer(true);
-    await reviews([
-      { commit_id: "0".repeat(40), body: `## Fit\n\nround 1\n\n${REVIEW_MARKER}` },
-      { commit_id: remoteTip(), body: "A probe by the author, unmarked." },
-    ]);
-    expect(mshape(wt(), "pr").code).toBe(1);
-    await reviews([
-      { commit_id: "0".repeat(40), body: `## Fit\n\nround 1\n\n${REVIEW_MARKER}` },
-      { commit_id: remoteTip(), body: `## Re-review\n\n${REVIEW_MARKER}` },
-    ]);
-    expect(mshape(wt(), "pr").code).toBe(0);
+    await reviews([{ commit_id: remoteTip(), body: `## Fit\n\nround 1\n\n${REVIEW_MARKER}` }]);
+    const first = mshape(wt(), "pr");
+    expect(first.code).toBe(0);
+    await commitFile("rest.md", "the rest, once another PR merged\n", "the rest of the answer");
+    const second = mshape(wt(), "pr");
+    expect(second.code).toBe(0);
+    const mailed = await subjects("review-docs");
+    expect(mailed).toHaveLength(2);
+    expect(
+      mailed.every((subject) => /^#7 pushed [0-9a-f]{12}: CI not waited for$/.test(subject)),
+    ).toBe(true);
   });
 
   test("a live reviewer whose review is on the PR's head (findings to answer): pushes", async () => {
@@ -319,7 +331,7 @@ describe("track pr: the branch tip, and a review in progress", () => {
     const refused = mshape(wt(), "pr");
     expect(refused.code).toBe(1);
     expect(refused.stderr).toContain(
-      `a review of #7 is in progress (session ${session} at \`review-7\`)`,
+      `the first review of #7 is in progress (session ${session} at \`review-7\`)`,
     );
     expect(remoteTip()).toBe(before);
   });
@@ -338,7 +350,7 @@ describe("track pr: the branch tip, and a review in progress", () => {
     const pushed = mshape(wt(), "pr");
     expect(pushed.code).toBe(0);
     expect(pushed.stderr).toContain(
-      "note: a reviewer's session at `review-docs` ended without posting a review on the PR's head; pushing",
+      "note: a reviewer's session at `review-docs` ended without posting a review; pushing",
     );
   });
 
@@ -749,6 +761,81 @@ describe("track pr: the fast stages here, the tests in CI", () => {
       `CI on ${remoteTip().slice(0, 12)}: check: success ([run](https://example.test/run/1)).`,
     );
     expect(gate).not.toContain("records its result here");
+  });
+
+  test("--wait during review: CI recorded as outside review, and the reviewer mailed the head, run and outcome", async () => {
+    await withCi();
+    await writeFile(`${wt()}/body.md`, body("x"));
+    expect(mshape(wt(), "pr", "--title", "t", "--body-file", "body.md").code).toBe(0);
+    await reviewer(true);
+    await reviews([{ commit_id: remoteTip(), body: `## Fit\n\nround 1\n\n${REVIEW_MARKER}` }]);
+    await commitFile("fix.md", "the answer\n", "answer the review");
+    await checks("checks-0.json", []);
+    await checks("checks.json", [
+      {
+        id: 1,
+        name: "check",
+        status: "completed",
+        conclusion: "success",
+        html_url: "https://example.test/run/1",
+      },
+    ]);
+    const waited = mshape(wt(), "pr", "--wait");
+    expect(waited.code).toBe(0);
+    const head = remoteTip().slice(0, 12);
+    expect((await pr()).body.split("## Gate")[1]).toContain(`CI on ${head}: check: success`);
+    const mailed = await mail("review-docs");
+    expect(mailed.map((message) => message.subject)).toEqual([`#7 pushed ${head}: CI passed`]);
+    expect(mailed[0]?.body).toContain("- check: success https://example.test/run/1");
+  });
+
+  test("--wait during review where no CI starts: the reviewer is still mailed the push (#150's own run)", async () => {
+    await writeFile(`${wt()}/body.md`, body("x"));
+    expect(mshape(wt(), "pr", "--title", "t", "--body-file", "body.md").code).toBe(0);
+    await reviews([{ commit_id: remoteTip(), body: `## Fit\n\nround 1\n\n${REVIEW_MARKER}` }]);
+    await commitFile("fix.md", "the answer\n", "answer the review");
+    await checks("checks.json", []);
+    const src = join(import.meta.dir, "..", "..", "src", "adapters");
+    const script = join(base, "push.ts");
+    await writeFile(
+      script,
+      `import { Effect } from ${JSON.stringify(Bun.resolveSync("effect", import.meta.dir))};
+import { trackPr } from ${JSON.stringify(join(src, "trackPr.ts"))};
+import { harnesses } from ${JSON.stringify(join(src, "harnesses", "index.ts"))};
+const out = await Effect.runPromise(
+  trackPr(process.cwd(), {
+    title: undefined, body: undefined, fetchEnv: process.env, configDir: ${JSON.stringify(join(base, "config"))},
+    harnesses: harnesses(process.env), wait: { pollMs: 5, startMs: 20, limitMs: 1000 },
+    notify: (to, subject) => Effect.sync(() => { console.log("MAIL " + to + ": " + subject); return "sent"; }),
+  }, (line) => Effect.sync(() => console.error(line))),
+);
+console.log(out);
+`,
+    );
+    const ran = Bun.spawnSync([process.execPath, script], {
+      cwd: wt(),
+      env: {
+        ...process.env,
+        PATH: `${bin}:/usr/bin:/bin`,
+        FAKE_GH: gh,
+        CLAUDE_CODE_SESSION_ID: "",
+        CLAUDE_PID: "",
+      },
+      stdout: "pipe",
+      stderr: "pipe",
+    });
+    const out = ran.stdout.toString();
+    expect(out).toContain(
+      `MAIL review-docs: #7 pushed ${remoteTip().slice(0, 12)}: CI not waited for`,
+    );
+    expect(out).toContain("note: no CI check started");
+  });
+
+  test("pushes before any review (gnv): allowed, and no reviewer is mailed", async () => {
+    await withCi();
+    await openThenCommit();
+    expect(mshape(wt(), "pr").code).toBe(0);
+    expect(await mail("review-docs")).toEqual([]);
   });
 
   test("a failing CI is recorded too, and --wait exits 1", async () => {

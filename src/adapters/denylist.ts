@@ -115,7 +115,8 @@ const strings = (value: unknown, at: string): ReadonlyArray<{ name: string; text
 /**
  * `mshape review post <n> <file>`: posts the review in `file` (the JSON GitHub's reviews API
  * takes) on PR <n>, after scanning every string in it. A match refuses, posting nothing. A
- * failed post says whether GitHub has the review anyway, so nothing is posted twice.
+ * failed post says whether GitHub has the review anyway, so nothing is posted twice. Returns
+ * the posted review's URL and the review as given, for the handshake (`reviewHandshake`).
  */
 export const reviewPost = (
   cwd: string,
@@ -164,7 +165,8 @@ export const reviewPost = (
       "-q",
       ".html_url",
     ]).pipe(Effect.ensuring(Effect.promise(() => rm(dir, { recursive: true, force: true }))));
-    if (posted.code === 0) return `posted ${posted.stdout.trim()}`;
+    if (posted.code === 0)
+      return { url: posted.stdout.trim(), review: parsed as Record<string, unknown> };
     // gh sometimes fails after GitHub acted: say whether this very review is there now, by
     // its whole body and commit, since reviews of one PR often open alike (`## Fit`).
     const { body, commit_id: commit } = marked as { body: string; commit_id?: unknown };
