@@ -242,19 +242,40 @@ export const formatCounts = (counts: TestCounts): string =>
   ].join(", ");
 
 /**
- * The test stages' counts in a log of `mshape gate` (a CI job's, whose lines start with a
- * timestamp): each stage line `formatGate` wrote with counts after its command, as
- * `<stage> <state>: <counts>`. What `track pr --wait` copies into the Gate section, since the
- * fast phase it runs itself leaves the tests to CI.
+ * The test stages' counts in a GitHub Actions job's log: each stage line `formatGate` wrote
+ * with counts after its command, as `<stage> <state>: <counts>`, taken only from the output of
+ * a step that runs `mshape gate`. A step's header (`##[group]Run <command>` to `##[endgroup]`)
+ * is skipped: the runner prints the step's environment there, and a PR body passed in one
+ * (the body check's `$BODY`) may quote a gate's lines, as #154's own Evidence did. Only that
+ * accident is ruled out: a body that forged a step boundary could still put a line here, and
+ * these counts are advice in our own PRs, never a gate. What `track pr --wait` copies into
+ * the Gate section, since the fast phase it runs itself leaves the tests to CI.
  */
-export const testStageCounts = (log: string): ReadonlyArray<string> =>
-  log.split("\n").flatMap((line) => {
+export const testStageCounts = (log: string): ReadonlyArray<string> => {
+  const found: Array<string> = [];
+  let inHeader = false;
+  let gateStep = false;
+  for (const raw of log.split("\n")) {
+    const line = raw.replace(/^\d{4}-\d{2}-\d{2}T[\d:.]+Z /, "");
+    if (inHeader) {
+      if (line.startsWith("##[endgroup]")) inHeader = false;
+      continue;
+    }
+    const run = /^##\[group\]Run (.*)$/.exec(line);
+    if (run !== null) {
+      inHeader = true;
+      gateStep = /\bmshape gate\b/.test(run[1] ?? "");
+      continue;
+    }
+    if (!gateStep) continue;
     const match =
-      /^(?:\S+Z )?\s{2}(\S+)\s+(passed|failed)\s+.*: (\d+ passed(?:, \d+ failed)?(?:, \d+ skipped)?)\s*$/.exec(
+      /^\s{2}(\S+)\s+(passed|failed)\s+.*: (\d+ passed(?:, \d+ failed)?(?:, \d+ skipped)?)\s*$/.exec(
         line,
       );
-    return match === null ? [] : [`${match[1]} ${match[2]}: ${match[3]}`];
-  });
+    if (match !== null) found.push(`${match[1]} ${match[2]}: ${match[3]}`);
+  }
+  return found;
+};
 
 /** How a stage's command reads, on one line whatever its arguments hold. */
 export const stageCommand = (stage: PlannedStage): string =>
