@@ -47,12 +47,21 @@ const unquote = (line: string): ReadonlyArray<string> =>
   );
 
 /**
- * Whether `command` is one this adapter rendered: exactly `codexCommand` of the arguments it
- * runs. A repo's own hook that runs `mshape --harness codex ...` some other way is the repo's.
- * A version that changes how commands are rendered must keep recognising the old ones here.
+ * Every hook command an earlier version of monkeyshape delivered to Codex and this one doesn't
+ * render: still ours, so sync replaces it in its slot instead of keeping it beside the new
+ * one. When `codexCommand`'s output changes (the shared `hookCommand` included), the old
+ * render goes here; the golden test in test/harnesses/codex.test.ts fails until it does.
+ */
+export const RETIRED: ReadonlyArray<string> = [];
+
+/**
+ * Whether `command` is one monkeyshape rendered: exactly `codexCommand` of the arguments it
+ * runs, or a render an earlier version delivered (`RETIRED`). A repo's own hook that runs
+ * `mshape --harness codex ...` some other way is the repo's.
  */
 const ours = (command: unknown): boolean => {
   if (typeof command !== "string") return false;
+  if (RETIRED.includes(command)) return true;
   const start = command.indexOf(`mshape ${FLAG.join(" ")} `);
   if (start < 0) return false;
   const rest = command.slice(start + `mshape ${FLAG.join(" ")} `.length);

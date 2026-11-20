@@ -1,6 +1,12 @@
 import { describe, expect, test } from "bun:test";
 import { PRIME_FALLBACK } from "../../src/core/hooks.ts";
-import { codex, codexCommand, mergeHooks, missingHooks } from "../../src/harnesses/codex/index.ts";
+import {
+  codex,
+  codexCommand,
+  mergeHooks,
+  missingHooks,
+  RETIRED,
+} from "../../src/harnesses/codex/index.ts";
 import type { JsonObject, LoopHook } from "../../src/harnesses/harness.ts";
 
 const HOOKS: ReadonlyArray<LoopHook> = [
@@ -246,5 +252,34 @@ describe("codex hooks.json: review of #151", () => {
     expect(commands(file, "SessionStart")[0]).toContain(`'it'\\''s here'`);
     expect(missingHooks(file, quoted)).toEqual([]);
     expect(parse(mergeHooks(file, []))).toEqual({ hooks: {} });
+  });
+});
+
+describe("codex hook commands: what 0.7.0 delivers", () => {
+  // Golden: adopters' .codex/hooks.json holds these exact strings, and Codex's trust is keyed
+  // on them. If this fails, the render changed (here or in core/hooks.ts's hookCommand): add
+  // the old string to RETIRED in src/harnesses/codex/index.ts, so sync replaces the delivered
+  // hook in its slot instead of keeping it beside the new one, then update the literal.
+  const PRIME_070 =
+    "PATH=\"$PATH:$HOME/.local/bin\"; if command -v mshape >/dev/null; then mshape --harness codex prime || { echo 'note: mshape could not run here, so this hook did nothing. Run the hook'\\''s command in a terminal to see why.'; bd prime 2>/dev/null || true; }; else echo 'note: mshape is neither on this session'\\''s PATH nor in ~/.local/bin, so this hook did nothing. Install it once per machine: curl -fsSL https://github.com/clinsky/monkeyshape/releases/latest/download/install.sh | sh'; bd prime 2>/dev/null || true; fi";
+  const INBOX_070 =
+    "PATH=\"$PATH:$HOME/.local/bin\"; if command -v mshape >/dev/null; then mshape --harness codex msg inbox --quiet || echo 'note: mshape could not run here, so this hook did nothing. Run the hook'\\''s command in a terminal to see why.'; else echo 'note: mshape is neither on this session'\\''s PATH nor in ~/.local/bin, so this hook did nothing. Install it once per machine: curl -fsSL https://github.com/clinsky/monkeyshape/releases/latest/download/install.sh | sh'; fi";
+
+  test("the renders are byte-stable", () => {
+    expect(codexCommand(["prime"])).toBe(PRIME_070);
+    expect(codexCommand(["msg", "inbox", "--quiet"])).toBe(INBOX_070);
+  });
+
+  test("a retired render is ours: replaced in its slot, never kept beside the new one", () => {
+    for (const old of RETIRED) {
+      expect([PRIME_070, INBOX_070]).not.toContain(old);
+      const current = {
+        hooks: { SessionStart: [{ hooks: [{ type: "command", command: old }] }, repoHook] },
+      };
+      expect(commands(parse(mergeHooks(current, HOOKS)), "SessionStart")).toEqual([
+        codexCommand(["prime"]),
+        "./scripts/fmt-check.sh",
+      ]);
+    }
   });
 });
