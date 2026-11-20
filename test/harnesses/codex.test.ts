@@ -178,3 +178,20 @@ describe("codex skills", () => {
     expect(codex.invoke("handoff")).toBe("$handoff");
   });
 });
+
+describe("codex hooks.json in a repo that doesn't list codex", () => {
+  test("a file with nothing of ours is left exactly as it is", () => {
+    for (const current of [
+      { model: "x" },
+      { hooks: { Stop: [] } },
+      { hooks: { SessionStart: [repoHook], Stop: [] } },
+      { hooks: "not an object" },
+    ])
+      expect(parse(mergeHooks(current, []))).toEqual(current);
+  });
+
+  test("ours removed, the repo's empty events kept", () => {
+    const current = parse(mergeHooks({ hooks: { Stop: [] } }, HOOKS));
+    expect(parse(mergeHooks(current, []))).toEqual({ hooks: { Stop: [] } });
+  });
+});

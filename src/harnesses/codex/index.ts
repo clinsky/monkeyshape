@@ -99,23 +99,25 @@ export const mergeHooks = (
   hooks: ReadonlyArray<LoopHook>,
 ): string => {
   const want = wanted(hooks);
-  const existing = isObject(current?.["hooks"])
-    ? (current["hooks"] as Record<string, unknown>)
-    : {};
+  const render = (value: JsonObject) => `${JSON.stringify(value, null, 2)}\n`;
+  const raw = current?.["hooks"];
+  // Nothing to add, and no hooks of anyone's to take ours from: the file stays as it is.
+  if (want.size === 0 && !isObject(raw)) return render(current ?? {});
+  const existing = isObject(raw) ? raw : {};
   const events: Record<string, unknown> = {};
   for (const event of new Set([...Object.keys(existing), ...want.keys()])) {
-    const raw = existing[event];
-    const entries: ReadonlyArray<unknown> = Array.isArray(raw) ? raw : [];
+    const value = existing[event];
+    const entries: ReadonlyArray<unknown> = Array.isArray(value) ? value : [];
     const commands = want.get(event) ?? [];
-    if (raw !== undefined && !Array.isArray(raw)) events[event] = raw;
-    else if (sameList(oursIn(entries), commands)) {
-      if (entries.length > 0) events[event] = entries;
-    } else {
+    if (value !== undefined && (!Array.isArray(value) || sameList(oursIn(entries), commands)))
+      events[event] = value;
+    else {
+      // Ours replaced; an event left empty only by taking ours out goes with them.
       const kept = [...withoutOurs(entries), ...commands.map(entry)];
       if (kept.length > 0) events[event] = kept;
     }
   }
-  return `${JSON.stringify({ ...current, hooks: events }, null, 2)}\n`;
+  return render({ ...current, hooks: events });
 };
 
 /** What `current` lacks of `hooks`, one line per hook: empty when in step. */
