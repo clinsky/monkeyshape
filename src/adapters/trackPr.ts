@@ -268,13 +268,13 @@ const waitOutReview = (
   say: (line: string) => Effect.Effect<void>,
 ) =>
   Effect.gen(function* () {
-    if (pr === undefined) return { reviewed: false };
+    if (pr === undefined) return { reviewed: false, moves: true };
     const now = new Date(yield* Clock.currentTimeMillis);
     const facts = yield* reviewFacts(cwd, common, repo, track, pr, tip, harnesses, now);
     const decision = reviewDecision(facts);
     if ("refuse" in decision) return yield* refuse(decision.refuse);
     if (decision.note !== undefined) yield* say(decision.note);
-    return { reviewed: facts.reviewed };
+    return { reviewed: facts.reviewed, moves: facts.moves };
   });
 
 /**
@@ -767,12 +767,15 @@ const refuseReverts = (
 /** Watches the track's own PR, saying so the first time; a watch that fails is a note. */
 const watchOwnPr = (
   pr: number,
-  watch: ((pr: number) => Effect.Effect<string, TrackError | WorkspaceError>) | undefined,
+  track: string,
+  watch:
+    | ((pr: number, track: string) => Effect.Effect<string, TrackError | WorkspaceError>)
+    | undefined,
   say: (line: string) => Effect.Effect<void>,
 ) =>
   Effect.gen(function* () {
     if (watch === undefined || pr === 0) return;
-    const said = yield* watch(pr).pipe(
+    const said = yield* watch(pr, track).pipe(
       Effect.catchTags({
         TrackError: (error) => Effect.succeed(`note: #${pr} isn't watched: ${error.reason}`),
         WorkspaceError: (error) => Effect.succeed(`note: #${pr} isn't watched: ${error.message}`),
@@ -847,8 +850,14 @@ export const trackPr = (
     readonly wait?: CiTiming;
     /** Mails the owners of other tracks' files; none, and they are only named. */
     readonly notify?: TrackPrNotify;
-    /** Watches the PR at this track (`msg watch pr <n>`); what it said. None: no watch. */
-    readonly watch?: (pr: number) => Effect.Effect<string, TrackError | WorkspaceError>;
+    /**
+     * Watches the PR at the track's address (`msg watch pr <n>`), never the calling session's,
+     * which may be registered elsewhere; what it said. None: no watch.
+     */
+    readonly watch?: (
+      pr: number,
+      track: string,
+    ) => Effect.Effect<string, TrackError | WorkspaceError>;
   },
   say: (line: string) => Effect.Effect<void>,
 ) =>
@@ -1049,7 +1058,7 @@ export const trackPr = (
       );
 
     // Again: a review can start, or be posted, while the gate runs.
-    const { reviewed } = yield* waitOutReview(
+    const { reviewed, moves } = yield* waitOutReview(
       top,
       common,
       repo,
@@ -1087,8 +1096,9 @@ export const trackPr = (
     const url = yield* publish(top, branch, existing, options.title, plan.body);
     // An answer to a posted review: its reviewer hears of each push at once, so an
     // interrupted wait loses nothing (82k), and of CI's result too when --wait gets one.
+    // A rerun on a head already pushed moves nothing: no new "pushed" mail, only CI's result.
     const tellReviewer = (runs?: ReadonlyArray<CheckRun>) =>
-      existing === undefined || !reviewed
+      existing === undefined || !reviewed || (runs === undefined && !moves)
         ? Effect.void
         : mailReviewer(
             track,
@@ -1100,6 +1110,7 @@ export const trackPr = (
     // Its merge, close or conflict with main reaches the track as mail (z1u.17).
     yield* watchOwnPr(
       existing?.number ?? Number(/(\d+)\/?$/.exec(url)?.[1] ?? 0),
+      track,
       options.watch,
       say,
     );

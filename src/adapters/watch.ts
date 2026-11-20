@@ -244,8 +244,9 @@ const stamp = (path: string, now: Date) =>
     ),
   );
 
-const watcher = (cwd: string, caller: Caller) =>
+const watcher = (cwd: string, caller: Caller, at?: string) =>
   Effect.gen(function* () {
+    if (at !== undefined) return { address: at, common: (yield* locate(cwd)).common };
     const { address } = yield* sessionAddress(cwd, caller).pipe(
       Effect.catchTag("TrackError", (error) =>
         refuse(`${error.reason}. Watch from a track's worktree, the main checkout or a review`),
@@ -270,11 +271,16 @@ export const watchAdd = (
   caller: Caller,
   observer: Observer,
   now: Date,
+  /**
+   * The address that watches, when a command watches for one that isn't the caller's own
+   * (`track pr` for its track, whichever session runs it); else the caller's.
+   */
+  at?: string,
 ) =>
   Effect.gen(function* () {
     const target = parseTarget(args);
     if (typeof target === "string") return yield* refuse(target);
-    const { address, common } = yield* watcher(cwd, caller);
+    const { address, common } = yield* watcher(cwd, caller, at);
     let watch: Watch;
     if (target.kind === "pr") {
       yield* exists(yield* observer.pr(cwd, target.pr), `#${target.pr}`);

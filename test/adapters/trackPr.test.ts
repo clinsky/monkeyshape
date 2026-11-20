@@ -890,6 +890,53 @@ console.log(out);
     expect(listed.stdout.toString()).toContain("pr 7");
   });
 
+  test("a session registered at main runs track pr in the track's worktree: the track watches the PR, not main (#160's review)", async () => {
+    // As the reviewer's probe: the planning session's identity, registered at main.
+    const env = {
+      ...process.env,
+      PATH: `${bin}:/usr/bin:/bin`,
+      FAKE_GH: gh,
+      CLAUDE_CONFIG_DIR: join(base, "no-claude"),
+      XDG_CONFIG_HOME: join(base, "config"),
+      CLAUDE_CODE_SESSION_ID: "11111111-2222-3333-4444-555555555555",
+      CLAUDE_PID: String(process.pid),
+      CODEX_THREAD_ID: "",
+    };
+    const cli = (cwd: string, ...args: ReadonlyArray<string>) => {
+      const ran = Bun.spawnSync([process.execPath, CLI, ...args], {
+        cwd,
+        env,
+        stdout: "pipe",
+        stderr: "pipe",
+      });
+      return { code: ran.exitCode, out: `${ran.stdout}${ran.stderr}` };
+    };
+    expect(cli(repo, "msg", "register").code).toBe(0);
+    await writeFile(`${wt()}/body.md`, body("x"));
+    const opened = cli(wt(), "track", "pr", "--title", "t", "--body-file", "body.md");
+    expect(opened.code).toBe(0);
+    expect(opened.out).toContain("Watching pr 7 at docs");
+    expect(mshape(wt(), "pr").code).toBe(0);
+    const atTrack = Bun.spawnSync([process.execPath, CLI, "msg", "watch"], {
+      cwd: wt(),
+      env: { ...process.env, CLAUDE_CODE_SESSION_ID: "", CLAUDE_PID: "", CODEX_THREAD_ID: "" },
+      stdout: "pipe",
+    });
+    expect(atTrack.stdout.toString()).toContain("pr 7");
+  });
+
+  test("a rerun on a head already pushed mails the reviewer no second push (#160's review)", async () => {
+    await openThenCommit();
+    await reviewer(true);
+    await reviews([{ commit_id: remoteTip(), body: `## Fit\n\nround 1\n\n${REVIEW_MARKER}` }]);
+    await commitFile("answer.md", "the answer\n", "answer");
+    expect(mshape(wt(), "pr").code).toBe(0);
+    expect(mshape(wt(), "pr").code).toBe(0);
+    expect(await subjects("review-docs")).toEqual([
+      `#7 pushed ${remoteTip().slice(0, 12)}: CI not waited for`,
+    ]);
+  });
+
   test("pushes before any review (gnv): allowed, and no reviewer is mailed", async () => {
     await withCi();
     await openThenCommit();
