@@ -211,6 +211,7 @@ const check = (
     config(),
     repo(Object.fromEntries(tracked.map((path) => [path, ""])), {
       skills: {
+        linkAt: { path: ".claude/skills", target: "../.agents/skills", harness: "Claude Code" },
         link: skills.link ?? RELATIVE,
         installed: files(installed),
         claudeDirectory: files(skills.claudeDirectory ?? {}),

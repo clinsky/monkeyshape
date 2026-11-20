@@ -32,6 +32,7 @@ const run = (cwd: string, args: ReadonlyArray<string>, path: ReadonlyArray<strin
       HOME: join(work, "home"),
       CLAUDE_CODE_SESSION_ID: "",
       CLAUDE_PID: "",
+      CODEX_THREAD_ID: "",
       // This repo pins `dev`, its own source: what is tested here is the binary itself, run as
       // the launcher runs the version it launched.
       MSHAPE_LAUNCHED: version,
@@ -120,7 +121,10 @@ describe.skipIf(host === undefined)("the compiled mshape, with no Bun", () => {
   test("binaries where pack writes by default leave this repo's gate green: none over the cap or uncovered", () => {
     const checked = Bun.spawnSync(
       [process.execPath, join(ROOT, "src/cli/main.ts"), "check", "--only", "files,coverage"],
-      { cwd: ROOT, env: { ...process.env, CLAUDE_CODE_SESSION_ID: "", CLAUDE_PID: "" } },
+      {
+        cwd: ROOT,
+        env: { ...process.env, CLAUDE_CODE_SESSION_ID: "", CLAUDE_PID: "", CODEX_THREAD_ID: "" },
+      },
     );
     expect(`${checked.stdout}${checked.stderr}`).toContain("mshape check passed");
     expect(checked.exitCode).toBe(0);
@@ -140,6 +144,7 @@ describe.skipIf(host === undefined)("the compiled mshape, with no Bun", () => {
           process.env["UV_CACHE_DIR"] ?? join(process.env["HOME"] ?? "", ".cache", "uv"),
         CLAUDE_CODE_SESSION_ID: "",
         CLAUDE_PID: "",
+        CODEX_THREAD_ID: "",
       };
       const spawn = (cwd: string, args: ReadonlyArray<string>) => {
         const ran = Bun.spawnSync([binary, ...args], { cwd, env });
@@ -161,7 +166,13 @@ describe.skipIf(host === undefined)("the compiled mshape, with no Bun", () => {
   test("a cache it can't write fails, saying to set XDG_CACHE_HOME", () => {
     const ran = Bun.spawnSync([binary, "--version"], {
       cwd: work,
-      env: { PATH: "/usr/bin:/bin", HOME: "/proc", CLAUDE_CODE_SESSION_ID: "", CLAUDE_PID: "" },
+      env: {
+        PATH: "/usr/bin:/bin",
+        HOME: "/proc",
+        CLAUDE_CODE_SESSION_ID: "",
+        CLAUDE_PID: "",
+        CODEX_THREAD_ID: "",
+      },
     });
     expect(`${ran.stdout}${ran.stderr}`).toContain("set XDG_CACHE_HOME to a writable directory");
     expect(ran.exitCode).toBe(1);

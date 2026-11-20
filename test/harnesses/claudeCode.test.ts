@@ -1,8 +1,12 @@
 import { describe, expect, test } from "bun:test";
+import { join } from "node:path";
+import { hookCommand, LOOP_HOOKS } from "../../src/core/hooks.ts";
 import { REGISTRATION_GRACE_MS } from "../../src/core/notices.ts";
 import {
+  CLAUDE_HOOKS,
   type ClaudeSession,
   claudeCode,
+  claudeOwns,
   claudeStatus,
   claudeTarget,
   decodeClaudeKey,
@@ -116,7 +120,9 @@ describe("Claude Code: identity", () => {
 
   test("nothing, empty variables or a malformed id claim nothing", () => {
     expect(identify({})).toBeUndefined();
-    expect(identify({ CLAUDE_CODE_SESSION_ID: "", CLAUDE_PID: "" })).toBeUndefined();
+    expect(
+      identify({ CLAUDE_CODE_SESSION_ID: "", CLAUDE_PID: "", CODEX_THREAD_ID: "" }),
+    ).toBeUndefined();
     expect(identify({ CLAUDE_CODE_SESSION_ID: "../x", CLAUDE_PID: "-1" })).toBeUndefined();
     expect(identify({}, "not json")).toBeUndefined();
   });
@@ -124,5 +130,58 @@ describe("Claude Code: identity", () => {
   test("a skill is started with a slash", () => {
     expect(claudeCode.invoke("track")).toBe("/track");
     expect(claudeCode.invoke("track", "harness")).toBe("/track harness");
+  });
+});
+
+describe("Claude Code: the hooks it delivers", () => {
+  const settingsFile = () => {
+    const [file] = claudeCode.files(LOOP_HOOKS);
+    if (file?.kind !== "owned-entries") throw new Error("Claude Code's settings are owned entries");
+    return file;
+  };
+
+  test("a loop command dropped in a later release is removed by sync, and check names it (iwf)", () => {
+    // What a release's prompt hook would look like if it ran `msg watch`, and the next release
+    // dropped it: no loop command renders it now, as none will for a dropped one.
+    const gone = hookCommand(["--harness", "claude-code", "msg", "watch"]);
+    const before = JSON.parse(settingsFile().merge(undefined));
+    before.hooks.UserPromptSubmit.push(
+      { matcher: "", hooks: [{ type: "command", command: gone }] },
+      { matcher: "", hooks: [{ type: "command", command: "echo mine" }] },
+    );
+    const file = settingsFile();
+    expect(file.missing(before)).toEqual([
+      `still runs UserPromptSubmit: \`${gone}\`, which monkeyshape no longer ships`,
+    ]);
+    const after = JSON.parse(file.merge(before));
+    expect(
+      after.hooks.UserPromptSubmit.map(
+        (entry: { hooks: Array<{ command: string }> }) => entry.hooks[0]?.command,
+      ),
+    ).toEqual([CLAUDE_HOOKS[1]?.command, "echo mine"]);
+    expect(file.missing(after)).toEqual([]);
+  });
+
+  test("every command any released version wrote is recognised as monkeyshape's", async () => {
+    // A fixture per release's rendered settings: dropping a command without recognising it
+    // would leave it in every repo, so this goes red instead.
+    for (const release of ["0.6", "0.7"]) {
+      const fixture = await Bun.file(
+        join(import.meta.dir, "..", "fixtures", `settings-${release}.json`),
+      ).json();
+      const commands = Object.values(
+        fixture.hooks as Record<string, Array<{ hooks: Array<{ command: string }> }>>,
+      )
+        .flat()
+        .flatMap((entry) => entry.hooks.map((hook) => hook.command));
+      expect(commands.length).toBeGreaterThan(0);
+      for (const command of commands)
+        expect([release, claudeOwns(command)]).toEqual([release, true]);
+    }
+  });
+
+  test("a repo's own hook is never taken for monkeyshape's", () => {
+    for (const command of ["echo mine", "mshape prime", "bd prime", "mshape --harness codex prime"])
+      expect(claudeOwns(command)).toBe(false);
   });
 });

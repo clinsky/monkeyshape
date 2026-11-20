@@ -11,9 +11,10 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import * as Effect from "effect/Effect";
 import { compileBinaries, packSource } from "../../src/adapters/release.ts";
-import { HOOKS, mshapeCommand, withMshape } from "../../src/core/hooks.ts";
+import { mshapeCommand, withMshape } from "../../src/core/hooks.ts";
 import { INSTALL_URL } from "../../src/core/launch.ts";
 import { BINARY_TARGETS, packVersion } from "../../src/core/release.ts";
+import { CLAUDE_HOOKS as HOOKS } from "../../src/harnesses/claude-code/index.ts";
 import { initFromSource, pack, ROOT, run, unexpectedNotes } from "./harness.ts";
 
 const host = BINARY_TARGETS.find(
@@ -37,6 +38,7 @@ const hookEnv = (extra: Record<string, string> = {}) => ({
   HOME: home(),
   CLAUDE_CODE_SESSION_ID: "",
   CLAUDE_PID: "",
+  CODEX_THREAD_ID: "",
   ...extra,
 });
 
