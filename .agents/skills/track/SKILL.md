@@ -111,6 +111,11 @@ outcome, not a spec. Show the human the charter and the beads; start once they a
   answer in as many pushes as it takes: `track pr` mails the reviewer each one (with `--wait`,
   once CI is in), so don't message the reviewer yourself. `mshape review post` mails you the
   review. When the PR is ready for review and no reviewer exists yet, tell the human.
+  Bring `main` in (`git merge origin/main`) before review, or in a review round's push when
+  the branch conflicts with it or main changed something the PR relies on. After the LGTM,
+  push nothing, merges of `main` included: the PR is the maintainer's to merge as approved.
+  If GitHub then reports a conflict, the maintainer asks you: merge `main`, push, and the
+  reviewer confirms that head.
   When the PR merges, however it was merged, replay only the next work onto `main`:
   `git fetch`, `git rebase --onto origin/main track/<name> <name>-next`, then
   `git switch track/<name>`, `git reset --hard <name>-next` and `git branch -d <name>-next`.
