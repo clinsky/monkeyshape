@@ -57,6 +57,7 @@ const machine = (extra: Record<string, string> = {}) => ({
   MSHAPE_RELEASES_URL: RELEASES,
   CLAUDE_CODE_SESSION_ID: "",
   CLAUDE_PID: "",
+  CODEX_THREAD_ID: "",
   ...extra,
 });
 

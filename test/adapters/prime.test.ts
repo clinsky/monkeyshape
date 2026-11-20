@@ -45,6 +45,7 @@ const mshape = async (
       CLAUDE_CONFIG_DIR: claude,
       CLAUDE_CODE_SESSION_ID: "",
       CLAUDE_PID: "",
+      CODEX_THREAD_ID: "",
       ...options.env,
     },
     stdin: new Blob([options.stdin ?? ""]),
@@ -211,13 +212,22 @@ describe("mshape --harness", () => {
   });
 
   test("a harness shipped but not built yet identifies nobody, and asks no other", async () => {
-    const primed = await mshape(wt("docs"), ["--harness", "codex", "prime"], {
+    const primed = await mshape(wt("docs"), ["--harness", "pi", "prime"], {
       stdin: hookInput(1),
       env: { CLAUDE_CODE_SESSION_ID: uuid(1) },
     });
     expect(primed.code).toBe(0);
-    expect(primed.stdout).toContain("no session identity: no harness this mshape ships is codex");
+    expect(primed.stdout).toContain("no session identity: no harness this mshape ships is pi");
     expect(await registered("docs")).toEqual([]);
+  });
+
+  test("a Codex hook registers its session_id under codex, whatever Claude Code leaked in", async () => {
+    const primed = await mshape(wt("docs"), ["--harness", "codex", "prime"], {
+      stdin: hookInput(1),
+      env: { CLAUDE_CODE_SESSION_ID: uuid(2) },
+    });
+    expect(primed.code).toBe(0);
+    expect(await registered("docs")).toEqual([`codex.${uuid(1)}.json`]);
   });
 });
 

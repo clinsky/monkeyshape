@@ -62,6 +62,7 @@ describe("mshape init my-repo --pack rust", () => {
     const created = await initFromSource(work, ["my-repo", "--pack", "rust"], {
       CLAUDE_CODE_SESSION_ID: "",
       CLAUDE_PID: "",
+      CODEX_THREAD_ID: "",
     });
     expect(created.code).toBe(0);
   }, 120_000);
@@ -93,7 +94,7 @@ const noToolchain = skipWithout(toolchain);
 describe.skipIf(noToolchain)("mshape init --pack rust, then its gate without Bun", () => {
   let work = "";
   let born = "";
-  const NO_SESSION = { CLAUDE_CODE_SESSION_ID: "", CLAUDE_PID: "" };
+  const NO_SESSION = { CLAUDE_CODE_SESSION_ID: "", CLAUDE_PID: "", CODEX_THREAD_ID: "" };
   // cargo's own directory and the system's: bun lives in neither.
   const PATH = [dirname(cargo ?? ""), "/usr/bin", "/bin"].join(":");
   const mshape = (args: ReadonlyArray<string>) =>

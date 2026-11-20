@@ -176,15 +176,25 @@ export const gatePlanCommand = (plan: GatePlan): string =>
  * The Gate section's CI line, when CI runs the tests: pending at the push, then CI's verdict
  * on the pushed commit once `--wait` has it, each check with its run's link.
  */
-export const ciLine = (commit: string, runs?: ReadonlyArray<CheckRun>): string =>
-  runs === undefined
-    ? `CI: runs the whole gate on ${commit.slice(0, 12)}, not track pr; \`mshape track pr --wait\` records its result here.`
-    : `CI on ${commit.slice(0, 12)}: ${runs
-        .map(
-          (run) =>
-            `${run.name}: ${run.conclusion ?? run.status}${run.html_url === undefined ? "" : ` ([run](${run.html_url}))`}`,
-        )
-        .join(", ")}.`;
+export const ciLine = (
+  commit: string,
+  runs?: ReadonlyArray<CheckRun>,
+  /** Each check's test stages with their counts, from its log (`testStageCounts`), by name. */
+  tests: ReadonlyMap<string, ReadonlyArray<string>> = new Map(),
+): string => {
+  if (runs === undefined)
+    return `CI: runs the whole gate on ${commit.slice(0, 12)}, not track pr; \`mshape track pr --wait\` records its result here.`;
+  // On the same line: withCiLine replaces exactly one line when CI is recorded again.
+  const counted = runs.flatMap((run) =>
+    (tests.get(run.name) ?? []).map((stage) => `${stage} (${run.name})`),
+  );
+  return `CI on ${commit.slice(0, 12)}: ${runs
+    .map(
+      (run) =>
+        `${run.name}: ${run.conclusion ?? run.status}${run.html_url === undefined ? "" : ` ([run](${run.html_url}))`}`,
+    )
+    .join(", ")}.${counted.length === 0 ? "" : ` Tests: ${counted.join("; ")}.`}`;
+};
 
 /** `gate` with its CI line replaced by `line`; undefined when it has none to replace. */
 export const withCiLine = (gate: string, line: string): string | undefined =>

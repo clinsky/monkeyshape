@@ -338,4 +338,31 @@ describe("gatePlan and the CI line", () => {
     expect(done).not.toContain("runs the tests");
     expect(withCiLine(gateSection("bun run check", "c".repeat(40), "ok"), "x")).toBeUndefined();
   });
+
+  test("CI's test counts ride on the CI line, and recording CI again replaces them (rdw)", () => {
+    const pending = gateSection("bun run a", "c".repeat(40), "ok", ciLine("c".repeat(40)));
+    const runs = [
+      { id: 1, name: "check", status: "completed", conclusion: "success", html_url: "u" },
+      { id: 2, name: "body", status: "completed", conclusion: "success" },
+    ];
+    const tests = (counts: string) =>
+      new Map([["check", [`bun-test passed: ${counts}`]]]) as ReadonlyMap<
+        string,
+        ReadonlyArray<string>
+      >;
+    const first = withCiLine(
+      pending,
+      ciLine("c".repeat(40), runs, tests("1489 passed, 1 skipped")),
+    );
+    expect(first).toContain(
+      "CI on cccccccccccc: check: success ([run](u)), body: success. Tests: bun-test passed: 1489 passed, 1 skipped (check).",
+    );
+    const again = withCiLine(first ?? "", ciLine("c".repeat(40), runs, tests("1490 passed")));
+    expect(again).toContain("Tests: bun-test passed: 1490 passed (check).");
+    expect(again).not.toContain("1489");
+    // A check whose log had no counts adds nothing.
+    expect(ciLine("c".repeat(40), runs)).toBe(
+      "CI on cccccccccccc: check: success ([run](u)), body: success.",
+    );
+  });
 });

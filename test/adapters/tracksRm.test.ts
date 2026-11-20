@@ -114,7 +114,7 @@ describe("track rm", () => {
     const msg = (cwd: string, ...args: ReadonlyArray<string>) => {
       const result = Bun.spawnSync([process.execPath, CLI, "msg", ...args], {
         cwd,
-        env: { ...process.env, CLAUDE_CODE_SESSION_ID: "", CLAUDE_PID: "" },
+        env: { ...process.env, CLAUDE_CODE_SESSION_ID: "", CLAUDE_PID: "", CODEX_THREAD_ID: "" },
         stdout: "pipe",
         stderr: "pipe",
       });

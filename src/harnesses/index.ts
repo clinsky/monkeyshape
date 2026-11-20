@@ -1,5 +1,6 @@
 /** Every harness this mshape ships: one line per adapter. */
 import { claudeCode } from "./claude-code/index.ts";
+import { codex } from "./codex/index.ts";
 import type { Harness } from "./harness.ts";
 
-export const HARNESSES: ReadonlyArray<Harness> = [claudeCode];
+export const HARNESSES: ReadonlyArray<Harness> = [claudeCode, codex];

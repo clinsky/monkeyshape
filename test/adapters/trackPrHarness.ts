@@ -36,6 +36,7 @@ const run = (extra: Record<string, string>, cwd: string, ...args: ReadonlyArray<
       XDG_CONFIG_HOME: join(base, "config"),
       CLAUDE_CODE_SESSION_ID: "",
       CLAUDE_PID: "",
+      CODEX_THREAD_ID: "",
     },
     stdout: "pipe",
     stderr: "pipe",

@@ -1,5 +1,11 @@
 import { describe, expect, test } from "bun:test";
-import { CHECK_STAGE, formatCounts, gateStages, testCounts } from "../../src/core/gate.ts";
+import {
+  CHECK_STAGE,
+  formatCounts,
+  gateStages,
+  testCounts,
+  testStageCounts,
+} from "../../src/core/gate.ts";
 import { PACKS } from "../../src/packs/index.ts";
 import type { GateStage, PackId } from "../../src/schemas/config.ts";
 import { GATE_PACKS } from "./gatePacks.ts";
@@ -172,4 +178,38 @@ describe("a test stage's counts (z1u.14)", () => {
     expect(testCounts("Checked 225 files in 207ms. No fixes applied.")).toBeUndefined();
     expect(testCounts("")).toBeUndefined();
   });
+});
+
+test("a CI job's log gives each test stage with its counts, from the gate's own step only (rdw)", () => {
+  // As GitHub serves a job's log, from #154's check job: a timestamp before each line.
+  const check = [
+    "2026-11-20T14:20:00.7677059Z ##[group]Run bun run --silent mshape gate",
+    "2026-11-20T14:20:00.7678000Z bun run --silent mshape gate",
+    "2026-11-20T14:20:00.7730288Z ##[endgroup]",
+    "2026-11-20T14:22:11.4179000Z   tsc           passed    tsc -p .",
+    "2026-11-20T14:22:11.4180664Z   bun-test      passed    bun test --parallel --timeout=30000: 1532 passed, 1 skipped",
+    "2026-11-20T14:22:11.4181346Z mshape gate passed",
+  ].join("\n");
+  expect(testStageCounts(check)).toEqual(["bun-test passed: 1532 passed, 1 skipped"]);
+  // A failing stage: its exit code sits between the command and the counts.
+  expect(
+    testStageCounts(
+      "##[group]Run mshape gate\n##[endgroup]\n  pytest        failed    uv run pytest (exit 1): 3 passed, 1 failed",
+    ),
+  ).toEqual(["pytest failed: 3 passed, 1 failed"]);
+});
+
+test("a gate line quoted in a PR body, echoed in another step's header or output, isn't counted (#154)", () => {
+  // #154's body job: the runner prints $BODY inside the step's header, and the body quoted
+  // #149's log line, timestamp and all.
+  const body = [
+    "2026-11-20T14:19:56.6346813Z ##[group]Run printf '%s' \"$BODY\" | bun run --silent mshape track pr --check-body",
+    "2026-11-20T14:19:56.6371447Z   BODY: ## What changed and why",
+    "2026-11-19T22:27:40.3094652Z   bun-test      passed    bun test --parallel --timeout=30000: 1489 passed, 1 skipped",
+    "2026-11-20T14:19:56.6377489Z ##[endgroup]",
+    // And in that step's own output, outside the header: still not the gate's step.
+    "2026-11-20T14:19:57.0000000Z   bun-test      passed    bun test: 7 passed",
+  ].join("\n");
+  expect(testStageCounts(body)).toEqual([]);
+  expect(testStageCounts("  bun-test      passed    bun test: 7 passed")).toEqual([]);
 });

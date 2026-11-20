@@ -38,6 +38,7 @@ const hookEnv = (extra: Record<string, string> = {}) => ({
   HOME: home(),
   CLAUDE_CODE_SESSION_ID: "",
   CLAUDE_PID: "",
+  CODEX_THREAD_ID: "",
   ...extra,
 });
 
