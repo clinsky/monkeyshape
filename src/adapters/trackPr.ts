@@ -521,11 +521,6 @@ export const checkRuns = (cwd: string, sha: string, done: string) =>
   });
 
 /**
- * After `--wait`: CI's verdict in the Gate section's CI line, replacing the pending one, so
- * the section is CI's result for the pushed commit. A Gate section with no CI line (the full
- * gate ran here) is left alone.
- */
-/**
  * Each finished check's test stages with their counts, from its job's log: an Actions check
  * run's id is its job's. A log gh can't fetch (another CI's check, an expired log) adds
  * nothing; the check's outcome is recorded either way.
@@ -546,6 +541,11 @@ const ciTests = (top: string, runs: ReadonlyArray<CheckRun>) =>
     return tests as ReadonlyMap<string, ReadonlyArray<string>>;
   });
 
+/**
+ * After `--wait`: CI's verdict in the Gate section's CI line, replacing the pending one, so
+ * the section is CI's result for the pushed commit. A Gate section with no CI line (the full
+ * gate ran here) is left alone.
+ */
 const recordCiResult =
   (top: string, branch: string, body: string, gate: string) => (runs: ReadonlyArray<CheckRun>) =>
     Effect.gen(function* () {
