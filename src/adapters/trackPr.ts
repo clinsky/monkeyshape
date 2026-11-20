@@ -764,6 +764,23 @@ const refuseReverts = (
       );
   });
 
+/** Watches the track's own PR, saying so the first time; a watch that fails is a note. */
+const watchOwnPr = (
+  pr: number,
+  watch: ((pr: number) => Effect.Effect<string, TrackError | WorkspaceError>) | undefined,
+  say: (line: string) => Effect.Effect<void>,
+) =>
+  Effect.gen(function* () {
+    if (watch === undefined || pr === 0) return;
+    const said = yield* watch(pr).pipe(
+      Effect.catchTags({
+        TrackError: (error) => Effect.succeed(`note: #${pr} isn't watched: ${error.reason}`),
+        WorkspaceError: (error) => Effect.succeed(`note: #${pr} isn't watched: ${error.message}`),
+      }),
+    );
+    if (!said.startsWith("Already watching")) yield* say(said);
+  });
+
 /** Mails the track's reviewer, at `review-<track>`; a failure to is a note, never a refusal. */
 const mailReviewer = (
   track: string,
@@ -830,6 +847,8 @@ export const trackPr = (
     readonly wait?: CiTiming;
     /** Mails the owners of other tracks' files; none, and they are only named. */
     readonly notify?: TrackPrNotify;
+    /** Watches the PR at this track (`msg watch pr <n>`); what it said. None: no watch. */
+    readonly watch?: (pr: number) => Effect.Effect<string, TrackError | WorkspaceError>;
   },
   say: (line: string) => Effect.Effect<void>,
 ) =>
@@ -1066,11 +1085,24 @@ export const trackPr = (
 
     const before = yield* runsBefore(top, tip, options.wait);
     const url = yield* publish(top, branch, existing, options.title, plan.body);
-    // An answer to a posted review: its reviewer hears of each push, once CI is in if waited for.
+    // An answer to a posted review: its reviewer hears of each push at once, so an
+    // interrupted wait loses nothing (82k), and of CI's result too when --wait gets one.
     const tellReviewer = (runs?: ReadonlyArray<CheckRun>) =>
       existing === undefined || !reviewed
         ? Effect.void
-        : mailReviewer(track, pushMessage(existing.number, url, tip, runs), options.notify, say);
+        : mailReviewer(
+            track,
+            pushMessage(existing.number, url, tip, runs, options.wait !== undefined),
+            options.notify,
+            say,
+          );
+    yield* tellReviewer();
+    // Its merge, close or conflict with main reaches the track as mail (z1u.17).
+    yield* watchOwnPr(
+      existing?.number ?? Number(/(\d+)\/?$/.exec(url)?.[1] ?? 0),
+      options.watch,
+      say,
+    );
     const done = existing
       ? `updated ${url}: the Gate section is from this run; every other section is ${options.body === undefined ? "as it was" : "from --body-file"}`
       : `opened ${url}`;
@@ -1081,24 +1113,9 @@ export const trackPr = (
       options.notify,
       say,
     );
-    if (options.wait === undefined) {
-      yield* tellReviewer();
-      return done;
-    }
-    // The reviewer hears of the push either way: with CI's runs once they are in, else (CI
-    // never started, the branch conflicts, the wait ran out) as a push CI didn't answer.
-    let told = false;
+    if (options.wait === undefined) return done;
     const recordCi = (runs: ReadonlyArray<CheckRun>) =>
-      Effect.andThen(
-        recordCiResult(top, branch, plan.body, gateText)(runs),
-        Effect.andThen(
-          Effect.sync(() => {
-            told = true;
-          }),
-          tellReviewer(runs),
-        ),
-      );
-    const tellIfUntold = Effect.suspend(() => (told ? Effect.void : tellReviewer()));
+      Effect.andThen(recordCiResult(top, branch, plan.body, gateText)(runs), tellReviewer(runs));
     return yield* awaitCi(
       top,
       tip,
@@ -1110,5 +1127,5 @@ export const trackPr = (
       recordCi,
       gate.plan.kind === "fast",
       gate.checks,
-    ).pipe(Effect.ensuring(tellIfUntold));
+    );
   });

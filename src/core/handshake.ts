@@ -104,15 +104,22 @@ export const pushMessage = (
   pr: number,
   url: string,
   head: string,
-  /** CI's runs on the head, once `--wait` has them; none when it wasn't waited for. */
+  /** CI's runs on the head, once `--wait` has them; none at the push itself. */
   runs?: ReadonlyArray<CheckRun>,
+  /** At the push, whether `--wait` will mail CI's result next. */
+  waiting = false,
 ): { readonly subject: string; readonly body: string } => {
   const short = head.slice(0, 12);
   if (runs === undefined)
-    return {
-      subject: `#${pr} pushed ${short}: CI not waited for`,
-      body: `${url} is at ${short}. track pr didn't wait for CI (no --wait): check it before re-reviewing.`,
-    };
+    return waiting
+      ? {
+          subject: `#${pr} pushed ${short}: CI running`,
+          body: `${url} is at ${short}. track pr is waiting for CI and mails its result next; if none comes, check CI before re-reviewing.`,
+        }
+      : {
+          subject: `#${pr} pushed ${short}: CI not waited for`,
+          body: `${url} is at ${short}. track pr didn't wait for CI (no --wait): check it before re-reviewing.`,
+        };
   const ok = new Set(["success", "neutral", "skipped"]);
   const failed = runs.filter((run) => !ok.has(run.conclusion ?? ""));
   return {

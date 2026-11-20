@@ -98,8 +98,9 @@ outcome, not a spec. Show the human the charter and the beads; start once they a
   `mshape track pr --body-only --body-file <path>`: no push and no gate, refused if the Gate
   section would be false. Add `--wait` to any `track pr` to wait for CI on the PR's head: it
   exits 1 naming a failed check, or when the branch conflicts with main and so gets no CI.
-  Once it is open, `mshape msg watch pr <n>`: its merge (or close) reaches you as mail, so
-  no one has to tell you. Close the beads when it merges.
+  `track pr` watches the PR for this track (`mshape msg watch pr <n>`): its merge, close, or
+  a conflict with `main` reaches you as mail, so no one has to tell you. Close the beads
+  when it merges.
 - **One open PR at a time**, from `track/<name>`. The PR is one reviewed unit: once it is
   open, `track/<name>` takes only what the PR itself needs: before its review, a blocker
   another track found or a test someone asked for; once reviewed, answers to the review. Do
@@ -108,13 +109,12 @@ outcome, not a spec. Show the human the charter and the beads; start once they a
   pushes that branch's tip whatever is checked out, so the next work never joins the PR.
   It refuses only while the first review is in progress (a live reviewer at
   `review-<track>`, no review posted yet): wait for it. Once a review is posted, push its
-  answer in as many pushes as it takes: `track pr` mails the reviewer each one (with `--wait`,
-  once CI is in), so don't message the reviewer yourself. `mshape review post` mails you the
+  answer in as many pushes as it takes: `track pr` mails the reviewer each one (and with
+  `--wait`, CI's result too), so don't message the reviewer yourself. `mshape review post` mails you the
   review. When the PR is ready for review and no reviewer exists yet, tell the human.
   Bring `main` in (`git merge origin/main`) before review, or in a review round's push when
   the branch conflicts with it or main changed something the PR relies on. After the LGTM,
-  push nothing unless the PR conflicts with `main`, which your watch on it mails you (from
-  #159; until then, `gh pr view <n> --json mergeable` says `CONFLICTING`): then
+  push nothing unless the PR conflicts with `main`, which its watch mails you: then
   merge `main`, push only that merge, and the reviewer, mailed by `track pr`, confirms it
   only resolves the conflict and posts the LGTM again.
   When the PR merges, however it was merged, replay only the next work onto `main`:

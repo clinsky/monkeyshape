@@ -784,12 +784,18 @@ describe("track pr: the fast stages here, the tests in CI", () => {
     expect(waited.code).toBe(0);
     const head = remoteTip().slice(0, 12);
     expect((await pr()).body.split("## Gate")[1]).toContain(`CI on ${head}: check: success`);
+    // At the push, then CI's result (82k: an interrupted wait still sent the first).
     const mailed = await mail("review-docs");
-    expect(mailed.map((message) => message.subject)).toEqual([`#7 pushed ${head}: CI passed`]);
-    expect(mailed[0]?.body).toContain("- check: success https://example.test/run/1");
+    expect(mailed.map((message) => message.subject).sort()).toEqual([
+      `#7 pushed ${head}: CI passed`,
+      `#7 pushed ${head}: CI running`,
+    ]);
+    expect(mailed.find((message) => message.subject.endsWith("CI passed"))?.body).toContain(
+      "- check: success https://example.test/run/1",
+    );
   });
 
-  test("--wait during review where no CI starts: the reviewer is still mailed the push (#150's own run)", async () => {
+  test("--wait during review: the reviewer is mailed at the push, before any wait, so no CI or a killed wait loses nothing (#150's run, 82k)", async () => {
     await writeFile(`${wt()}/body.md`, body("x"));
     expect(mshape(wt(), "pr", "--title", "t", "--body-file", "body.md").code).toBe(0);
     await reviews([{ commit_id: remoteTip(), body: `## Fit\n\nround 1\n\n${REVIEW_MARKER}` }]);
@@ -826,10 +832,62 @@ console.log(out);
       stderr: "pipe",
     });
     const out = ran.stdout.toString();
-    expect(out).toContain(
-      `MAIL review-docs: #7 pushed ${remoteTip().slice(0, 12)}: CI not waited for`,
-    );
+    expect(out).toContain(`MAIL review-docs: #7 pushed ${remoteTip().slice(0, 12)}: CI running`);
     expect(out).toContain("note: no CI check started");
+  });
+
+  test("--wait killed while CI is queued: the reviewer already has the push (82k)", async () => {
+    await withCi();
+    await writeFile(`${wt()}/body.md`, body("x"));
+    expect(mshape(wt(), "pr", "--title", "t", "--body-file", "body.md").code).toBe(0);
+    await reviews([{ commit_id: remoteTip(), body: `## Fit\n\nround 1\n\n${REVIEW_MARKER}` }]);
+    await commitFile("fix.md", "the answer\n", "answer the review");
+    await checks("checks.json", []);
+    const child = Bun.spawn([process.execPath, CLI, "track", "pr", "--wait"], {
+      cwd: wt(),
+      env: {
+        ...process.env,
+        PATH: `${bin}:/usr/bin:/bin`,
+        FAKE_GH: gh,
+        CLAUDE_CONFIG_DIR: join(base, "no-claude"),
+        XDG_CONFIG_HOME: join(base, "config"),
+        CLAUDE_CODE_SESSION_ID: "",
+        CLAUDE_PID: "",
+        CODEX_THREAD_ID: "",
+      },
+      stdout: "pipe",
+      stderr: "pipe",
+    });
+    // Waiting: CI never starts here, and a workflow runs the gate, so it waits minutes. The
+    // first poll is the runs before the push; a second means the wait itself has begun.
+    const polls = async () =>
+      Number(
+        (await Bun.file(`${gh}/polls`)
+          .text()
+          .catch(() => "0")) || 0,
+      );
+    for (let tries = 0; tries < 300 && (await polls()) < 2; tries++) await Bun.sleep(100);
+    expect(await polls()).toBeGreaterThanOrEqual(2);
+    child.kill();
+    await child.exited;
+    expect(
+      (await subjects("review-docs")).some((subject) => subject.endsWith(": CI running")),
+    ).toBe(true);
+  });
+
+  test("track pr watches the PR it opens, and says so once (z1u.17)", async () => {
+    await writeFile(`${wt()}/body.md`, body("x"));
+    const opened = mshape(wt(), "pr", "--title", "t", "--body-file", "body.md");
+    expect(opened.code).toBe(0);
+    expect(opened.stderr).toContain("Watching pr 7 at docs");
+    await commitFile("more.md", "more\n", "more");
+    expect(mshape(wt(), "pr").stderr).not.toContain("Watching pr 7");
+    const listed = Bun.spawnSync([process.execPath, CLI, "msg", "watch"], {
+      cwd: wt(),
+      env: { ...process.env, CLAUDE_CODE_SESSION_ID: "", CLAUDE_PID: "", CODEX_THREAD_ID: "" },
+      stdout: "pipe",
+    });
+    expect(listed.stdout.toString()).toContain("pr 7");
   });
 
   test("pushes before any review (gnv): allowed, and no reviewer is mailed", async () => {

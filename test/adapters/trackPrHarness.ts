@@ -74,6 +74,9 @@ if (args[1] === "list") {
     process.exit(1);
   }
   console.log((await state.exists()) ? "[" + (await state.text()) + "]" : "[]");
+} else if (args[0] === "api" && (args[1] ?? "").split("/").at(-2) === "pulls" && !args.includes("--method") && !args.includes("-q")) {
+  // The PR as the REST API gives it, for msg watch's lookup.
+  console.log(JSON.stringify({ state: "open", merged: false, title: "t", html_url: "https://example.test/pr/7", mergeable: true, base: { ref: "main" } }));
 } else if (args[0] === "api" && (args[1] ?? "").split("/").at(-2) === "pulls" && !args.includes("--method")) {
   // The PR's head is what the remote's branch is at, as GitHub reports it.
   const head = Bun.spawnSync(["git", "rev-parse", "refs/heads/track/docs"], { cwd: dir + "/../remote.git" });
