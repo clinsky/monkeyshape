@@ -13,7 +13,7 @@ import {
 } from "../adapters/baseline.ts";
 import { withBeadsExport } from "../adapters/beads.ts";
 import { findConfig, loadConfig } from "../adapters/config.ts";
-import { reviewPost, scanFile } from "../adapters/denylist.ts";
+import { scanFile } from "../adapters/denylist.ts";
 import { depBump } from "../adapters/dep.ts";
 import { runGate } from "../adapters/gate.ts";
 import { harnesses } from "../adapters/harnesses/index.ts";
@@ -33,7 +33,7 @@ import {
 import { primeText } from "../adapters/prime.ts";
 import { runTool } from "../adapters/process.ts";
 import { packSource, packWorkingTree } from "../adapters/release.ts";
-import { reviewHandshake, reviewNew, reviewRm } from "../adapters/reviews.ts";
+import { reviewNew, reviewPostAndTell, reviewRm } from "../adapters/reviews.ts";
 import { listShapeRules } from "../adapters/shapeRules.ts";
 import { syncAll } from "../adapters/sync.ts";
 import { CI_TIMING, type TrackPrNotify, trackPr } from "../adapters/trackPr.ts";
@@ -698,19 +698,18 @@ const review = (root: string, args: ReadonlyArray<string>) =>
         ),
         code: 0,
       };
-    if (args.length === 3 && args[0] === "post") {
-      const say = (line: string) => Effect.sync(() => console.error(line));
-      const pr = args[1] ?? "";
-      const posted = yield* reviewPost(root, configDir(), pr, args[2] ?? "", say);
-      const after = yield* reviewHandshake(
+    const posting = args.filter((arg) => arg !== "--lgtm");
+    if (posting.length === 3 && posting[0] === "post" && args.length - posting.length <= 1) {
+      const output = yield* reviewPostAndTell(
         root,
-        pr,
-        posted.url,
-        posted.review,
+        configDir(),
+        posting[1] ?? "",
+        posting[2] ?? "",
+        args.includes("--lgtm"),
         mailAndNotify(root),
-        say,
+        (line) => Effect.sync(() => console.error(line)),
       );
-      return { output: [`posted ${posted.url}`, ...after].join("\n"), code: 0 };
+      return { output, code: 0 };
     }
     if (args.length === 2 && args[0] === "rm")
       return {
@@ -1085,10 +1084,13 @@ export const COMMANDS: ReadonlyArray<Command> = [
       Remove that worktree and its fetched ref. A reviewer at review-<track> keeps that
       address and its mail for the track's next PR; for a PR from no track, review-<n>'s
       unread mail is listed and its sessions removed. Never the shared data or the handoffs.
-  mshape review post <n> <file>
+  mshape review post <n> <file> [--lgtm]
       Post <file>, a review as GitHub's reviews API takes it ({commit_id, event, body,
       comments}), on pull request <n>, after scanning every string in it for denylisted terms
-      (see scan): a match refuses, naming where, and nothing is posted.`,
+      (see scan): a match refuses, naming where, and nothing is posted. Then mail the track
+      the PR is from: the link and one line per inline finding. --lgtm posts it as the LGTM
+      (refused beside an inline blocker, or on a commit that isn't the PR's head), mails the
+      track so, and removes the review's worktree; the reviewer keeps review-<track>.`,
     run: review,
   },
   {

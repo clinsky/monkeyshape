@@ -45,13 +45,22 @@ export const findings = (review: ReviewInput): ReadonlyArray<Finding> =>
     : [];
 
 /**
- * Whether the review says LGTM: the word in its body, and no blocker among its comments. A
- * review that says "no LGTM yet" beside a blocker is not one.
+ * Why a review can't be posted as the LGTM (`review post --lgtm`): an inline blocker is still
+ * open. LGTM is the flag, never a word in the body: "not LGTM yet" and "LGTM once ..." are
+ * prose in reviews that aren't one (#150's review: 9 of 55 bodies naming it on #95 to #149).
  */
-export const isLgtm = (review: ReviewInput): boolean =>
-  typeof review.body === "string" &&
-  /\bLGTM\b/.test(review.body) &&
-  !findings(review).some((item) => item.severity === "blocker");
+export const lgtmProblem = (review: ReviewInput): string | undefined => {
+  const open = findings(review).filter((item) => item.severity === "blocker");
+  return open.length === 0
+    ? undefined
+    : `--lgtm says nothing is open, and the review has ${count(open.length, "blocker")} inline (${open.map((item) => item.at).join(", ")}): post it without --lgtm, or drop the blocker if it is resolved. Nothing was posted`;
+};
+
+/** The note for a review whose body names LGTM but isn't posted as one. */
+export const lgtmNote = (review: ReviewInput): string | undefined =>
+  typeof review.body === "string" && /\bLGTM\b/.test(review.body)
+    ? "note: the review's body says LGTM, but it wasn't posted with --lgtm, so it went out as a review with findings and the worktree stays. If it is the LGTM, post the next one with --lgtm"
+    : undefined;
 
 const count = (n: number, what: string) => `${n} ${what}${n === 1 ? "" : "s"}`;
 
@@ -62,8 +71,10 @@ export const reviewMessage = (
   review: ReviewInput,
   /** Where the reviewer takes mail: the author tells it there once the PR is updated. */
   reviewer: string,
+  /** Posted with `--lgtm`. */
+  lgtm: boolean,
 ): { readonly subject: string; readonly body: string } => {
-  if (isLgtm(review))
+  if (lgtm)
     return {
       subject: `#${pr}: LGTM`,
       body: `Review: ${url}\nLGTM: nothing open. Merging is the maintainer's.`,

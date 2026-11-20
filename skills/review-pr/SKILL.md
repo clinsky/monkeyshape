@@ -187,8 +187,10 @@ worktree to the new head; it prints the previous one too.
 
 **When nothing is open, say "LGTM"** explicitly, on the PR and to the human: every blocker
 resolved and verified, every nit settled. Never while a finding is open or unverified.
-Merging is the human's call. Posting an LGTM through `mshape review post` removes the
-review's worktree for a track's PR, and the session keeps `review-<track>` and its mail for
+Merging is the human's call. Post the LGTM review with `mshape review post $N <file> --lgtm`:
+the flag is the LGTM, never the word in the body. It is refused beside an inline blocker or
+on a head the PR has left. It mails the track `#N: LGTM` and removes the review's worktree
+for a track's PR, and the session keeps `review-<track>` and its mail for
 the track's next PR: keep the chat when you will review that one. For a PR from no track,
 `mshape review rm $N` when the review is over: it lists what it discards (only scratch),
 removes the worktree, and ends `review-$N` after listing its unread mail; then close the chat.

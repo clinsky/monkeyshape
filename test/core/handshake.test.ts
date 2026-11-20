@@ -1,5 +1,11 @@
 import { describe, expect, test } from "bun:test";
-import { findings, isLgtm, pushMessage, reviewMessage } from "../../src/core/handshake.ts";
+import {
+  findings,
+  lgtmNote,
+  lgtmProblem,
+  pushMessage,
+  reviewMessage,
+} from "../../src/core/handshake.ts";
 import { REVIEW_MARKER, reviewDecision, reviewPosted } from "../../src/core/trackPr.ts";
 
 const comment = (body: string, path = "a.ts", line = 3) => ({ path, line, side: "RIGHT", body });
@@ -24,13 +30,19 @@ describe("the review's findings", () => {
     expect(findings({ comments: "not a list" })).toEqual([]);
   });
 
-  test("LGTM: the word in the body and no blocker; never beside one", () => {
-    expect(isLgtm({ body: "LGTM: verified." })).toBe(true);
-    expect(isLgtm({ body: "No LGTM yet.", comments: [comment("**Blocker: x**")] })).toBe(false);
-    expect(isLgtm({ body: "LGTM once the nit is in", comments: [comment("**Nit: y**")] })).toBe(
-      true,
+  test("LGTM is the --lgtm flag, refused beside an inline blocker; the word in prose only gets a note (#150's review)", () => {
+    expect(lgtmProblem({ body: "LGTM", comments: [comment("**Nit: y**")] })).toBeUndefined();
+    expect(lgtmProblem({ body: "LGTM", comments: [comment("**Blocker: x**")] })).toContain(
+      "the review has 1 blocker inline (a.ts:3)",
     );
-    expect(isLgtm({ body: "looks fine" })).toBe(false);
+    // Real bodies from reviews that weren't the LGTM: each is a note, never an LGTM.
+    for (const body of [
+      "Not LGTM yet: once CI is green on the head and that nit is settled, I expect to say LGTM.",
+      "LGTM once the merge is pushed, CI is green on it, and ...",
+      "**Still open, so no LGTM yet:**",
+    ])
+      expect(lgtmNote({ body })).toContain("wasn't posted with --lgtm");
+    expect(lgtmNote({ body: "## Fit" })).toBeUndefined();
   });
 
   test("the track's message: link, tally and one line per finding; LGTM is one line", () => {
@@ -39,12 +51,13 @@ describe("the review's findings", () => {
       "https://example.test/r",
       { comments: [comment("**Blocker: x.**"), comment("**Nit: y**")] },
       "review-docs",
+      false,
     );
     expect(message.subject).toBe("#9 reviewed: 1 blocker, 1 nit");
     expect(message.body).toContain("- blocker (a.ts:3): x.");
     expect(message.body).toContain("track pr mails review-docs");
-    expect(reviewMessage("9", "u", { body: "LGTM" }, "review-docs").subject).toBe("#9: LGTM");
-    expect(reviewMessage("9", "u", { body: "## Fit" }, "review-docs").subject).toBe(
+    expect(reviewMessage("9", "u", { body: "LGTM" }, "review-docs", true).subject).toBe("#9: LGTM");
+    expect(reviewMessage("9", "u", { body: "LGTM once x" }, "review-docs", false).subject).toBe(
       "#9 reviewed: no inline findings",
     );
   });

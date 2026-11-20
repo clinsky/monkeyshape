@@ -9,10 +9,10 @@
  * reviewer's mail is the review's, never the main checkout's or the track's. Paths come from
  * `src/core/layout.ts`.
  */
-import { mkdir, rm, writeFile } from "node:fs/promises";
-import { posix } from "node:path";
+import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { posix, resolve } from "node:path";
 import * as Effect from "effect/Effect";
-import { isLgtm, type ReviewInput, reviewMessage } from "../core/handshake.ts";
+import { lgtmNote, lgtmProblem, type ReviewInput, reviewMessage } from "../core/handshake.ts";
 import {
   HANDOFFS_LINK,
   handoffsStore,
@@ -34,6 +34,7 @@ import { listedBeads } from "../core/trackPr.ts";
 import { sharedPathProblems } from "../core/tracks.ts";
 import type { TrackError, WorkspaceError } from "../schemas/errors.ts";
 import { loadConfig } from "./config.ts";
+import { reviewPost } from "./denylist.ts";
 import { addressInbox } from "./mail.ts";
 import { type Caller, planReviewMove, removeSessions } from "./notices.ts";
 import {
@@ -116,9 +117,12 @@ const trackOfPr = (repo: string, pr: string, head: string) =>
     const body = typeof fields?.body === "string" ? fields.body : "";
     const labelled = new Set<string>();
     for (const id of listedBeads(body)) {
+      // The bead's own labels: its description or a dependency may name other tracks.
       const shown = yield* jsonOf(repo, ["bd", "show", id, "--json"]);
-      for (const label of JSON.stringify(shown ?? "").match(/track:[a-z0-9-]+/g) ?? [])
-        labelled.add(label.slice("track:".length));
+      const row = (Array.isArray(shown) ? shown[0] : shown) as { labels?: unknown } | undefined;
+      for (const label of Array.isArray(row?.labels) ? row.labels : [])
+        if (typeof label === "string" && label.startsWith("track:"))
+          labelled.add(label.slice("track:".length));
     }
     const named = [...labelled].filter((name) => TRACK_NAME.test(name));
     return named.length === 1 ? named[0] : undefined;
@@ -392,7 +396,7 @@ export type ReviewNotify = (
 
 /**
  * After `review post`: mails the track the review is of (its link, one line per finding),
- * and on LGTM removes the review's worktree, as `review rm` does: the reviewer keeps
+ * and on `--lgtm` removes the review's worktree, as `review rm` does: the reviewer keeps
  * `review-<track>` and its mail for the track's next PR. A PR from no track mails no one and
  * keeps its worktree, since `review rm` would end its address too: the PR tells its author.
  */
@@ -401,6 +405,8 @@ export const reviewHandshake = (
   pr: string,
   url: string,
   review: ReviewInput,
+  /** Posted with `--lgtm`. */
+  lgtm: boolean,
   notify: ReviewNotify,
   say: (line: string) => Effect.Effect<void>,
 ) =>
@@ -413,7 +419,7 @@ export const reviewHandshake = (
       );
       return [];
     }
-    const message = reviewMessage(pr, url, review, reviewerAddress(track));
+    const message = reviewMessage(pr, url, review, reviewerAddress(track), lgtm);
     const sent = yield* notify(track, message.subject, message.body).pipe(
       Effect.catchTags({
         TrackError: (error) =>
@@ -422,7 +428,74 @@ export const reviewHandshake = (
           Effect.succeed(`note: mailing track ${track} failed: ${error.message}`),
       }),
     );
-    if (!isLgtm(review)) return [sent];
+    if (!lgtm) return [sent];
     const removed = yield* reviewRm(cwd, pr, say);
     return [sent, removed, `next: cd ${mainCheckout(common)}`];
+  });
+
+/**
+ * Before `review post`: an LGTM needs nothing open inline and the PR's current head as its
+ * `commit_id`, since it acts on its own (the worktree goes, the track hears nothing is open);
+ * any other review on an older head is posted with a note. A head gh can't read is a note.
+ */
+export const reviewPostCheck = (
+  cwd: string,
+  pr: string,
+  review: ReviewInput & { readonly commit_id?: unknown },
+  lgtm: boolean,
+  say: (line: string) => Effect.Effect<void>,
+) =>
+  Effect.gen(function* () {
+    const blocked = lgtm ? lgtmProblem(review) : undefined;
+    if (blocked !== undefined) return yield* refuse(blocked);
+    if (!lgtm) {
+      const note = lgtmNote(review);
+      if (note !== undefined) yield* say(note);
+    }
+    const head = yield* jsonOf(cwd, [
+      "gh",
+      "api",
+      `repos/{owner}/{repo}/pulls/${pr}`,
+      "-q",
+      ".head.sha | @json",
+    ]);
+    if (typeof head !== "string" || head === "") {
+      yield* say(
+        `note: #${pr}'s head couldn't be read, so the review's commit wasn't checked against it`,
+      );
+      return;
+    }
+    if (review.commit_id === head) return;
+    const moved = `#${pr} moved to ${head.slice(0, 12)} since the review's commit (${typeof review.commit_id === "string" ? review.commit_id.slice(0, 12) : "none given"})`;
+    if (lgtm)
+      return yield* refuse(
+        `${moved}: re-review the new head (\`mshape review ${pr}\` moves the worktree there), then post the LGTM on it. Nothing was posted`,
+      );
+    yield* say(`note: ${moved}; posting on the commit given. Re-review the new head next`);
+  });
+
+/**
+ * `mshape review post <n> <file> [--lgtm]`: checks the review against the PR (`reviewPostCheck`),
+ * posts it (`reviewPost`, which scans it and says what is wrong with a bad number or file),
+ * then tells the track (`reviewHandshake`). What it did, for stdout.
+ */
+export const reviewPostAndTell = (
+  cwd: string,
+  configDir: string,
+  pr: string,
+  file: string,
+  lgtm: boolean,
+  notify: ReviewNotify,
+  say: (line: string) => Effect.Effect<void>,
+) =>
+  Effect.gen(function* () {
+    const given = yield* Effect.tryPromise({
+      try: async (): Promise<unknown> => JSON.parse(await readFile(resolve(cwd, file), "utf8")),
+      catch: () => undefined,
+    }).pipe(Effect.orElseSucceed(() => undefined));
+    if (PR_NUMBER.test(pr) && typeof given === "object" && given !== null && !Array.isArray(given))
+      yield* reviewPostCheck(cwd, pr, given as Record<string, unknown>, lgtm, say);
+    const posted = yield* reviewPost(cwd, configDir, pr, file, say);
+    const after = yield* reviewHandshake(cwd, pr, posted.url, posted.review, lgtm, notify, say);
+    return [`posted ${posted.url}`, ...after].join("\n");
   });

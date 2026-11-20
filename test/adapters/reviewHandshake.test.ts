@@ -56,7 +56,11 @@ const args = process.argv.slice(2);
 const dir = process.env.FAKE_GH;
 const path = args[1] ?? "";
 const pulls = /pulls\\/(\\d+)$/.exec(path);
-if (args[0] === "api" && pulls) {
+if (args[0] === "api" && pulls && (args[args.indexOf("-q") + 1] ?? "").startsWith(".head.sha")) {
+  const file = Bun.file(dir + "/head-" + pulls[1]);
+  if (!(await file.exists())) { console.error("HTTP 404"); process.exit(1); }
+  console.log(JSON.stringify((await file.text()).trim()));
+} else if (args[0] === "api" && pulls) {
   const file = Bun.file(dir + "/pr-" + pulls[1] + ".json");
   if (!(await file.exists())) { console.error("HTTP 404"); process.exit(1); }
   console.log(await file.text());
@@ -93,8 +97,11 @@ const publishFromTrack = async (pr: number, branch: string) => {
   sh(trackPath(), "push", "-q", "origin", `HEAD:refs/heads/${branch}`, `HEAD:refs/pull/${pr}/head`);
   await writeFile(
     join(base, "gh", `pr-${pr}.json`),
-    JSON.stringify(JSON.stringify({ ref: branch, body: "## Beads\n\n- x-1 a bead\n" })),
+    JSON.stringify({ ref: branch, body: "## Beads\n\n- x-1 a bead\n" }),
   );
+  const head = sh(trackPath(), "rev-parse", "HEAD");
+  await writeFile(join(base, "gh", `head-${pr}`), head);
+  return head;
 };
 
 /** A clone with no track publishes pull request `pr`. */
@@ -107,13 +114,13 @@ const publishFromNoTrack = async (pr: number) => {
   sh(author, "push", "-q", "origin", `HEAD:refs/pull/${pr}/head`);
   await writeFile(
     join(base, "gh", `pr-${pr}.json`),
-    JSON.stringify(JSON.stringify({ ref: "someones-fix", body: "" })),
+    JSON.stringify({ ref: "someones-fix", body: "" }),
   );
 };
 
-const post = async (pr: number, review: object) => {
+const post = async (pr: number, review: object, ...flags: ReadonlyArray<string>) => {
   await writeFile(join(base, "review.json"), JSON.stringify(review));
-  return mshape(reviewPath(pr), "review", "post", String(pr), join(base, "review.json"));
+  return mshape(reviewPath(pr), "review", "post", String(pr), join(base, "review.json"), ...flags);
 };
 
 beforeEach(async () => {
@@ -153,6 +160,26 @@ describe("review: a track's PR from another branch (3lo), and a broken config (z
     expect(
       (await readFile(join(repo, ".git", "monkeyshape", "reviews", "pr-9.track"), "utf8")).trim(),
     ).toBe("docs");
+  });
+
+  test("a PR from a clone no worktree has: its bead's own track label decides, not a track named in its text (#150's review)", async () => {
+    await publishFromNoTrack(11);
+    await writeFile(
+      join(base, "gh", "pr-11.json"),
+      JSON.stringify({ ref: "elsewhere", body: "## Beads\n\n- x-1 the bead\n" }),
+    );
+    // bd show --json: the bead's labels say docs; its description names track:other.
+    const bead = [
+      { id: "x-1", description: "after the PR of track:other", labels: ["track:docs"] },
+    ];
+    await writeFile(join(base, "bin", "bd"), `#!/bin/sh\necho '${JSON.stringify(bead)}'\n`);
+    await chmod(join(base, "bin", "bd"), 0o755);
+    expect(mshape(repo, "review", "11").code).toBe(0);
+    const recorded = await readFile(
+      join(repo, ".git", "monkeyshape", "reviews", "pr-11.track"),
+      "utf8",
+    );
+    expect(recorded.trim()).toBe("docs");
   });
 
   test("a PR from no track stays review-<n>: nothing is recorded", async () => {
@@ -199,14 +226,14 @@ describe("review post: the handshake", () => {
     expect(await exists(reviewPath(9))).toBe(true);
   });
 
-  test("LGTM: the track is mailed LGTM, the worktree is removed, review-docs is kept (1vc)", async () => {
-    await publishFromTrack(9, "track/docs");
+  test("--lgtm: the track is mailed LGTM, the worktree is removed, review-docs is kept (1vc)", async () => {
+    const head = await publishFromTrack(9, "track/docs");
     expect(mshape(repo, "review", "9").code).toBe(0);
-    const posted = await post(9, {
-      commit_id: "0".repeat(40),
-      event: "COMMENT",
-      body: "LGTM: both blockers verified.",
-    });
+    const posted = await post(
+      9,
+      { commit_id: head, event: "COMMENT", body: "LGTM: both blockers verified." },
+      "--lgtm",
+    );
     expect(posted.code).toBe(0);
     expect(posted.stdout).toContain(`removed ${reviewPath(9)}`);
     expect(posted.stdout).toContain("kept review-docs");
@@ -222,5 +249,51 @@ describe("review post: the handshake", () => {
     expect(posted.stderr).toContain("note: #10 is from no track");
     expect(await mail("docs")).toEqual([]);
     expect(await exists(reviewPath(10))).toBe(true);
+  });
+
+  test("a body saying LGTM in prose, posted without --lgtm: findings mail, the worktree stays, a note (#150's review)", async () => {
+    const head = await publishFromTrack(9, "track/docs");
+    expect(mshape(repo, "review", "9").code).toBe(0);
+    const nit = { path: "a.ts", line: 1, side: "RIGHT", body: "**Nit: y**" };
+    for (const body of [
+      "Not LGTM yet: once CI is green, I expect to say LGTM.",
+      "LGTM once the merge is pushed.",
+    ]) {
+      const posted = await post(9, { commit_id: head, event: "COMMENT", body, comments: [nit] });
+      expect(posted.code).toBe(0);
+      expect(posted.stderr).toContain("wasn't posted with --lgtm");
+    }
+    expect((await mail("docs")).map((message) => message.subject)).toEqual([
+      "#9 reviewed: 1 nit",
+      "#9 reviewed: 1 nit",
+    ]);
+    expect(await exists(reviewPath(9))).toBe(true);
+  });
+
+  test("--lgtm beside an inline blocker, or on a head the PR has left: refused, nothing posted or mailed (#150's review)", async () => {
+    const old = await publishFromTrack(9, "track/docs");
+    expect(mshape(repo, "review", "9").code).toBe(0);
+    const blocker = { path: "a.ts", line: 1, side: "RIGHT", body: "**Blocker: x**" };
+    const blocked = await post(
+      9,
+      { commit_id: old, event: "COMMENT", body: "LGTM", comments: [blocker] },
+      "--lgtm",
+    );
+    expect(blocked.code).toBe(1);
+    expect(blocked.stderr).toContain("the review has 1 blocker inline (a.ts:1)");
+    // The author pushes meanwhile: an LGTM on the old head is refused; a review there is noted.
+    await writeFile(join(base, "gh", "head-9"), "f".repeat(40));
+    const stale = await post(9, { commit_id: old, event: "COMMENT", body: "LGTM" }, "--lgtm");
+    expect(stale.code).toBe(1);
+    expect(stale.stderr).toContain(
+      `#9 moved to ffffffffffff since the review's commit (${old.slice(0, 12)})`,
+    );
+    const noted = await post(9, { commit_id: old, event: "COMMENT", body: "## Fit" });
+    expect(noted.code).toBe(0);
+    expect(noted.stderr).toContain("Re-review the new head next");
+    expect((await mail("docs")).map((message) => message.subject)).toEqual([
+      "#9 reviewed: no inline findings",
+    ]);
+    expect(await exists(reviewPath(9))).toBe(true);
   });
 });
