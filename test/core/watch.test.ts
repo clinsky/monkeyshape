@@ -14,6 +14,7 @@ import {
   decodeRuns,
   decodeWatch,
   encodeWatch,
+  needsBaseHead,
   parseTarget,
   type Run,
 } from "../../src/core/watch.ts";
@@ -35,7 +36,12 @@ const run = (over: Partial<Run>): Run => ({
 
 describe("a watched PR", () => {
   const watch = { kind: "pr", pr: "12" } as const;
-  const pr = { title: "Add a thing", url: "https://example.com/pull/12" };
+  const pr = {
+    title: "Add a thing",
+    url: "https://example.com/pull/12",
+    mergeable: "MERGEABLE",
+    base: "main",
+  } as const;
 
   test("open: nothing, and the watch stays", () => {
     expect(decidePr(watch, { ...pr, state: "OPEN" })).toEqual({ events: [], next: watch });
@@ -215,16 +221,36 @@ describe("what a watch command names", () => {
 
 describe("what gh and bd print", () => {
   test("a PR, a bead and runs, as this machine's gh 2.4 and bd print them", () => {
-    expect(
-      decodePr(
-        `{"mergeCommit":{"oid":"${SHA}"},"state":"MERGED","title":"T","url":"https://example.com/pull/1"}`,
-      ),
-    ).toEqual({ state: "MERGED", title: "T", url: "https://example.com/pull/1", mergeCommit: SHA });
-    expect(decodePr('{"mergeCommit":null,"state":"OPEN","title":"T","url":"u"}')).toEqual({
+    // gh api repos/{owner}/{repo}/pulls/<n>, as GitHub serves it (fields trimmed).
+    const rest = (over: object) =>
+      JSON.stringify({
+        state: "closed",
+        merged: true,
+        title: "T",
+        html_url: "https://example.com/pull/1",
+        merge_commit_sha: SHA,
+        mergeable: null,
+        base: { ref: "main", sha: OTHER },
+        ...over,
+      });
+    expect(decodePr(rest({}))).toEqual({
+      state: "MERGED",
+      title: "T",
+      url: "https://example.com/pull/1",
+      mergeCommit: SHA,
+      mergeable: "UNKNOWN",
+      base: "main",
+    });
+    // An open PR's merge_commit_sha is GitHub's test merge, never reported as a merge.
+    expect(decodePr(rest({ state: "open", merged: false, mergeable: false }))).toEqual({
       state: "OPEN",
       title: "T",
-      url: "u",
+      url: "https://example.com/pull/1",
+      mergeable: "CONFLICTING",
+      base: "main",
     });
+    expect(decodePr(rest({ merged: false })).valueOf()).toMatchObject({ state: "CLOSED" });
+    expect(decodePr(rest({ base: null }))).toBe("no base ref");
     expect(
       decodeBead('[{"id":"x-1","title":"T","status":"closed","close_reason":"Merged in #1"}]'),
     ).toEqual({ status: "closed", title: "T", closeReason: "Merged in #1" });
@@ -318,5 +344,77 @@ describe("a cancelled run (ci.yml's cancel-in-progress) is no failure", () => {
         run({ workflow: "lint", conclusion: "failure" }),
       ]).events[0]?.subject,
     ).toBe("CI failed on 1a45d74: lint");
+  });
+});
+
+describe("a watched PR that starts to conflict with its base (z1u.18)", () => {
+  const watch = { kind: "pr", pr: "12" } as const;
+  const seen = (mergeable: "MERGEABLE" | "CONFLICTING" | "UNKNOWN") =>
+    ({
+      state: "OPEN",
+      title: "Add a thing",
+      url: "https://example.com/pull/12",
+      mergeable,
+      base: "main",
+    }) as const;
+
+  test("becomes conflicting: one message naming the base's new head; the watch stays, marked", () => {
+    expect(needsBaseHead(watch, seen("CONFLICTING"))).toBe(true);
+    const decided = decidePr(watch, seen("CONFLICTING"), OTHER);
+    expect(decided.events.map((event) => [event.key, event.subject])).toEqual([
+      [`pr-12-conflict-${OTHER}`, "#12 conflicts with main: Add a thing"],
+    ]);
+    expect(decided.events[0]?.body).toContain(`\`main\`, now at ${OTHER}`);
+    expect(decided.next).toEqual({ kind: "pr", pr: "12", conflicting: true });
+    // Still conflicting, even after main moved again: nothing more.
+    expect(needsBaseHead({ ...watch, conflicting: true }, seen("CONFLICTING"))).toBe(false);
+    expect(decidePr({ ...watch, conflicting: true }, seen("CONFLICTING"), THIRD)).toEqual({
+      events: [],
+      next: { ...watch, conflicting: true },
+    });
+  });
+
+  test("conflict cleared, then back: a second message, under the new base head", () => {
+    const cleared = decidePr({ ...watch, conflicting: true }, seen("MERGEABLE"));
+    expect(cleared).toEqual({ events: [], next: { kind: "pr", pr: "12" } });
+    const again = decidePr(cleared.next as typeof watch, seen("CONFLICTING"), THIRD);
+    expect(again.events.map((event) => event.key)).toEqual([`pr-12-conflict-${THIRD}`]);
+  });
+
+  test("a conflict whose base head isn't known yet waits for the next check, naming nothing", () => {
+    expect(decidePr(watch, seen("CONFLICTING"))).toEqual({ events: [], next: watch });
+  });
+
+  test("GitHub's mergeable still UNKNOWN: no message, and nothing changes until it knows", () => {
+    expect(decidePr(watch, seen("UNKNOWN"))).toEqual({ events: [], next: watch });
+    expect(decidePr({ ...watch, conflicting: true }, seen("UNKNOWN"))).toEqual({
+      events: [],
+      next: { ...watch, conflicting: true },
+    });
+  });
+
+  test("merged after a conflict: the merge message, and the watch is removed", () => {
+    const decided = decidePr(
+      { ...watch, conflicting: true },
+      {
+        ...seen("UNKNOWN"),
+        state: "MERGED",
+        mergeCommit: SHA,
+      },
+    );
+    expect(decided.events.map((event) => event.subject)).toEqual(["#12 merged: Add a thing"]);
+    expect(decided.next).toBeUndefined();
+  });
+
+  test("a stored pr watch with or without conflicting decodes; a wrong one says why", () => {
+    expect(decodeWatch('{"kind":"pr","pr":"12"}')).toEqual(watch);
+    expect(decodeWatch('{"kind":"pr","pr":"12","conflicting":true}')).toEqual({
+      ...watch,
+      conflicting: true,
+    });
+    expect(decodeWatch('{"kind":"pr","pr":"12","conflicting":"yes"}')).toContain("conflicting");
+    expect(decodeWatch('{"kind":"bead","id":"x-1","conflicting":true}')).toBe(
+      "unknown keys: conflicting",
+    );
   });
 });

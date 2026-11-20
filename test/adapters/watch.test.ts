@@ -13,6 +13,7 @@ import {
   type Lookup,
   type Observer,
   watchAdd,
+  watchRemove,
 } from "../../src/adapters/watch.ts";
 import type { Message } from "../../src/core/mail.ts";
 import type { BeadSeen, PrSeen, Run } from "../../src/core/watch.ts";
@@ -71,6 +72,8 @@ let world: {
   prs: Record<string, Lookup<PrSeen>>;
   beads: Record<string, Lookup<BeadSeen>>;
   runs: Lookup<ReadonlyArray<Run>>;
+  /** The head of each base branch on GitHub now. */
+  heads: Record<string, string>;
   asked: Array<string>;
 };
 
@@ -84,6 +87,14 @@ const fake: Observer = {
     Effect.sync(() => {
       world.asked.push(`bead ${id}`);
       return world.beads[id] ?? { missing: `bead ${id} doesn't exist` };
+    }),
+  branchHead: (_, branch) =>
+    Effect.sync(() => {
+      world.asked.push(`head ${branch}`);
+      const sha = world.heads[branch];
+      return sha === undefined
+        ? { missing: `branch ${branch} on GitHub doesn't exist` }
+        : { found: { sha } };
     }),
   commit: (_, sha) =>
     Effect.sync(() =>
@@ -129,10 +140,18 @@ const merged: Lookup<PrSeen> = {
     title: "Add a thing",
     url: "https://example.com/pull/12",
     mergeCommit: SHA,
+    mergeable: "UNKNOWN",
+    base: "main",
   },
 };
 const open: Lookup<PrSeen> = {
-  found: { state: "OPEN", title: "Add a thing", url: "https://example.com/pull/12" },
+  found: {
+    state: "OPEN",
+    title: "Add a thing",
+    url: "https://example.com/pull/12",
+    mergeable: "MERGEABLE",
+    base: "main",
+  },
 };
 
 useSavedDir(
@@ -167,7 +186,7 @@ useSavedDir(
 );
 
 const reset = () => {
-  world = { prs: {}, beads: {}, runs: { found: [] }, asked: [] };
+  world = { prs: {}, beads: {}, runs: { found: [] }, heads: { main: SHA }, asked: [] };
   delivered.length = 0;
 };
 
@@ -197,7 +216,15 @@ describe("msg watch", () => {
     await watch(wt("docs"), "bead", "repo-1a");
     await watch(wt("docs"), "ci", SHA.slice(0, 7));
     expect(await watches("docs")).toEqual([`bead-repo-1a.json`, `ci-${SHA}.json`, "pr-7.json"]);
-    world.prs["7"] = { found: { state: "CLOSED", title: "Nope", url: "u" } };
+    world.prs["7"] = {
+      found: {
+        state: "CLOSED",
+        title: "Nope",
+        url: "u",
+        mergeable: "UNKNOWN",
+        base: "main",
+      },
+    };
     world.beads["repo-1a"] = {
       found: { status: "closed", title: "Do it", closeReason: "Done in #7" },
     };
@@ -301,6 +328,28 @@ describe("msg watch", () => {
     expect(world.asked).toHaveLength(1);
     expect(notes[0]).toContain("not asked, since `gh pr view` failed: timed out after 10s");
     expect(await watches("docs")).toEqual(["main.json", "pr-7.json", "pr-8.json", "pr-9.json"]);
+  });
+
+  test("a watched PR starts to conflict: one message, the watch stays; watched again, it mails again (z1u.18)", async () => {
+    reset();
+    world.prs["12"] = open;
+    await watch(wt("docs"), "pr", "12");
+    const conflicting: Lookup<PrSeen> =
+      "found" in open ? { found: { ...open.found, mergeable: "CONFLICTING" } } : open;
+    world.prs["12"] = conflicting;
+    expect((await check()).sent.map((m) => m.subject)).toEqual([
+      "#12 conflicts with main: Add a thing",
+    ]);
+    expect((await check()).sent).toEqual([]);
+    expect(await readFile(`${mailbox("docs")}/watches/pr-12.json`, "utf8")).toContain(
+      '"conflicting":true',
+    );
+    // A new watch on the same conflict, at the same base head: its own first message.
+    await Effect.runPromise(watchRemove(wt("docs"), ["pr", "12"], nobody()));
+    await watch(wt("docs"), "pr", "12");
+    expect((await check()).sent.map((m) => m.subject)).toEqual([
+      "#12 conflicts with main: Add a thing",
+    ]);
   });
 
   test("two addresses watch one PR: each gets its message, and gh is asked once", async () => {
@@ -427,7 +476,8 @@ describe("the gh observer", () => {
   test("a PR gh can't find is missing; any other failure is unavailable, with gh's words", async () => {
     expect(
       await withGh(
-        "echo 'GraphQL: Could not resolve to a PullRequest with the number of 9.' >&2; exit 1",
+        // gh 2.4's own words for a PR GitHub doesn't have.
+        "echo 'gh: Not Found (HTTP 404)' >&2; exit 1",
         (gh) => gh.pr(repo, "9"),
       ),
     ).toEqual({ missing: "pull request #9 doesn't exist" });
@@ -435,6 +485,51 @@ describe("the gh observer", () => {
       await withGh("echo 'error connecting to api.github.com' >&2; exit 1", (gh) =>
         gh.pr(repo, "9"),
       ),
-    ).toEqual({ unavailable: "`gh pr view 9` failed: error connecting to api.github.com" });
+    ).toEqual({
+      unavailable:
+        "`gh api repos/{owner}/{repo}/pulls/9` failed: error connecting to api.github.com",
+    });
+  });
+
+  test("a conflict names the base's head now, not the PR's stale base.sha; a later conflict at a new head mails again (#159's review)", async () => {
+    reset();
+    const stale = "a".repeat(40);
+    const state = `${base}/gh-state`;
+    // The PR's base.sha stays stale (no push to the PR); main's head and mergeable change.
+    const set = (mergeable: string, head: string) =>
+      Bun.write(state, `MERGEABLE=${mergeable}\nHEAD=${head}\n`);
+    await Bun.write(
+      `${base}/bin/gh`,
+      `#!/bin/sh
+. ${state}
+case "$2" in
+  */pulls/12) echo '{"state":"open","merged":false,"title":"Add a thing","html_url":"u","merge_commit_sha":"${stale}","mergeable":'"$MERGEABLE"',"base":{"ref":"main","sha":"${stale}"}}' ;;
+  */git/ref/heads/main) echo "$HEAD" ;;
+  *) echo "unexpected: $*" >&2; exit 1 ;;
+esac
+`,
+    );
+    Bun.spawnSync(["chmod", "+x", `${base}/bin/gh`]);
+    const gh = ghObserver({ PATH: `${base}/bin:/usr/bin:/bin` });
+    const run = () => Effect.runPromise(checkWatches(repo, later(), gh, random, () => Effect.void));
+    await set("true", SHA);
+    await Effect.runPromise(watchAdd(wt("docs"), ["pr", "12"], nobody(), gh, new Date(clock)));
+    const other = "f53186d6ae540e664f79d2ed8297717bf392df2d";
+
+    await set("false", SHA);
+    const first = (await run()).sent;
+    expect(first.map((m) => m.subject)).toEqual(["#12 conflicts with main: Add a thing"]);
+    expect(first[0]?.body).toContain(`now at ${SHA}`);
+    expect(first[0]?.body).not.toContain(stale);
+
+    await set("true", SHA);
+    expect((await run()).sent).toEqual([]);
+    await set("false", other);
+    const second = (await run()).sent;
+    expect(second[0]?.body).toContain(`now at ${other}`);
+    expect((await readdir(`${mailbox("docs")}/watches/sent`)).sort()).toEqual([
+      `pr-12-conflict-${SHA}`,
+      `pr-12-conflict-${other}`,
+    ]);
   });
 });

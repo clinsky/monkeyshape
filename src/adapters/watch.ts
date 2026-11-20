@@ -26,6 +26,8 @@ import {
   encodeWatch,
   eventKeys,
   formatWatches,
+  isEventOf,
+  needsBaseHead,
   type PrSeen,
   parseTarget,
   type Run,
@@ -48,6 +50,11 @@ export type Lookup<A> =
 export interface Observer {
   readonly pr: (cwd: string, pr: string) => Effect.Effect<Lookup<PrSeen>>;
   readonly bead: (cwd: string, id: string) => Effect.Effect<Lookup<BeadSeen>>;
+  /** A branch's head on GitHub now. */
+  readonly branchHead: (
+    cwd: string,
+    branch: string,
+  ) => Effect.Effect<Lookup<{ readonly sha: string }>>;
   /** The full id of a commit GitHub has. */
   readonly commit: (cwd: string, sha: string) => Effect.Effect<Lookup<{ readonly sha: string }>>;
   /** Actions runs on one head, or on pushes to `main`, newest first. */
@@ -120,8 +127,8 @@ export const ghObserver = (env: Environment): Observer => ({
     lookup(
       env,
       cwd,
-      ["gh", "pr", "view", pr, "--json", "state,title,url,mergeCommit"],
-      /Could not resolve to a PullRequest/,
+      ["gh", "api", `repos/{owner}/{repo}/pulls/${pr}`],
+      /HTTP 404/,
       `pull request #${pr}`,
       decodePr,
     ),
@@ -133,6 +140,16 @@ export const ghObserver = (env: Environment): Observer => ({
       /not found|no issues found/,
       `bead ${id}`,
       decodeBead,
+    ),
+  branchHead: (cwd, branch) =>
+    lookup(
+      env,
+      cwd,
+      ["gh", "api", `repos/{owner}/{repo}/git/ref/heads/${branch}`, "--jq", ".object.sha"],
+      /HTTP 404/,
+      `branch ${branch} on GitHub`,
+      // An object, not the bare id: a decoder's string is its error.
+      (text) => (/^[0-9a-f]{40}$/.test(text.trim()) ? { sha: text.trim() } : "not a commit id"),
     ),
   commit: (cwd, sha) =>
     lookup(
@@ -277,14 +294,17 @@ export const watchAdd = (
     );
     if (already !== undefined) return `Already watching ${describeWatch(watch)} at ${address}.`;
     // Cleared before the watch exists, so no check sees the new watch beside an old ledger.
-    for (const key of eventKeys(watch)) {
-      const ledger = sentPath(common, address, key);
+    const sentDir = sentPath(common, address, "");
+    for (const file of (yield* entries(sentDir)).filter((name) =>
+      isEventOf(name, eventKeys(watch)),
+    )) {
+      const ledger = sentPath(common, address, file);
       yield* fsUnless("remove", ledger, "ENOENT", undefined, () => unlink(ledger));
     }
     yield* writeWatch(path, watch);
     const when =
       watch.kind === "pr"
-        ? "when it merges or closes"
+        ? "when it starts to conflict with its base, and when it merges or closes"
         : watch.kind === "bead"
           ? "when it closes"
           : watch.kind === "ci"
@@ -390,6 +410,12 @@ export const checkWatches = (
         if ("missing" in seen) return seen.missing;
         if ("unavailable" in seen) return seen.unavailable;
         const value = seen.found;
+        if (watch.kind === "pr" && needsBaseHead(watch, value as PrSeen)) {
+          const { base } = value as PrSeen;
+          const head = yield* ask(`head ${base}`, "gh", () => observer.branchHead(cwd, base));
+          if (!("found" in head)) return "missing" in head ? head.missing : head.unavailable;
+          return decidePr(watch, value as PrSeen, head.found.sha);
+        }
         return watch.kind === "pr"
           ? decidePr(watch, value as PrSeen)
           : watch.kind === "bead"
