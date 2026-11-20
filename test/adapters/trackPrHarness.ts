@@ -3,7 +3,8 @@
  * remote, a track `docs` with one commit, a fake gh and a stand-in for mshape's gate. `base`,
  * `repo`, `bin` and `gh` are live bindings; each test starts from the saved build.
  */
-import { chmod, mkdir, writeFile } from "node:fs/promises";
+import { expect } from "bun:test";
+import { chmod, mkdir, readdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { prSkeleton } from "../../src/core/conventions.ts";
 import { useSavedDir } from "./savedDir.ts";
@@ -74,6 +75,9 @@ if (args[1] === "list") {
     process.exit(1);
   }
   console.log((await state.exists()) ? "[" + (await state.text()) + "]" : "[]");
+} else if (args[0] === "api" && (args[1] ?? "").split("/").at(-2) === "pulls" && !args.includes("--method") && !args.includes("-q")) {
+  // The PR as the REST API gives it, for msg watch's lookup.
+  console.log(JSON.stringify({ state: "open", merged: false, title: "t", html_url: "https://example.test/pr/7", mergeable: true, base: { ref: "main" } }));
 } else if (args[0] === "api" && (args[1] ?? "").split("/").at(-2) === "pulls" && !args.includes("--method")) {
   // The PR's head is what the remote's branch is at, as GitHub reports it.
   const head = Bun.spawnSync(["git", "rev-parse", "refs/heads/track/docs"], { cwd: dir + "/../remote.git" });
@@ -191,3 +195,87 @@ export const remoteHas = () =>
   Bun.spawnSync(["git", "rev-parse", "--verify", "--quiet", "refs/heads/track/docs"], {
     cwd: join(base, "remote.git"),
   }).exitCode === 0;
+
+export const remoteTip = () => sh(join(base, "remote.git"), "rev-parse", "refs/heads/track/docs");
+
+/**
+ * A reviewer of track docs' PR #7, live when Claude Code's record of it exists, ended
+ * (registered long ago, no record) otherwise. `reviewing`: at `review-docs` with what
+ * `mshape review 7` leaves, the PR's worktree recorded as the track's; `idle`: at
+ * `review-docs` between the track's PRs, no worktree for this one; `legacy`: at `review-7`,
+ * where a reviewer moved before a track's reviewer had `review-<track>`.
+ */
+export const reviewer = async (
+  live: boolean,
+  at: "reviewing" | "idle" | "legacy" = "reviewing",
+) => {
+  const session = "11111111-2222-3333-4444-555555555555";
+  const pid = 424242;
+  const address = at === "legacy" ? "review-7" : "review-docs";
+  if (at === "reviewing") {
+    sh(repo, "worktree", "add", "-q", "--detach", join(repo, ".agents", "worktrees", "repo.pr-7"));
+    await mkdir(join(repo, ".git", "monkeyshape", "reviews"), { recursive: true });
+    await writeFile(join(repo, ".git", "monkeyshape", "reviews", "pr-7.track"), "docs\n");
+  }
+  const dir = join(repo, ".git", "monkeyshape", "sessions", address);
+  await mkdir(dir, { recursive: true });
+  await writeFile(
+    join(dir, `${session}.json`),
+    JSON.stringify({
+      session,
+      pid,
+      registered: live ? new Date().toISOString() : "2026-01-01T00:00:00.000Z",
+    }),
+  );
+  if (live) {
+    await mkdir(join(base, "no-claude", "sessions"), { recursive: true });
+    await writeFile(
+      join(base, "no-claude", "sessions", `${pid}.json`),
+      JSON.stringify({
+        pid,
+        sessionId: session,
+        procStart: "p",
+        peerProtocol: 1,
+        messagingSocketPath: join(base, "none.sock"),
+      }),
+    );
+  }
+  return session;
+};
+
+/** The reviews the fake `gh` lists on the PR. */
+export const reviews = (list: ReadonlyArray<{ commit_id: string; body: string }>) =>
+  writeFile(`${gh}/reviews.json`, JSON.stringify(list));
+
+/** The unread mail at `address`. */
+export const mail = async (address: string) => {
+  const dir = join(repo, ".git", "monkeyshape", "mail", address);
+  const files = (await readdir(dir).catch(() => [] as Array<string>)).filter((file) =>
+    file.endsWith(".json"),
+  );
+  return Promise.all(
+    files.map(
+      async (file) =>
+        JSON.parse(await Bun.file(join(dir, file)).text()) as { subject: string; body: string },
+    ),
+  );
+};
+export const subjects = async (address: string) =>
+  (await mail(address)).map((message) => message.subject);
+
+/** Opens the PR (#7), then commits more, as answering a review would. */
+export const openThenCommit = async () => {
+  await writeFile(`${wt()}/body.md`, body("x"));
+  expect(mshape(wt(), "pr", "--title", "t", "--body-file", "body.md").code).toBe(0);
+  await commitFile("fix.md", "fix\n", "a fix");
+};
+
+export const checks = (name: string, runs: ReadonlyArray<object>) =>
+  writeFile(`${gh}/${name}`, JSON.stringify(runs));
+
+export const commitFile = async (path: string, text: string, message: string) => {
+  await mkdir(join(wt(), path, ".."), { recursive: true });
+  await writeFile(join(wt(), path), text);
+  sh(wt(), "add", ".");
+  sh(wt(), "commit", "-qm", message);
+};

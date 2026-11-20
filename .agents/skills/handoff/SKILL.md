@@ -22,8 +22,9 @@ belongs to a track.
   leave it uncommitted (the next chat opens in this same worktree) and list it in State.
   Never stash: the stash is shared by every worktree.
 - **Beads:** close what merged; claim what is half done; file what you found and didn't do.
-- **Open PRs:** `mshape msg watch pr <n>` on each, so its merge reaches the next session as
-  mail.
+- **Open PRs:** `track pr` watched each it opened or pushed; `mshape msg watch` lists them.
+  Watch any other by hand (`mshape msg watch pr <n>`), so its merge reaches the next session
+  as mail.
 - **Mail:** `mshape msg inbox`. Read what you can act on now (`mshape msg read <id>`); what
   you leave unread is shown to the next session when it starts. An answer you owe another
   track goes now, with `mshape msg send`, not into the handoff.

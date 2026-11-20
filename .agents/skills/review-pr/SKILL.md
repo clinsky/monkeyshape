@@ -44,8 +44,8 @@ this session from `main` to the reviewer's address (it prints the move): `review
 when the PR is a track's (its head is `track/<name>`, a track's worktree has its branch or
 head, or its beads carry the track's label), held across that track's PRs, else `review-$N`. The
 mail and notices for the main checkout stay with the other sessions there. The author's
-`track pr` mails you at `review-<track>` each push that answers your review: the head and,
-once CI is in, its outcome. Anything else reaches you with `mshape msg send review-<track>`. Review the track's next
+`track pr` mails you at `review-<track>` each push that answers your review: the head at once
+(`CI running` or `CI not waited for`), then CI's outcome when the author waited for it. Anything else reaches you with `mshape msg send review-<track>`. Review the track's next
 PR from the same chat: it keeps the address. Run from a track's chat, it moves nothing: that
 session keeps its track's mail. Clearing the context (a new session) registers it by the directory the
 chat is in: the reviewer's address in the review worktree, `main` again in the main checkout

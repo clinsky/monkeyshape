@@ -311,6 +311,8 @@ const trackPrCommand = (root: string, args: ReadonlyArray<string>) =>
         bodyOnly: args.includes("--body-only"),
         ...(args.includes("--wait") ? { wait: CI_TIMING } : {}),
         notify: mailAndNotify(root),
+        watch: (pr, at) =>
+          watchAdd(root, ["pr", String(pr)], caller(), ghObserver(process.env), new Date(), at),
       },
       (line) => Effect.sync(() => console.error(line)),
     );
