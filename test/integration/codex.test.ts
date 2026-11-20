@@ -2,7 +2,10 @@
  * A born repo's track in a real Codex, with no model: `mshape init --harness codex`, a track,
  * then the `codex` binary's interactive TUI in the track's worktree, driven through a pty
  * (`script`). Codex talks to a local server that refuses every model request at once, so a
- * turn ends in an error within a second and nothing leaves the machine. What it shows: the
+ * turn ends in an error within a second and no model request leaves the machine. Its plugins,
+ * apps and update check are off, so Codex opens no outside connection either (traced with strace
+ * on codex 0.171.0: it still resolves one GitHub host name at startup, connecting to nothing);
+ * `init`'s `bun install` reaches the npm registry, as in every init test. What it shows: the
  * session-start hook loads the loop into the session and registers it at the track, and mail
  * sent to the track reaches the idle session as a turn, through `codex queue`.
  *
@@ -32,14 +35,28 @@ let dead: ReturnType<typeof Bun.serve> | undefined;
 let tui: ReturnType<typeof Bun.spawn> | undefined;
 let screen = "";
 
-/** Waits for `ready` to hold, checking every 100 ms, for at most `ms`. */
-const until = async (ready: () => Promise<boolean> | boolean, ms: number): Promise<boolean> => {
+/** The end of what Codex's TUI drew, without terminal escapes, for a failure message. */
+const shown = (): string =>
+  screen
+    // biome-ignore lint/suspicious/noControlCharactersInRegex: terminal escapes are control characters
+    .replace(/\x1b\[[0-9;?<=>]*[ -/]*[@-~]|\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)|\x1b[()][A-Z0-9]/g, "")
+    .slice(-2000);
+
+/**
+ * Waits for `ready` to hold, checking every 100 ms, for at most `ms`; otherwise fails naming
+ * `what` and showing what Codex drew, since a Codex release can change the text waited on.
+ */
+const waitFor = async (
+  what: string,
+  ready: () => Promise<boolean> | boolean,
+  ms: number,
+): Promise<void> => {
   const end = Date.now() + ms;
   while (Date.now() < end) {
-    if (await ready()) return true;
+    if (await ready()) return;
     await Bun.sleep(100);
   }
-  return false;
+  throw new Error(`waited ${ms} ms for ${what}. Codex's screen ended:\n${shown()}`);
 };
 
 /** The environment every command here runs in: the shim first on PATH, the scratch Codex home. */
@@ -113,6 +130,7 @@ beforeAll(async () => {
     join(codexHome, "config.toml"),
     [
       'model_provider = "dead"',
+      "check_for_update_on_startup = false",
       "[model_providers.dead]",
       'name = "dead"',
       `base_url = "http://127.0.0.1:${dead.port}/v1"`,
@@ -120,7 +138,11 @@ beforeAll(async () => {
       "request_max_retries = 0",
       "stream_max_retries = 0",
       "supports_websockets = false",
+      // Nothing fetched: no plugins clone, no apps (and no update check, above).
       // Trusting the main checkout: Codex reads .codex/ there, also for a worktree.
+      "[features]",
+      "plugins = false",
+      "apps = false",
       `[projects."${born}"]`,
       'trust_level = "trusted"',
       "",
@@ -171,29 +193,42 @@ describe.skipIf(!RUNNABLE)("a born repo's track in Codex (no model)", () => {
   });
 
   test("the first prompt loads the loop and registers the session at the track", async () => {
-    expect(await until(() => screen.includes("Ask Codex"), 30_000)).toBe(true);
+    await waitFor("Codex's input box", () => screen.includes("Ask Codex"), 30_000);
     // Codex's TUI runs the session-start hook with the first prompt, not at launch.
     expect(await registrations()).toEqual([]);
     await type("first prompt");
-    expect(await until(async () => (await registrations()).length === 1, 30_000)).toBe(true);
+    await waitFor(
+      "the session's registration at the track",
+      async () => (await registrations()).length === 1,
+      30_000,
+    );
     const [registration] = await registrations();
     expect(registration).toMatch(/\/codex\.[0-9a-f-]{36}\.json$/);
     // PRIME reached the model's input, as developer context from the hook.
-    expect(await until(async () => (await rollout()).includes("The working loop"), 10_000)).toBe(
-      true,
+    await waitFor(
+      "PRIME in the session's rollout",
+      async () => (await rollout()).includes("The working loop"),
+      10_000,
     );
   }, 120_000);
 
   test("mail to the track reaches the idle session as a turn", async () => {
-    expect(await until(idle, 30_000)).toBe(true);
+    await waitFor("the session to be idle", idle, 30_000);
     const sent = await mshape(born, ["msg", "send", TRACK, "--subject", "probe notice", "body"]);
     expect(sent.output).toContain(`Notified 1 live session of ${TRACK}`);
     const id = /Sent (\S+) to/.exec(sent.output)?.[1] ?? "";
     const line = `[mshape] Message from main: probe notice (mshape msg read ${id})`;
-    expect(
-      await until(async () => (await rollout()).includes(standaloneNotice(line)), 30_000),
-    ).toBe(true);
-    // The prompt hook lists the unread subject beside it, as context from monkeyshape.
-    expect(await rollout()).toContain(`${id}  from main`);
+    await waitFor(
+      "the notice as a turn",
+      async () => (await rollout()).includes(standaloneNotice(line)),
+      30_000,
+    );
+    // The prompt hook lists the unread subject beside it, as context from monkeyshape: its
+    // output is a separate item that can land after the notice.
+    await waitFor(
+      "the unread listing beside the notice",
+      async () => (await rollout()).includes(`${id}  from main`),
+      30_000,
+    );
   }, 120_000);
 });
