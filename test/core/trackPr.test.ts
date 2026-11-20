@@ -149,10 +149,11 @@ describe("--body-only, behind, CI", () => {
     expect(behindWarning({ target: "origin/main", behind: 1, conflicts: ["a.ts"] })).toContain(
       "1 commit behind `origin/main`, and conflicts with it in a.ts.",
     );
-    // When to merge it in: before review or in a review round's push, never after LGTM (z1u.17).
+    // When to merge it in: before review or in a review round's push; after LGTM only to
+    // resolve a conflict (z1u.17).
     const when = behindWarning({ target: "origin/main", behind: 2, conflicts: [] }) ?? "";
     expect(when).toContain("before review, or in a push answering one");
-    expect(when).toContain("never after the PR's LGTM");
+    expect(when).toContain("After the PR's LGTM, only if it conflicts with `origin/main`");
     expect(when).not.toContain("when the review allows");
   });
   test("ciState: none, running, done with what failed", () => {
