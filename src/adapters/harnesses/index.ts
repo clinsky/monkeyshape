@@ -8,6 +8,7 @@ import type { Harness, HarnessIO } from "../../harnesses/harness.ts";
 import { HARNESSES } from "../../harnesses/index.ts";
 import { DEFAULT_HARNESSES } from "../../schemas/config.ts";
 import { claudeCodeIO } from "./claude-code.ts";
+import { codexIO } from "./codex.ts";
 
 export interface Harnesses {
   readonly list: ReadonlyArray<Harness>;
@@ -16,7 +17,7 @@ export interface Harnesses {
 }
 
 export const harnesses = (env: Readonly<Record<string, string | undefined>>): Harnesses => {
-  const ios: ReadonlyArray<HarnessIO> = [claudeCodeIO(env)];
+  const ios: ReadonlyArray<HarnessIO> = [claudeCodeIO(env), codexIO(env)];
   return { list: HARNESSES, io: (id) => ios.find((io) => io.id === id) };
 };
 

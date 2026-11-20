@@ -39,6 +39,7 @@ const mshape = async (
       CLAUDE_CONFIG_DIR: claude,
       CLAUDE_CODE_SESSION_ID: "",
       CLAUDE_PID: "",
+      CODEX_THREAD_ID: "",
       ...env,
     },
     stdin: new Blob([stdin]),

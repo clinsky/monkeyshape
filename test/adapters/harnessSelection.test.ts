@@ -182,7 +182,7 @@ describe("Harness selection: the plan's table", () => {
       harnessDeliveries(shipped, ["claude-code", "pi"], () => undefined).map(
         (one) => one.file.path,
       ),
-    ).toEqual([SETTINGS_FILE, EXTENSION.path]);
+    ).toEqual([SETTINGS_FILE, ".codex/hooks.json", EXTENSION.path]);
   });
 });
 

@@ -120,7 +120,9 @@ describe("Claude Code: identity", () => {
 
   test("nothing, empty variables or a malformed id claim nothing", () => {
     expect(identify({})).toBeUndefined();
-    expect(identify({ CLAUDE_CODE_SESSION_ID: "", CLAUDE_PID: "" })).toBeUndefined();
+    expect(
+      identify({ CLAUDE_CODE_SESSION_ID: "", CLAUDE_PID: "", CODEX_THREAD_ID: "" }),
+    ).toBeUndefined();
     expect(identify({ CLAUDE_CODE_SESSION_ID: "../x", CLAUDE_PID: "-1" })).toBeUndefined();
     expect(identify({}, "not json")).toBeUndefined();
   });

@@ -33,7 +33,13 @@ const mshape = (cwd: string, ...args: ReadonlyArray<string>) => {
   const result = Bun.spawnSync([process.execPath, CLI, ...args], {
     cwd,
     // gh and bd that can't run: the CLI must not reach the real repo's GitHub or beads.
-    env: { ...process.env, CLAUDE_CODE_SESSION_ID: "", CLAUDE_PID: "", PATH: `${base}/bin` },
+    env: {
+      ...process.env,
+      CLAUDE_CODE_SESSION_ID: "",
+      CLAUDE_PID: "",
+      CODEX_THREAD_ID: "",
+      PATH: `${base}/bin`,
+    },
     stdout: "pipe",
     stderr: "pipe",
   });
@@ -153,7 +159,7 @@ useSavedDir(
     for (const track of ["docs", "tracks"]) {
       const made = Bun.spawnSync([process.execPath, CLI, "track", "new", track], {
         cwd: repo,
-        env: { ...process.env, CLAUDE_CODE_SESSION_ID: "", CLAUDE_PID: "" },
+        env: { ...process.env, CLAUDE_CODE_SESSION_ID: "", CLAUDE_PID: "", CODEX_THREAD_ID: "" },
       });
       expect(made.exitCode).toBe(0);
     }

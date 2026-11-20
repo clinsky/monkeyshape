@@ -48,6 +48,7 @@ const mshape = (stdin: string | undefined, ...args: ReadonlyArray<string>) => {
       XDG_CONFIG_HOME: join(base, "config"),
       CLAUDE_CODE_SESSION_ID: "",
       CLAUDE_PID: "",
+      CODEX_THREAD_ID: "",
     },
     ...(stdin === undefined ? {} : { stdin: Buffer.from(stdin) }),
     stdout: "pipe",
