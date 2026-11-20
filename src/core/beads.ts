@@ -1,6 +1,6 @@
 /**
  * Who owns each bead, from bd alone (no GitHub): the facts `track list`, `track rm` and
- * `/milestone` decide by, held where they go wrong. An open bead no track owns is work nobody
+ * the `milestone` skill decide by, held where they go wrong. An open bead no track owns is work nobody
  * does and no `track list` counts. A deferred or pinned bead with a track label is counted as that
  * track's open work, so the track is never done and `track rm` refuses. A `TODO(<id>)` naming
  * a closed bead says the work is pending after the bead said it was done.

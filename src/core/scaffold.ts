@@ -223,8 +223,8 @@ export const SHARE_BEADS =
   "bd dolt push --yes && bd config set dolt.auto-push true && git commit --quiet -m 'Share beads through origin' .beads/config.yaml && git push --quiet origin HEAD";
 
 /**
- * How a human starts `skill` in each of `harnesses`, as they type it: `/roadmap`, or
- * "`/roadmap` in Claude Code, `$roadmap` in Codex" when several are listed.
+ * How a human starts `skill` in each of `harnesses`, as they type it: one harness's own way,
+ * or each named when several are listed ("`/roadmap` in Claude Code, `$roadmap` in Codex").
  */
 export const invocation = (
   harnesses: ReadonlyArray<Harness>,

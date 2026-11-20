@@ -11,4 +11,5 @@ yet?". This file is direction, not a rule source: rewrite it in place when a pie
 
 ## Direction
 
-Not written yet. Run `/roadmap` with a brain-dump of what you want to build.
+Not written yet. Start the `roadmap` skill (`/roadmap` in Claude Code, `$roadmap` in Codex)
+with a brain-dump of what you want to build.

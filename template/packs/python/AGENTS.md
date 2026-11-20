@@ -1,6 +1,7 @@
 # {{name}}
 
-What this repo is, in two sentences. `/roadmap` fills this in from the first brain-dump.
+What this repo is, in two sentences. The `roadmap` skill fills this in from the first
+brain-dump.
 
 `.beads/PRIME.md`, printed at every session start, is the working loop monkeyshape decides:
 beads, tracks and messages, pull requests. This file is what this repo decides, and wins

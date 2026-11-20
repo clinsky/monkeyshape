@@ -1010,10 +1010,10 @@ export const COMMANDS: ReadonlyArray<Command> = [
   mshape track current
       The track of this directory, name only; exit 1, saying why, outside a track.
   mshape track enter <name>
-      Move this Claude Code session to track <name>, from main or any other address: its
-      mail and notices become the track's (unread mail stays where it was), and the last line
-      printed is the track's worktree, where the session then works. Refuses an unknown track,
-      or a session Claude Code didn't identify. A new session id (/clear, a fresh start)
+      Move this session to track <name>, from main or any other address: its mail and
+      notices become the track's (unread mail stays where it was), and the last line printed
+      is the track's worktree, where the session then works. Refuses an unknown track, or a
+      session its harness didn't identify. A new session (a cleared context, a fresh start)
       registers by its directory again.
   mshape track pr [--title <title>] [--body-file <path>] [--body-only] [--wait]
       From a track's worktree, whatever branch it has checked out: prints the PR's size

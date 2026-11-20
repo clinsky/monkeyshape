@@ -238,7 +238,7 @@ export interface Mailbox {
 }
 
 /**
- * Every address's unread mail, for the main checkout and `/milestone`: grouped by address,
+ * Every address's unread mail, for the main checkout and the `milestone` skill: grouped by address,
  * oldest first, then a summary line. Reading stays the address's own act, so it says where.
  */
 export const formatAllInboxes = (mailboxes: ReadonlyArray<Mailbox>): string => {
