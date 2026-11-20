@@ -13,6 +13,7 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import * as Clock from "effect/Clock";
 import * as Effect from "effect/Effect";
+import { todoClause } from "../core/beads.ts";
 import { GATE_COMMAND, parsePrBody, prSizeNote, setPrSections } from "../core/conventions.ts";
 import {
   MAIN_BRANCH,
@@ -56,6 +57,7 @@ import {
   gateSection,
   gateTail,
   reviewedHead as isReviewed,
+  listedItems,
   type PostedReview,
   planPrBody,
   pushedPath,
@@ -78,6 +80,7 @@ import {
   mergeTargets,
   refuse,
   reviewTracks,
+  todosNaming,
   worktrees,
 } from "./tracks.ts";
 import { installDependencies } from "./workspace.ts";
@@ -973,6 +976,13 @@ export const trackPr = (
       "nothing was pushed or posted",
     );
     yield* checkBeads(repo, plan.beads, say);
+    // A bead the PR works on closes when it merges: a TODO naming it then turns the gate red
+    // wherever bd runs (jhz.1). Said now, while the PR can still delete it.
+    const workedOn = listedItems(plan.body).flatMap((item) => (item.filed ? [] : [item.id]));
+    for (const [id, where] of yield* todosNaming(repo, tip, workedOn))
+      yield* say(
+        `warning: this PR works on ${id}, which closes when it merges, but ${todoClause(id, where)}`,
+      );
 
     // Again: a review can start while the gate runs.
     yield* waitOutReview(

@@ -115,6 +115,14 @@ const named = (bead: BeadSummary): string => `${bead.id} ("${bead.title}")`;
 
 const TODO = /TODO\(([^)\s]+)\)/g;
 
+/**
+ * Said where a bead is about to close while a `TODO(<id>)` still names it (`where`: `path:line`
+ * each): closing it turns `beads/todo-closed` red wherever bd runs, and CI, which may have no
+ * bead database, can't see it (jhz.1).
+ */
+export const todoClause = (id: string, where: ReadonlyArray<string>): string =>
+  `\`TODO(${id})\` is still at ${where.join(", ")}: delete it (or do what it says) before \`bd close ${id}\`, or the gate's beads/todo-closed goes red wherever bd runs, which CI may not see`;
+
 export const checkBeads = (_config: unknown, snapshot: Snapshot): ReadonlyArray<Violation> => {
   if (snapshot.beadsExport?.state === "invalid")
     return [

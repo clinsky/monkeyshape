@@ -4,8 +4,9 @@
  * are read by `src/adapters/tracks.ts`, which hands the facts here.
  */
 import type { ResolvedConfig } from "../schemas/config.ts";
-import { ownedWithoutTrack, setAside } from "./beads.ts";
+import { ownedWithoutTrack, setAside, todoClause } from "./beads.ts";
 import { beadsBlocker } from "./check.ts";
+import { NONE_YET } from "./handoff.ts";
 import {
   AGENTS_HANDOFFS_LINK,
   HANDOFFS_LINK,
@@ -18,7 +19,7 @@ import {
   worktreePath,
 } from "./layout.ts";
 import type { Integration } from "./model.ts";
-import { listedBeads } from "./trackPr.ts";
+import { listedItems } from "./trackPr.ts";
 import { WATCH_SENDER } from "./watch.ts";
 
 /** A worktree as `git worktree list --porcelain` reports it. */
@@ -182,6 +183,11 @@ export interface RmFacts {
   readonly branchCheckedOutAt: ReadonlyArray<Worktree>;
   readonly handoffPath: string;
   readonly handoffExists: boolean;
+  /**
+   * The handoff's `## Lessons not yet promoted`, when it holds any (`unpromotedLessons`);
+   * `{ unparsed }` when the handoff exists but doesn't parse, so they can't be known.
+   */
+  readonly lessons?: string | { readonly unparsed: string } | undefined;
   /** Beads labelled `track:<track>` that aren't closed: removing the track would orphan them. */
   readonly beads: BeadsCheck;
   readonly mailbox: MailboxFacts;
@@ -404,6 +410,23 @@ export const planRm = (facts: RmFacts): RmPlan => {
       );
   }
 
+  // Not --force's to override: promoting a lesson, or moving it to the closing PR, is the
+  // work; deleting it unread is what jhz.5 found milestone 5's boundary doing.
+  if (facts.handoffExists && !facts.keepHandoff && facts.lessons !== undefined) {
+    if (typeof facts.lessons === "string")
+      refusals.push(
+        [
+          `the handoff's \`## Lessons not yet promoted\` isn't empty, and removing the track would delete it:`,
+          ...facts.lessons.split("\n").map((line) => `  ${line}`),
+          `promote each (a check, a test, AGENTS.md, a skill, or a bead that will), then set the section to \`${NONE_YET}\` in ${facts.handoffPath}; or pass --keep-handoff to keep the handoff`,
+        ].join("\n    "),
+      );
+    else
+      notes.push(
+        `${facts.handoffPath} doesn't parse (${facts.lessons.unparsed}), so whether it holds lessons not yet promoted is unknown: look before it goes`,
+      );
+  }
+
   const { mailbox } = facts;
   if (mailbox.exists && !facts.keepHandoff && mailbox.unread.length > 0) {
     const listed = mailbox.unread.map((message) => `${message.id} ${message.about}`);
@@ -548,8 +571,21 @@ export const trackDone = (facts: {
 /** A bead's status and labels, by id: what `openAfterMerge` reads. */
 export type BeadsById = ReadonlyMap<
   string,
-  { readonly status: string; readonly type: string; readonly labels: ReadonlyArray<string> }
+  {
+    readonly status: string;
+    readonly type: string;
+    readonly labels: ReadonlyArray<string>;
+    /** The beads it depends on with a `blocks` dependency (not its parent). */
+    readonly blockedBy?: ReadonlyArray<string>;
+  }
 >;
+
+/** The open beads `id` waits on: its `blocks` dependencies that aren't closed. */
+const waitingOn = (id: string, beads: BeadsById): ReadonlyArray<string> =>
+  (beads.get(id)?.blockedBy ?? []).filter((dep) => {
+    const status = beads.get(dep)?.status;
+    return status !== undefined && status !== "closed";
+  });
 
 /**
  * Beads a merged PR of the track lists in its Beads section but that are still open: the
@@ -560,18 +596,25 @@ export type BeadsById = ReadonlyMap<
  * `ownedWithoutTrack` says): another track's bead is in that track's count and is its to
  * settle, and an epic, a milestone or process work is no track's to close. A listed id bd doesn't know is skipped,
  * since `track pr` checked ids when it posted.
+ * Two more aren't fix-mes: a bead the body marks filed (`- <id> filed: ...`), which the PR
+ * opened for later rather than worked on, and one waiting on another (bd's `blocked`, or a
+ * `blocks` dependency still open), whose last piece can't start yet: it stays on the track,
+ * counted in its beads, until what it waits on closes.
  */
 export const openAfterMerge = (
   prs: ReadonlyArray<TrackPr>,
   beads: BeadsById,
   track: string,
+  /** Where a `TODO(<id>)` still names each bead, on the merge target (`path:line`). */
+  todos: ReadonlyMap<string, ReadonlyArray<string>> = new Map(),
 ): ReadonlyArray<string> =>
   prs
     .filter((pr) => pr.state === "MERGED")
     .flatMap((pr) =>
-      listedBeads(pr.body).flatMap((id) => {
+      listedItems(pr.body).flatMap(({ id, filed }) => {
         const bead = beads.get(id);
         if (bead === undefined || bead.status === "closed" || setAside(bead.status)) return [];
+        if (filed || bead.status === "blocked" || waitingOn(id, beads).length > 0) return [];
         const tracks = bead.labels.filter((label) => label.startsWith("track:"));
         if (tracks.length > 0 ? !tracks.includes(trackLabel(track)) : ownedWithoutTrack(bead))
           return [];
@@ -581,8 +624,9 @@ export const openAfterMerge = (
           tracks.length > 0
             ? `bd update ${id} --status deferred ${tracks.map((label) => `--remove-label ${label}`).join(" ")}`
             : `bd defer ${id}`;
+        const where = todos.get(id) ?? [];
         return [
-          `${id} (${bead.status}) is listed in merged PR #${pr.number} but still open: close it if its work is done (\`bd close ${id}\`), or write what is left in its notes and defer it${tracks.length > 0 ? " off the track" : ""} (\`${defer}\`)`,
+          `${id} (${bead.status}) is listed in merged PR #${pr.number} but still open: close it if its work is done (\`bd close ${id}\`), or write what is left in its notes and defer it${tracks.length > 0 ? " off the track" : ""} (\`${defer}\`)${where.length === 0 ? "" : `. Before closing it: ${todoClause(id, where)}`}`,
         ];
       }),
     );
