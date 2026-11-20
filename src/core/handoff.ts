@@ -10,8 +10,8 @@
  *   ## Lessons not yet promoted    learned here, not yet moved into a check, a doc or a decision
  *   ## Traps                       what will bite the next session
  *
- * A stub is a handoff with an empty charter: the next `/track` session interviews the human
- * for one and writes it. Nothing else records status, since done is derived from git, PRs and
+ * A stub is a handoff with an empty charter: the next session running the `track` skill
+ * interviews the human for one and writes it. Nothing else records status, since done is derived from git, PRs and
  * beads. A charter opens with `Serves: ..., because ...`, then `Out of scope:` and
  * `Done means:`, each free to wrap onto the lines after it; anything below them is free.
  * Sections are in this order, each exactly once; their bodies are free Markdown, with `###`
@@ -70,7 +70,7 @@ export const handoffQueue = (track: string): string => `bd ready --label ${track
 /**
  * The handoff `track new` writes: `date` is today, `YYYY-MM-DD`; `worktree` is shown as given.
  * Checked against the format here, so a bad name or date fails where it is passed in, not
- * later in `track list` or `/track`.
+ * later in `track list` or the `track` skill.
  */
 export const stubHandoff = (
   track: string,
@@ -81,7 +81,7 @@ export const stubHandoff = (
 ): { readonly text: string } | Problems => {
   const bodies: Record<HandoffSection, string> = {
     Charter: "",
-    State: `No charter yet: the next \`/track\` session interviews the human for one and writes it above,
+    State: `No charter yet: the next session running the \`track\` skill interviews the human for one and writes it above,
 opening with ${CHARTER_LINES.map((line) => `\`${line}\``).join(", ")}. Worktree \`${worktree}\` on \`${trackBranch(track)}\`, branched from \`${base}\`.`,
     "Lessons not yet promoted": NONE_YET,
     Traps: NONE_YET,

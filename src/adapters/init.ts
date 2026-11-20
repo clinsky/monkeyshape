@@ -23,6 +23,7 @@ import { PACKS } from "../packs/index.ts";
 import { DEFAULT_HARNESSES, PACK_IDS, type PackId, resolveConfig } from "../schemas/config.ts";
 import { WorkspaceError } from "../schemas/errors.ts";
 import { readPresent } from "./disk.ts";
+import { unlistedTemplateFiles } from "./harnesses/index.ts";
 import { BUN_MISSING, bunPath, runTool } from "./process.ts";
 import { fileDigest } from "./release.ts";
 import { installSkills, readTree } from "./skills.ts";
@@ -169,7 +170,9 @@ export const initRepo = (
     );
     if (tree.size === 0)
       return yield* Effect.fail(fail(packageRoot, "has no template/; reinstall monkeyshape"));
-    const template = templateFor(tree, pack);
+    // A file only an unlisted harness reads (Claude Code's CLAUDE.md) isn't the repo's.
+    const leftOut = unlistedTemplateFiles(harnesses.map((one) => one.id));
+    const template = templateFor(new Map([...tree].filter(([path]) => !leftOut.has(path))), pack);
     if (template === undefined)
       return yield* Effect.fail(
         fail(

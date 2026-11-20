@@ -4,6 +4,7 @@
  */
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
+import { CLAUDE_TEMPLATE_FILES } from "../../harnesses/claude-code/index.ts";
 import type { Harness, HarnessIO } from "../../harnesses/harness.ts";
 import { HARNESSES } from "../../harnesses/index.ts";
 import { DEFAULT_HARNESSES } from "../../schemas/config.ts";
@@ -49,3 +50,17 @@ export const listedHarnesses = (cwd: string): ReadonlyArray<string> | undefined 
     if (dirname(dir) === dir) return undefined;
   }
 };
+
+/**
+ * Files of the born-repo template that only one harness reads, by harness: one line per
+ * adapter that has any. `init` leaves them out of a repo that doesn't list that harness.
+ */
+export const TEMPLATE_FILES: Readonly<Record<string, ReadonlyArray<string>>> = {
+  "claude-code": CLAUDE_TEMPLATE_FILES,
+};
+
+/** The template's paths that belong to a shipped harness `listed` leaves out. */
+export const unlistedTemplateFiles = (listed: ReadonlyArray<string>): ReadonlySet<string> =>
+  new Set(
+    Object.entries(TEMPLATE_FILES).flatMap(([id, files]) => (listed.includes(id) ? [] : files)),
+  );

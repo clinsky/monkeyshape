@@ -255,7 +255,7 @@ const init = (root: string, args: ReadonlyArray<string>) =>
         `Created ${name}/: ${result.done.join(", ")}.`,
         ...result.notes.map((note) => `note: ${note}`),
         "",
-        nextStep(name, WORKFLOW_URL),
+        nextStep(name, WORKFLOW_URL, chosen),
       ].join("\n"),
       code: 0,
     };

@@ -46,7 +46,8 @@ describe("mshape init", () => {
     expect(created.output).toContain("bun install");
     expect(created.output).toContain("first commit");
     expect(unexpectedNotes(created.output)).toEqual([]);
-    expect(created.output).toContain("run /roadmap");
+    expect(created.output).toContain("start its roadmap skill");
+    expect(created.output).toContain("(`/roadmap`)");
     expect(created.output).toContain("docs/workflow.md");
     expect(created.code).toBe(0);
   });

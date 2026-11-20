@@ -223,14 +223,37 @@ export const SHARE_BEADS =
   "bd dolt push --yes && bd config set dolt.auto-push true && git commit --quiet -m 'Share beads through origin' .beads/config.yaml && git push --quiet origin HEAD";
 
 /** The last thing `init` prints: what to do now, and where the conventions are. */
-export const nextStep = (name: string, workflowUrl: string): string =>
+/**
+ * How a human starts `skill` in each of `harnesses`, as they type it: `/roadmap`, or
+ * "`/roadmap` in Claude Code, `$roadmap` in Codex" when several are listed.
+ */
+export const invocation = (
+  harnesses: ReadonlyArray<Harness>,
+  skill: string,
+  args?: string,
+): string => {
+  const typed = harnesses.map((harness) => ({
+    name: harness.name,
+    text: harness.invoke(skill, args),
+  }));
+  const distinct = [...new Set(typed.map((one) => one.text))];
+  if (distinct.length <= 1) return `\`${distinct[0] ?? skill}\``;
+  return typed.map((one) => `\`${one.text}\` in ${one.name}`).join(", ");
+};
+
+export const nextStep = (
+  name: string,
+  workflowUrl: string,
+  harnesses: ReadonlyArray<Harness> = [],
+): string =>
   [
     "Next:",
     `1. Give it a GitHub remote, since agents push and open PRs: in ${name}/ run`,
     `   \`gh repo create ${name} --private --source . --push\` (or add a remote and push main).`,
     "2. Share its beads through that remote, so another clone's `bd bootstrap` gets them. This",
     `   publishes the issue history there: \`${SHARE_BEADS}\``,
-    `3. Open a chat with your coding agent in ${name}/ and run /roadmap with a brain-dump of`,
-    "   what you want to build. It writes docs/roadmap.md and the first epics, and opens a PR.",
+    `3. Open a chat with your coding agent in ${name}/ and start its roadmap skill with a`,
+    `   brain-dump of what you want to build (${invocation(harnesses, "roadmap")}). It writes`,
+    "   docs/roadmap.md and the first epics, and opens a PR.",
     `The working loop, in full: ${workflowUrl}`,
   ].join("\n");
