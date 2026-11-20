@@ -3,9 +3,10 @@
  * then the `codex` binary's interactive TUI in the track's worktree, driven through a pty
  * (`script`). Codex talks to a local server that refuses every model request at once, so a
  * turn ends in an error within a second and no model request leaves the machine. Its plugins,
- * apps and update check are off, so Codex opens no outside connection either (traced with strace
- * on codex 0.171.0: it still resolves one GitHub host name at startup, connecting to nothing);
- * `init`'s `bun install` reaches the npm registry, as in every init test. What it shows: the
+ * apps and update check are off, so it fetches nothing; it may still open one connection to a
+ * GitHub host at startup (traced on codex 0.171.0: a lookup on IPv4-only machines, an HTTPS
+ * connect where IPv6 routes), which no setting found turns off. `init`'s `bun install` reaches
+ * the npm registry, as in every init test. What it shows: the
  * session-start hook loads the loop into the session and registers it at the track, and mail
  * sent to the track reaches the idle session as a turn, through `codex queue`.
  *
