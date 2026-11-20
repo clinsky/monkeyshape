@@ -503,10 +503,6 @@ const trackedInMain = (repo: string, path: string) =>
   });
 
 /**
- * Shared paths come from the main checkout's config (`shape.toml`): they name the main checkout's
- * data, whichever checkout the command runs from.
- */
-/**
  * A `track/<name>` still on main's remote that the new track's start doesn't contain: an
  * earlier track of the name, squash- or rebase-merged with its head branch kept, or dropped.
  * `track rm` deletes only the local branch, so the new track's first `track pr` would be
@@ -602,6 +598,8 @@ export const trackNew = (
     const invalid = nameProblem(track);
     if (invalid !== undefined) return yield* refuse(invalid);
     const { common, repo } = yield* locate(cwd);
+    // From the main checkout's config (`shape.toml`): shared paths name the main checkout's
+    // data, whichever checkout the command runs from.
     const config = yield* loadConfig(repo);
     const shared = config.tracks.sharedPaths;
     const problems = sharedPathProblems(shared);
@@ -958,7 +956,6 @@ const mailboxFacts = (common: string, track: string) =>
     return facts;
   });
 
-/** `say` prints at once: what `--force` will discard is said before it happens. */
 /**
  * The track's Claude Code sessions, from the session registry's adapter, which imports this
  * one, so the CLI passes them in. `live` is the running session ids or why they can't be read;
@@ -983,6 +980,7 @@ export const trackRm = (
     readonly fetchEnv: Readonly<Record<string, string | undefined>>;
     readonly sessions: TrackSessions;
   },
+  /** Prints at once: what `--force` will discard is said before it happens. */
   say: (line: string) => Effect.Effect<void>,
 ) =>
   Effect.gen(function* () {

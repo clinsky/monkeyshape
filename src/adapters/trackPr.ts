@@ -15,6 +15,7 @@ import * as Clock from "effect/Clock";
 import * as Effect from "effect/Effect";
 import { todoClause } from "../core/beads.ts";
 import { GATE_COMMAND, parsePrBody, prSizeNote, setPrSections } from "../core/conventions.ts";
+import { testStageCounts } from "../core/gate.ts";
 import { pushMessage } from "../core/handshake.ts";
 import {
   MAIN_BRANCH,
@@ -520,6 +521,27 @@ export const checkRuns = (cwd: string, sha: string, done: string) =>
   });
 
 /**
+ * Each finished check's test stages with their counts, from its job's log: an Actions check
+ * run's id is its job's. A log gh can't fetch (another CI's check, an expired log) adds
+ * nothing; the check's outcome is recorded either way.
+ */
+const ciTests = (top: string, runs: ReadonlyArray<CheckRun>) =>
+  Effect.gen(function* () {
+    const tests = new Map<string, ReadonlyArray<string>>();
+    for (const run of runs) {
+      if (run.status !== "completed") continue;
+      const log = yield* spawn(top, [
+        "gh",
+        "api",
+        `repos/{owner}/{repo}/actions/jobs/${run.id}/logs`,
+      ]);
+      const stages = log.code === 0 ? testStageCounts(log.stdout) : [];
+      if (stages.length > 0) tests.set(run.name, stages);
+    }
+    return tests as ReadonlyMap<string, ReadonlyArray<string>>;
+  });
+
+/**
  * After `--wait`: CI's verdict in the Gate section's CI line, replacing the pending one, so
  * the section is CI's result for the pushed commit. A Gate section with no CI line (the full
  * gate ran here) is left alone.
@@ -528,7 +550,7 @@ const recordCiResult =
   (top: string, branch: string, body: string, gate: string) => (runs: ReadonlyArray<CheckRun>) =>
     Effect.gen(function* () {
       const commit = /# at ([0-9a-f]+), run by mshape track pr/.exec(gate)?.[1] ?? "";
-      const updated = withCiLine(gate, ciLine(commit, runs));
+      const updated = withCiLine(gate, ciLine(commit, runs, yield* ciTests(top, runs)));
       if (updated === undefined) return;
       const pr = yield* openPr(top, branch);
       if (pr === undefined) return;
