@@ -545,7 +545,7 @@ describe("whether a track is done", () => {
     const base = { track: "docs", done: "no" as const, hasWorktree: true };
     expect(hygieneWarnings({ ...base, stateDate: "2026-11-02", lastCommit: "2026-11-03" })).toEqual(
       [
-        "its handoff's State (2026-11-02) is older than `track/docs`'s last commit (2026-11-03): rewrite State (`/handoff`)",
+        "its handoff's State (2026-11-02) is older than `track/docs`'s last commit (2026-11-03): rewrite State (the `handoff` skill)",
       ],
     );
     expect(hygieneWarnings({ ...base, stateDate: "2026-11-03", lastCommit: "2026-11-03" })).toEqual(

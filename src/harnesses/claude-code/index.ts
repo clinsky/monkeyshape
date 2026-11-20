@@ -31,6 +31,12 @@ import type {
   SessionStatus,
 } from "../harness.ts";
 
+/**
+ * What a born repo's template holds for Claude Code alone: `CLAUDE.md`, which points it at
+ * AGENTS.md. `init` leaves them out of a repo that doesn't list Claude Code.
+ */
+export const CLAUDE_TEMPLATE_FILES: ReadonlyArray<string> = ["CLAUDE.md"];
+
 /** Committed symlink: Claude Code reads project skills only from here. */
 export const CLAUDE_SKILLS_LINK = ".claude/skills";
 

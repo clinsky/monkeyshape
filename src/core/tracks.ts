@@ -647,7 +647,7 @@ export const hygieneWarnings = (facts: {
   facts.lastCommit !== undefined &&
   facts.stateDate < facts.lastCommit
     ? [
-        `its handoff's State (${facts.stateDate}) is older than \`${trackBranch(facts.track)}\`'s last commit (${facts.lastCommit}): rewrite State (\`/handoff\`)`,
+        `its handoff's State (${facts.stateDate}) is older than \`${trackBranch(facts.track)}\`'s last commit (${facts.lastCommit}): rewrite State (the \`handoff\` skill)`,
       ]
     : []),
   ...(facts.done === "yes" && facts.hasWorktree

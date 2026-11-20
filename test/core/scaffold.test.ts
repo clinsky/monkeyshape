@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import {
+  invocation,
   nextStep,
   PACKS_DIR,
   pinTable,
@@ -93,6 +94,18 @@ describe("scaffold", () => {
       files: { vendored: [entry] },
     });
     expect(text?.indexOf("[mshape]")).toBeLessThan(text?.indexOf("# Modules.") ?? 0);
+  });
+
+  test("a skill is named as each listed harness starts it, in init's closing steps", () => {
+    const pick = (...ids: ReadonlyArray<string>) =>
+      HARNESSES.filter((harness) => ids.includes(harness.id));
+    expect(invocation(pick("claude-code"), "roadmap")).toBe("`/roadmap`");
+    expect(invocation(pick("codex"), "roadmap")).toBe("`$roadmap`");
+    expect(invocation(pick("claude-code", "codex"), "track", "docs")).toBe(
+      "`/track docs` in Claude Code, `$track docs` in Codex",
+    );
+    expect(nextStep("app", "https://x", pick("codex"))).toContain("(`$roadmap`)");
+    expect(nextStep("app", "https://x", pick("codex"))).not.toContain("`/roadmap`");
   });
 
   test("harnesses other than the default are recorded after packs; the default is left unsaid", () => {

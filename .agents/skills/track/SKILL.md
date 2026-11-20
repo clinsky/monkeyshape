@@ -1,6 +1,6 @@
 ---
 name: track
-description: Use when the human says /track or /track <name>, or asks to continue a track's work, in a track's worktree or in the main checkout. Finds the track, reads its handoff and queue, interviews the human first if the handoff is a stub, then works the queue and opens PRs.
+description: Use when the human starts the track skill (/track in Claude Code, $track in Codex), with or without a track's name, or asks to continue a track's work, in a track's worktree or in the main checkout. Finds the track, reads its handoff and queue, interviews the human first if the handoff is a stub, then works the queue and opens PRs.
 ---
 
 # Track: the short horizon
@@ -17,14 +17,14 @@ prints the track's name on any branch; a note says when the worktree has another
 `track/<name>`'s tip.
 
 If it exits 1 because this is the main checkout and the human named a track
-(`/track <name>`), run `mshape track enter <name>`: it moves this session's mail and notices
+(starting this skill with a name), run `mshape track enter <name>`: it moves this session's mail and notices
 to the track and prints the track's worktree as its last line. Work there for the rest of
 the session: `cd` into it, give paths under it, and read its AGENTS.md and handoff, not the
-main checkout's. After a `/clear`, the session is at the main checkout again: rerun
+main checkout's. After the context is cleared (a new session), it is at the main checkout again: rerun
 `track enter`. An unknown name is refused with the real ones listed. If it refuses for
 another reason (the session has no identity to move, as in a harness that gives none),
 stop: tell the human to start the agent in the track's worktree (`mshape track list` shows
-it) and run `/track` there.
+it) and start this skill there.
 
 If it exits 1 for any other reason, or no track was named, stop: tell the human the reason
 it gave, and suggest `mshape track list` to find the track they meant, or
@@ -157,12 +157,12 @@ outcome, not a spec. Show the human the charter and the beads; start once they a
 **The handoff holds what no command shows:** a decision and its reason, work that exists
 only locally and why it waits, a trap. PRs, beads, branches and CI are what `gh`, `bd` and
 `git` print: don't restate them there. Update it when one of those changes, and before you
-stop, not on every PR event. When the human says the context is running out, run `/handoff`. After each merge, run
+stop, not on every PR event. When the human says the context is running out, run the `handoff` skill. After each merge, run
 `mshape track list` and act on what it prints under this track's row (a bead still open
 though its PR merged: close it or say what is left). When its `done` column says `yes`, tell
 the human the track is done; an empty `bd ready` is not enough, since it hides beads in
 progress or blocked. `unknown` means bd or gh couldn't say: act on the note it prints, and
-don't call the track done. Removing it is the human's or `/milestone`'s.
+don't call the track done. Removing it is the human's or the `milestone` skill's.
 
 Review this skill when a fresh chat running it had to ask the human something the handoff
 should have said.

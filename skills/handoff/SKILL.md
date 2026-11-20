@@ -1,6 +1,6 @@
 ---
 name: handoff
-description: Use when the human says /handoff, or asks to wrap up a track's chat because the context is running out or the session is ending. Rewrites the track's handoff so a fresh chat running /track can continue with nothing else.
+description: Use when the human starts the handoff skill (/handoff in Claude Code, $handoff in Codex), or asks to wrap up a track's chat because the context is running out or the session is ending. Rewrites the track's handoff so a fresh chat running the track skill can continue with nothing else.
 ---
 
 # Handoff: hand a track to a fresh chat
@@ -52,7 +52,8 @@ Run `mshape track list`: this track must show `stub` (if the charter isn't agree
 leave it empty, never write one the human hasn't agreed) or `active`, never `invalid`. If it
 shows `invalid`, each problem is printed under its row: fix them all and run it again. Then
 tell the human, in a few lines: what is done and in flight, anything waiting on their
-decision, and "open a fresh chat in this worktree and run `/track` (or `/track <name>` from
-the main checkout)".
+decision, and "open a fresh chat in this worktree and start the `track` skill (from the main checkout, give
+it the track's name)", in the human's harness's syntax (`/track` in Claude Code, `$track` in
+Codex).
 
 Review this skill when a fresh chat had to rediscover something the last one knew.

@@ -41,6 +41,7 @@ import {
   worktreesDir,
 } from "../core/layout.ts";
 import { decodeMessage, type ReviewTracks } from "../core/mail.ts";
+import { invocation } from "../core/scaffold.ts";
 import { listedBeads } from "../core/trackPr.ts";
 import {
   type BeadsById,
@@ -64,8 +65,11 @@ import {
   trackDone,
   type Worktree,
 } from "../core/tracks.ts";
+import { HARNESSES } from "../harnesses/index.ts";
+import { DEFAULT_HARNESSES } from "../schemas/config.ts";
 import { TrackError, WorkspaceError } from "../schemas/errors.ts";
 import { loadConfig } from "./config.ts";
+import { listedHarnesses } from "./harnesses/index.ts";
 import { beadRows, installDependencies } from "./workspace.ts";
 
 export const refuse = (reason: string) => Effect.fail(new TrackError({ reason }));
@@ -676,11 +680,16 @@ export const trackNew = (
       ),
     );
     const installed = yield* installDependencies(path);
+    // The track skill as the repo's harnesses start it: `/track`, `$track`, or each named.
+    const listed = listedHarnesses(path) ?? DEFAULT_HARNESSES;
     return [
       ...notes,
       ...said,
       ...(installed === undefined ? [] : [installed]),
-      `next: cd ${path}, then run /track`,
+      `next: cd ${path}, then start the track skill there (${invocation(
+        HARNESSES.filter((harness) => listed.includes(harness.id)),
+        "track",
+      )})`,
     ].join("\n");
   });
 

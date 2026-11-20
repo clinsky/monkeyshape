@@ -7,7 +7,7 @@ description: Use when the human brings a brain-dump about where the repo is head
 
 The roadmap is direction, not a spec: months ahead, coarse, rewritten in place, never cited
 by code or normative docs. Your job is to turn a brain-dump into goals clear enough that a
-later `/milestone` can pick one and give it acceptance on real data.
+later run of the `milestone` skill can pick one and give it acceptance on real data.
 
 Run this in the main checkout, on an up-to-date `main`, in a fresh chat.
 
@@ -44,7 +44,7 @@ Rewrite it in place; git has the history, so keep no revision log and no frozen 
 - Then scope (who it's for, what it is not), then a section per goal: the intent, the
   consumer, what done looks like, **why it comes when it does** (what it waits on, what it
   unblocks, or why it is worth more now than the goals after it), and what was learned so
-  far. `/milestone` picks the next goal by that line and writes it into its plan's "why
+  far. The `milestone` skill picks the next goal by that line and writes it into its plan's "why
   this milestone", so a goal without one can't be planned. Far-off detail belongs here,
   not in beads.
 - No dated promises, no restating AGENTS.md or DECISIONS.md, and nothing other docs would
@@ -65,6 +65,7 @@ Branch from `main`, commit, push, and open a PR whose body says what changed in 
 direction and why, which epics were created, rewritten or closed, and what the interview
 left open. Gate green first (`mshape gate`). The human merges.
 
-Then tell the human the next step: `/milestone` in a fresh chat, with their priorities.
+Then tell the human the next step: the `milestone` skill in a fresh chat, with their
+priorities (`/milestone` in Claude Code, `$milestone` in Codex).
 
-Review this skill when a roadmap written with it was hard for `/milestone` to plan from.
+Review this skill when a roadmap written with it was hard for the `milestone` skill to plan from.

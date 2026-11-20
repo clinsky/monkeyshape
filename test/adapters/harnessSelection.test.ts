@@ -9,7 +9,7 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import * as Effect from "effect/Effect";
 import { loadConfig } from "../../src/adapters/config.ts";
-import { listedHarnesses } from "../../src/adapters/harnesses/index.ts";
+import { listedHarnesses, unlistedTemplateFiles } from "../../src/adapters/harnesses/index.ts";
 import { installSkills } from "../../src/adapters/skills.ts";
 import { type HarnessSelection, harnessSelection, syncRepo } from "../../src/adapters/sync.ts";
 import { PR_TEMPLATE_FILE, prTemplate } from "../../src/core/conventions.ts";
@@ -197,5 +197,13 @@ describe("listedHarnesses: who is asked to identify a session", () => {
     // A config that doesn't parse asks every harness, so prime still registers the session.
     await put(join(root(), "shape.toml"), "harnesses = [\n");
     expect(listedHarnesses(root())).toBeUndefined();
+  });
+});
+
+describe("unlistedTemplateFiles: what init leaves out of a born repo", () => {
+  test("CLAUDE.md only where Claude Code isn't listed", () => {
+    expect([...unlistedTemplateFiles(["codex"])]).toEqual(["CLAUDE.md"]);
+    expect([...unlistedTemplateFiles(["claude-code"])]).toEqual([]);
+    expect([...unlistedTemplateFiles(["claude-code", "codex"])]).toEqual([]);
   });
 });

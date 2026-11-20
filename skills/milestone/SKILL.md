@@ -38,7 +38,7 @@ Ask every track and reviewer too, by `mshape msg send`, how working together wen
 collisions, reviews, handoffs. A session that took a track over by handoff saw less of the
 milestone: weigh its answer so. Then bring the human what several of them agree on.
 
-Close the boundary here; a fresh `/milestone` chat plans the next one and stays open as its
+Close the boundary here; a fresh chat running the `milestone` skill plans the next one and stays open as its
 planning session. It removes the finished tracks at step 8, after step 6 has promoted their
 handoffs' lessons. In this session, one PR: docs/roadmap.md where direction changed, what was
 agreed in the next goal's epic, and a short `## Retrospective` appended to the ending plan.
@@ -188,7 +188,8 @@ Once the PR is merged (or the human says to start):
   it arrives from `main` and the answer comes back to `main`'s mailbox.
 
 Finish by telling the human what to launch: for each track, "open a fresh chat in the main
-checkout and run `/track <name>`" (or in the worktree path, with `/track`). Then tell them to keep this chat open for the milestone: it is
+checkout and start the `track` skill with <name>" (or in the worktree path, with no name),
+in the human's harness's syntax (`/track <name>` in Claude Code, `$track <name>` in Codex). Then tell them to keep this chat open for the milestone: it is
 the planning session, where tracks' divergences and questions arrive (step 9).
 
 ## 9. Stay open: the planning session

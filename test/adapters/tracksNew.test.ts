@@ -44,6 +44,18 @@ describe("track new", () => {
     expect(again.stderr).toContain("track `docs` exists");
   });
 
+  test("says how to start the track skill as the repo's harnesses do: a Codex repo is never told /track", async () => {
+    await setup();
+    const claude = mshape(repo, "new", "docs");
+    expect(claude.stdout).toContain("then start the track skill there (`/track`)");
+    await writeFile(join(repo, "shape.toml"), 'packs = ["typescript"]\nharnesses = ["codex"]\n');
+    sh(repo, "commit", "-qam", "codex only");
+    const codex = mshape(repo, "new", "rust");
+    expect(codex.code).toBe(0);
+    expect(codex.stdout).toContain("then start the track skill there (`$track`)");
+    expect(codex.stdout).not.toContain("/track");
+  });
+
   test("installs dependencies in the new worktree; a failed install is a note, not a refusal", async () => {
     await setup();
     // A local dependency: bun links it without the network.
