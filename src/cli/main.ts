@@ -36,7 +36,7 @@ import { packSource, packWorkingTree } from "../adapters/release.ts";
 import { reviewNew, reviewPostAndTell, reviewRm } from "../adapters/reviews.ts";
 import { listShapeRules } from "../adapters/shapeRules.ts";
 import { syncAll } from "../adapters/sync.ts";
-import { CI_TIMING, type TrackPrNotify, trackPr } from "../adapters/trackPr.ts";
+import { CI_TIMING, trackPr } from "../adapters/trackPr.ts";
 import {
   type CarryMessages,
   currentTrackOf,
@@ -54,12 +54,7 @@ import { assess, CHECKS, evaluate, prerequisites } from "../core/check.ts";
 import { OWNABLE_FILES } from "../core/conventions.ts";
 import { garden } from "../core/garden.ts";
 import { cacheRoot } from "../core/launch.ts";
-import {
-  CLAUDE_SKILLS_LINK,
-  isReviewAddress,
-  reviewerTrackOf,
-  SKILLS_DIR,
-} from "../core/layout.ts";
+import { CLAUDE_SKILLS_LINK, isReviewAddress, SKILLS_DIR } from "../core/layout.ts";
 import {
   formatAllInboxes,
   formatInbox,
@@ -80,6 +75,7 @@ import { formatSyncPlan } from "../core/sync.ts";
 import { headingProblems } from "../core/trackPr.ts";
 import { HARNESS_IDS, PACK_IDS, shapeJsonSchema } from "../schemas/config.ts";
 import { type ConfigError, TrackError, WorkspaceError } from "../schemas/errors.ts";
+import { mailAndNotify, randomHex } from "./mailNotify.ts";
 import { caller, hookCaller, setInvokedBy } from "./session.ts";
 
 /** What a command returns: the text to print, and the exit code (0 prints to stdout). */
@@ -302,34 +298,6 @@ const trackPrCommand = (root: string, args: ReadonlyArray<string>) =>
     return { output, code: 0 };
   });
 
-/**
- * Mail sent by a command for its caller (track pr, review post): stored, then a live notice
- * to each session at the address. A track's reviewer address takes it before any reviewer
- * registers there, so it waits for one.
- */
-const mailAndNotify =
-  (root: string): TrackPrNotify =>
-  (to, subject, text) =>
-    Effect.gen(function* () {
-      const message = yield* mailSend(root, to, subject, text, new Date(), randomHex, caller(), {
-        toReviewer: reviewerTrackOf(to) !== undefined,
-      });
-      const delivery = yield* notifyRecipient(
-        root,
-        message,
-        harnesses(process.env),
-        new Date(),
-      ).pipe(
-        Effect.catchTags({
-          TrackError: (error) =>
-            Effect.succeed({ notified: 0, pruned: [], skipped: [error.reason] }),
-          WorkspaceError: (error) =>
-            Effect.succeed({ notified: 0, pruned: [], skipped: [error.message] }),
-        }),
-      );
-      return `${formatSent(message)}\n${formatDelivery(to, delivery)}`;
-    });
-
 const track = (root: string, args: ReadonlyArray<string>) =>
   Effect.gen(function* () {
     const [sub, ...rest] = args;
@@ -435,12 +403,6 @@ const carryMessages =
         WorkspaceError: (error) => Effect.succeed({ reason: error.message }),
       }),
     );
-
-/** Four hex digits for a message id: unique within a second among a handful of senders. */
-const randomHex = (): string =>
-  [...crypto.getRandomValues(new Uint8Array(2))]
-    .map((b) => b.toString(16).padStart(2, "0"))
-    .join("");
 
 /** `msg send`'s flags that take a value. */
 const SEND_VALUES = ["--subject", "--body-file", "--reply-to"] as const;
