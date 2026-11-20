@@ -13,6 +13,7 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import * as Clock from "effect/Clock";
 import * as Effect from "effect/Effect";
+import { todoClause } from "../core/beads.ts";
 import { GATE_COMMAND, parsePrBody, prSizeNote, setPrSections } from "../core/conventions.ts";
 import { pushMessage } from "../core/handshake.ts";
 import {
@@ -57,6 +58,7 @@ import {
   gateSection,
   gateTail,
   reviewedHead as isReviewed,
+  listedItems,
   type PostedReview,
   planPrBody,
   pushedPath,
@@ -80,6 +82,7 @@ import {
   mergeTargets,
   refuse,
   reviewTracks,
+  todosNaming,
   worktrees,
 } from "./tracks.ts";
 import { installDependencies } from "./workspace.ts";
@@ -996,6 +999,13 @@ export const trackPr = (
       "nothing was pushed or posted",
     );
     yield* checkBeads(repo, plan.beads, say);
+    // A bead the PR works on closes when it merges: a TODO naming it then turns the gate red
+    // wherever bd runs (jhz.1). Said now, while the PR can still delete it.
+    const workedOn = listedItems(plan.body).flatMap((item) => (item.filed ? [] : [item.id]));
+    for (const [id, where] of yield* todosNaming(repo, tip, workedOn))
+      yield* say(
+        `warning: this PR works on ${id}, which closes when it merges, but ${todoClause(id, where)}`,
+      );
 
     // Again: a review can start, or be posted, while the gate runs.
     const { reviewed } = yield* waitOutReview(
@@ -1053,8 +1063,20 @@ export const trackPr = (
       yield* tellReviewer();
       return done;
     }
+    // The reviewer hears of the push either way: with CI's runs once they are in, else (CI
+    // never started, the branch conflicts, the wait ran out) as a push CI didn't answer.
+    let told = false;
     const recordCi = (runs: ReadonlyArray<CheckRun>) =>
-      Effect.andThen(recordCiResult(top, branch, plan.body, gateText)(runs), tellReviewer(runs));
+      Effect.andThen(
+        recordCiResult(top, branch, plan.body, gateText)(runs),
+        Effect.andThen(
+          Effect.sync(() => {
+            told = true;
+          }),
+          tellReviewer(runs),
+        ),
+      );
+    const tellIfUntold = Effect.suspend(() => (told ? Effect.void : tellReviewer()));
     return yield* awaitCi(
       top,
       tip,
@@ -1066,5 +1088,5 @@ export const trackPr = (
       recordCi,
       gate.plan.kind === "fast",
       gate.checks,
-    );
+    ).pipe(Effect.ensuring(tellIfUntold));
   });

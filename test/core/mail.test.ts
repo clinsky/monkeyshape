@@ -14,6 +14,8 @@ import {
   recipientProblem,
   SUBJECT_MAX,
   subjectProblem,
+  THREAD_MAX,
+  threadOf,
 } from "../../src/core/mail.ts";
 import type { Worktree } from "../../src/core/tracks.ts";
 
@@ -97,6 +99,12 @@ describe("mail", () => {
     expect(decodeMessage("{")).toContain("not JSON");
     expect(decodeMessage(JSON.stringify({ ...sent, subject: 3 }))).toContain("subject");
     expect(decodeMessage(JSON.stringify({ ...sent, extra: "x" }))).toContain("unknown keys: extra");
+    // A reply's parent; a 0.6.0 message, without one, still decodes.
+    const reply = { ...sent, replyTo: "20261103-142501-0a1b" };
+    expect(decodeMessage(encodeMessage(reply))).toEqual(reply);
+    expect(decodeMessage(JSON.stringify({ ...sent, replyTo: "x" }))).toBe(
+      "replyTo is not a message id",
+    );
   });
 
   test("the inbox lists oldest first with the read command; quiet and empty prints nothing", () => {
@@ -182,5 +190,31 @@ describe("mail", () => {
     expect(summary([box("review", [], 2)])).toStartWith(
       "0 unread in 0 mailboxes, and 2 files that aren't messages.",
     );
+  });
+
+  test("a thread ends at a loop a hand-edited file makes, and is cut at THREAD_MAX", () => {
+    const a = {
+      ...message("20261103-142501-000a", "2026-11-03T14:25:01Z"),
+      replyTo: "20261103-142502-000b",
+    };
+    const b = { ...message("20261103-142502-000b", "2026-11-03T14:25:02Z"), replyTo: a.id };
+    const loop = new Map([
+      [a.id, a],
+      [b.id, b],
+    ]);
+    expect(threadOf(b, loop)).toEqual({ earlier: [a] });
+
+    const chain = Array.from({ length: THREAD_MAX + 5 }, (_, i) => ({
+      ...message(
+        `20261103-1425${String(i).padStart(2, "0")}-0000`,
+        `2026-11-03T14:25:${String(i).padStart(2, "0")}Z`,
+      ),
+      ...(i === 0 ? {} : { replyTo: `20261103-1425${String(i - 1).padStart(2, "0")}-0000` }),
+    }));
+    const last = chain[chain.length - 1];
+    if (last === undefined) throw new Error("no chain");
+    const { earlier } = threadOf(last, new Map(chain.map((m) => [m.id, m])));
+    expect(earlier).toHaveLength(THREAD_MAX);
+    expect(earlier[THREAD_MAX - 1]?.id).toBe(chain[chain.length - 2]?.id);
   });
 });

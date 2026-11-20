@@ -208,20 +208,31 @@ export const gateTail = (output: string): string =>
 const BEAD_ID = /^[a-z0-9][a-z0-9_]*(?:-[a-z0-9_]+)*-[a-z0-9]+(?:\.\d+)*$/;
 
 /**
- * The bead ids the Beads section lists: the first word of each list item, with a link's
- * text for the link and emphasis or backticks stripped. Prose around them is free; an id is
- * only ever the start of an item.
+ * The Beads section's items: the first word of each list item, with a link's text for the link
+ * and emphasis or backticks stripped, and whether the word after it is `filed` (`- <id> filed:
+ * ...`), a bead the PR filed for later rather than one it worked on. Prose around them is
+ * free; an id is only ever the start of an item.
  */
-export const listedBeads = (body: string): ReadonlyArray<string> => {
+export const listedItems = (
+  body: string,
+): ReadonlyArray<{ readonly id: string; readonly filed: boolean }> => {
   const text = parsePrBody(body).find((section) => section.name === "Beads")?.text ?? "";
+  // Emphasis and code around a word, and punctuation after it: `id`, **id**, _id_:, (filed)
+  const bare = (word: string | undefined) => word?.replace(/^[`*_(]+|[`*_)]*[.,:;]?[`*_)]*$/g, "");
   return text.split("\n").flatMap((line) => {
-    const word = /^\s*(?:[-*+]|\d+[.)])\s+(\S+)/
-      .exec(line.replace(/\[([^\]]*)\]\([^)]*\)/g, "$1"))?.[1]
-      // Emphasis and code around the id, and punctuation after it: `id`, **id**, _id_:
-      ?.replace(/^[`*_]+|[`*_]*[.,:;]?$/g, "");
-    return word !== undefined && BEAD_ID.test(word) ? [word] : [];
+    const words = /^\s*(?:[-*+]|\d+[.)])\s+(\S+)(?:\s+(\S+))?/.exec(
+      line.replace(/\[([^\]]*)\]\([^)]*\)/g, "$1"),
+    );
+    const id = bare(words?.[1]);
+    return id !== undefined && BEAD_ID.test(id)
+      ? [{ id, filed: bare(words?.[2])?.toLowerCase() === "filed" }]
+      : [];
   });
 };
+
+/** The bead ids the Beads section lists, worked on or filed (`listedItems`). */
+export const listedBeads = (body: string): ReadonlyArray<string> =>
+  listedItems(body).map((item) => item.id);
 
 export type PrBodyPlan =
   | { readonly body: string; readonly beads: ReadonlyArray<string> }

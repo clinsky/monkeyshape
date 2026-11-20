@@ -165,6 +165,82 @@ export interface StageResult {
   readonly log?: string;
 }
 
+/** A test stage's counts, as its runner reported them. */
+export interface TestCounts {
+  readonly passed: number;
+  readonly failed: number;
+  /** Skipped, ignored, todo or deselected: tests that exist and didn't run. */
+  readonly skipped: number;
+}
+
+const sum = (counts: ReadonlyArray<TestCounts>): TestCounts => ({
+  passed: counts.reduce((n, c) => n + c.passed, 0),
+  failed: counts.reduce((n, c) => n + c.failed, 0),
+  skipped: counts.reduce((n, c) => n + c.skipped, 0),
+});
+
+/**
+ * The counts in a test runner's summary, by what the runner prints, not by the stage's name,
+ * so a repo's own test stage gets them too: bun test's ` N pass` lines, every `test result:`
+ * line cargo test prints (one per crate and doc test), and pytest's last summary line. Output
+ * no runner here wrote has none. A suite that silently runs nothing then shows as 0 (#131).
+ */
+export const testCounts = (output: string): TestCounts | undefined => {
+  const lines = output.split("\n");
+  const bun = new Map<string, number>();
+  for (const line of lines) {
+    const match = /^\s*(\d+) (pass|fail|skip|todo)$/.exec(line);
+    if (match !== null) bun.set(match[2] ?? "", Number(match[1]));
+  }
+  if (bun.has("pass") && bun.has("fail"))
+    return {
+      passed: bun.get("pass") ?? 0,
+      failed: bun.get("fail") ?? 0,
+      skipped: (bun.get("skip") ?? 0) + (bun.get("todo") ?? 0),
+    };
+  const cargo = lines.flatMap((line) => {
+    const match =
+      /test result: \w+\. (\d+) passed; (\d+) failed; (\d+) ignored; \d+ measured; (\d+) filtered out/.exec(
+        line,
+      );
+    return match === null
+      ? []
+      : [
+          {
+            passed: Number(match[1]),
+            failed: Number(match[2]),
+            skipped: Number(match[3]) + Number(match[4]),
+          },
+        ];
+  });
+  if (cargo.length > 0) return sum(cargo);
+  // pytest's last line: `== 3 passed, 1 skipped in 0.05s ==`, or `no tests ran in 0.01s`.
+  const pytest = lines.findLast((line) =>
+    /(?:\d+ (?:passed|failed|skipped|errors?|xfailed|xpassed|deselected)|no tests ran)\b.* in [\d.]+s/.test(
+      line,
+    ),
+  );
+  if (pytest === undefined) return undefined;
+  const count = (words: ReadonlyArray<string>) =>
+    words.reduce(
+      (n, word) => n + Number(new RegExp(`(\\d+) ${word}\\b`).exec(pytest)?.[1] ?? 0),
+      0,
+    );
+  return {
+    passed: count(["passed", "xpassed"]),
+    failed: count(["failed", "errors?"]),
+    skipped: count(["skipped", "xfailed", "deselected"]),
+  };
+};
+
+/** `1052 passed, 3 skipped`: what a test stage's line says after its command. */
+export const formatCounts = (counts: TestCounts): string =>
+  [
+    `${counts.passed} passed`,
+    ...(counts.failed > 0 ? [`${counts.failed} failed`] : []),
+    ...(counts.skipped > 0 ? [`${counts.skipped} skipped`] : []),
+  ].join(", ");
+
 /** How a stage's command reads, on one line whatever its arguments hold. */
 export const stageCommand = (stage: PlannedStage): string =>
   stage.origin === "mshape" ? "mshape check" : stage.run.join(" ").replaceAll("\n", "\\n");

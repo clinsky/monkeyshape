@@ -19,7 +19,7 @@ import {
 } from "node:fs/promises";
 import { posix } from "node:path";
 import * as Effect from "effect/Effect";
-import { migrateHandoff, parseHandoff, stubHandoff } from "../core/handoff.ts";
+import { migrateHandoff, parseHandoff, stubHandoff, unpromotedLessons } from "../core/handoff.ts";
 import { mshapeCommand } from "../core/hooks.ts";
 import {
   HANDOFFS_LINK,
@@ -41,6 +41,7 @@ import {
   worktreesDir,
 } from "../core/layout.ts";
 import { decodeMessage, type ReviewTracks } from "../core/mail.ts";
+import { listedBeads } from "../core/trackPr.ts";
 import {
   type BeadsById,
   type BeadsCheck,
@@ -394,7 +395,16 @@ const trackBeads = (repo: string) =>
     byTrack: openBeadsByTrack(loaded.value ?? []),
     byId: new Map(
       (loaded.value ?? []).flatMap((row) => {
-        const { id, status, issue_type, labels } = (row ?? {}) as Record<string, unknown>;
+        const { id, status, issue_type, labels, dependencies } = (row ?? {}) as Record<
+          string,
+          unknown
+        >;
+        const blockedBy = Array.isArray(dependencies)
+          ? dependencies.flatMap((dep) => {
+              const { depends_on_id, type } = (dep ?? {}) as Record<string, unknown>;
+              return type === "blocks" && typeof depends_on_id === "string" ? [depends_on_id] : [];
+            })
+          : [];
         return typeof id === "string" && typeof status === "string"
           ? [
               [
@@ -405,6 +415,7 @@ const trackBeads = (repo: string) =>
                   labels: Array.isArray(labels)
                     ? labels.filter((label): label is string => typeof label === "string")
                     : [],
+                  blockedBy,
                 },
               ] as const,
             ]
@@ -412,6 +423,30 @@ const trackBeads = (repo: string) =>
       }),
     ) as BeadsById,
   }));
+
+/**
+ * Where a `TODO(<id>)` names each of `ids` in the tree at `rev`, as `path:line`, by one
+ * `git grep`. A grep that fails finds nothing: this only adds advice.
+ */
+export const todosNaming = (repo: string, rev: string, ids: ReadonlyArray<string>) =>
+  Effect.gen(function* () {
+    const found = new Map<string, Array<string>>();
+    const unique = [...new Set(ids)];
+    if (unique.length === 0) return found as ReadonlyMap<string, ReadonlyArray<string>>;
+    const pattern = `TODO\\((${unique.map((id) => id.replace(/[.\\]/g, "\\$&")).join("|")})\\)`;
+    const grep = yield* git(repo, ["grep", "-n", "-I", "-E", pattern, rev, "--"]);
+    for (const line of grep.code === 0 ? grep.stdout.split("\n") : []) {
+      // `<rev>:<path>:<line>:<text>`
+      const match = /^[^:]+:(.+?):(\d+):(.*)$/.exec(line);
+      if (match === null) continue;
+      for (const todo of (match[3] ?? "").matchAll(/TODO\(([^)\s]+)\)/g)) {
+        const id = todo[1] ?? "";
+        if (unique.includes(id))
+          found.set(id, [...(found.get(id) ?? []), `${match[1]}:${match[2]}`]);
+      }
+    }
+    return found as ReadonlyMap<string, ReadonlyArray<string>>;
+  });
 
 const GH_TIMEOUT_MS = 30_000;
 
@@ -804,7 +839,16 @@ export const trackList = (cwd: string) =>
         const afterMerge =
           own === undefined || beads.integration.state !== "ok"
             ? []
-            : openAfterMerge(own, beads.byId, track);
+            : openAfterMerge(
+                own,
+                beads.byId,
+                track,
+                yield* todosNaming(
+                  repo,
+                  targets[targets.length - 1] ?? MAIN_BRANCH,
+                  own.filter((pr) => pr.state === "MERGED").flatMap((pr) => listedBeads(pr.body)),
+                ),
+              );
         const done = trackDone({ beads: open, branchExists, merged: merge.merged, prs: own });
         const lastCommit =
           branchExists && (merge.ahead ?? 0) > 0
@@ -871,6 +915,18 @@ const messageFiles = (dir: string) =>
       (files) => files.filter((file) => file.endsWith(".json") && !file.startsWith(".")),
       () => [] as Array<string>,
     ),
+  );
+
+/** The handoff's unpromoted lessons, for `rm`: none when it is gone or says none. */
+const handoffLessons = (path: string) =>
+  Effect.promise(() => readFile(path, "utf8").catch(() => undefined)).pipe(
+    Effect.map((text) => {
+      if (text === undefined) return undefined;
+      const parsed = parseHandoff(text);
+      return "problems" in parsed
+        ? { unparsed: parsed.problems[0] ?? "it isn't a handoff" }
+        : unpromotedLessons(parsed);
+    }),
   );
 
 /**
@@ -996,6 +1052,7 @@ export const trackRm = (
       ),
       handoffPath: handoff,
       handoffExists: yield* lexists(handoff),
+      lessons: yield* handoffLessons(handoff),
       beads,
       mailbox,
       sessions,

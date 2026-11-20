@@ -443,7 +443,7 @@ const randomHex = (): string =>
     .join("");
 
 /** `msg send`'s flags that take a value. */
-const SEND_VALUES = ["--subject", "--body-file"] as const;
+const SEND_VALUES = ["--subject", "--body-file", "--reply-to"] as const;
 
 /**
  * `send <track>|--all --subject <subject> [body | --body-file <path>]`. Everything after `--`
@@ -474,6 +474,8 @@ const msgSend = (root: string, args: ReadonlyArray<string>) =>
     const positional = [...before, ...(end === -1 ? [] : args.slice(end + 1))];
     const subject = values.get("--subject");
     const bodyFile = values.get("--body-file");
+    const replyTo = values.get("--reply-to");
+    if (values.has("--reply-to") && replyTo === undefined) return usage();
     const wanted = (all ? 0 : 1) + (values.has("--body-file") ? 0 : 1);
     if (
       subject === undefined ||
@@ -508,6 +510,7 @@ const msgSend = (root: string, args: ReadonlyArray<string>) =>
         new Date(),
         randomHex,
         caller(),
+        { replyTo },
       );
       // Stored first: whatever happens to the notices, the mail waits for them.
       const delivery = yield* notifyRecipient(
@@ -680,8 +683,8 @@ const msg = (root: string, args: ReadonlyArray<string>) =>
       };
     if (sub === "unwatch") return { output: yield* watchRemove(root, rest, caller()), code: 0 };
     if (sub === "read" && rest.length === 1) {
-      const { message, alreadyRead } = yield* mailRead(root, rest[0] ?? "", caller());
-      return { output: formatMessage(message, alreadyRead), code: 0 };
+      const { message, alreadyRead, thread } = yield* mailRead(root, rest[0] ?? "", caller());
+      return { output: formatMessage(message, alreadyRead, thread), code: 0 };
     }
     return usage();
   });
@@ -1105,12 +1108,14 @@ export const COMMANDS: ReadonlyArray<Command> = [
   },
   {
     name: "msg",
-    usage: `  mshape msg send <track> --subject <subject> [body | --body-file <path>]
+    usage: `  mshape msg send <track> --subject <subject> [--reply-to <id>] [body | --body-file <path>]
       Leave a message in the mailbox of <track>, main or a reviewer (review-<track>, or
       review-<n> for a PR from no track), from this session's address, then push its subject
       to the sessions registered there. The subject is one
       line; it is all a notice shows. --body-file reads the body from a file, with no shell
       quoting to get wrong; else quote the body, and put -- before one that starts with --.
+      --reply-to <id> answers message <id>, one this address received or sent: read shows
+      the thread's earlier subjects above the reply.
   mshape msg send --all --subject <subject> [body | --body-file <path>]
       The same message to every track but this session's own, one mailbox each.
   mshape msg inbox [--quiet]
@@ -1120,7 +1125,8 @@ export const COMMANDS: ReadonlyArray<Command> = [
       Every address's unread mail, from any checkout, and mail left at one that is gone.
       For the milestone boundary; marks nothing read.
   mshape msg read <id>
-      Print a message and mark it read at this address. Nothing else marks one read.
+      Print a message and mark it read at this address. Nothing else marks one read. A reply
+      lists the earlier messages of its thread, oldest first, by id and subject.
   mshape msg watch pr <n> | bead <id> | ci <sha> | main
       Be told by mail, from mshape, when pull request <n> merges or closes, a bead closes,
       CI on a commit ends (pass or fail), or a head of main fails CI and later passes again.

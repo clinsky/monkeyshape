@@ -789,6 +789,48 @@ describe("track pr: the fast stages here, the tests in CI", () => {
     expect(mailed[0]?.body).toContain("- check: success https://example.test/run/1");
   });
 
+  test("--wait during review where no CI starts: the reviewer is still mailed the push (#150's own run)", async () => {
+    await writeFile(`${wt()}/body.md`, body("x"));
+    expect(mshape(wt(), "pr", "--title", "t", "--body-file", "body.md").code).toBe(0);
+    await reviews([{ commit_id: remoteTip(), body: `## Fit\n\nround 1\n\n${REVIEW_MARKER}` }]);
+    await commitFile("fix.md", "the answer\n", "answer the review");
+    await checks("checks.json", []);
+    const src = join(import.meta.dir, "..", "..", "src", "adapters");
+    const script = join(base, "push.ts");
+    await writeFile(
+      script,
+      `import { Effect } from ${JSON.stringify(Bun.resolveSync("effect", import.meta.dir))};
+import { trackPr } from ${JSON.stringify(join(src, "trackPr.ts"))};
+import { harnesses } from ${JSON.stringify(join(src, "harnesses", "index.ts"))};
+const out = await Effect.runPromise(
+  trackPr(process.cwd(), {
+    title: undefined, body: undefined, fetchEnv: process.env, configDir: ${JSON.stringify(join(base, "config"))},
+    harnesses: harnesses(process.env), wait: { pollMs: 5, startMs: 20, limitMs: 1000 },
+    notify: (to, subject) => Effect.sync(() => { console.log("MAIL " + to + ": " + subject); return "sent"; }),
+  }, (line) => Effect.sync(() => console.error(line))),
+);
+console.log(out);
+`,
+    );
+    const ran = Bun.spawnSync([process.execPath, script], {
+      cwd: wt(),
+      env: {
+        ...process.env,
+        PATH: `${bin}:/usr/bin:/bin`,
+        FAKE_GH: gh,
+        CLAUDE_CODE_SESSION_ID: "",
+        CLAUDE_PID: "",
+      },
+      stdout: "pipe",
+      stderr: "pipe",
+    });
+    const out = ran.stdout.toString();
+    expect(out).toContain(
+      `MAIL review-docs: #7 pushed ${remoteTip().slice(0, 12)}: CI not waited for`,
+    );
+    expect(out).toContain("note: no CI check started");
+  });
+
   test("pushes before any review (gnv): allowed, and no reviewer is mailed", async () => {
     await withCi();
     await openThenCommit();
