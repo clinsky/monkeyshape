@@ -1,4 +1,5 @@
 /** The data every check reads and the findings it returns. Pure: no I/O lives here. */
+import type { Harness } from "../harnesses/harness.ts";
 import type { Integration, LoadedPack, Pack } from "../packs/pack.ts";
 import type { CheckName } from "../schemas/config.ts";
 
@@ -85,6 +86,11 @@ export interface Snapshot {
   readonly skills: SkillsSnapshot;
   /** The `.beads/PRIME.md` the running monkeyshape ships, when it has one. */
   readonly shippedPrime: string | undefined;
+  /**
+   * Every harness the running monkeyshape ships, listed or not: `sync` checks the listed ones'
+   * files and that nothing it wrote stays for the others. Their files' texts are in `texts`.
+   */
+  readonly harnesses?: ReadonlyArray<Harness>;
   /** The version of the `monkeyshape` npm package in the repo's `node_modules`, if any. */
   readonly installedMonkeyshape?: string | undefined;
   /** Files `mshape sync` manages that are on disk but not in `files`: git ignores them. */
@@ -199,7 +205,7 @@ export type CommandRun =
  * skill's images or binaries are copied and compared exactly. */
 export type SkillFiles = ReadonlyMap<string, Uint8Array>;
 
-/** What sits at `.claude/skills`: `target` is the link's own text, unresolved. */
+/** What sits at a harness's skills link: `target` is the link's own text, unresolved. */
 export type SkillsLink =
   | { readonly kind: "missing" }
   | { readonly kind: "link"; readonly target: string }
@@ -208,10 +214,20 @@ export type SkillsLink =
 
 /** The installed skills, read from disk, and the ones the running monkeyshape ships. */
 export interface SkillsSnapshot {
+  /**
+   * Where a listed harness reads skills through a link (Claude Code's `.claude/skills`), and
+   * what the link must say; undefined when none does, and no link is checked.
+   */
+  readonly linkAt?: { readonly path: string; readonly target: string; readonly harness: string };
   readonly link: SkillsLink;
+  /**
+   * Skills links monkeyshape made for a harness the repo no longer lists, still on disk exactly
+   * as made: sync removes them. Absent where none is.
+   */
+  readonly strayLinks?: ReadonlyArray<{ readonly path: string; readonly harness: string }>;
   /** Files under `.agents/skills`. */
   readonly installed: SkillFiles;
-  /** Files under `.claude/skills` when it is a real directory; empty otherwise. */
+  /** Files under `linkAt`'s path when it is a real directory; empty otherwise. */
   readonly claudeDirectory: SkillFiles;
   /** Files under the package's `skills/`. */
   readonly shipped: SkillFiles;

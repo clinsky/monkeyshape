@@ -54,7 +54,7 @@ import { assess, CHECKS, evaluate, prerequisites } from "../core/check.ts";
 import { OWNABLE_FILES } from "../core/conventions.ts";
 import { garden } from "../core/garden.ts";
 import { cacheRoot } from "../core/launch.ts";
-import { CLAUDE_SKILLS_LINK, isReviewAddress, SKILLS_DIR } from "../core/layout.ts";
+import { isReviewAddress, SKILLS_DIR } from "../core/layout.ts";
 import {
   formatAllInboxes,
   formatInbox,
@@ -73,7 +73,7 @@ import { nextStep, REPO_NAME } from "../core/scaffold.ts";
 import { formatCollisions, formatSync, SKILL_NAME } from "../core/skills.ts";
 import { formatSyncPlan } from "../core/sync.ts";
 import { headingProblems } from "../core/trackPr.ts";
-import { HARNESS_IDS, PACK_IDS, shapeJsonSchema } from "../schemas/config.ts";
+import { DEFAULT_HARNESSES, HARNESS_IDS, PACK_IDS, shapeJsonSchema } from "../schemas/config.ts";
 import { type ConfigError, TrackError, WorkspaceError } from "../schemas/errors.ts";
 import { mailAndNotify, randomHex } from "./mailNotify.ts";
 import { caller, hookCaller, setInvokedBy } from "./session.ts";
@@ -176,7 +176,25 @@ const init = (root: string, args: ReadonlyArray<string>) =>
         output: `mshape init: --from sets the monkeyshape package a TypeScript repo installs, and a ${pack} repo installs none: drop --from`,
         code: 2,
       };
-    const flagged = new Set([fromFlag, packFlag].flatMap((at) => (at === -1 ? [] : [at, at + 1])));
+    // --harness is repeatable: each names a harness the repo's sessions run in.
+    const harnessAt = args.flatMap((arg, i) => (arg === "--harness" ? [i] : []));
+    const named = harnessAt.map((at) => args[at + 1]);
+    const shipped = harnesses(process.env).list;
+    const ids = shipped.map((harness) => harness.id);
+    const unknownHarness = named.findIndex(
+      (id) => id === undefined || !(ids as ReadonlyArray<string>).includes(id),
+    );
+    if (unknownHarness !== -1)
+      return {
+        output: `mshape init: --harness takes one of ${ids.join(", ")}${named[unknownHarness] === undefined ? "" : `, not '${named[unknownHarness]}'`}`,
+        code: 2,
+      };
+    const chosen = shipped.filter((harness) =>
+      named.length === 0 ? DEFAULT_HARNESSES.includes(harness.id) : named.includes(harness.id),
+    );
+    const flagged = new Set(
+      [fromFlag, packFlag, ...harnessAt].flatMap((at) => (at === -1 ? [] : [at, at + 1])),
+    );
     const positional = args.filter((_, i) => !flagged.has(i));
     const [name, ...extra] = positional;
     if (name === undefined || !REPO_NAME.test(name) || extra.length > 0)
@@ -230,6 +248,7 @@ const init = (root: string, args: ReadonlyArray<string>) =>
       tarball,
       pack,
       pin,
+      chosen,
     ).pipe(Effect.ensuring(checkout?.cleanup ?? Effect.void));
     return {
       output: [
@@ -713,13 +732,14 @@ const sync = (root: string, args: ReadonlyArray<string>) =>
     if (typeof replace === "string") return { output: replace, code: 2 };
     const {
       plan,
-      skills: { sync: skillSync, linked },
+      skills: { sync: skillSync, linked, unlinked },
     } = yield* syncAll(root, PACKAGE_ROOT, replace);
     const files = formatSyncPlan(plan);
     return {
       output: [
         formatSync(skillSync),
-        ...(linked ? [`${CLAUDE_SKILLS_LINK}: linked`] : []),
+        ...(linked === undefined ? [] : [`${linked}: linked`]),
+        ...unlinked.map((path) => `${path}: removed (no listed harness reads skills there)`),
         ...(files.length === 0 ? ["PRIME.md, PR template, hooks: up to date"] : files),
         ...formatCollisions(skillSync),
       ].join("\n"),
@@ -899,18 +919,20 @@ const configCommand = (root: string, args: ReadonlyArray<string>) =>
 export const COMMANDS: ReadonlyArray<Command> = [
   {
     name: "init",
-    usage: `  mshape init <name> [--pack <pack>] [--from <spec>]
+    usage: `  mshape init <name> [--pack <pack>] [--harness <id>]... [--from <spec>]
       Create ./<name>: a new repo whose gate passes, with one starter test. --pack is its
-      language (typescript by default). --from installs monkeyshape from <spec> (a tarball
-      path) instead of the registry, to try a release first.`,
+      language (typescript by default). --harness, repeatable, names a harness its sessions
+      run in (claude-code by default); shape.toml lists them as harnesses. --from installs
+      monkeyshape from <spec> (a tarball path) instead of the registry, to try a release first.`,
     run: init,
   },
   {
     name: "sync",
     usage: `  mshape sync [--replace <path>]...
       After a bump, bring what the installed package ships up to date: the shared skills in
-      .agents/skills, .beads/PRIME.md, the PR template, and monkeyshape's hooks in
-      .claude/settings.json. Skills and hooks the package doesn't ship are left alone, and so
+      .agents/skills, .beads/PRIME.md, the PR template, and each listed harness's hooks
+      (Claude Code's in .claude/settings.json), removing what it wrote for a harness no longer
+      listed. Skills and hooks the package doesn't ship are left alone, and so
       is a PRIME.md, PR template or skill this repo wrote itself: --replace <path> replaces it
       with the shipped one, and sync keeps it up to date from then on.`,
     run: sync,

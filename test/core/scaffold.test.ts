@@ -4,6 +4,7 @@ import {
   PACKS_DIR,
   pinTable,
   REPO_NAME,
+  recordHarnesses,
   recordPin,
   render,
   SHARE_BEADS,
@@ -11,6 +12,7 @@ import {
   targetPath,
   templateFor,
 } from "../../src/core/scaffold.ts";
+import { HARNESSES } from "../../src/harnesses/index.ts";
 import { PACKS } from "../../src/packs/index.ts";
 
 const toolchain = {
@@ -91,6 +93,22 @@ describe("scaffold", () => {
       files: { vendored: [entry] },
     });
     expect(text?.indexOf("[mshape]")).toBeLessThan(text?.indexOf("# Modules.") ?? 0);
+  });
+
+  test("harnesses other than the default are recorded after packs; the default is left unsaid", () => {
+    // Only ids matter here, and codex's adapter is its own track's: stand-ins by id.
+    const [claude] = HARNESSES;
+    const pick = (...ids: ReadonlyArray<"claude-code" | "codex">) =>
+      ids.flatMap((id) => (claude === undefined ? [] : [{ ...claude, id }]));
+    const config = 'packs = ["rust"]\n\n[arch.modules.core]\noptional = true\n';
+    expect(recordHarnesses(config, pick("claude-code"))).toBe(config);
+    const codex = recordHarnesses(config, pick("codex"));
+    expect(Bun.TOML.parse(codex)).toEqual({
+      packs: ["rust"],
+      harnesses: ["codex"],
+      arch: { modules: { core: { optional: true } } },
+    });
+    expect(codex.indexOf("harnesses")).toBeLessThan(codex.indexOf("[arch"));
   });
 
   test("a pin without sums writes none, and a config with no table gets it at the end", () => {
@@ -177,6 +195,8 @@ describe("a pack's template over the common one", () => {
       toolchain,
       undefined,
       "rust",
+      undefined,
+      HARNESSES.filter((harness) => harness.id === "claude-code"),
     );
     expect([...rust.keys()].sort()).toEqual([
       ".claude/settings.json",

@@ -6,7 +6,7 @@
  */
 import { join } from "node:path";
 import { GATE_COMMAND, PR_SIZE } from "../../src/core/conventions.ts";
-import { SETTINGS_FILE } from "../../src/core/hooks.ts";
+import { SETTINGS_FILE } from "../../src/harnesses/claude-code/index.ts";
 
 interface Entry {
   readonly matcher?: string;

@@ -16,6 +16,18 @@
       },
       "minItems": 1
     },
+    "harnesses": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "enum": [
+          "claude-code",
+          "codex",
+          "pi"
+        ]
+      },
+      "minItems": 1
+    },
     "mshape": {
       "type": "object",
       "properties": {

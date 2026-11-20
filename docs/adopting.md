@@ -213,9 +213,11 @@ Then run `mshape sync`. It installs:
 - the shared skills, in `.agents/skills`, linked from `.claude/skills`;
 - `.beads/PRIME.md`;
 - the PR template;
-- monkeyshape's hooks in `.claude/settings.json`: `mshape prime` at session start (PRIME.md,
-  the session's registration and its unread mail) and the unread mail at each prompt. A bare
-  `bd prime --hook-json` hook is replaced by it. Your other hooks and settings are kept.
+- monkeyshape's hooks for each harness your sessions run in, `harnesses` in `shape.toml`
+  (`["claude-code"]` when absent, so in `.claude/settings.json`): `mshape prime` at session
+  start (PRIME.md, the session's registration and its unread mail) and the unread mail at each
+  prompt. A bare `bd prime --hook-json` hook is replaced by it. Your other hooks and settings
+  are kept, and a harness you drop from the list loses only what sync wrote for it.
 
 `sync` never overwrites a file you wrote:
 

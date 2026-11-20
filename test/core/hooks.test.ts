@@ -4,16 +4,19 @@ import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   addHooks,
-  HOOKS,
+  mergeHooks,
   missingHooks,
   mshapeCommand,
+  ownCommands,
   renderSettings,
-  SETTINGS_FILE,
   SYNC_COMMAND,
   settingsHooks,
+  staleHooks,
 } from "../../src/core/hooks.ts";
 import { INSTALL_URL } from "../../src/core/launch.ts";
 import { scaffold } from "../../src/core/scaffold.ts";
+import { CLAUDE_HOOKS as HOOKS, SETTINGS_FILE } from "../../src/harnesses/claude-code/index.ts";
+import { HARNESSES } from "../../src/harnesses/index.ts";
 
 const ROOT = join(import.meta.dir, "..", "..");
 
@@ -82,9 +85,36 @@ describe("hooks", () => {
     expect(missingHooks(synced, HOOKS)).toEqual([]);
   });
 
+  test("a hook monkeyshape stops shipping is removed by sync, the repo's own kept (iwf)", () => {
+    const [start, prompt] = HOOKS;
+    if (start === undefined || prompt === undefined) throw new Error("two hooks expected");
+    const own = { matcher: "", hooks: [{ type: "command", command: "echo mine" }] };
+    const settings = JSON.parse(renderSettings(HOOKS));
+    settings.hooks.UserPromptSubmit.push(own);
+    // Ours are both hooks' commands; only the session-start one still ships.
+    const ours = ownCommands(HOOKS);
+    expect(staleHooks(settings, [start], ours)).toEqual([
+      { event: "UserPromptSubmit", command: prompt.command },
+    ]);
+    const merged = JSON.parse(mergeHooks(settings, [start], ours));
+    expect(merged.hooks.UserPromptSubmit).toEqual([own]);
+    expect(merged.hooks.SessionStart).toEqual(settings.hooks.SessionStart);
+    // With nothing of the repo's left under an event, the event goes too.
+    expect(JSON.parse(mergeHooks(settings, [], ours)).hooks).toEqual({ UserPromptSubmit: [own] });
+  });
+
   test("init writes the rendered settings.json, whatever the template carries", async () => {
     expect(await Bun.file(join(ROOT, "template", SETTINGS_FILE)).exists()).toBe(false);
-    const files = scaffold("my-app", new Map([[SETTINGS_FILE, "{}"]]), toolchain);
+    const claude = HARNESSES.filter((harness) => harness.id === "claude-code");
+    const files = scaffold(
+      "my-app",
+      new Map([[SETTINGS_FILE, "{}"]]),
+      toolchain,
+      undefined,
+      "typescript",
+      undefined,
+      claude,
+    );
     expect(files.get(SETTINGS_FILE)).toBe(renderSettings(HOOKS));
   });
 

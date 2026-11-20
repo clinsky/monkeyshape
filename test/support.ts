@@ -1,4 +1,5 @@
 /** In-memory repos for tests: checks are pure, so no temp directories are needed. */
+
 import type {
   BeadSummary,
   BeadsExport,
@@ -12,6 +13,8 @@ import type {
 import { lineAt } from "../src/core/model.ts";
 import { parse } from "../src/core/parse.ts";
 import { type Rule, runRule } from "../src/core/rules/engine.ts";
+import type { Harness } from "../src/harnesses/harness.ts";
+import { HARNESSES } from "../src/harnesses/index.ts";
 import type { LoadedPack, Pack } from "../src/packs/pack.ts";
 import { onText, typescript } from "../src/packs/typescript/index.ts";
 import {
@@ -49,6 +52,8 @@ export const repo = (
     readonly otherPacks?: ReadonlyArray<Pack>;
     readonly skills?: SkillsSnapshot;
     readonly shippedPrime?: string;
+    /** The harnesses monkeyshape ships; every real one by default. */
+    readonly harnesses?: ReadonlyArray<Harness>;
     /** The monkeyshape npm package's version in node_modules. */
     readonly installedMonkeyshape?: string;
     readonly unlisted?: ReadonlyArray<string>;
@@ -110,6 +115,7 @@ export const repo = (
       shipped: new Map(),
     },
     shippedPrime: options.shippedPrime,
+    harnesses: options.harnesses ?? HARNESSES,
     installedMonkeyshape: options.installedMonkeyshape,
     unlisted: new Set(options.unlisted ?? []),
     modes: new Map(Object.entries(options.modes ?? {})),

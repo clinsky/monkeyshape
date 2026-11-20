@@ -6,27 +6,35 @@ import {
   PRIME_LINES,
   prTemplate,
 } from "../../src/core/conventions.ts";
-import {
-  addHooks,
-  HOOKS,
-  missingHooks,
-  renderSettings,
-  SETTINGS_FILE,
-} from "../../src/core/hooks.ts";
+import { addHooks, missingHooks, renderSettings } from "../../src/core/hooks.ts";
 import { lineCount } from "../../src/core/model.ts";
-import { checkSync, formatSyncPlan, isPrTemplate, planSync } from "../../src/core/sync.ts";
+import {
+  checkSync,
+  formatSyncPlan,
+  harnessDeliveries,
+  isPrTemplate,
+  planSync,
+} from "../../src/core/sync.ts";
+import { CLAUDE_HOOKS as HOOKS, SETTINGS_FILE } from "../../src/harnesses/claude-code/index.ts";
+import { HARNESSES } from "../../src/harnesses/index.ts";
 import { resolveConfig } from "../../src/schemas/config.ts";
 import { repo } from "../support.ts";
 
 const ROOT = join(import.meta.dir, "..", "..");
 const PRIME = "# The working loop\n";
 
+/** Claude Code's settings file holding `text`, as the only harness listed. */
+const claudeFiles = (text: string | undefined) =>
+  harnessDeliveries(HARNESSES, ["claude-code"], (path) =>
+    path === SETTINGS_FILE ? text : undefined,
+  );
+
 const upToDate = {
   ignored: [],
   beads: true,
   prime: PRIME,
   prTemplate: prTemplate(),
-  settings: renderSettings(HOOKS),
+  harnessFiles: claudeFiles(renderSettings(HOOKS)),
   owned: [PRIME_FILE, PR_TEMPLATE_FILE],
   replace: [],
   otherTemplates: [],
@@ -48,6 +56,7 @@ describe("planSync", () => {
       blocked: [],
       owned: [PRIME_FILE, PR_TEMPLATE_FILE],
       created: [],
+      remove: [],
     });
   });
 
@@ -67,12 +76,12 @@ describe("planSync", () => {
   });
 
   test("creates settings.json with every hook when there is none", () => {
-    const plan = planSync({ ...upToDate, settings: undefined }, PRIME);
+    const plan = planSync({ ...upToDate, harnessFiles: claudeFiles(undefined) }, PRIME);
     expect(plan.write.get(SETTINGS_FILE)).toBe(renderSettings(HOOKS));
   });
 
   test("leaves a settings.json that isn't JSON alone, and is blocked", () => {
-    const plan = planSync({ ...upToDate, settings: "{ nope" }, PRIME);
+    const plan = planSync({ ...upToDate, harnessFiles: claudeFiles("{ nope") }, PRIME);
     expect(plan.write.has(SETTINGS_FILE)).toBe(false);
     expect(plan.blocked.join("\n")).toContain(SETTINGS_FILE);
   });
