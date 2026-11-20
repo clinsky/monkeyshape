@@ -8,6 +8,7 @@ import { tmpdir } from "node:os";
 import { basename, join, resolve } from "node:path";
 import * as Effect from "effect/Effect";
 import {
+  formatCounts,
   formatGate,
   type GatePacks,
   gateStages,
@@ -15,6 +16,7 @@ import {
   type PlannedStage,
   type StageResult,
   stageCommand,
+  testCounts,
 } from "../core/gate.ts";
 import { PACKS } from "../packs/index.ts";
 import type { ResolvedConfig } from "../schemas/config.ts";
@@ -153,10 +155,12 @@ export const runGate = (
       yield* Effect.promise(() => writeFile(log, `$ ${shown}\n${ran.output}\n`));
       output.set(stage.name, ran.output);
       const passed = stage.okExit.includes(ran.code);
+      const counts = testCounts(ran.output);
+      const said = counts === undefined ? "" : `: ${formatCounts(counts)}`;
       results.push({
         stage,
         state: passed ? "passed" : "failed",
-        detail: passed ? shown : `${shown} (exit ${ran.code})`,
+        detail: passed ? `${shown}${said}` : `${shown} (exit ${ran.code})${said}`,
         log,
       });
     }

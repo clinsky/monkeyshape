@@ -83,7 +83,7 @@ describe("the Rust pack's lint tables through sync", () => {
       beads: false,
       prime: undefined,
       prTemplate: undefined,
-      settings: undefined,
+      harnessFiles: [],
       owned: [],
       replace: [],
       otherTemplates: [],

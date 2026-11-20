@@ -14,6 +14,7 @@ import {
   mailboxReadDir,
   mailDir,
   messagePath,
+  reviewerTrackOf,
   TRACK_NAME,
 } from "../core/layout.ts";
 import {
@@ -21,12 +22,15 @@ import {
   decodeMessage,
   encodeMessage,
   knownAddresses,
+  knownTracks,
   type Mailbox,
   MESSAGE_ID,
   type Message,
   messageId,
   recipientProblem,
+  replyProblem,
   subjectProblem,
+  threadOf,
   type Unreadable,
 } from "../core/mail.ts";
 import { WorkspaceError } from "../schemas/errors.ts";
@@ -60,6 +64,17 @@ export const fsUnless = <A, B>(
 export const entries = (path: string) =>
   fsUnless("list", path, "ENOENT", [] as Array<string>, () => readdir(path));
 
+/** `mailSend`'s optional settings, one key per feature. */
+export interface SendOptions {
+  /**
+   * A track's reviewer address takes mail before any reviewer registers there, which then
+   * waits for the session that does: `track pr` answering a posted review sends this way.
+   */
+  readonly toReviewer?: boolean;
+  /** The id of the message this answers (`msg send --reply-to`). */
+  readonly replyTo?: string | undefined;
+}
+
 /** Hard links never replace a file, so an id taken by another sender is retried, not lost. */
 const ATTEMPTS = 5;
 
@@ -71,20 +86,23 @@ export const mailSend = (
   now: Date,
   random: () => string,
   caller: Caller = nobody(now),
+  /** What else this send says, one key per feature, so two never fight over a slot. */
+  options: SendOptions = {},
 ) =>
   Effect.gen(function* () {
     const problem = subjectProblem(subject);
     if (problem !== undefined) return yield* refuse(`${problem}`);
     const { common, repo } = yield* locate(cwd);
     const tracks = yield* reviewTracks(common);
-    const known = knownAddresses(
-      repo,
-      yield* worktrees(repo),
-      yield* entries(handoffsStore(common)),
-      tracks,
-      yield* registeredAddresses(common),
-    );
-    const unknown = recipientProblem(to, known, tracks);
+    const all = yield* worktrees(repo);
+    const handoffs = yield* entries(handoffsStore(common));
+    const known = knownAddresses(repo, all, handoffs, tracks, yield* registeredAddresses(common));
+    const reviewed = reviewerTrackOf(to);
+    const held =
+      (options.toReviewer ?? false) &&
+      reviewed !== undefined &&
+      knownTracks(repo, all, handoffs).includes(reviewed);
+    const unknown = held ? undefined : recipientProblem(to, known, tracks);
     if (unknown !== undefined) return yield* refuse(`${unknown}`);
     // From the sender's address, so a reply reaches it: a review's, once a session moved there.
     const sender = yield* sessionAddress(cwd, caller).pipe(
@@ -92,7 +110,28 @@ export const mailSend = (
         refuse(`${error.reason}. Send from a track's worktree, the main checkout or a review`),
       ),
     );
-    return yield* storeMessage(common, sender.address, to, subject, body, now, random);
+    const { replyTo } = options;
+    if (replyTo !== undefined) {
+      const parent = (yield* allMessages(common)).get(replyTo);
+      const cannot = replyProblem(replyTo, parent, sender.address);
+      if (cannot !== undefined) return yield* refuse(cannot);
+    }
+    return yield* storeMessage(common, sender.address, to, subject, body, now, random, replyTo);
+  });
+
+/**
+ * Every message in every mailbox, read or unread, by id: where a thread's earlier messages
+ * are, since each is in its recipient's mailbox. An id two mailboxes share (two sends in one
+ * second with the same 4 random digits) keeps the first found.
+ */
+export const allMessages = (common: string) =>
+  Effect.gen(function* () {
+    const byId = new Map<string, Message>();
+    for (const address of (yield* entries(mailDir(common))).filter((name) => TRACK_NAME.test(name)))
+      for (const dir of [mailboxDir(common, address), mailboxReadDir(common, address)])
+        for (const message of (yield* readMessages(dir)).messages)
+          if (!byId.has(message.id)) byId.set(message.id, message);
+    return byId as ReadonlyMap<string, Message>;
   });
 
 /**
@@ -107,13 +146,22 @@ export const storeMessage = (
   body: string,
   now: Date,
   random: () => string,
+  replyTo?: string,
 ) =>
   Effect.gen(function* () {
     const dir = mailboxDir(common, to);
     yield* fs("create", dir, () => mkdir(dir, { recursive: true }));
     for (let attempt = 0; attempt < ATTEMPTS; attempt++) {
       const id = messageId(now, random());
-      const message: Message = { id, from, to, subject, body, created: now.toISOString() };
+      const message: Message = {
+        id,
+        from,
+        to,
+        subject,
+        body,
+        created: now.toISOString(),
+        ...(replyTo === undefined ? {} : { replyTo }),
+      };
       const temporary = `${dir}/.${id}.${process.pid}.tmp`;
       const final = messagePath(common, to, id);
       yield* fs("write", temporary, () => writeFile(temporary, encodeMessage(message)));
@@ -214,5 +262,9 @@ export const mailRead = (cwd: string, id: string, caller: Caller) =>
       );
     const message = decodeMessage(text);
     if (typeof message === "string") return yield* refuse(`${read} is not a message (${message})`);
-    return { message, alreadyRead: !moved };
+    const thread =
+      message.replyTo === undefined
+        ? { earlier: [] }
+        : threadOf(message, yield* allMessages(common));
+    return { message, alreadyRead: !moved, thread };
   });

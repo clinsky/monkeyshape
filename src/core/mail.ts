@@ -31,6 +31,8 @@ export interface Message {
   readonly body: string;
   /** ISO 8601, UTC. */
   readonly created: string;
+  /** The id of the message this answers (`msg send --reply-to`): absent on a first message. */
+  readonly replyTo?: string;
 }
 
 /** A subject is shown on one line in every notice, so it has to fit on one. */
@@ -171,8 +173,13 @@ export const decodeMessage = (text: string): Message | string => {
   const keys: ReadonlyArray<keyof Message> = ["id", "from", "to", "subject", "body", "created"];
   const missing = keys.filter((key) => typeof record[key] !== "string");
   if (missing.length > 0) return `missing or not a string: ${missing.join(", ")}`;
-  const extra = Object.keys(record).filter((key) => !(keys as ReadonlyArray<string>).includes(key));
+  const extra = Object.keys(record).filter(
+    (key) => key !== "replyTo" && !(keys as ReadonlyArray<string>).includes(key),
+  );
   if (extra.length > 0) return `unknown keys: ${extra.join(", ")}`;
+  const { replyTo } = record;
+  if (replyTo !== undefined && (typeof replyTo !== "string" || !MESSAGE_ID.test(replyTo)))
+    return "replyTo is not a message id";
   return record as unknown as Message;
 };
 
@@ -266,16 +273,78 @@ export const formatAllInboxes = (mailboxes: ReadonlyArray<Mailbox>): string => {
   ].join("\n");
 };
 
-export const formatMessage = (message: Message, alreadyRead: boolean): string =>
-  [
+/** The most of a thread `read` prints: a longer one is cut at its oldest end. */
+export const THREAD_MAX = 20;
+
+/**
+ * The messages `message` answers, oldest first: its parent, the parent's parent, and so on,
+ * from every mailbox (`byId`). A parent no mailbox has any longer ends the thread there, named
+ * by its id; so does a loop, which no send makes but a hand-edited file could.
+ */
+export const threadOf = (
+  message: Message,
+  byId: ReadonlyMap<string, Message>,
+): { readonly earlier: ReadonlyArray<Message>; readonly missing?: string } => {
+  const earlier: Array<Message> = [];
+  const seen = new Set([message.id]);
+  let next = message.replyTo;
+  while (next !== undefined && !seen.has(next) && earlier.length < THREAD_MAX) {
+    const parent = byId.get(next);
+    if (parent === undefined) return { earlier: earlier.reverse(), missing: next };
+    seen.add(next);
+    earlier.push(parent);
+    next = parent.replyTo;
+  }
+  return { earlier: earlier.reverse() };
+};
+
+/**
+ * Why `--reply-to <id>` can't send from `sender`, or undefined: the parent must be a message
+ * this address received or sent, so a typo'd id fails instead of threading under a stranger's.
+ */
+export const replyProblem = (
+  id: string,
+  parent: Message | undefined,
+  sender: string,
+): string | undefined => {
+  if (!MESSAGE_ID.test(id))
+    return `--reply-to \`${id}\` is not a message id; \`${mshapeCommand(["msg", "inbox"])}\` lists the unread ones, and \`${mshapeCommand(["msg", "read"])} <id>\` shows one again`;
+  if (parent === undefined || (parent.to !== sender && parent.from !== sender))
+    return `--reply-to ${id}: no message ${id} was sent to or from ${addressLabel(sender)}, so there is nothing here to reply to. Check the id in the message you are answering`;
+  return undefined;
+};
+
+export const formatMessage = (
+  message: Message,
+  alreadyRead: boolean,
+  thread: ReturnType<typeof threadOf> = { earlier: [] },
+): string => {
+  const earlier =
+    thread.earlier.length === 0 && thread.missing === undefined
+      ? []
+      : [
+          "",
+          "Earlier in this thread, oldest first:",
+          ...(thread.missing === undefined
+            ? []
+            : [`  ${thread.missing}  (no mailbox has it any longer)`]),
+          ...thread.earlier.map(
+            (parent) =>
+              `  ${parent.id}  ${parent.from} to ${parent.to}, ${when(parent.created)}: ${parent.subject}`,
+          ),
+        ];
+  return [
     `From: ${message.from}`,
     `To: ${message.to}`,
     `Date: ${when(message.created)}`,
     `Subject: ${message.subject}`,
+    ...(message.replyTo === undefined ? [] : [`In reply to: ${message.replyTo}`]),
     ...(alreadyRead ? ["(already read)"] : []),
+    ...earlier,
     "",
     message.body === "" ? "(no body)" : message.body,
   ].join("\n");
+};
 
 export const formatSent = (message: Message): string =>
   `Sent ${message.id} to ${message.to}: it stays unread in their mailbox until they run \`${mshapeCommand(["msg", "read", message.id])}\`.`;

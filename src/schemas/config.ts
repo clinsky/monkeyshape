@@ -106,6 +106,10 @@ const Pack = Schema.Literals(PACK_IDS);
 /** The harnesses a repo's sessions run in, in `harnesses`; each delivers its own files. */
 export const HARNESS_IDS = ["claude-code", "codex", "pi"] as const;
 export type HarnessId = (typeof HARNESS_IDS)[number];
+const HarnessName = Schema.Literals(HARNESS_IDS);
+
+/** A repo that lists none runs in Claude Code, as every repo did before `harnesses`. */
+export const DEFAULT_HARNESSES: ReadonlyArray<HarnessId> = ["claude-code"];
 
 export const ModuleRule = Schema.Struct({
   description: Schema.String,
@@ -282,6 +286,8 @@ const PythonTable = Schema.Struct({
 const configFields = {
   /** The packs, in the order their gate stages run. */
   packs: Schema.optionalKey(Schema.Array(Pack).check(Schema.isMinLength(1))),
+  /** The harnesses this repo's sessions run in; sync delivers each one's files. */
+  harnesses: Schema.optionalKey(Schema.Array(HarnessName).check(Schema.isMinLength(1))),
   mshape: Schema.optionalKey(MshapePin),
   rust: Schema.optionalKey(RustTable),
   python: Schema.optionalKey(PythonTable),
@@ -426,6 +432,9 @@ export const configProblems = (config: ShapeConfig): ReadonlyArray<string> => {
   const packs = config.packs ?? [];
   for (const pack of new Set(packs.filter((one, i) => packs.indexOf(one) !== i)))
     problems.push(`packs: lists \`${pack}\` twice; list each pack once`);
+  const harnesses = config.harnesses ?? [];
+  for (const harness of new Set(harnesses.filter((one, i) => harnesses.indexOf(one) !== i)))
+    problems.push(`harnesses: lists \`${harness}\` twice; list each harness once`);
   for (const [name, module] of Object.entries(config.arch?.modules ?? {})) {
     if (module.pack === undefined && packs.length > 1)
       problems.push(
@@ -475,6 +484,8 @@ export interface ResolvedConfig {
   readonly configFile: string;
   /** In the order their gate stages run; `["typescript"]` for a `shape.config.ts`. */
   readonly packs: ReadonlyArray<PackId>;
+  /** The harnesses its sessions run in; `["claude-code"]`, every 0.6 repo's, when absent. */
+  readonly harnesses: ReadonlyArray<HarnessId>;
   readonly mshape:
     | { readonly version: string; readonly sums?: string; readonly dev?: ReadonlyArray<string> }
     | undefined;
@@ -602,6 +613,7 @@ export const resolveConfig = (
 ): ResolvedConfig => ({
   configFile: file,
   packs: config.packs ?? ["typescript"],
+  harnesses: config.harnesses ?? DEFAULT_HARNESSES,
   mshape: config.mshape,
   rust: config.rust,
   python: config.python,

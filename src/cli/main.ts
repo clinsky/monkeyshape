@@ -13,7 +13,7 @@ import {
 } from "../adapters/baseline.ts";
 import { withBeadsExport } from "../adapters/beads.ts";
 import { findConfig, loadConfig } from "../adapters/config.ts";
-import { reviewPost, scanFile } from "../adapters/denylist.ts";
+import { scanFile } from "../adapters/denylist.ts";
 import { depBump } from "../adapters/dep.ts";
 import { runGate } from "../adapters/gate.ts";
 import { harnesses } from "../adapters/harnesses/index.ts";
@@ -33,7 +33,7 @@ import {
 import { primeText } from "../adapters/prime.ts";
 import { runTool } from "../adapters/process.ts";
 import { packSource, packWorkingTree } from "../adapters/release.ts";
-import { reviewNew, reviewRm } from "../adapters/reviews.ts";
+import { reviewNew, reviewPostAndTell, reviewRm } from "../adapters/reviews.ts";
 import { listShapeRules } from "../adapters/shapeRules.ts";
 import { syncAll } from "../adapters/sync.ts";
 import { CI_TIMING, trackPr } from "../adapters/trackPr.ts";
@@ -54,7 +54,7 @@ import { assess, CHECKS, evaluate, prerequisites } from "../core/check.ts";
 import { OWNABLE_FILES } from "../core/conventions.ts";
 import { garden } from "../core/garden.ts";
 import { cacheRoot } from "../core/launch.ts";
-import { CLAUDE_SKILLS_LINK, isReviewAddress, SKILLS_DIR } from "../core/layout.ts";
+import { isReviewAddress, SKILLS_DIR } from "../core/layout.ts";
 import {
   formatAllInboxes,
   formatInbox,
@@ -73,8 +73,9 @@ import { nextStep, REPO_NAME } from "../core/scaffold.ts";
 import { formatCollisions, formatSync, SKILL_NAME } from "../core/skills.ts";
 import { formatSyncPlan } from "../core/sync.ts";
 import { headingProblems } from "../core/trackPr.ts";
-import { HARNESS_IDS, PACK_IDS, shapeJsonSchema } from "../schemas/config.ts";
+import { DEFAULT_HARNESSES, HARNESS_IDS, PACK_IDS, shapeJsonSchema } from "../schemas/config.ts";
 import { type ConfigError, TrackError, WorkspaceError } from "../schemas/errors.ts";
+import { mailAndNotify, randomHex } from "./mailNotify.ts";
 import { caller, hookCaller, setInvokedBy } from "./session.ts";
 
 /** What a command returns: the text to print, and the exit code (0 prints to stdout). */
@@ -175,7 +176,25 @@ const init = (root: string, args: ReadonlyArray<string>) =>
         output: `mshape init: --from sets the monkeyshape package a TypeScript repo installs, and a ${pack} repo installs none: drop --from`,
         code: 2,
       };
-    const flagged = new Set([fromFlag, packFlag].flatMap((at) => (at === -1 ? [] : [at, at + 1])));
+    // --harness is repeatable: each names a harness the repo's sessions run in.
+    const harnessAt = args.flatMap((arg, i) => (arg === "--harness" ? [i] : []));
+    const named = harnessAt.map((at) => args[at + 1]);
+    const shipped = harnesses(process.env).list;
+    const ids = shipped.map((harness) => harness.id);
+    const unknownHarness = named.findIndex(
+      (id) => id === undefined || !(ids as ReadonlyArray<string>).includes(id),
+    );
+    if (unknownHarness !== -1)
+      return {
+        output: `mshape init: --harness takes one of ${ids.join(", ")}${named[unknownHarness] === undefined ? "" : `, not '${named[unknownHarness]}'`}`,
+        code: 2,
+      };
+    const chosen = shipped.filter((harness) =>
+      named.length === 0 ? DEFAULT_HARNESSES.includes(harness.id) : named.includes(harness.id),
+    );
+    const flagged = new Set(
+      [fromFlag, packFlag, ...harnessAt].flatMap((at) => (at === -1 ? [] : [at, at + 1])),
+    );
     const positional = args.filter((_, i) => !flagged.has(i));
     const [name, ...extra] = positional;
     if (name === undefined || !REPO_NAME.test(name) || extra.length > 0)
@@ -229,6 +248,7 @@ const init = (root: string, args: ReadonlyArray<string>) =>
       tarball,
       pack,
       pin,
+      chosen,
     ).pipe(Effect.ensuring(checkout?.cleanup ?? Effect.void));
     return {
       output: [
@@ -290,24 +310,7 @@ const trackPrCommand = (root: string, args: ReadonlyArray<string>) =>
         harnesses: harnesses(process.env),
         bodyOnly: args.includes("--body-only"),
         ...(args.includes("--wait") ? { wait: CI_TIMING } : {}),
-        notify: (to, subject, text) =>
-          Effect.gen(function* () {
-            const message = yield* mailSend(root, to, subject, text, new Date(), randomHex);
-            const delivery = yield* notifyRecipient(
-              root,
-              message,
-              harnesses(process.env),
-              new Date(),
-            ).pipe(
-              Effect.catchTags({
-                TrackError: (error) =>
-                  Effect.succeed({ notified: 0, pruned: [], skipped: [error.reason] }),
-                WorkspaceError: (error) =>
-                  Effect.succeed({ notified: 0, pruned: [], skipped: [error.message] }),
-              }),
-            );
-            return `${formatSent(message)}\n${formatDelivery(to, delivery)}`;
-          }),
+        notify: mailAndNotify(root),
       },
       (line) => Effect.sync(() => console.error(line)),
     );
@@ -420,14 +423,8 @@ const carryMessages =
       }),
     );
 
-/** Four hex digits for a message id: unique within a second among a handful of senders. */
-const randomHex = (): string =>
-  [...crypto.getRandomValues(new Uint8Array(2))]
-    .map((b) => b.toString(16).padStart(2, "0"))
-    .join("");
-
 /** `msg send`'s flags that take a value. */
-const SEND_VALUES = ["--subject", "--body-file"] as const;
+const SEND_VALUES = ["--subject", "--body-file", "--reply-to"] as const;
 
 /**
  * `send <track>|--all --subject <subject> [body | --body-file <path>]`. Everything after `--`
@@ -458,6 +455,8 @@ const msgSend = (root: string, args: ReadonlyArray<string>) =>
     const positional = [...before, ...(end === -1 ? [] : args.slice(end + 1))];
     const subject = values.get("--subject");
     const bodyFile = values.get("--body-file");
+    const replyTo = values.get("--reply-to");
+    if (values.has("--reply-to") && replyTo === undefined) return usage();
     const wanted = (all ? 0 : 1) + (values.has("--body-file") ? 0 : 1);
     if (
       subject === undefined ||
@@ -492,6 +491,7 @@ const msgSend = (root: string, args: ReadonlyArray<string>) =>
         new Date(),
         randomHex,
         caller(),
+        { replyTo },
       );
       // Stored first: whatever happens to the notices, the mail waits for them.
       const delivery = yield* notifyRecipient(
@@ -664,8 +664,8 @@ const msg = (root: string, args: ReadonlyArray<string>) =>
       };
     if (sub === "unwatch") return { output: yield* watchRemove(root, rest, caller()), code: 0 };
     if (sub === "read" && rest.length === 1) {
-      const { message, alreadyRead } = yield* mailRead(root, rest[0] ?? "", caller());
-      return { output: formatMessage(message, alreadyRead), code: 0 };
+      const { message, alreadyRead, thread } = yield* mailRead(root, rest[0] ?? "", caller());
+      return { output: formatMessage(message, alreadyRead, thread), code: 0 };
     }
     return usage();
   });
@@ -682,13 +682,19 @@ const review = (root: string, args: ReadonlyArray<string>) =>
         ),
         code: 0,
       };
-    if (args.length === 3 && args[0] === "post")
-      return {
-        output: yield* reviewPost(root, configDir(), args[1] ?? "", args[2] ?? "", (line) =>
-          Effect.sync(() => console.error(line)),
-        ),
-        code: 0,
-      };
+    const posting = args.filter((arg) => arg !== "--lgtm");
+    if (posting.length === 3 && posting[0] === "post" && args.length - posting.length <= 1) {
+      const output = yield* reviewPostAndTell(
+        root,
+        configDir(),
+        posting[1] ?? "",
+        posting[2] ?? "",
+        args.includes("--lgtm"),
+        mailAndNotify(root),
+        (line) => Effect.sync(() => console.error(line)),
+      );
+      return { output, code: 0 };
+    }
     if (args.length === 2 && args[0] === "rm")
       return {
         output: yield* reviewRm(root, args[1] ?? "", (line) =>
@@ -726,13 +732,14 @@ const sync = (root: string, args: ReadonlyArray<string>) =>
     if (typeof replace === "string") return { output: replace, code: 2 };
     const {
       plan,
-      skills: { sync: skillSync, linked },
+      skills: { sync: skillSync, linked, unlinked },
     } = yield* syncAll(root, PACKAGE_ROOT, replace);
     const files = formatSyncPlan(plan);
     return {
       output: [
         formatSync(skillSync),
-        ...(linked ? [`${CLAUDE_SKILLS_LINK}: linked`] : []),
+        ...(linked === undefined ? [] : [`${linked}: linked`]),
+        ...unlinked.map((path) => `${path}: removed (no listed harness reads skills there)`),
         ...(files.length === 0 ? ["PRIME.md, PR template, hooks: up to date"] : files),
         ...formatCollisions(skillSync),
       ].join("\n"),
@@ -912,18 +919,20 @@ const configCommand = (root: string, args: ReadonlyArray<string>) =>
 export const COMMANDS: ReadonlyArray<Command> = [
   {
     name: "init",
-    usage: `  mshape init <name> [--pack <pack>] [--from <spec>]
+    usage: `  mshape init <name> [--pack <pack>] [--harness <id>]... [--from <spec>]
       Create ./<name>: a new repo whose gate passes, with one starter test. --pack is its
-      language (typescript by default). --from installs monkeyshape from <spec> (a tarball
-      path) instead of the registry, to try a release first.`,
+      language (typescript by default). --harness, repeatable, names a harness its sessions
+      run in (claude-code by default); shape.toml lists them as harnesses. --from installs
+      monkeyshape from <spec> (a tarball path) instead of the registry, to try a release first.`,
     run: init,
   },
   {
     name: "sync",
     usage: `  mshape sync [--replace <path>]...
       After a bump, bring what the installed package ships up to date: the shared skills in
-      .agents/skills, .beads/PRIME.md, the PR template, and monkeyshape's hooks in
-      .claude/settings.json. Skills and hooks the package doesn't ship are left alone, and so
+      .agents/skills, .beads/PRIME.md, the PR template, and each listed harness's hooks
+      (Claude Code's in .claude/settings.json), removing what it wrote for a harness no longer
+      listed. Skills and hooks the package doesn't ship are left alone, and so
       is a PRIME.md, PR template or skill this repo wrote itself: --replace <path> replaces it
       with the shipped one, and sync keeps it up to date from then on.`,
     run: sync,
@@ -1062,10 +1071,13 @@ export const COMMANDS: ReadonlyArray<Command> = [
       Remove that worktree and its fetched ref. A reviewer at review-<track> keeps that
       address and its mail for the track's next PR; for a PR from no track, review-<n>'s
       unread mail is listed and its sessions removed. Never the shared data or the handoffs.
-  mshape review post <n> <file>
+  mshape review post <n> <file> [--lgtm]
       Post <file>, a review as GitHub's reviews API takes it ({commit_id, event, body,
       comments}), on pull request <n>, after scanning every string in it for denylisted terms
-      (see scan): a match refuses, naming where, and nothing is posted.`,
+      (see scan): a match refuses, naming where, and nothing is posted. Then mail the track
+      the PR is from: the link and one line per inline finding. --lgtm posts it as the LGTM
+      (refused beside an inline blocker, or on a commit that isn't the PR's head), mails the
+      track so, and removes the review's worktree; the reviewer keeps review-<track>.`,
     run: review,
   },
   {
@@ -1080,12 +1092,14 @@ export const COMMANDS: ReadonlyArray<Command> = [
   },
   {
     name: "msg",
-    usage: `  mshape msg send <track> --subject <subject> [body | --body-file <path>]
+    usage: `  mshape msg send <track> --subject <subject> [--reply-to <id>] [body | --body-file <path>]
       Leave a message in the mailbox of <track>, main or a reviewer (review-<track>, or
       review-<n> for a PR from no track), from this session's address, then push its subject
       to the sessions registered there. The subject is one
       line; it is all a notice shows. --body-file reads the body from a file, with no shell
       quoting to get wrong; else quote the body, and put -- before one that starts with --.
+      --reply-to <id> answers message <id>, one this address received or sent: read shows
+      the thread's earlier subjects above the reply.
   mshape msg send --all --subject <subject> [body | --body-file <path>]
       The same message to every track but this session's own, one mailbox each.
   mshape msg inbox [--quiet]
@@ -1095,7 +1109,8 @@ export const COMMANDS: ReadonlyArray<Command> = [
       Every address's unread mail, from any checkout, and mail left at one that is gone.
       For the milestone boundary; marks nothing read.
   mshape msg read <id>
-      Print a message and mark it read at this address. Nothing else marks one read.
+      Print a message and mark it read at this address. Nothing else marks one read. A reply
+      lists the earlier messages of its thread, oldest first, by id and subject.
   mshape msg watch pr <n> | bead <id> | ci <sha> | main
       Be told by mail, from mshape, when pull request <n> merges or closes, a bead closes,
       CI on a commit ends (pass or fail), or a head of main fails CI and later passes again.

@@ -32,6 +32,7 @@ import {
   INSTALLER,
   packDestination,
   packVersion,
+  publishSteps,
   RELEASE_DIR,
   releaseTag,
   SUMS_FILE,
@@ -151,19 +152,10 @@ const tag = (repo: string, commitArg: string, destination: string) =>
         ...assets,
         `${SUMS_FILE} sha256 ${sums}: the pin's sums`,
         "",
-        ...(published === undefined
-          ? [
-              "For the maintainer, to publish exactly this tarball:",
-              `  git push origin ${name}`,
-              `  bun publish ${tarball}`,
-              `  gh release create ${name} --verify-tag ${assets.join(" ")}`,
-              `  bun run release verify ${pkg.version}`,
-            ]
-          : [
-              `It reproduces ${pkg.name}@${pkg.version} as published. For the maintainer:`,
-              `  git push origin ${name}`,
-              `  gh release create ${name} --verify-tag ${assets.join(" ")}`,
-            ]),
+        published === undefined
+          ? "For the maintainer, to publish exactly this tarball:"
+          : `It reproduces ${pkg.name}@${pkg.version} as published. For the maintainer:`,
+        ...publishSteps(name, pkg.version, tarball, assets, published !== undefined),
       ].join("\n"),
       code: 0,
     };
@@ -203,7 +195,7 @@ const main = (repo: string, args: ReadonlyArray<string>) =>
     if (command === "pack") {
       const source = yield* packSource(repo);
       const warning = untaggedWarning(source);
-      const destination = packDestination(repo, arg);
+      const destination = packDestination(process.cwd(), repo, arg);
       const binaries = yield* compileBinaries(repo, destination, packVersion(source));
       const path = yield* packWorkingTree(repo, destination);
       // The tarball's path last, for a script that reads it.

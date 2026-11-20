@@ -8,6 +8,7 @@ import {
   oxcForBinary,
   packDestination,
   packVersion,
+  publishSteps,
   sha256Sums,
   tagMessage,
   tarballDifferences,
@@ -151,8 +152,28 @@ test("the tag records the tarball's digest and SHA256SUMS', the pin's sums", () 
 });
 
 test("pack writes into .release/, which git ignores, unless given a directory", () => {
-  expect(packDestination("/r", undefined)).toBe("/r/.release");
-  expect(packDestination("/r", "/out")).toBe("/out");
+  expect(packDestination("/r", "/r", undefined)).toBe("/r/.release");
+  expect(packDestination("/r", "/r", "/out")).toBe("/out");
+  // Relative to the caller: the compile runs in another worktree (lql).
+  expect(packDestination("/r/sub", "/r", "../out")).toBe("/r/out");
+  expect(packDestination("/r", "/r", "out")).toBe("/r/out");
+  expect(packDestination("/r", "/r", "./a/../b/")).toBe("/r/b");
+  expect(packDestination("/r", "/r", "/abs/./x")).toBe("/abs/x");
+});
+
+test("the publish steps work on gh 2.4: no --verify-tag, and the tag checked on the remote first", () => {
+  const steps = publishSteps("v1.2.0", "1.2.0", "/x/pkg.tgz", ["/x/a", "/x/SHA256SUMS"], false);
+  expect(steps).toEqual([
+    "  git push origin v1.2.0",
+    "  bun publish /x/pkg.tgz",
+    "  git ls-remote --exit-code --tags origin refs/tags/v1.2.0 && gh release create v1.2.0 /x/a /x/SHA256SUMS",
+    "  bun run release verify 1.2.0",
+  ]);
+  expect(steps.join("\n")).not.toContain("--verify-tag");
+  expect(publishSteps("v1.2.0", "1.2.0", "/x/pkg.tgz", ["/x/a"], true)).toEqual([
+    "  git push origin v1.2.0",
+    "  git ls-remote --exit-code --tags origin refs/tags/v1.2.0 && gh release create v1.2.0 /x/a",
+  ]);
 });
 
 test("the release builds a binary for every platform mshape supports, and only those", () => {

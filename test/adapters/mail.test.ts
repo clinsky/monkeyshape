@@ -319,3 +319,85 @@ describe("msg", () => {
     expect(mshape(repo, "msg", "inbox", "--all", "--quiet").code).toBe(2);
   });
 });
+
+describe("msg send --reply-to", () => {
+  const sendId = (cwd: string, ...args: ReadonlyArray<string>) => {
+    const sent = mshape(cwd, "msg", "send", ...args);
+    expect(sent.code).toBe(0);
+    return /^Sent (\S+)/.exec(sent.stdout)?.[1] ?? "";
+  };
+
+  test("a reply records its parent, and read lists the thread's earlier messages, oldest first", () => {
+    const ask = sendId(wt("docs"), "tracks", "--subject", "which parser?", "oxc or ours?");
+    const answer = sendId(wt("tracks"), "docs", "--subject", "oxc", "--reply-to", ask, "oxc.");
+    const thanks = sendId(wt("docs"), "tracks", "--subject", "then oxc", "--reply-to", answer);
+
+    const read = mshape(wt("tracks"), "msg", "read", thanks).stdout;
+    expect(read).toContain(`In reply to: ${answer}`);
+    const lines = read.split("\n");
+    const start = lines.indexOf("Earlier in this thread, oldest first:");
+    expect(lines.slice(start + 1, start + 3).map((line) => line.trim().split(/\s+/)[0])).toEqual([
+      ask,
+      answer,
+    ]);
+    expect(read).toContain(`docs to tracks`);
+    expect(read).toContain(": which parser?");
+    // A first message has no thread to show.
+    expect(mshape(wt("tracks"), "msg", "read", ask).stdout).not.toContain("Earlier in this thread");
+  });
+
+  test("a reply to an id that doesn't exist, or to mail between others, fails naming it; nothing is sent", async () => {
+    const unknown = mshape(
+      wt("docs"),
+      "msg",
+      "send",
+      "tracks",
+      "--subject",
+      "re",
+      "--reply-to",
+      "20260101-000000-abcd",
+    );
+    expect(unknown.code).toBe(1);
+    expect(unknown.stderr).toContain(
+      "--reply-to 20260101-000000-abcd: no message 20260101-000000-abcd was sent to or from track docs",
+    );
+    const between = sendId(repo, "tracks", "--subject", "for tracks only");
+    const stranger = mshape(
+      wt("docs"),
+      "msg",
+      "send",
+      "tracks",
+      "--subject",
+      "re",
+      "--reply-to",
+      between,
+    );
+    expect(stranger.code).toBe(1);
+    expect(stranger.stderr).toContain(`no message ${between} was sent to or from track docs`);
+    const typo = mshape(
+      wt("docs"),
+      "msg",
+      "send",
+      "tracks",
+      "--subject",
+      "re",
+      "--reply-to",
+      "HEAD",
+    );
+    expect(typo.stderr).toContain("`HEAD` is not a message id");
+    expect((await files(mailbox("tracks"))).filter((file) => file.endsWith(".json"))).toHaveLength(
+      1,
+    );
+  });
+
+  test("a parent that was read, or that the sender sent, is found; one deleted ends the thread by its id", async () => {
+    const first = sendId(wt("docs"), "tracks", "--subject", "first");
+    mshape(wt("tracks"), "msg", "read", first);
+    // The sender replies to its own message, now in the recipient's read mail.
+    const second = sendId(wt("docs"), "tracks", "--subject", "and also", "--reply-to", first);
+    const { rm } = await import("node:fs/promises");
+    await rm(`${mailbox("tracks")}/read/${first}.json`);
+    const read = mshape(wt("tracks"), "msg", "read", second).stdout;
+    expect(read).toContain(`  ${first}  (no mailbox has it any longer)`);
+  });
+});

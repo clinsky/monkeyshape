@@ -6,6 +6,7 @@
 import { join, relative } from "node:path";
 import * as Effect from "effect/Effect";
 import { settablePrerequisites } from "../core/gate.ts";
+import { HARNESSES } from "../harnesses/index.ts";
 import { decodeStrict } from "../helpers/decodeStrict.ts";
 import { PACKS } from "../packs/index.ts";
 import {
@@ -28,6 +29,17 @@ const unshipped = (config: { readonly packs?: ReadonlyArray<string> | undefined 
     .map(
       (pack) =>
         `packs: lists \`${pack}\`, which this mshape doesn't ship (it ships ${shipped.join(", ")}); run a release that has it, or remove it from \`packs\``,
+    );
+};
+
+/** A listed harness this mshape doesn't ship, as `unshipped` says of a pack. */
+const unshippedHarness = (config: { readonly harnesses?: ReadonlyArray<string> | undefined }) => {
+  const shipped = HARNESSES.map((harness) => harness.id);
+  return (config.harnesses ?? [])
+    .filter((id) => !(shipped as ReadonlyArray<string>).includes(id))
+    .map(
+      (id) =>
+        `harnesses: lists \`${id}\`, which this mshape doesn't ship (it ships ${shipped.join(", ")}); run a release that has it, or remove it from \`harnesses\``,
     );
 };
 
@@ -153,7 +165,12 @@ const loadToml = (root: string, path: string, shown: string) =>
         }),
       );
     }
-    const problems = [...configProblems(config), ...unshipped(config), ...undeclared(config)];
+    const problems = [
+      ...configProblems(config),
+      ...unshipped(config),
+      ...unshippedHarness(config),
+      ...undeclared(config),
+    ];
     if (problems.length > 0)
       return yield* Effect.fail(new ConfigError({ path: shown, reason: problems.join("; ") }));
     return resolveConfig(config, shown, [], PACK_SOURCES);
@@ -185,6 +202,7 @@ export const importTsConfig = (_root: string, path: string, shown: string) =>
 export const tsConfigProblems = (config: ShapeConfig): ReadonlyArray<string> => [
   ...configProblems(config),
   ...unshipped(config),
+  ...unshippedHarness(config),
   ...undeclared(config),
 ];
 

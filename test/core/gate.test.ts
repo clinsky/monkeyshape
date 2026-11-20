@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { CHECK_STAGE, gateStages } from "../../src/core/gate.ts";
+import { CHECK_STAGE, formatCounts, gateStages, testCounts } from "../../src/core/gate.ts";
 import { PACKS } from "../../src/packs/index.ts";
 import type { GateStage, PackId } from "../../src/schemas/config.ts";
 import { GATE_PACKS } from "./gatePacks.ts";
@@ -131,5 +131,45 @@ describe("gateStages", () => {
     const all = Object.values(GATE_PACKS).flatMap((pack) => pack.stages.map((stage) => stage.name));
     expect(new Set(all).size).toBe(all.length);
     expect(all).not.toContain(CHECK_STAGE);
+  });
+});
+
+describe("a test stage's counts (z1u.14)", () => {
+  test("bun test: pass, fail, and skip and todo as skipped", () => {
+    const out =
+      "bun test v1.4.2\n\n 1050 pass\n 2 skip\n 1 todo\n 0 fail\n 3120 expect() calls\nRan 1053 tests across 120 files. [41.2s]";
+    expect(testCounts(out)).toEqual({ passed: 1050, failed: 0, skipped: 3 });
+    expect(formatCounts({ passed: 1050, failed: 0, skipped: 3 })).toBe("1050 passed, 3 skipped");
+  });
+
+  test("cargo test: every crate's and the doc tests' result lines, summed", () => {
+    const out = [
+      "running 4 tests",
+      "test result: ok. 4 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+      "   Doc-tests app",
+      "test result: FAILED. 2 passed; 1 failed; 0 ignored; 0 measured; 2 filtered out; finished in 0.10s",
+    ].join("\n");
+    expect(testCounts(out)).toEqual({ passed: 6, failed: 1, skipped: 3 });
+  });
+
+  test("pytest: the last summary line; no tests ran is 0, the silent skip #131 hid", () => {
+    expect(
+      testCounts(
+        "collected 5 items\n...\n==== 3 passed, 1 skipped, 1 xfailed, 2 warnings in 0.05s ====",
+      ),
+    ).toEqual({ passed: 3, failed: 0, skipped: 2 });
+    expect(testCounts("= 1 failed, 2 passed, 1 error in 1.20s =")).toEqual({
+      passed: 2,
+      failed: 2,
+      skipped: 0,
+    });
+    const none = testCounts("collected 0 items\n\n==== no tests ran in 0.01s ====");
+    expect(none).toEqual({ passed: 0, failed: 0, skipped: 0 });
+    expect(formatCounts(none ?? { passed: 1, failed: 1, skipped: 1 })).toBe("0 passed");
+  });
+
+  test("output no runner here wrote, like tsc's or biome's, has no counts", () => {
+    expect(testCounts("Checked 225 files in 207ms. No fixes applied.")).toBeUndefined();
+    expect(testCounts("")).toBeUndefined();
   });
 });

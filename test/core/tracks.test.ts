@@ -76,6 +76,31 @@ describe("what track rm may do", () => {
     expect(planRm(facts).steps.map((step) => step.kind)).toEqual(["worktree", "branch", "handoff"]);
   });
 
+  test("lessons not yet promoted refuse, naming them, even with --force; --keep-handoff keeps them (jhz.5)", () => {
+    const lessons = "- a fake gh hid a decoder bug\n- run the real observer too";
+    const refused = planRm({ ...facts, lessons, force: true });
+    expect(refused.steps).toEqual([]);
+    expect(refused.refusals).toEqual([
+      [
+        "the handoff's `## Lessons not yet promoted` isn't empty, and removing the track would delete it:",
+        "  - a fake gh hid a decoder bug",
+        "  - run the real observer too",
+        "promote each (a check, a test, AGENTS.md, a skill, or a bead that will), then set the section to `None yet.` in /r/.git/monkeyshape/handoffs/docs.md; or pass --keep-handoff to keep the handoff",
+      ].join("\n    "),
+    ]);
+    expect(planRm({ ...facts, lessons, keepHandoff: true }).refusals).toEqual([]);
+    expect(planRm({ ...facts, lessons: undefined }).refusals).toEqual([]);
+  });
+
+  test("a handoff that doesn't parse is a note, not a refusal: its lessons can't be known", () => {
+    const plan = planRm({
+      ...facts,
+      lessons: { unparsed: "the first line must be `# Track: <name>`" },
+    });
+    expect(plan.refusals).toEqual([]);
+    expect(plan.notes[0]).toContain("doesn't parse (the first line must be `# Track: <name>`)");
+  });
+
   test("a running Claude Code session refuses, naming it; --force goes ahead, saying so", () => {
     const sessions = { live: ["681a4ec1", "9f00ab12"] };
     const refused = planRm({ ...facts, sessions });
@@ -419,6 +444,60 @@ describe("whether a track is done", () => {
       "x-abc.1 (open) is listed in merged PR #5 but still open: close it if its work is done (`bd close x-abc.1`), or write what is left in its notes and defer it (`bd defer x-abc.1`)",
       "x-abc.4 (in_progress) is listed in merged PR #5 but still open: close it if its work is done (`bd close x-abc.4`), or write what is left in its notes and defer it off the track (`bd update x-abc.4 --status deferred --remove-label track:docs --remove-label track:review`)",
     ]);
+  });
+
+  test("a bead a merged PR filed for later isn't flagged; the one it worked on still is (6ky, ag8)", () => {
+    const open = { status: "open", type: "task", labels: ["track:docs"] };
+    const beads: BeadsById = new Map([
+      ["x-1", open],
+      ["x-2", open],
+      ["x-3", open],
+      ["x-4", open],
+    ]);
+    const body = [
+      "## Beads",
+      "",
+      "- x-1 the work this PR did",
+      "- x-2 filed: the next piece",
+      "- `x-3` (filed) for the other track",
+      "- **x-4** Filed. a capital and a full stop",
+    ].join("\n");
+    expect(
+      openAfterMerge([pr(5, "MERGED", body)], beads, "docs").map((line) => line.split(" ")[0]),
+    ).toEqual(["x-1"]);
+    // The word must follow the id: a bead whose description merely mentions filing still counts.
+    expect(
+      openAfterMerge([pr(5, "MERGED", "## Beads\n\n- x-1 reads what was filed\n")], beads, "docs"),
+    ).toHaveLength(1);
+  });
+
+  test("a bead left open that a TODO still names says so, before anyone closes it (jhz.1)", () => {
+    const beads: BeadsById = new Map([["x-1", { status: "open", type: "task", labels: [] }]]);
+    const [line] = openAfterMerge(
+      [pr(5, "MERGED", "## Beads\n\n- x-1 the work\n")],
+      beads,
+      "docs",
+      new Map([["x-1", ["src/a.ts:12", "src/b.ts:3"]]]),
+    );
+    expect(line).toContain(
+      "Before closing it: `TODO(x-1)` is still at src/a.ts:12, src/b.ts:3: delete it (or do what it says) before `bd close x-1`",
+    );
+  });
+
+  test("a bead waiting on another (blocked, or a blocks dependency still open) isn't flagged until it closes (2dl)", () => {
+    const body = "## Beads\n\n- x-1 its first part\n- x-5 bd says blocked\n";
+    const beads = (dep: string): BeadsById =>
+      new Map([
+        ["x-1", { status: "open", type: "task", labels: ["track:docs"], blockedBy: ["y-9"] }],
+        ["y-9", { status: dep, type: "task", labels: ["track:packs"] }],
+        ["x-5", { status: "blocked", type: "task", labels: ["track:docs"] }],
+      ]);
+    expect(openAfterMerge([pr(5, "MERGED", body)], beads("in_progress"), "docs")).toEqual([]);
+    expect(
+      openAfterMerge([pr(5, "MERGED", body)], beads("closed"), "docs").map(
+        (line) => line.split(" ")[0],
+      ),
+    ).toEqual(["x-1"]);
   });
 
   test("following the advice for a bead left open leaves the beads check green (4sa.13)", () => {

@@ -15,9 +15,38 @@ export const releaseTag = (version: string): string => `v${version}`;
  */
 export const RELEASE_DIR = ".release";
 
-/** Where `pack` writes: the directory given, else `RELEASE_DIR` in the repo. */
-export const packDestination = (repo: string, given: string | undefined): string =>
-  given ?? `${repo}/${RELEASE_DIR}`;
+/**
+ * Where `pack` writes: the directory given, else `RELEASE_DIR` in the repo. A relative one is
+ * the caller's (`cwd`): the binaries compile in another worktree, where it would mean another
+ * place, and their copy back would look for them there.
+ */
+export const packDestination = (cwd: string, repo: string, given: string | undefined): string => {
+  if (given === undefined) return `${repo}/${RELEASE_DIR}`;
+  const segments: Array<string> = [];
+  for (const segment of `${given.startsWith("/") ? "" : cwd}/${given}`.split("/"))
+    if (segment === "..") segments.pop();
+    else if (segment !== "" && segment !== ".") segments.push(segment);
+  return `/${segments.join("/")}`;
+};
+
+/**
+ * What the maintainer runs to publish a tag `release tag` made: push it, publish the tarball
+ * unless npm has it already, and create the GitHub release on that tag. gh 2.4 has no
+ * `--verify-tag`, which only guards against gh creating a missing tag; `git ls-remote` makes
+ * the same guard, so the release is never made on a tag GitHub doesn't have.
+ */
+export const publishSteps = (
+  name: string,
+  version: string,
+  tarball: string,
+  assets: ReadonlyArray<string>,
+  published: boolean,
+): ReadonlyArray<string> => [
+  `  git push origin ${name}`,
+  ...(published ? [] : [`  bun publish ${tarball}`]),
+  `  git ls-remote --exit-code --tags origin refs/tags/${name} && gh release create ${name} ${assets.join(" ")}`,
+  ...(published ? [] : [`  bun run release verify ${version}`]),
+];
 
 /** What the version of a pack depends on. */
 export interface PackSource {
