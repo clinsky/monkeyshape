@@ -728,6 +728,23 @@ const skillsCase = (
 const { ".claude/skills": _link, ...UNLINKED_FILES } = SYNCED.files;
 
 const skills: Record<string, Cases> = {
+  "skills/link-unlisted": {
+    // Claude Code dropped from `harnesses`, its link still as monkeyshape made it.
+    fail: (() => {
+      const base = skillsCase();
+      const options = base.options ?? {};
+      const listed = options.skills;
+      if (listed === undefined) throw new Error("skillsCase gives skills");
+      return {
+        ...base,
+        options: {
+          ...options,
+          skills: { ...listed, strayLinks: [{ path: ".claude/skills", harness: "Claude Code" }] },
+        },
+      };
+    })(),
+    pass: skillsCase(),
+  },
   "skills/link": {
     fail: skillsCase({ link: { kind: "link", target: "/home/someone/repo/.agents/skills" } }),
     pass: skillsCase({ link: { kind: "link", target: "./../.agents/skills/" } }),

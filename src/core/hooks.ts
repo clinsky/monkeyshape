@@ -75,6 +75,13 @@ export const withMshape = (command: string, otherwise?: string): string =>
   `PATH="$PATH:${MSHAPE_FALLBACK}"; if command -v mshape >/dev/null; then ${command}; else echo ${quote(`note: ${MSHAPE_NOT_INSTALLED}`)}${otherwise === undefined ? "" : `; ${otherwise}`}; fi`;
 
 /**
+ * How every command `hookCommand(args, ...)` renders begins, for any args after `lead`: an
+ * adapter recognises its own commands by it, whatever loop command they run.
+ */
+export const hookCommandPrefix = (lead: ReadonlyArray<string>): string =>
+  `PATH="$PATH:${MSHAPE_FALLBACK}"; if command -v mshape >/dev/null; then ${mshapeCommand(lead)} `;
+
+/**
  * `mshape <args>` as a hook runs it: found where it is installed, degrading to a note, and
  * then to `otherwise` when mshape can't run.
  */
@@ -159,12 +166,21 @@ const without = (entries: ReadonlyArray<unknown>, drop: ReadonlySet<string>): Ar
   });
 };
 
+/**
+ * Which commands monkeyshape wrote: a set of them, or a test an adapter makes of a command (one
+ * recognising every command it ever rendered, so a hook dropped in a later release still is).
+ */
+export type Ours = ReadonlySet<string> | ((command: string) => boolean);
+
+const owns = (ours: Ours, command: string): boolean =>
+  typeof ours === "function" ? ours(command) : ours.has(command);
+
 /** The commands of `ours` that `settings` runs under `event` but `hooks` doesn't ship there. */
 const staleIn = (
   settings: Readonly<Record<string, unknown>>,
   event: string,
   hooks: ReadonlyArray<Hook>,
-  ours: ReadonlySet<string>,
+  ours: Ours,
 ): ReadonlySet<string> => {
   const shipped = new Set(hooks.filter((hook) => hook.event === event).map((hook) => hook.command));
   const stale = new Set<string>();
@@ -173,7 +189,7 @@ const staleIn = (
     if (!Array.isArray(inner)) continue;
     for (const hook of inner) {
       const command = (hook as { command?: unknown } | null)?.command;
-      if (typeof command === "string" && ours.has(command) && !shipped.has(command))
+      if (typeof command === "string" && owns(ours, command) && !shipped.has(command))
         stale.add(command);
     }
   }
@@ -192,7 +208,7 @@ export const ownCommands = (hooks: ReadonlyArray<Hook>): ReadonlySet<string> =>
 export const staleHooks = (
   settings: Readonly<Record<string, unknown>>,
   hooks: ReadonlyArray<Hook>,
-  ours: ReadonlySet<string> = ownCommands(hooks),
+  ours: Ours = ownCommands(hooks),
 ): ReadonlyArray<{ readonly event: string; readonly command: string }> => {
   const { hooks: existing } = settings;
   const events =
@@ -214,7 +230,7 @@ export const staleHooks = (
 export const mergeHooks = (
   settings: Readonly<Record<string, unknown>>,
   hooks: ReadonlyArray<Hook>,
-  ours: ReadonlySet<string> = ownCommands(hooks),
+  ours: Ours = ownCommands(hooks),
 ): string => {
   const { hooks: existing } = settings;
   const current =

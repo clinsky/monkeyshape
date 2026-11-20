@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import * as Effect from "effect/Effect";
 import * as Exit from "effect/Exit";
-import { installSkills } from "../../src/adapters/skills.ts";
+import { DEFAULT_LINK, installSkills } from "../../src/adapters/skills.ts";
 
 let dir = "";
 const shipped = () => join(dir, "package", "skills");
@@ -15,7 +15,7 @@ const put = async (path: string, text: string | Uint8Array) => {
   await writeFile(path, text);
 };
 
-const install = () => Effect.runPromise(installSkills(shipped(), repo()));
+const install = () => Effect.runPromise(installSkills(shipped(), repo(), {}, DEFAULT_LINK));
 
 beforeEach(async () => {
   dir = await mkdtemp(join(tmpdir(), "mshape-skills-"));
@@ -121,7 +121,7 @@ describe("installSkills", () => {
         join(repo(), ".agents", "skills", "monkeyshape.json"),
         JSON.stringify({ shared: [name] }),
       );
-      const exit = await Effect.runPromiseExit(installSkills(shipped(), repo()));
+      const exit = await Effect.runPromiseExit(installSkills(shipped(), repo(), {}, DEFAULT_LINK));
       expect(Exit.isFailure(exit)).toBe(true);
       expect(await Bun.file(join(repo(), ".agents", "skills", "mine", "SKILL.md")).exists()).toBe(
         true,

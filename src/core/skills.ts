@@ -210,6 +210,7 @@ export const SKILLS_RULES = [
   "manifest",
   "sync-due",
   "collision",
+  "link-unlisted",
 ] as const;
 
 const violation = (
@@ -232,6 +233,22 @@ export const skillsLinkOf = (
     if (listed.includes(harness.id) && harness.skills.kind === "link")
       return { path: harness.skills.path, target: harness.skills.target, harness: harness.name };
   return undefined;
+};
+
+/**
+ * The skills links of shipped harnesses the repo doesn't list, at a path no listed harness
+ * links: what sync removes when it is still the link monkeyshape made.
+ */
+export const unlistedLinksOf = (
+  harnesses: ReadonlyArray<Harness>,
+  listed: ReadonlyArray<HarnessId>,
+): ReadonlyArray<NonNullable<SkillsSnapshot["linkAt"]>> => {
+  const kept = skillsLinkOf(harnesses, listed)?.path;
+  return harnesses.flatMap((harness) =>
+    listed.includes(harness.id) || harness.skills.kind !== "link" || harness.skills.path === kept
+      ? []
+      : [{ path: harness.skills.path, target: harness.skills.target, harness: harness.name }],
+  );
 };
 
 /** Whether git lists `path` or an entry above it: a symlinked skill is a single entry. */
@@ -319,6 +336,14 @@ export const checkSkills = (
   if (link.kind === "missing" && installed.size === 0) return [];
   const files = new Set(snapshot.files);
   const violations = linkViolations(snapshot, files);
+  for (const stray of snapshot.skills.strayLinks ?? [])
+    violations.push(
+      violation(
+        "link-unlisted",
+        stray.path,
+        `is the skills link monkeyshape made for ${stray.harness}, which \`harnesses\` in shape.toml no longer lists. Run \`${SYNC_COMMAND}\`, which removes it while it is still that link, and commit it; or list the harness again.`,
+      ),
+    );
 
   const ignored = new Set<string>();
   for (const path of installed.keys())

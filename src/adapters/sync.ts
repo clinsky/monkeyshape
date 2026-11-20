@@ -8,7 +8,7 @@ import * as Effect from "effect/Effect";
 import { PR_TEMPLATE_FILE, PRIME_FILE } from "../core/conventions.ts";
 import { type Delivery, deliveries, shippedFiles } from "../core/delivery.ts";
 import { SKILLS_DIR, SKILLS_MANIFEST } from "../core/layout.ts";
-import { ownedFiles, parseManifest, skillsLinkOf } from "../core/skills.ts";
+import { ownedFiles, parseManifest, skillsLinkOf, unlistedLinksOf } from "../core/skills.ts";
 import {
   harnessDeliveries,
   harnessPaths,
@@ -209,6 +209,7 @@ export const syncAll = (
       repo,
       { files: plan.owned, replace: replace.skills },
       selection === undefined ? undefined : skillsLinkOf(selection.shipped, selection.listed),
+      selection === undefined ? [] : unlistedLinksOf(selection.shipped, selection.listed),
     );
     return { plan, skills };
   });

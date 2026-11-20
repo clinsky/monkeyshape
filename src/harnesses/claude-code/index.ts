@@ -9,6 +9,7 @@ import {
   type Hook,
   type HookEvent,
   hookCommand,
+  hookCommandPrefix,
   LOOP_HOOKS,
   mergeHooks,
   missingHooks,
@@ -108,8 +109,17 @@ export const claudeHooks = (hooks: ReadonlyArray<LoopHook>): ReadonlyArray<Hook>
 /** The hooks monkeyshape writes into Claude Code's settings now. */
 export const CLAUDE_HOOKS: ReadonlyArray<Hook> = claudeHooks(LOOP_HOOKS);
 
-/** Every command monkeyshape writes or wrote into Claude Code's settings. */
-const OURS = ownCommands(claudeHooks(LOOP_HOOKS));
+const KNOWN = ownCommands(claudeHooks(LOOP_HOOKS));
+const PREFIX = hookCommandPrefix(["--harness", "claude-code"]);
+
+/**
+ * Whether monkeyshape wrote `command` into Claude Code's settings: one it renders now, a pre-0.7
+ * one (`RETIRED`), or any command shaped as it renders them since 0.7, `mshape --harness
+ * claude-code ...` behind the PATH fallback. The shape is what makes a loop command dropped in a
+ * later release still monkeyshape's, so sync removes it with nothing to remember.
+ */
+export const claudeOwns = (command: string): boolean =>
+  KNOWN.has(command) || command.startsWith(PREFIX);
 
 /** The fields of Claude Code's session file that a notice depends on. */
 export interface ClaudeSession {
@@ -288,10 +298,10 @@ export const claudeCode: Harness = {
       {
         kind: "owned-entries",
         path: SETTINGS_FILE,
-        merge: (current: JsonObject | undefined) => mergeHooks(current ?? {}, hooks, OURS),
+        merge: (current: JsonObject | undefined) => mergeHooks(current ?? {}, hooks, claudeOwns),
         missing: (current: JsonObject | undefined) => [
           ...missingHooks(current ?? {}, hooks).map((hook) => `doesn't run ${describeHook(hook)}`),
-          ...staleHooks(current ?? {}, hooks, OURS).map(
+          ...staleHooks(current ?? {}, hooks, claudeOwns).map(
             (hook) =>
               `still runs ${hook.event}: \`${hook.command}\`, which monkeyshape no longer ships`,
           ),

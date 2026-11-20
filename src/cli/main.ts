@@ -745,13 +745,14 @@ const sync = (root: string, args: ReadonlyArray<string>) =>
     if (typeof replace === "string") return { output: replace, code: 2 };
     const {
       plan,
-      skills: { sync: skillSync, linked },
+      skills: { sync: skillSync, linked, unlinked },
     } = yield* syncAll(root, PACKAGE_ROOT, replace);
     const files = formatSyncPlan(plan);
     return {
       output: [
         formatSync(skillSync),
         ...(linked === undefined ? [] : [`${linked}: linked`]),
+        ...unlinked.map((path) => `${path}: removed (no listed harness reads skills there)`),
         ...(files.length === 0 ? ["PRIME.md, PR template, hooks: up to date"] : files),
         ...formatCollisions(skillSync),
       ].join("\n"),

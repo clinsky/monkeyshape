@@ -4,14 +4,16 @@
  * track's, so a second harness here is a stand-in that writes a whole file, as pi's will.
  */
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { lstat, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { lstat, mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import * as Effect from "effect/Effect";
 import { loadConfig } from "../../src/adapters/config.ts";
 import { listedHarnesses } from "../../src/adapters/harnesses/index.ts";
+import { installSkills } from "../../src/adapters/skills.ts";
 import { type HarnessSelection, harnessSelection, syncRepo } from "../../src/adapters/sync.ts";
 import { PR_TEMPLATE_FILE, prTemplate } from "../../src/core/conventions.ts";
+import { skillsLinkOf, unlistedLinksOf } from "../../src/core/skills.ts";
 import { checkSync, harnessDeliveries } from "../../src/core/sync.ts";
 import { CLAUDE_HOOKS, SETTINGS_FILE } from "../../src/harnesses/claude-code/index.ts";
 import type { Harness } from "../../src/harnesses/harness.ts";
@@ -118,6 +120,28 @@ describe("Harness selection: the plan's table", () => {
     expect(kept.remove).toEqual([]);
     expect(kept.notes.join("\n")).toContain(`${EXTENSION.path}: left alone`);
     expect(await read("notes.md")).toBe("the repo's own\n");
+  });
+
+  test("a link-reading harness removed from the list: its skills link goes, only while as made", async () => {
+    const install = (listed: HarnessSelection["listed"]) =>
+      Effect.runPromise(
+        installSkills(
+          join(pkg(), "skills"),
+          root(),
+          {},
+          skillsLinkOf(shipped, listed),
+          unlistedLinksOf(shipped, listed),
+        ),
+      );
+    expect((await install(["claude-code"])).linked).toBe(".claude/skills");
+    const dropped = await install(["pi"]);
+    expect(dropped.unlinked).toEqual([".claude/skills"]);
+    expect(await exists(".claude/skills")).toBe(false);
+    // A link the repo pointed elsewhere is its own: kept.
+    await mkdir(join(root(), ".claude"), { recursive: true });
+    await symlink("../somewhere", join(root(), ".claude", "skills"));
+    expect((await install(["pi"])).unlinked).toEqual([]);
+    expect(await exists(".claude/skills")).toBe(true);
   });
 
   test("an owned file edited by hand: the sync check fails naming the file and the command", () => {

@@ -7,7 +7,7 @@ import { parseDecisions } from "../core/decisions.ts";
 import { shippedFiles } from "../core/delivery.ts";
 import { cacheRoot } from "../core/launch.ts";
 import { type BeadSummary, classify, type Integration, type Snapshot } from "../core/model.ts";
-import { skillsLinkOf } from "../core/skills.ts";
+import { skillsLinkOf, unlistedLinksOf } from "../core/skills.ts";
 import { harnessPaths, SYNCED_FILES } from "../core/sync.ts";
 import { HARNESSES } from "../harnesses/index.ts";
 import { PACKS } from "../packs/index.ts";
@@ -357,6 +357,7 @@ export const loadSnapshot = (
       `${packageRoot}/skills`,
       root,
       skillsLinkOf(HARNESSES, config.harnesses),
+      unlistedLinksOf(HARNESSES, config.harnesses),
     );
     const shippedPrime = yield* Effect.promise(() =>
       Bun.file(`${packageRoot}/template/${PRIME_FILE}`)

@@ -220,6 +220,11 @@ export interface SkillsSnapshot {
    */
   readonly linkAt?: { readonly path: string; readonly target: string; readonly harness: string };
   readonly link: SkillsLink;
+  /**
+   * Skills links monkeyshape made for a harness the repo no longer lists, still on disk exactly
+   * as made: sync removes them. Absent where none is.
+   */
+  readonly strayLinks?: ReadonlyArray<{ readonly path: string; readonly harness: string }>;
   /** Files under `.agents/skills`. */
   readonly installed: SkillFiles;
   /** Files under `linkAt`'s path when it is a real directory; empty otherwise. */

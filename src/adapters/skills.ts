@@ -15,8 +15,11 @@ import { HARNESSES } from "../harnesses/index.ts";
 import { DEFAULT_HARNESSES } from "../schemas/config.ts";
 import { WorkspaceError } from "../schemas/errors.ts";
 
-/** Where a repo that lists no `harnesses` has its link. */
-const DEFAULT_LINK = skillsLinkOf(HARNESSES, DEFAULT_HARNESSES);
+/**
+ * Where a repo that lists no `harnesses` has its link. `at` is never defaulted: an explicit
+ * undefined (no listed harness reads skills through a link) must not become this one.
+ */
+export const DEFAULT_LINK = skillsLinkOf(HARNESSES, DEFAULT_HARNESSES);
 
 /** Whether anything is at `path`, a dangling link included. */
 const present = (path: string): Promise<boolean> =>
@@ -44,9 +47,23 @@ export const readTree = (dir: string) =>
 export interface SkillsInstall {
   readonly sync: SkillSync;
   /** The link sync created, where a listed harness reads skills through one. */
-  /** The link sync created, where a listed harness reads skills through one. */
   readonly linked: string | undefined;
+  /** The links sync removed: made for a harness no longer listed, and still as made. */
+  readonly unlinked: ReadonlyArray<string>;
 }
+
+/** The links of `unlisted` still exactly as monkeyshape made them. */
+const strays = async (
+  repo: string,
+  unlisted: ReadonlyArray<NonNullable<SkillsSnapshot["linkAt"]>>,
+) => {
+  const out: Array<NonNullable<SkillsSnapshot["linkAt"]>> = [];
+  for (const one of unlisted) {
+    const link = await linkAt(`${repo}/${one.path}`);
+    if (link.kind === "link" && link.target === one.target) out.push(one);
+  }
+  return out;
+};
 
 /**
  * Brings `<repo>/.agents/skills` up to the package's `skills/`, and creates the
@@ -56,8 +73,10 @@ export interface SkillsInstall {
 export const installSkills = (
   shippedDir: string,
   repo: string,
-  options: SkillSyncOptions = {},
-  at: SkillsSnapshot["linkAt"] = DEFAULT_LINK,
+  options: SkillSyncOptions,
+  /** Where a listed harness reads skills through a link; undefined when none does. */
+  at: SkillsSnapshot["linkAt"],
+  unlisted: ReadonlyArray<NonNullable<SkillsSnapshot["linkAt"]>> = [],
 ) =>
   Effect.gen(function* () {
     const installedDir = `${repo}/${SKILLS_DIR}`;
@@ -74,6 +93,7 @@ export const installSkills = (
       );
     const sync = syncSkills(yield* readTree(shippedDir), installed, options);
     const link = at === undefined ? undefined : `${repo}/${at.path}`;
+    const unlinked: Array<string> = [];
     const linked = yield* Effect.tryPromise({
       try: async () => {
         await mkdir(installedDir, { recursive: true });
@@ -89,6 +109,10 @@ export const installSkills = (
           await mkdir(dirname(`${installedDir}/${path}`), { recursive: true });
           await Bun.write(`${installedDir}/${path}`, bytes);
         }
+        for (const stray of await strays(repo, unlisted)) {
+          await rm(`${repo}/${stray.path}`);
+          unlinked.push(stray.path);
+        }
         if (at === undefined || link === undefined || (await present(link))) return undefined;
         await mkdir(dirname(link), { recursive: true });
         await symlink(at.target, link);
@@ -97,7 +121,7 @@ export const installSkills = (
       catch: (cause) =>
         new WorkspaceError({ operation: "install skills", path: repo, reason: String(cause) }),
     });
-    return { sync, linked } satisfies SkillsInstall;
+    return { sync, linked, unlinked } satisfies SkillsInstall;
   });
 
 const linkAt = (path: string): Promise<SkillsLink> =>
@@ -115,15 +139,21 @@ const linkAt = (path: string): Promise<SkillsLink> =>
 export const loadSkills = (
   shippedDir: string,
   repo: string,
-  at: SkillsSnapshot["linkAt"] = DEFAULT_LINK,
+  /** Where a listed harness reads skills through a link; undefined when none does. */
+  at: SkillsSnapshot["linkAt"],
+  unlisted: ReadonlyArray<NonNullable<SkillsSnapshot["linkAt"]>> = [],
 ) =>
   Effect.gen(function* () {
+    const stray = yield* Effect.promise(() => strays(repo, unlisted));
     const link: SkillsLink =
       at === undefined
         ? { kind: "missing" }
         : yield* Effect.promise(() => linkAt(`${repo}/${at.path}`));
     return {
       ...(at === undefined ? {} : { linkAt: at }),
+      ...(stray.length === 0
+        ? {}
+        : { strayLinks: stray.map(({ path, harness }) => ({ path, harness })) }),
       link,
       installed: yield* readTree(`${repo}/${SKILLS_DIR}`),
       claudeDirectory:
