@@ -112,7 +112,7 @@ export const checkBudgets = (
       violation(
         "prime-lines",
         PRIME_FILE,
-        `has ${lineCount(prime)} lines (budget ${PRIME_LINES}). bd prints it at every session start; move what only one step needs into that step's skill.`,
+        `has ${lineCount(prime)} lines (budget ${PRIME_LINES}). \`mshape prime\` prints it at every session start; move what only one step needs into that step's skill.`,
       ),
     );
 

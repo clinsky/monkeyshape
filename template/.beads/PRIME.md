@@ -26,8 +26,8 @@ never by hand.
 
 ## Tracks: parallel work
 
-- A track is a worktree on `track/<name>`, a handoff and a `track:<name>` label. In its
-  worktree, `/track` picks the work up; `/handoff` when the context is running out.
+- A track is a worktree on `track/<name>`, a handoff and a `track:<name>` label. There, the
+  `track` skill (`/track`; `$track` in Codex) picks up the work; `handoff` when context ends.
 - Message another track with
   `mshape msg send <track> --subject "<one line>" "<body>"`. Your unread
   mail is listed at session start and at each prompt; `mshape msg read <id>`
@@ -51,7 +51,7 @@ never by hand.
   time, `track pr` alone): it runs `mshape gate --fast`, pushes, and fills the Gate
   section; CI runs the whole gate, and `track pr --wait` records its result there.
   Outside a track, `gh pr create --body-file <file>`, which skips GitHub's template.
-- Review runs in its own chat with `/review-pr <n>`. `mshape review post` mails the track
+- Review runs in its own chat (the `review-pr` skill). `mshape review post` mails the track
   the review; `track pr` mails the reviewer each answering push. Answer every finding on the
   PR; before replying "fixed", rerun the reviewer's probes and try to break the fix.
 - Don't poll or ask to be told: `mshape msg watch pr <n>` (or `bead <id>`, `ci <sha>`,

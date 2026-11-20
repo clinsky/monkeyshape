@@ -47,7 +47,7 @@ mail and notices for the main checkout stay with the other sessions there. The a
 `track pr` mails you at `review-<track>` each push that answers your review: the head and,
 once CI is in, its outcome. Anything else reaches you with `mshape msg send review-<track>`. Review the track's next
 PR from the same chat: it keeps the address. Run from a track's chat, it moves nothing: that
-session keeps its track's mail. A `/clear` registers the new session by the directory the
+session keeps its track's mail. Clearing the context (a new session) registers it by the directory the
 chat is in: the reviewer's address in the review worktree, `main` again in the main checkout
 (then rerun `mshape review $N`).
 

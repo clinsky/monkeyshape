@@ -50,7 +50,7 @@ describe("handoff format", () => {
     expect(parsed.queue).toBe("bd ready --label track:docs");
     expect(parsed.stateDate).toBe("2026-10-29");
     expect(parsed.sections.Charter).toBe("");
-    expect(parsed.sections.State).toContain("/track");
+    expect(parsed.sections.State).toContain("the `track` skill");
     expect(Object.keys(parsed.sections)).toEqual([...HANDOFF_SECTIONS]);
   });
 
