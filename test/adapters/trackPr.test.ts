@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { mkdir, readdir, rm, writeFile } from "node:fs/promises";
+import { mkdir, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { prSkeleton } from "../../src/core/conventions.ts";
 import { REVIEW_MARKER } from "../../src/core/trackPr.ts";
@@ -8,12 +8,20 @@ import {
   bin,
   body,
   CLI,
+  checks,
+  commitFile,
   gh,
+  mail,
   mshape,
+  openThenCommit,
   pr,
   remoteHas,
+  remoteTip,
   repo,
+  reviewer,
+  reviews,
   sh,
+  subjects,
   useTrackPrRepo,
   wt,
 } from "./trackPrHarness.ts";
@@ -167,251 +175,6 @@ describe("track pr", () => {
     expect(proseBeads.code).toBe(0);
   });
 });
-
-const remoteTip = () => sh(join(base, "remote.git"), "rev-parse", "refs/heads/track/docs");
-
-/**
- * A reviewer of track docs' PR #7, live when Claude Code's record of it exists, ended
- * (registered long ago, no record) otherwise. `reviewing`: at `review-docs` with what
- * `mshape review 7` leaves, the PR's worktree recorded as the track's; `idle`: at
- * `review-docs` between the track's PRs, no worktree for this one; `legacy`: at `review-7`,
- * where a reviewer moved before a track's reviewer had `review-<track>`.
- */
-const reviewer = async (live: boolean, at: "reviewing" | "idle" | "legacy" = "reviewing") => {
-  const session = "11111111-2222-3333-4444-555555555555";
-  const pid = 424242;
-  const address = at === "legacy" ? "review-7" : "review-docs";
-  if (at === "reviewing") {
-    sh(repo, "worktree", "add", "-q", "--detach", join(repo, ".agents", "worktrees", "repo.pr-7"));
-    await mkdir(join(repo, ".git", "monkeyshape", "reviews"), { recursive: true });
-    await writeFile(join(repo, ".git", "monkeyshape", "reviews", "pr-7.track"), "docs\n");
-  }
-  const dir = join(repo, ".git", "monkeyshape", "sessions", address);
-  await mkdir(dir, { recursive: true });
-  await writeFile(
-    join(dir, `${session}.json`),
-    JSON.stringify({
-      session,
-      pid,
-      registered: live ? new Date().toISOString() : "2026-01-01T00:00:00.000Z",
-    }),
-  );
-  if (live) {
-    await mkdir(join(base, "no-claude", "sessions"), { recursive: true });
-    await writeFile(
-      join(base, "no-claude", "sessions", `${pid}.json`),
-      JSON.stringify({
-        pid,
-        sessionId: session,
-        procStart: "p",
-        peerProtocol: 1,
-        messagingSocketPath: join(base, "none.sock"),
-      }),
-    );
-  }
-  return session;
-};
-
-/** The reviews the fake `gh` lists on the PR. */
-const reviews = (list: ReadonlyArray<{ commit_id: string; body: string }>) =>
-  writeFile(`${gh}/reviews.json`, JSON.stringify(list));
-
-/** The unread mail at `address`. */
-const mail = async (address: string) => {
-  const dir = join(repo, ".git", "monkeyshape", "mail", address);
-  const files = (await readdir(dir).catch(() => [] as Array<string>)).filter((file) =>
-    file.endsWith(".json"),
-  );
-  return Promise.all(
-    files.map(
-      async (file) =>
-        JSON.parse(await Bun.file(join(dir, file)).text()) as { subject: string; body: string },
-    ),
-  );
-};
-const subjects = async (address: string) => (await mail(address)).map((message) => message.subject);
-
-/** Opens the PR (#7), then commits more, as answering a review would. */
-const openThenCommit = async () => {
-  await writeFile(`${wt()}/body.md`, body("x"));
-  expect(mshape(wt(), "pr", "--title", "t", "--body-file", "body.md").code).toBe(0);
-  await commitFile("fix.md", "fix\n", "a fix");
-};
-
-// The plan's review-in-progress table, row by row.
-describe("track pr: the branch tip, and a review in progress", () => {
-  test("no reviewer's session here: pushes, noting a reviewer elsewhere can't be seen", async () => {
-    await openThenCommit();
-    const pushed = mshape(wt(), "pr");
-    expect(pushed.code).toBe(0);
-    expect(pushed.stderr).toContain(
-      "note: no review of #7 is in progress on this machine; a reviewer on another machine can't be seen from here",
-    );
-    expect(remoteTip()).toBe(sh(wt(), "rev-parse", "HEAD"));
-  });
-
-  test("a live reviewer, no review on the PR's head: refused, naming the session; nothing pushed", async () => {
-    await openThenCommit();
-    const before = remoteTip();
-    const session = await reviewer(true);
-    const refused = mshape(wt(), "pr");
-    expect(refused.code).toBe(1);
-    expect(refused.stderr).toContain(
-      `the first review of #7 is in progress (session ${session} at \`review-docs\`)`,
-    );
-    expect(refused.stderr).not.toContain("running the gate");
-    expect(remoteTip()).toBe(before);
-  });
-
-  test("a live reviewer, the answer already pushed: a run that moves nothing goes ahead, and --body-only too", async () => {
-    // The review was on an earlier head; the author pushed the answer, and the reviewer's
-    // session is still live. Re-running track pr on that tip, or refreshing only the body,
-    // changes nothing under the reviewer.
-    await openThenCommit();
-    expect(mshape(wt(), "pr").code).toBe(0);
-    await reviewer(true);
-    await reviews([{ commit_id: "0".repeat(40), body: "## Fit\n\nround 1" }]);
-    const again = mshape(wt(), "pr");
-    expect(again.stderr).not.toContain("is in progress");
-    expect(again.code).toBe(0);
-    await writeFile(`${wt()}/body.md`, body("refreshed"));
-    const bodyOnly = mshape(wt(), "pr", "--body-only", "--body-file", "body.md");
-    expect(bodyOnly.stderr).not.toContain("is in progress");
-    expect(bodyOnly.code).toBe(0);
-    expect((await pr()).body).toContain("refreshed");
-    // A commit that moves the head answers the posted review too (gyd): pushed.
-    await commitFile("more.md", "more\n", "more");
-    expect(mshape(wt(), "pr").code).toBe(0);
-  });
-
-  test("a thread reply on the head (an empty-bodied review) isn't the reviewer's review (#79's blocker)", async () => {
-    await openThenCommit();
-    await reviewer(true);
-    // No review yet, only the author's replies in threads: the first review is still coming.
-    await reviews([
-      { commit_id: remoteTip(), body: "" },
-      { commit_id: remoteTip(), body: "" },
-    ]);
-    const before = remoteTip();
-    const refused = mshape(wt(), "pr");
-    expect(refused.code).toBe(1);
-    expect(refused.stderr).toContain("the first review of #7 is in progress");
-    expect(remoteTip()).toBe(before);
-  });
-
-  test("a review answered in two pushes: neither is refused while the reviewer is live, and it is mailed each (gyd)", async () => {
-    await openThenCommit();
-    await reviewer(true);
-    await reviews([{ commit_id: remoteTip(), body: `## Fit\n\nround 1\n\n${REVIEW_MARKER}` }]);
-    const first = mshape(wt(), "pr");
-    expect(first.code).toBe(0);
-    await commitFile("rest.md", "the rest, once another PR merged\n", "the rest of the answer");
-    const second = mshape(wt(), "pr");
-    expect(second.code).toBe(0);
-    const mailed = await subjects("review-docs");
-    expect(mailed).toHaveLength(2);
-    expect(
-      mailed.every((subject) => /^#7 pushed [0-9a-f]{12}: CI not waited for$/.test(subject)),
-    ).toBe(true);
-  });
-
-  test("a live reviewer whose review is on the PR's head (findings to answer): pushes", async () => {
-    await openThenCommit();
-    await reviewer(true);
-    await reviews([{ commit_id: remoteTip(), body: "## Fit\n\nfindings" }]);
-    const pushed = mshape(wt(), "pr");
-    expect(pushed.code).toBe(0);
-    expect(remoteTip()).toBe(sh(wt(), "rev-parse", "HEAD"));
-  });
-
-  test("a live reviewer at review-<n>, where it moved before review-<track>: still refused", async () => {
-    await openThenCommit();
-    const before = remoteTip();
-    const session = await reviewer(true, "legacy");
-    const refused = mshape(wt(), "pr");
-    expect(refused.code).toBe(1);
-    expect(refused.stderr).toContain(
-      `the first review of #7 is in progress (session ${session} at \`review-7\`)`,
-    );
-    expect(remoteTip()).toBe(before);
-  });
-
-  test("a live reviewer at review-<track> between the track's PRs (no worktree for this one): pushes", async () => {
-    await openThenCommit();
-    await reviewer(true, "idle");
-    const pushed = mshape(wt(), "pr");
-    expect(pushed.code).toBe(0);
-    expect(remoteTip()).toBe(sh(wt(), "rev-parse", "HEAD"));
-  });
-
-  test("the reviewer's session ended without posting: pushes, with a note", async () => {
-    await openThenCommit();
-    await reviewer(false);
-    const pushed = mshape(wt(), "pr");
-    expect(pushed.code).toBe(0);
-    expect(pushed.stderr).toContain(
-      "note: a reviewer's session at `review-docs` ended without posting a review; pushing",
-    );
-  });
-
-  test("HEAD on another branch with the next bead's commits: gates and pushes track/<name>'s tip only", async () => {
-    await openThenCommit();
-    const tip = sh(wt(), "rev-parse", "HEAD");
-    sh(wt(), "switch", "-q", "-c", "docs-next");
-    await commitFile("next.md", "next bead\n", "the next bead");
-    // The next bead breaks the gate: only the track branch's tip is gated.
-    await commitFile("red", "", "red on the next branch");
-    const pushed = mshape(wt(), "pr");
-    expect(pushed.code).toBe(0);
-    expect(pushed.stderr).toContain(
-      `note: \`docs-next\` is checked out; track pr gates and pushes \`track/docs\` at ${tip.slice(0, 12)}, and nothing else`,
-    );
-    expect(remoteTip()).toBe(tip);
-    expect((await pr()).body).toContain(`# at ${tip.slice(0, 12)}`);
-  });
-
-  test("the gate runs on a clean checkout: a file only the worktree has can't pass it", async () => {
-    await writeFile(`${wt()}/body.md`, body("x"));
-    // The gate needs support.txt, which exists in the worktree but was never committed.
-    await writeFile(`${wt()}/support.txt`, "here, untracked\n");
-    const failed = mshape.withEnv({ NEED: "support.txt" })(
-      wt(),
-      "pr",
-      "--title",
-      "t",
-      "--body-file",
-      "body.md",
-    );
-    expect(failed.code).toBe(1);
-    expect(failed.stderr).toContain("note: untracked files aren't gated or pushed (support.txt)");
-    expect(failed.stderr).toContain("the gate failed (exit 1) on a clean checkout");
-    expect(remoteHas()).toBe(false);
-    sh(wt(), "add", "support.txt");
-    sh(wt(), "commit", "-qm", "support");
-    expect(
-      mshape.withEnv({ NEED: "support.txt" })(wt(), "pr", "--title", "t", "--body-file", "body.md")
-        .code,
-    ).toBe(0);
-  });
-
-  test("a failing gate names its failing tests and keeps the whole log", async () => {
-    await writeFile(`${wt()}/body.md`, body("x"));
-    await commitFile("red", "", "red");
-    const failed = mshape(wt(), "pr", "--title", "t", "--body-file", "body.md");
-    expect(failed.code).toBe(1);
-    expect(failed.stderr).toContain("Failing tests (1):\n  suite > the red test\n");
-    const log = join(repo, ".git", "monkeyshape", "gate", "docs.log");
-    expect(failed.stderr).toContain(`The whole output: ${log}`);
-    expect(await Bun.file(log).text()).toContain("gate ran");
-    // The scratch checkout is gone either way.
-    expect(
-      await Bun.file(join(repo, ".agents", "worktrees", "repo.gate-docs", "page.md")).exists(),
-    ).toBe(false);
-  });
-});
-
-const checks = (name: string, runs: ReadonlyArray<object>) =>
-  writeFile(`${gh}/${name}`, JSON.stringify(runs));
 
 // The plan's --body-only and behind rows, and --wait.
 describe("track pr: --body-only, behind main, --wait", () => {
@@ -1007,13 +770,6 @@ const machineList = async (text: string) => {
 const cloneList = async (text: string) => {
   await mkdir(join(repo, ".git", "monkeyshape"), { recursive: true });
   await writeFile(join(repo, ".git", "monkeyshape", "denylist"), text);
-};
-
-const commitFile = async (path: string, text: string, message: string) => {
-  await mkdir(join(wt(), path, ".."), { recursive: true });
-  await writeFile(join(wt(), path), text);
-  sh(wt(), "add", ".");
-  sh(wt(), "commit", "-qm", message);
 };
 
 // The plan's denylist table, row by row, with invented terms.
